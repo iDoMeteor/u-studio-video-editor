@@ -1,0 +1,17 @@
+# Architecture Decision Records
+
+One page each. Status is one of Proposed / Accepted / Superseded by ADR-nnn.
+All are **Proposed** as of 2026-09-12 pending team review.
+
+| ADR | Decision |
+|-----|----------|
+| [001](001-mlt-gtk4-stack.md) | MLT as the engine, GTK4 + libadwaita as the toolkit, C++23 (records the existing v1 choice) |
+| [002](002-consumer-based-playback.md) | Playback via an MLT consumer (`sdl2_audio`), not a hand-rolled pull loop |
+| [003](003-model-is-the-source-of-truth.md) | A pure-C++ project model is the source of truth; MLT is a projection |
+| [004](004-mlt-xml-project-format.md) | Project files are MLT XML with `ustudio:` properties, written by our serialiser |
+| [005](005-rebuild-per-track-sync.md) | Engine sync rebuilds a whole track playlist per change, verified in debug |
+| [006](006-compositing-without-qt-or-frei0r.md) | Track compositing with `composite` + `affine`; frei0r optional; Qt modules never |
+| [007](007-mlt-module-load-policy.md) | MLT factory initialised from a curated module directory to keep Qt out of the process |
+| [008](008-custom-timeline-widget.md) | Timeline is one custom GtkWidget using snapshot, not a widget per clip |
+| [009](009-out-of-process-rendering.md) | Export runs in a child process (`u-studio-render`) from a saved project snapshot |
+| [010](010-doctest-vendored.md) | doctest, vendored, as the test framework |

@@ -1,0 +1,71 @@
+#pragma once
+
+// Theme derived from the "Unicorn Tears" neon-rave design system
+// (~/projects/unicorn-tears/claude-design-system). Colors are the brand's
+// own hex tokens; glow effects are intentionally restricted to
+// selection/focus states rather than static chrome, since this app is meant
+// to be looked at for hours at a time. The brand's Space Grotesk / JetBrains
+// Mono fonts are not bundled (no font files or system installs were found
+// on this machine at scaffold time) so every rule falls back to a generic
+// family — see README.md for how to add the real fonts later.
+inline constexpr const char *kAppStyleCss = R"css(
+/* ---- Raw brand tokens ---- */
+@define-color ink_900 #07060d;
+@define-color ink_850 #0c0a16;
+@define-color ink_800 #120c1f;
+@define-color ink_700 #1b1230;
+@define-color ink_600 #261a42;
+@define-color ink_500 #342357;
+
+@define-color brand_magenta #ff2bd6;
+@define-color brand_cyan #19e3ff;
+@define-color brand_violet #9d4eff;
+
+@define-color semantic_success #4dff5a;
+@define-color semantic_warning #ffc24d;
+@define-color semantic_danger #ff4d6d;
+
+/* ---- Remap libadwaita's named colors onto the brand tokens. This is what
+   reskins the header bar, buttons, scale, menus, etc. without having to
+   restyle every widget class individually. ---- */
+@define-color window_bg_color @ink_900;
+@define-color window_fg_color #ffeffb;
+@define-color view_bg_color @ink_800;
+@define-color view_fg_color #ffeffb;
+@define-color headerbar_bg_color @ink_850;
+@define-color headerbar_fg_color #ffeffb;
+@define-color headerbar_border_color @ink_500;
+@define-color accent_bg_color @brand_magenta;
+@define-color accent_fg_color @ink_900;
+@define-color accent_color @brand_magenta;
+@define-color success_color @semantic_success;
+@define-color warning_color @semantic_warning;
+@define-color error_color @semantic_danger;
+@define-color borders @ink_500;
+
+window {
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.timeline-area {
+  background-color: @ink_800;
+  border: 1px solid @ink_500;
+  border-radius: 6px;
+}
+
+/* Individual clips are cairo-drawn inside .timeline-area (a single
+   GtkDrawingArea), not separate widgets, so their colors are hardcoded to
+   match these same tokens directly in app_window.cpp rather than styled
+   here. */
+
+.timecode-label {
+  font-family: "JetBrains Mono", monospace;
+  color: @brand_cyan;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.preview-frame {
+  background-color: black;
+}
+)css";
