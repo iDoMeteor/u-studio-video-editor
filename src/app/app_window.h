@@ -4,9 +4,13 @@
 #include <gtk/gtk.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "core/commands/undo_stack.h"
+#include "core/model/model.h"
+#include "engine/engine_sync.h"
 #include "engine/mlt_engine.h"
 #include "engine/waveform_cache.h"
 
@@ -24,11 +28,35 @@ enum class TimelineDragMode
     TrimClipEnd,
 };
 
-// The app shell: owns the single MltEngine instance and every top-level
-// widget, and mediates between GTK signals and engine calls. UI widgets are
+// A row/frame-index view of one model clip, rebuilt from Model on every
+// refreshTimeline() call -- what the timeline actually draws and hit-tests
+// against. `trackIndex` is a position in model->sequence().tracks (row 0 =
+// top), not a TrackId; `id` is the model's stable ClipId, used to build
+// Commands. Kept close to v1's ClipInfo shape deliberately, so the
+// drag/draw/hit-test logic below (unchanged from v1) still applies to it.
+struct ClipDisplay
+{
+    core::ClipId id;
+    std::string name;
+    std::string resource; // asset path, for waveform lookups
+    int trackIndex = 0;
+    int startFrame = 0;
+    int frames = 0;
+    int in = 0;
+    int out = 0;
+};
+
+// The app shell: owns the project Model, its UndoStack, the EngineSync
+// projection of it into MLT, a playback-only MltEngine that plays whatever
+// tractor EngineSync last built, and every top-level widget. UI widgets are
 // built imperatively in C++ (no .ui/GResource files) to keep the build to a
 // single translation unit per concern and avoid an extra resource-compile
 // step for this first milestone.
+//
+// Edit flow: a UI gesture builds a core::Command, UndoStack::execute()
+// applies it to the model, then EngineSync::rebuildAll() projects the new
+// model state into a fresh tractor and MltEngine::setTractor() points
+// playback at it (doc 02: "Model -> engine -> screen, never backwards").
 class AppWindow
 {
   public:
@@ -41,6 +69,7 @@ class AppWindow
 
   private:
     void buildUi(GtkApplication *app);
+    void installActions(GtkApplication *app);
     void onImportClicked();
     void onFileOpened(GObject *sourceObject, GAsyncResult *result);
     void onSaveClicked();
@@ -50,6 +79,8 @@ class AppWindow
     void onRenderClicked();
     void onRenderFinished(GObject *sourceObject, GAsyncResult *result);
     void onAddTrackClicked();
+    void onUndo();
+    void onRedo();
     void onPlayToggled();
     void onSeekChanged();
     void onSplitClicked();
@@ -70,10 +101,20 @@ class AppWindow
     void onTimelineDraw(cairo_t *cr, int width, int height);
     void onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber);
 
+    // Re-projects the model into MLT (EngineSync::rebuildAll()) and points
+    // playback at the new tractor. Called after every command that changes
+    // the model.
+    void syncEngine();
     void refreshTimeline();
     void refreshTransport(int frameNumber);
+    void updateWindowTitle();
     void showStatus(const std::string &text);
     std::string formatTimecode(int frame) const;
+
+    // Row index (position in model->sequence().tracks) -> TrackId. Asserts
+    // in debug builds if out of range; callers only pass rows the timeline
+    // itself just drew, so this should never be reached with a stale one.
+    core::TrackId trackIdForRow(int row) const;
 
     static void importClickedTrampoline(GtkButton *button, gpointer userData);
     static void fileOpenedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
@@ -84,6 +125,8 @@ class AppWindow
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);
+    static void undoClickedTrampoline(GtkButton *button, gpointer userData);
+    static void redoClickedTrampoline(GtkButton *button, gpointer userData);
     static void playToggledTrampoline(GtkButton *button, gpointer userData);
     static void seekChangedTrampoline(GtkRange *range, gpointer userData);
     static void splitClickedTrampoline(GtkButton *button, gpointer userData);
@@ -97,12 +140,16 @@ class AppWindow
     static void trackDragBeginTrampoline(GtkGestureDrag *gesture, double x, double y, gpointer userData);
     static void trackDragUpdateTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
     static void trackDragEndTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
+    static void undoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void redoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
 
     AdwApplicationWindow *m_window = nullptr;
     GtkPicture *m_preview = nullptr;
     GtkDrawingArea *m_timeline = nullptr;
     GtkScale *m_seekScale = nullptr;
     GtkButton *m_playButton = nullptr;
+    GtkButton *m_undoButton = nullptr;
+    GtkButton *m_redoButton = nullptr;
     GtkLabel *m_timecodeLabel = nullptr;
     GtkLabel *m_statusLabel = nullptr;
     GtkPopover *m_trackContextMenu = nullptr;
@@ -110,11 +157,15 @@ class AppWindow
     GtkWidget *m_closeGapButton = nullptr;
     GtkWidget *m_removeTrackButton = nullptr;
 
-    std::unique_ptr<engine::MltEngine> m_engine;
+    core::Model m_model = core::Model::createEmpty();
+    core::UndoStack m_undoStack{m_model};
+    std::unique_ptr<engine::EngineSync> m_engineSync;
+    std::unique_ptr<engine::MltEngine> m_playback;
     std::unique_ptr<engine::WaveformCache> m_waveforms;
-    std::vector<engine::MltEngine::ClipInfo> m_clips;
+    std::vector<ClipDisplay> m_clips;
     int m_selectedClip = -1;
-    // Which track new imports/splits target; set by clicking a track's row.
+    // Which track row new imports/splits target; set by clicking a track's
+    // row. A row index into model.sequence().tracks, not a TrackId.
     int m_activeTrack = 0;
     // What a right-click's context menu is currently open for: the track
     // row, the frame position clicked, and — if the click landed on a clip
@@ -135,11 +186,10 @@ class AppWindow
     int m_draggingTrack = -1;
     int m_dragHoverRow = -1;
     // MoveClip/TrimClipStart/TrimClipEnd: identifies the clip being
-    // manipulated by its *current* (track, start frame) — engine calls
-    // address clips this way rather than by array index, since indices
-    // shift under edits. The Preview fields are the live drag position/
-    // length shown as a ghost while dragging, applied via an engine call
-    // only on drag-end.
+    // manipulated by its model ClipId. The Preview fields are the live drag
+    // position/length shown as a ghost while dragging, applied via a
+    // Command only on drag-end.
+    core::ClipId m_dragClipId;
     int m_dragClipTrack = -1;
     int m_dragClipStartFrame = -1;
     int m_dragClipFrames = 0;

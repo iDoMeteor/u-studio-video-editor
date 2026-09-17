@@ -54,6 +54,9 @@ class Model
     TrackId addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId = std::nullopt);
     void removeTrack(TrackId);
     void setTrackFlags(TrackId, bool muted, bool hidden, bool locked);
+    // Reorders a track within the visual stack (drag-to-reorder in the
+    // UI). `newIndex` is clamped to the current track count.
+    void moveTrack(TrackId, size_t newIndex);
 
     ClipId insertClip(TrackId, AssetId, FrameIndex pos, FrameIndex in, FrameIndex out,
                       std::optional<ClipId> reuseId = std::nullopt);

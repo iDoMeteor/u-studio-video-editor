@@ -19,6 +19,13 @@ EngineSync::EngineSync(core::Model &model) : m_model(model)
     rebuildAll();
 }
 
+void EngineSync::reset()
+{
+    m_masterProducers.clear();
+    applyProfile();
+    rebuildAll();
+}
+
 void EngineSync::applyProfile()
 {
     const core::Profile &p = m_model.sequence().profile;
@@ -30,6 +37,14 @@ void EngineSync::applyProfile()
     m_profile->set_display_aspect(p.dar.num, p.dar.den);
     m_profile->set_progressive(p.progressive ? 1 : 0);
     m_profile->set_colorspace(p.colorspace);
+}
+
+core::FrameIndex EngineSync::probeLength(const std::string &path)
+{
+    Mlt::Producer producer(*m_profile, path.c_str());
+    if (!producer.is_valid())
+        return 0;
+    return producer.get_length();
 }
 
 Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId)
@@ -69,7 +84,7 @@ void EngineSync::rebuildAll()
 {
     const core::Sequence &seq = m_model.sequence();
 
-    auto newTractor = std::make_unique<Mlt::Tractor>(*m_profile);
+    auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
     std::vector<std::optional<core::TrackId>> order;
 
     // Index 0: black backing track (doc 03), not a model track -- gaps on
@@ -204,6 +219,44 @@ std::vector<std::string> EngineSync::verify() const
     }
 
     return problems;
+}
+
+bool renderProject(core::Model &model, const std::string &outputPath, std::string &error)
+{
+    EngineSync renderSync(model); // its own Profile/Tractor, independent of any live one
+
+    Mlt::Consumer consumer(renderSync.profile(), "avformat", outputPath.c_str());
+    if (!consumer.is_valid()) {
+        error = "Could not create renderer for: " + outputPath;
+        Log::error(error);
+        return false;
+    }
+    // Matches this project's fixed working format (see mlt_engine.cpp's
+    // former profile comment, now on Model::createEmpty()'s default
+    // Profile): h264 High/yuv420p, AAC 48kHz stereo, MP4 — verified
+    // against a real reference file's ffprobe output and confirmed via a
+    // standalone render+reprobe round-trip before wiring this in (v1).
+    consumer.set("vcodec", "libx264");
+    consumer.set("acodec", "aac");
+    consumer.set("f", "mp4");
+    consumer.set("vb", "922698");
+    consumer.set("ab", "126422");
+    consumer.set("ar", "48000");
+    consumer.set("channels", 2);
+    consumer.set("pix_fmt", "yuv420p");
+    consumer.set("real_time", -1); // render every frame; don't drop frames to keep up with a clock
+    consumer.connect(renderSync.tractor());
+
+    Log::info("Rendering project to " + outputPath + " ...");
+    int result = consumer.run();
+    if (result != 0) {
+        error = "Render failed (consumer returned " + std::to_string(result) + ")";
+        Log::error(error);
+        return false;
+    }
+
+    Log::info("Rendered project to " + outputPath);
+    return true;
 }
 
 } // namespace ustudio::engine

@@ -43,6 +43,14 @@ bool UndoStack::undo()
     return true;
 }
 
+void UndoStack::clear()
+{
+    m_undo.clear();
+    m_redo.clear();
+    m_cleanDepth = 0;
+    changed.emit();
+}
+
 bool UndoStack::redo()
 {
     if (m_redo.empty())

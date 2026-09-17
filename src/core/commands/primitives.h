@@ -76,6 +76,23 @@ class RemoveTrack : public Command
     std::vector<Clip> m_capturedClips;
 };
 
+class MoveTrack : public Command
+{
+  public:
+    MoveTrack(TrackId track, size_t newIndex);
+    std::string label() const override
+    {
+        return "Reorder track";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    TrackId m_track;
+    size_t m_newIndex;
+    size_t m_oldIndex = 0;
+};
+
 class SetTrackFlags : public Command
 {
   public:

@@ -22,6 +22,10 @@ class UndoStack
 
     bool undo();
     bool redo();
+    // Drops all history without touching the model -- for "Open Project":
+    // the new project's edits must never be undoable back into the one
+    // that was just replaced.
+    void clear();
     bool canUndo() const
     {
         return !m_undo.empty();

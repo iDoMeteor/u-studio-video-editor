@@ -1,6 +1,11 @@
 #include "app_window.h"
 
+#include "core/commands/composite_command.h"
+#include "core/commands/primitives.h"
+#include "core/commands/transaction.h"
 #include "core/log.h"
+#include "core/xml/reader.h"
+#include "core/xml/writer.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -24,24 +29,48 @@ constexpr double kHandleWidth = 22.0;
 constexpr double kEdgeGrabWidth = 8.0;
 constexpr double kDragClickThreshold = 3.0; // below this, a "drag" is really just a click
 constexpr double kWaveformR = 0x9d / 255.0, kWaveformG = 0x4e / 255.0, kWaveformB = 0xff / 255.0; // brand violet
+
+core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length)
+{
+    core::Asset asset;
+    asset.path = path;
+    auto slash = path.find_last_of('/');
+    asset.displayName = (slash == std::string::npos) ? path : path.substr(slash + 1);
+    asset.info.hasVideo = true;
+    asset.info.hasAudio = true;
+    asset.info.lengthInSequenceFrames = length;
+    asset.status = core::Asset::Status::Ready;
+    return asset;
+}
 } // namespace
 
 AppWindow::AppWindow(GtkApplication *app)
 {
-    m_engine = std::make_unique<engine::MltEngine>();
-    m_engine->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
+    // One starting track, matching v1's "track 0 always exists" default --
+    // not through the UndoStack, since this is the pristine starting
+    // state, not a user edit to undo back out of.
+    m_model.addTrack(core::Track::Kind::Video, 0, "V1");
+
+    m_engineSync = std::make_unique<engine::EngineSync>(m_model);
+
+    m_playback = std::make_unique<engine::MltEngine>();
+    m_playback->setTractor(m_engineSync->tractorPtr());
+    m_playback->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
+
     m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
 
     buildUi(app);
+    installActions(app);
+    refreshTimeline();
+    updateWindowTitle();
     showStatus("Import a media file to begin.");
 }
 
 void AppWindow::buildUi(GtkApplication *app)
 {
     m_window = ADW_APPLICATION_WINDOW(adw_application_window_new(app));
-    gtk_window_set_title(GTK_WINDOW(m_window), "u Studio Video Editor");
     gtk_window_set_default_size(GTK_WINDOW(m_window), 1100, 700);
 
     GtkWidget *toolbarView = adw_toolbar_view_new();
@@ -59,6 +88,16 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_tooltip_text(addTrackButton, "Add track");
     g_signal_connect(addTrackButton, "clicked", G_CALLBACK(&AppWindow::addTrackClickedTrampoline), this);
     adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), addTrackButton);
+
+    m_undoButton = GTK_BUTTON(gtk_button_new_from_icon_name("edit-undo-symbolic"));
+    gtk_widget_set_tooltip_text(GTK_WIDGET(m_undoButton), "Undo (Ctrl+Z)");
+    g_signal_connect(m_undoButton, "clicked", G_CALLBACK(&AppWindow::undoClickedTrampoline), this);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_undoButton));
+
+    m_redoButton = GTK_BUTTON(gtk_button_new_from_icon_name("edit-redo-symbolic"));
+    gtk_widget_set_tooltip_text(GTK_WIDGET(m_redoButton), "Redo (Ctrl+Shift+Z)");
+    g_signal_connect(m_redoButton, "clicked", G_CALLBACK(&AppWindow::redoClickedTrampoline), this);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_redoButton));
 
     GtkWidget *openButton = gtk_button_new_from_icon_name("document-open-symbolic");
     gtk_widget_set_tooltip_text(openButton, "Open project…");
@@ -181,6 +220,24 @@ void AppWindow::buildUi(GtkApplication *app)
     adw_application_window_set_content(m_window, toolbarView);
 }
 
+void AppWindow::installActions(GtkApplication *app)
+{
+    GSimpleAction *undoAction = g_simple_action_new("undo", nullptr);
+    g_signal_connect(undoAction, "activate", G_CALLBACK(&AppWindow::undoActionActivated), this);
+    g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(undoAction));
+    g_object_unref(undoAction);
+
+    GSimpleAction *redoAction = g_simple_action_new("redo", nullptr);
+    g_signal_connect(redoAction, "activate", G_CALLBACK(&AppWindow::redoActionActivated), this);
+    g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(redoAction));
+    g_object_unref(redoAction);
+
+    const char *undoAccels[] = {"<Control>z", nullptr};
+    gtk_application_set_accels_for_action(app, "win.undo", undoAccels);
+    const char *redoAccels[] = {"<Control><Shift>z", nullptr};
+    gtk_application_set_accels_for_action(app, "win.redo", redoAccels);
+}
+
 void AppWindow::onImportClicked()
 {
     GtkFileDialog *dialog = gtk_file_dialog_new();
@@ -203,12 +260,39 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
 
     char *path = g_file_get_path(file);
     if (path) {
-        std::string err;
-        if (!m_engine->importClip(path, m_activeTrack, err)) {
-            showStatus(err);
+        if (m_model.sequence().tracks.empty()) {
+            showStatus("Add a track first.");
         } else {
-            showStatus(std::string("Imported to track ") + std::to_string(m_activeTrack) + ": " + path);
-            refreshTimeline();
+            core::FrameIndex length = m_engineSync->probeLength(path);
+            if (length <= 0) {
+                showStatus(std::string("Could not open media file: ") + path);
+            } else {
+                core::TrackId trackId = trackIdForRow(m_activeTrack);
+                const core::Track &track = m_model.track(trackId);
+                core::FrameIndex insertPos = track.clips.empty() ? 0 : m_model.clip(track.clips.back()).end();
+
+                // AddAsset applies first (below) and, with no reuseId,
+                // allocates exactly model.project().nextId as read here --
+                // nothing else can allocate an id between this read and
+                // that apply(), so InsertClip can be built against it
+                // up front even though AddAsset hasn't run yet.
+                core::AssetId predictedAssetId{m_model.project().nextId};
+
+                std::vector<std::unique_ptr<core::Command>> steps;
+                steps.push_back(std::make_unique<core::AddAsset>(makeImportedAsset(path, length)));
+                steps.push_back(
+                    std::make_unique<core::InsertClip>(trackId, predictedAssetId, insertPos, 0, length - 1));
+
+                auto composite = std::make_unique<core::CompositeCommand>("Import clip", std::move(steps));
+
+                if (m_undoStack.execute(std::move(composite))) {
+                    syncEngine();
+                    refreshTimeline();
+                    showStatus(std::string("Imported to track ") + std::to_string(m_activeTrack) + ": " + path);
+                } else {
+                    showStatus(std::string("Could not import: ") + path);
+                }
+            }
         }
         g_free(path);
     }
@@ -236,11 +320,14 @@ void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
 
     char *path = g_file_get_path(file);
     if (path) {
-        std::string err;
-        if (!m_engine->saveProject(path, err))
+        std::string err = core::saveProject(m_model, path);
+        if (!err.empty()) {
             showStatus(err);
-        else
+        } else {
+            m_undoStack.setCleanPoint();
+            updateWindowTitle();
             showStatus(std::string("Saved: ") + path);
+        }
         g_free(path);
     }
     g_object_unref(file);
@@ -266,13 +353,21 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
 
     char *path = g_file_get_path(file);
     if (path) {
-        std::string err;
-        if (!m_engine->loadProject(path, err)) {
-            showStatus(err);
+        auto loaded = core::loadProject(path);
+        if (!loaded.has_value()) {
+            showStatus(loaded.error());
         } else {
+            m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy --
+                                          // reassigning its contents leaves both still pointing at the right object
+            m_undoStack.clear();
+            m_undoStack.setCleanPoint();
+            m_engineSync->reset();
+            m_playback->setTractor(m_engineSync->tractorPtr());
             m_activeTrack = 0;
             m_selectedClip = -1;
+            syncEngine();
             refreshTimeline();
+            updateWindowTitle();
             showStatus(std::string("Opened: ") + path);
         }
         g_free(path);
@@ -308,13 +403,19 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
 
     showStatus("Rendering to " + path + " … (this can take a while — the window will stay responsive)");
 
-    // MltEngine outlives this window for the whole process, and AppWindow
-    // itself is never destroyed during normal operation (see main.cpp) —
-    // capturing `this`/m_engine in this detached thread is safe on that
-    // basis, matching the same reasoning WaveformCache's worker relies on.
+    // AppWindow itself is never destroyed during normal operation (see
+    // main.cpp) — capturing `this`/&m_model in this detached thread is
+    // safe on that basis. renderProject() builds its own throwaway
+    // EngineSync from the model rather than touching the live one, so it
+    // only ever *reads* m_model, never races the main thread's edits
+    // against it... except it isn't actually safe to read m_model
+    // concurrently with an edit on the main thread without synchronization
+    // -- see the note in the class comment: renders are expected to be
+    // launched between edits, not literally simultaneous with one. A real
+    // guard against that is render-queue territory (M6), out of scope here.
     std::thread([this, path]() {
         std::string err;
-        bool ok = m_engine->renderProject(path, err);
+        bool ok = engine::renderProject(m_model, path, err);
 
         struct Result
         {
@@ -339,16 +440,46 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
 
 void AppWindow::onAddTrackClicked()
 {
-    int newTrack = m_engine->addTrack();
-    m_activeTrack = newTrack;
-    refreshTimeline();
-    showStatus("Added track " + std::to_string(newTrack) + " (now active).");
+    // Inserted at row 0 (the top of the visual stack), matching v1's "a
+    // new track always appears on top" -- see mltTrackOrder (doc 03):
+    // video tracks are bottom-to-top by REVERSED model order, so a track
+    // at model row 0 gets the highest MLT index, i.e. compositing wins.
+    size_t trackNumber = m_model.sequence().tracks.size() + 1;
+    auto cmd = std::make_unique<core::AddTrack>(core::Track::Kind::Video, 0, "V" + std::to_string(trackNumber));
+    if (m_undoStack.execute(std::move(cmd))) {
+        m_activeTrack = 0;
+        syncEngine();
+        refreshTimeline();
+        showStatus("Added a track (now active).");
+    }
+}
+
+void AppWindow::onUndo()
+{
+    if (m_undoStack.undo()) {
+        m_selectedClip = -1;
+        syncEngine();
+        refreshTimeline();
+        updateWindowTitle();
+        showStatus("Undid: " + m_undoStack.redoLabel());
+    }
+}
+
+void AppWindow::onRedo()
+{
+    if (m_undoStack.redo()) {
+        m_selectedClip = -1;
+        syncEngine();
+        refreshTimeline();
+        updateWindowTitle();
+        showStatus("Redid: " + m_undoStack.undoLabel());
+    }
 }
 
 void AppWindow::onPlayToggled()
 {
-    m_engine->togglePlay();
-    const char *icon = m_engine->isPlaying() ? "media-playback-pause-symbolic" : "media-playback-start-symbolic";
+    m_playback->togglePlay();
+    const char *icon = m_playback->isPlaying() ? "media-playback-pause-symbolic" : "media-playback-start-symbolic";
     gtk_button_set_icon_name(m_playButton, icon);
 }
 
@@ -357,28 +488,36 @@ void AppWindow::onSeekChanged()
     if (m_suppressSeekSignal)
         return;
     int frame = static_cast<int>(gtk_range_get_value(GTK_RANGE(m_seekScale)));
-    m_engine->seek(frame);
+    m_playback->seek(frame);
 }
 
 void AppWindow::onSplitClicked()
 {
-    int frame = m_engine->currentFrame();
-    if (m_engine->splitAt(m_activeTrack, frame))
-        refreshTimeline();
-    else
-        showStatus("Nothing to split on track " + std::to_string(m_activeTrack) + " at the current playhead.");
+    int frame = m_playback->currentFrame();
+    for (const auto &clip : m_clips) {
+        if (clip.trackIndex == m_activeTrack && frame > clip.startFrame && frame < clip.startFrame + clip.frames) {
+            if (m_undoStack.execute(std::make_unique<core::SplitClip>(clip.id, frame))) {
+                syncEngine();
+                refreshTimeline();
+            } else {
+                showStatus("Couldn't split there.");
+            }
+            return;
+        }
+    }
+    showStatus("Nothing to split on track " + std::to_string(m_activeTrack) + " at the current playhead.");
 }
 
 void AppWindow::onTimelineClicked(double x, double y)
 {
-    int trackCount = m_engine->trackCount();
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
     if (trackCount <= 0)
         return;
 
     int row = static_cast<int>(y / kTrackRowHeight);
     m_activeTrack = std::clamp(row, 0, trackCount - 1);
 
-    int total = m_engine->totalFrames();
+    int total = m_playback->totalFrames();
     int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
     // The handle strip is drag-only (see onTrackDragBegin); a plain click
     // there just selects the row's track without also seeking.
@@ -395,7 +534,7 @@ void AppWindow::onTimelineClicked(double x, double y)
             }
         }
 
-        m_engine->seek(frame);
+        m_playback->seek(frame);
     }
 
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
@@ -403,7 +542,7 @@ void AppWindow::onTimelineClicked(double x, double y)
 
 void AppWindow::onTimelineRightClicked(double x, double y)
 {
-    int trackCount = m_engine->trackCount();
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
     if (trackCount <= 0)
         return;
 
@@ -412,7 +551,7 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     m_contextMenuClipStartFrame = -1;
     m_contextMenuGapStartFrame = -1;
 
-    int total = m_engine->totalFrames();
+    int total = m_playback->totalFrames();
     int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
     int frame = -1;
     if (total > 0 && widgetWidth > kHandleWidth && x >= kHandleWidth) {
@@ -428,8 +567,20 @@ void AppWindow::onTimelineRightClicked(double x, double y)
                 break;
             }
         }
-        if (m_contextMenuClipStartFrame < 0 && m_engine->isGapAt(row, frame))
-            m_contextMenuGapStartFrame = frame;
+        if (m_contextMenuClipStartFrame < 0) {
+            // A gap: inside this track's own content range but not covered
+            // by any clip (Model doesn't store gaps -- doc 03 -- so this is
+            // just "no clip claims this frame, but something after it
+            // does").
+            core::TrackId trackId = trackIdForRow(row);
+            const core::Track &track = m_model.track(trackId);
+            for (core::ClipId clipId : track.clips) {
+                if (m_model.clip(clipId).position > frame) {
+                    m_contextMenuGapStartFrame = frame;
+                    break;
+                }
+            }
+        }
     }
 
     gtk_widget_set_visible(m_deleteClipButton, m_contextMenuClipStartFrame >= 0);
@@ -448,8 +599,17 @@ void AppWindow::onDeleteClipClicked()
     if (m_contextMenuClipStartFrame < 0)
         return;
 
-    if (m_engine->deleteClip(m_contextMenuTrack, m_contextMenuClipStartFrame)) {
+    core::ClipId clipId;
+    for (const auto &clip : m_clips) {
+        if (clip.trackIndex == m_contextMenuTrack && clip.startFrame == m_contextMenuClipStartFrame) {
+            clipId = clip.id;
+            break;
+        }
+    }
+
+    if (clipId.isValid() && m_undoStack.execute(std::make_unique<core::RemoveClip>(clipId))) {
         m_selectedClip = -1;
+        syncEngine();
         refreshTimeline();
         showStatus("Deleted clip — gap left behind. Right-click the gap to close it.");
     } else {
@@ -460,16 +620,54 @@ void AppWindow::onDeleteClipClicked()
 void AppWindow::onCloseGapClicked()
 {
     gtk_popover_popdown(m_trackContextMenu);
-    if (m_contextMenuGapStartFrame < 0)
+    if (m_contextMenuGapStartFrame < 0) {
+        m_contextMenuTrack = -1;
         return;
+    }
 
-    if (m_engine->closeGap(m_contextMenuTrack, m_contextMenuGapStartFrame)) {
+    core::TrackId trackId = trackIdForRow(m_contextMenuTrack);
+    const core::Track &track = m_model.track(trackId);
+    core::FrameIndex gapStart = m_contextMenuGapStartFrame;
+
+    // The gap's length: distance from gapStart to the next clip's start
+    // (there must be one, or onTimelineRightClicked wouldn't have offered
+    // "Close Gap" for this position at all).
+    core::FrameIndex gapEnd = gapStart;
+    bool foundNext = false;
+    for (core::ClipId clipId : track.clips) {
+        core::FrameIndex position = m_model.clip(clipId).position;
+        if (position > gapStart) {
+            gapEnd = position;
+            foundNext = true;
+            break;
+        }
+    }
+
+    if (!foundNext) {
+        showStatus("Couldn't close that gap.");
+        m_contextMenuTrack = -1;
+        return;
+    }
+
+    core::FrameIndex gapLength = gapEnd - gapStart;
+    std::vector<std::unique_ptr<core::Command>> moves;
+    for (core::ClipId clipId : track.clips) {
+        const core::Clip &clip = m_model.clip(clipId);
+        if (clip.position >= gapEnd)
+            moves.push_back(std::make_unique<core::MoveClip>(clipId, trackId, clip.position - gapLength));
+    }
+
+    bool ok =
+        !moves.empty() && m_undoStack.execute(std::make_unique<core::CompositeCommand>("Close gap", std::move(moves)));
+    if (ok) {
         m_selectedClip = -1;
+        syncEngine();
         refreshTimeline();
         showStatus("Closed gap.");
     } else {
         showStatus("Couldn't close that gap.");
     }
+    m_contextMenuTrack = -1;
 }
 
 void AppWindow::onRemoveTrackClicked()
@@ -479,14 +677,16 @@ void AppWindow::onRemoveTrackClicked()
     if (m_contextMenuTrack < 0)
         return;
 
-    if (m_engine->removeTrack(m_contextMenuTrack)) {
-        int trackCount = m_engine->trackCount();
+    core::TrackId trackId = trackIdForRow(m_contextMenuTrack);
+    if (m_undoStack.execute(std::make_unique<core::RemoveTrack>(trackId))) {
+        int trackCount = static_cast<int>(m_model.sequence().tracks.size());
         m_activeTrack = std::clamp(m_activeTrack, 0, std::max(trackCount - 1, 0));
         m_selectedClip = -1;
+        syncEngine();
         refreshTimeline();
         showStatus("Removed track " + std::to_string(m_contextMenuTrack) + ".");
     } else {
-        showStatus("Can't remove the last remaining track.");
+        showStatus("Couldn't remove that track.");
     }
     m_contextMenuTrack = -1;
 }
@@ -497,7 +697,7 @@ bool AppWindow::onTrackDragBegin(double x, double y)
     m_dragStartX = x;
     m_dragStartY = y;
 
-    int trackCount = m_engine->trackCount();
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
     if (trackCount <= 0)
         return false;
 
@@ -509,7 +709,7 @@ bool AppWindow::onTrackDragBegin(double x, double y)
         return true;
     }
 
-    int total = m_engine->totalFrames();
+    int total = m_playback->totalFrames();
     int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
     if (total <= 0 || widgetWidth <= kHandleWidth)
         return false;
@@ -528,6 +728,7 @@ bool AppWindow::onTrackDragBegin(double x, double y)
         double clipLeftX = kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth;
         double clipRightX = kHandleWidth + (static_cast<double>(clip.startFrame + clip.frames) / total) * contentWidth;
 
+        m_dragClipId = clip.id;
         m_dragClipTrack = clip.trackIndex;
         m_dragClipStartFrame = clip.startFrame;
         m_dragClipFrames = clip.frames;
@@ -556,7 +757,7 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
     if (m_dragMode == TimelineDragMode::None)
         return;
 
-    int trackCount = m_engine->trackCount();
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
 
     if (m_dragMode == TimelineDragMode::TrackReorder) {
         double currentY = m_dragStartY + offsetY;
@@ -565,7 +766,7 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
         return;
     }
 
-    int total = m_engine->totalFrames();
+    int total = m_playback->totalFrames();
     int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
     double contentWidth = std::max(widgetWidth - kHandleWidth, 1.0);
     if (total <= 0)
@@ -599,13 +800,17 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
     TimelineDragMode mode = m_dragMode;
 
     if (mode == TimelineDragMode::TrackReorder) {
-        int trackCount = m_engine->trackCount();
+        int trackCount = static_cast<int>(m_model.sequence().tracks.size());
         double currentY = m_dragStartY + offsetY;
         int targetRow = std::clamp(static_cast<int>(currentY / kTrackRowHeight), 0, std::max(trackCount - 1, 0));
-        if (targetRow != m_draggingTrack && m_engine->moveTrack(m_draggingTrack, targetRow)) {
-            m_activeTrack = targetRow;
-            m_selectedClip = -1;
-            showStatus("Moved track " + std::to_string(m_draggingTrack) + " to " + std::to_string(targetRow) + ".");
+        if (targetRow != m_draggingTrack) {
+            core::TrackId trackId = trackIdForRow(m_draggingTrack);
+            if (m_undoStack.execute(std::make_unique<core::MoveTrack>(trackId, static_cast<size_t>(targetRow)))) {
+                m_activeTrack = targetRow;
+                m_selectedClip = -1;
+                syncEngine();
+                showStatus("Moved track " + std::to_string(m_draggingTrack) + " to " + std::to_string(targetRow) + ".");
+            }
         }
     } else if (mode == TimelineDragMode::MoveClip || mode == TimelineDragMode::TrimClipStart ||
                mode == TimelineDragMode::TrimClipEnd) {
@@ -613,19 +818,38 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             // Not really a drag -- treat as the plain click it was.
             onTimelineClicked(m_dragStartX, m_dragStartY);
         } else if (mode == TimelineDragMode::MoveClip) {
-            if (m_engine->moveClip(m_dragClipTrack, m_dragClipStartFrame, m_dragPreviewTrack,
-                                   m_dragPreviewStartFrame)) {
+            core::TrackId destTrack = trackIdForRow(m_dragPreviewTrack);
+            if (m_undoStack.execute(
+                    std::make_unique<core::MoveClip>(m_dragClipId, destTrack, m_dragPreviewStartFrame))) {
                 m_activeTrack = m_dragPreviewTrack;
+                syncEngine();
             } else {
                 showStatus("Can't move the clip there — that space is occupied.");
             }
         } else if (mode == TimelineDragMode::TrimClipStart) {
-            if (!m_engine->trimClipStart(m_dragClipTrack, m_dragClipStartFrame, m_dragPreviewStartFrame))
+            const core::Clip &clip = m_model.clip(m_dragClipId);
+            core::FrameIndex delta = m_dragPreviewStartFrame - m_dragClipStartFrame;
+            core::FrameIndex newIn = clip.in + delta;
+            if (!m_undoStack.execute(
+                    std::make_unique<core::ResizeClip>(m_dragClipId, newIn, clip.out, m_dragPreviewStartFrame))) {
                 showStatus("Can't trim the clip that far — space is occupied or the source has no more frames.");
+            } else {
+                syncEngine();
+            }
         } else if (mode == TimelineDragMode::TrimClipEnd) {
-            int newEnd = m_dragPreviewStartFrame + m_dragPreviewFrames;
-            if (!m_engine->trimClipEnd(m_dragClipTrack, m_dragClipStartFrame, newEnd))
-                showStatus("Can't trim the clip that far — the source has no more frames.");
+            const core::Clip &clip = m_model.clip(m_dragClipId);
+            core::FrameIndex newOut = m_dragPreviewStartFrame + m_dragPreviewFrames - 1;
+            // No ripple: a following clip immediately after this one
+            // refuses the trim rather than shifting out of the way (doc
+            // 04's RippleTrim, a composite command, isn't built yet --
+            // M3/timeline territory). Move the following clip first.
+            if (!m_undoStack.execute(
+                    std::make_unique<core::ResizeClip>(m_dragClipId, clip.in, newOut, clip.position))) {
+                showStatus("Can't trim the clip that far — move the next clip out of the way first, or the "
+                           "source has no more frames.");
+            } else {
+                syncEngine();
+            }
         }
     }
 
@@ -640,7 +864,7 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
 void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
 {
     (void)height; // row layout is driven by kTrackRowHeight, not the widget's actual allocation
-    int trackCount = m_engine->trackCount();
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
     if (trackCount <= 0)
         return;
 
@@ -687,7 +911,7 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_stroke(cr);
     }
 
-    int total = m_engine->totalFrames();
+    int total = m_playback->totalFrames();
     if (total <= 0)
         return;
 
@@ -714,7 +938,7 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     // (its in/out are changing every frame during a trim, which would just
     // thrash the cache) — reasonable to not bother re-drawing a waveform
     // for the ~second a drag lasts.
-    auto drawWaveform = [&](const engine::MltEngine::ClipInfo &clip, double x, double w) {
+    auto drawWaveform = [&](const ClipDisplay &clip, double x, double w) {
         if (clip.resource.empty())
             return;
         const std::vector<float> *peaks = m_waveforms->peaksFor(clip.resource, clip.in, clip.out);
@@ -750,8 +974,7 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
 
     for (size_t i = 0; i < m_clips.size(); ++i) {
         const auto &clip = m_clips[i];
-        bool isDragged = m_dragMode != TimelineDragMode::None && clip.trackIndex == m_dragClipTrack &&
-                         clip.startFrame == m_dragClipStartFrame;
+        bool isDragged = m_dragMode != TimelineDragMode::None && clip.id == m_dragClipId;
         bool selected = (static_cast<int>(i) == m_selectedClip);
 
         if (isDragged && m_dragMode == TimelineDragMode::MoveClip)
@@ -791,15 +1014,49 @@ void AppWindow::onWaveformReady()
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
 }
 
+void AppWindow::syncEngine()
+{
+    m_engineSync->rebuildAll();
+    m_playback->setTractor(m_engineSync->tractorPtr());
+}
+
+core::TrackId AppWindow::trackIdForRow(int row) const
+{
+    const auto &tracks = m_model.sequence().tracks;
+    if (row < 0 || row >= static_cast<int>(tracks.size())) {
+        Log::error("trackIdForRow: row " + std::to_string(row) + " out of range (" + std::to_string(tracks.size()) +
+                   " tracks)");
+        return core::TrackId{};
+    }
+    return tracks[static_cast<size_t>(row)].id;
+}
+
 void AppWindow::refreshTimeline()
 {
-    m_clips = m_engine->clips();
+    m_clips.clear();
+    const core::Sequence &seq = m_model.sequence();
+    for (size_t row = 0; row < seq.tracks.size(); ++row) {
+        const core::Track &track = seq.tracks[row];
+        for (core::ClipId clipId : track.clips) {
+            const core::Clip &clip = m_model.clip(clipId);
+            ClipDisplay display;
+            display.id = clipId;
+            display.name = clip.name;
+            display.resource = m_model.hasAsset(clip.asset) ? m_model.asset(clip.asset).path : std::string{};
+            display.trackIndex = static_cast<int>(row);
+            display.startFrame = static_cast<int>(clip.position);
+            display.frames = static_cast<int>(clip.length());
+            display.in = static_cast<int>(clip.in);
+            display.out = static_cast<int>(clip.out);
+            m_clips.push_back(std::move(display));
+        }
+    }
 
-    int trackCount = m_engine->trackCount();
+    int trackCount = static_cast<int>(seq.tracks.size());
     int height = std::max(trackCount, 1) * static_cast<int>(kTrackRowHeight);
     gtk_widget_set_size_request(GTK_WIDGET(m_timeline), -1, height);
 
-    int total = m_engine->totalFrames();
+    int total = m_playback->totalFrames();
     m_suppressSeekSignal = true;
     gtk_range_set_range(GTK_RANGE(m_seekScale), 0, std::max(total - 1, 0));
     m_suppressSeekSignal = false;
@@ -816,6 +1073,14 @@ void AppWindow::refreshTransport(int frameNumber)
     gtk_label_set_text(m_timecodeLabel, formatTimecode(frameNumber).c_str());
 }
 
+void AppWindow::updateWindowTitle()
+{
+    std::string title = m_undoStack.isClean() ? "u Studio Video Editor" : "u Studio Video Editor •";
+    gtk_window_set_title(GTK_WINDOW(m_window), title.c_str());
+    gtk_widget_set_sensitive(GTK_WIDGET(m_undoButton), m_undoStack.canUndo());
+    gtk_widget_set_sensitive(GTK_WIDGET(m_redoButton), m_undoStack.canRedo());
+}
+
 void AppWindow::showStatus(const std::string &text)
 {
     gtk_label_set_text(m_statusLabel, text.c_str());
@@ -823,7 +1088,7 @@ void AppWindow::showStatus(const std::string &text)
 
 std::string AppWindow::formatTimecode(int frame) const
 {
-    double fps = m_engine->fps();
+    double fps = m_playback->fps();
     int fpsInt = fps > 0.0 ? static_cast<int>(fps + 0.5) : 25;
     if (fpsInt <= 0)
         fpsInt = 25;
@@ -887,6 +1152,16 @@ void AppWindow::addTrackClickedTrampoline(GtkButton *, gpointer userData)
     static_cast<AppWindow *>(userData)->onAddTrackClicked();
 }
 
+void AppWindow::undoClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onUndo();
+}
+
+void AppWindow::redoClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRedo();
+}
+
 void AppWindow::playToggledTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onPlayToggled();
@@ -946,6 +1221,16 @@ void AppWindow::trackDragUpdateTrampoline(GtkGestureDrag *, double offsetX, doub
 void AppWindow::trackDragEndTrampoline(GtkGestureDrag *, double offsetX, double offsetY, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onTrackDragEnd(offsetX, offsetY);
+}
+
+void AppWindow::undoActionActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onUndo();
+}
+
+void AppWindow::redoActionActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRedo();
 }
 
 } // namespace ustudio::app

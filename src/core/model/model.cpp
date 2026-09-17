@@ -208,6 +208,20 @@ void Model::setTrackFlags(TrackId id, bool muted, bool hidden, bool locked)
     notify(TrackFlagsChanged{id});
 }
 
+void Model::moveTrack(TrackId id, size_t newIndex)
+{
+    auto &tracks = activeSequence().tracks;
+    auto it = std::find_if(tracks.begin(), tracks.end(), [id](const Track &entry) { return entry.id == id; });
+    assert(it != tracks.end() && "Model::moveTrack: unknown TrackId");
+
+    Track moved = std::move(*it);
+    tracks.erase(it);
+    size_t clampedIndex = std::min(newIndex, tracks.size());
+    tracks.insert(tracks.begin() + static_cast<std::ptrdiff_t>(clampedIndex), std::move(moved));
+
+    notify(TrackReordered{id});
+}
+
 // --- Clip mutators -----------------------------------------------------------
 
 ClipId Model::insertClip(TrackId trackId, AssetId assetId, FrameIndex pos, FrameIndex in, FrameIndex out,

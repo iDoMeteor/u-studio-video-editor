@@ -69,6 +69,26 @@ void RemoveTrack::revert(Model &model)
         model.restoreClip(clip);
 }
 
+MoveTrack::MoveTrack(TrackId track, size_t newIndex) : m_track(track), m_newIndex(newIndex) {}
+
+bool MoveTrack::apply(Model &model)
+{
+    if (!model.hasTrack(m_track))
+        return false;
+
+    const auto &tracks = model.sequence().tracks;
+    auto it = std::find_if(tracks.begin(), tracks.end(), [this](const Track &t) { return t.id == m_track; });
+    m_oldIndex = static_cast<size_t>(std::distance(tracks.begin(), it));
+
+    model.moveTrack(m_track, m_newIndex);
+    return true;
+}
+
+void MoveTrack::revert(Model &model)
+{
+    model.moveTrack(m_track, m_oldIndex);
+}
+
 SetTrackFlags::SetTrackFlags(TrackId track, bool muted, bool hidden, bool locked)
     : m_track(track), m_muted(muted), m_hidden(hidden), m_locked(locked)
 {}
