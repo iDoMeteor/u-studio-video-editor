@@ -100,6 +100,15 @@ Moving/Trimming/…  ─ motion → compute candidate; snap; dry-run validate; r
                    ─ Escape → cancel → Idle
 ```
 
+Context menu (`GtkGestureClick` on the secondary button; carried over from
+v1, which already ships clip/gap/track right-click menus):
+
+| Right-click target | Menu items |
+|---|---|
+| Clip | Delete (lift — leaves a gap, nothing else moves); **Split Audio** (doc 13 Q2 — pulls the clip's audio out to a new linked clip on the nearest audio track, creating one if needed; only shown when the clip has audio and isn't already audio-only) |
+| Gap (blank span) | Close Gap (ripples later content on that track earlier to fill it) |
+| Empty track space | Remove Track |
+
 Snapping (toggle with `S` key state or magnet button): candidate edges snap
 to clip edges on all tracks, playhead, markers, in/out, and sequence start,
 within `snapThresholdPx = 8`. Implemented as a sorted vector of snap frames

@@ -40,6 +40,7 @@ Rules:
 | `MoveClip{clipId, track, pos}` | moving back |
 | `ResizeClip{clipId, in, out, pos}` | restoring old triple |
 | `SplitClip{clipId, at}` → produces `rightId` | `JoinClips` inverse (only valid immediately; implemented as remove right + resize left) |
+| `SplitAudio{clipId}` → produces `audioClipId` on a linked audio track (creating one if needed; see doc 13 Q2, doc 06 clip context menu) | `RemoveClip(audioClipId)` + restore audio on the original clip |
 | `AddTrack{kind, index, name}` / `RemoveTrack{trackId}` (captures track + its clips) | inverse |
 | `SetTrackFlags{trackId, muted, hidden, locked}` | old flags |
 | `AddEffect{target, service, index}` / `RemoveEffect{target, effectId}` / `MoveEffect` | inverse |

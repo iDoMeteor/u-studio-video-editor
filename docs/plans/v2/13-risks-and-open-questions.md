@@ -17,27 +17,32 @@
 
 ## Open questions (decide by M1 start)
 
-1. **C++23 vs C++20.** Docs assume 23 for `std::expected`. If any target
-   compiler is < GCC 13, drop to 20 and vendor a small `Expected`. Default:
-   23.
-2. **Linked audio/video clips.** v2.0 models a video clip as carrying its
-   own audio (one clip). Kdenlive models them as two linked clips on two
-   tracks. Ours is simpler and covers the common case; "split audio" makes
-   it explicit when needed. Confirm this matches the team's editing habits.
-3. **Track order in the model** (index 0 = top) vs MLT order. Docs pick
-   visual order in the model with reversal in `EngineSync`. Alternative is
-   MLT order everywhere and reversal in the view. Either works; pick one and
-   never mix.
-4. **Repository hosting/CI.** Docs assume GitHub Actions. If the repo lives
-   on GitLab or Codeberg, translate doc 11's CI section (the container steps
-   are identical).
-5. **Does the app need multiple windows/documents in v2.0?** The
-   architecture supports it (one `DocumentSession` each); the UI can ship
-   single-document. Recommendation: single document, multi-window off, but
-   don't reintroduce the leaked-singleton pattern.
+Resolved 2026-09-17 (team decision, questions reviewed one by one):
+
+1. **C++23 vs C++20.** ✅ **Decided: C++23.** Docs assume 23 for
+   `std::expected`. If any target compiler is < GCC 13, drop to 20 and
+   vendor a small `Expected` — not a concern for now (dev machine is GCC
+   16.1.1).
+2. **Linked audio/video clips.** ✅ **Decided: single clip carries its own
+   audio** (v2.0 docs' default), not kdenlive-style linked clips on two
+   tracks. Simpler, covers the common case; "split audio" makes it explicit
+   when needed.
+3. **Track order in the model** (index 0 = top) vs MLT order. ✅ **Decided:
+   index 0 = top, visual order in the model**, with reversal against MLT's
+   native order happening once, inside `EngineSync`.
+4. **Repository hosting/CI.** ✅ **Settled by reality, not a decision**: the
+   repo lives on GitHub (`iDoMeteor/u-studio-video-editor`), so doc 11's
+   GitHub Actions assumption applies as written — no translation needed.
+5. **Does the app need multiple windows/documents in v2.0?** ✅ **Decided:
+   single document, multi-window off** for v2.0 (per the docs'
+   recommendation). The architecture still supports multi-window later (one
+   `DocumentSession` each); just don't reintroduce the leaked-singleton
+   pattern from the current v1 `AppWindow`.
 6. **Effect panel placement**: right sidebar (docs) vs. below the preview.
-   Cosmetic; decide in M5 with a mockup (the `design` skill can produce one).
-7. **Timecode**: NDF only in v2.0. Anyone editing 29.97 for broadcast will
-   want DF. Confirm it's out of scope.
-8. **Proxy default**: auto-generate for sources > 1080p? Recommendation: ask
-   once per project on first 4K import.
+   **Still open — deferred to M5 with a mockup**, as the doc originally
+   specified. Not decided now.
+7. **Timecode**: NDF only in v2.0. ✅ **Decided: NDF only, DF explicitly out
+   of scope** for v2.0.
+8. **Proxy default**: auto-generate for sources > 1080p? ✅ **Decided: ask
+   once per project on first 4K+ import** (not auto-generate silently, not
+   manual-only).
