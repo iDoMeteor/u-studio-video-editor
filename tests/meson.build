@@ -7,4 +7,5 @@ doctest_dep = dependency(
 if doctest_dep.found()
   subdir('core')
   subdir('engine')
+  subdir('app')
 endif

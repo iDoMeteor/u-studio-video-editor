@@ -13,6 +13,22 @@ app_resources = gnome.compile_resources(
   c_name: 'ustudio',
 )
 
+# Its own tiny static library (not just folded into app_sources below) so
+# tests/app/ can link it without pulling in GTK4/libadwaita -- autosave.cpp
+# only needs GLib (XDG dirs, SHA1) and std::filesystem.
+app_autosave_lib = static_library(
+  'ustudio_app_autosave',
+  files('autosave.cpp'),
+  dependencies: [glib_dep],
+  include_directories: src_inc,
+  install: false,
+)
+app_autosave_dep = declare_dependency(
+  link_with: app_autosave_lib,
+  include_directories: src_inc,
+  dependencies: [glib_dep],
+)
+
 app_sources = files(
   'app_window.cpp',
   'main.cpp',
@@ -43,6 +59,6 @@ executable(
   'u-studio-video-editor',
   app_sources,
   app_resources,
-  dependencies: [libustudio_engine_dep, gtk4_dep, adwaita_dep, gio_dep],
+  dependencies: [libustudio_engine_dep, app_autosave_dep, gtk4_dep, adwaita_dep, gio_dep],
   install: true,
 )

@@ -198,6 +198,25 @@ class AppWindow
     int m_dragPreviewFrames = 0;
 
     bool m_suppressSeekSignal = false;
+
+    // --- Autosave / recovery (doc 09) ---
+    // Empty until the first successful Save/Save As/Open; drives both the
+    // autosave filename (autosave::baseNameFor) and where a normal Save
+    // writes.
+    std::string m_currentProjectPath;
+    // Fresh per launch (a UUID) -- makes two untitled sessions autosave to
+    // different files instead of overwriting each other, per doc 09.
+    std::string m_autosaveSessionId;
+    gint64 m_lastEditMonotonicUsec = 0;
+    gint64 m_lastAutosaveMonotonicUsec = 0;
+    guint m_autosaveHeartbeatId = 0;
+
+    void onAutosaveHeartbeat();
+    void performAutosave();
+    void offerRecoveryIfAny();
+    void onWindowActiveChanged();
+    static gboolean autosaveHeartbeatTrampoline(gpointer userData);
+    static void windowActiveChangedTrampoline(GObject *object, GParamSpec *pspec, gpointer userData);
 };
 
 } // namespace ustudio::app

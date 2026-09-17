@@ -1,5 +1,6 @@
 #include "app_window.h"
 
+#include "autosave.h"
 #include "core/commands/composite_command.h"
 #include "core/commands/primitives.h"
 #include "core/commands/transaction.h"
@@ -8,7 +9,9 @@
 #include "core/xml/writer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <ctime>
 #include <memory>
 #include <thread>
 
@@ -61,10 +64,22 @@ AppWindow::AppWindow(GtkApplication *app)
 
     m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
 
+    gchar *sessionUuid = g_uuid_string_random();
+    m_autosaveSessionId = sessionUuid;
+    g_free(sessionUuid);
+
     buildUi(app);
     installActions(app);
+    g_signal_connect(m_window, "notify::is-active", G_CALLBACK(&AppWindow::windowActiveChangedTrampoline), this);
+    // Heartbeat, not a one-shot timer reset on every edit (doc 09: "2
+    // minutes after the last command while dirty"): simpler to reason
+    // about than adding/removing a GSource on every keystroke-equivalent,
+    // and 10s of slack on a 2-minute threshold is immaterial.
+    m_autosaveHeartbeatId = g_timeout_add_seconds(10, &AppWindow::autosaveHeartbeatTrampoline, this);
+
     refreshTimeline();
     updateWindowTitle();
+    offerRecoveryIfAny();
     showStatus("Import a media file to begin.");
 }
 
@@ -324,6 +339,7 @@ void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
         if (!err.empty()) {
             showStatus(err);
         } else {
+            m_currentProjectPath = path;
             m_undoStack.setCleanPoint();
             updateWindowTitle();
             showStatus(std::string("Saved: ") + path);
@@ -359,6 +375,7 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
         } else {
             m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy --
                                           // reassigning its contents leaves both still pointing at the right object
+            m_currentProjectPath = path;
             m_undoStack.clear();
             m_undoStack.setCleanPoint();
             m_engineSync->reset();
@@ -1018,6 +1035,9 @@ void AppWindow::syncEngine()
 {
     m_engineSync->rebuildAll();
     m_playback->setTractor(m_engineSync->tractorPtr());
+    // Called after every successful edit (and after Open, where the undo
+    // stack is clean so the heartbeat's isClean() check skips it anyway).
+    m_lastEditMonotonicUsec = g_get_monotonic_time();
 }
 
 core::TrackId AppWindow::trackIdForRow(int row) const
@@ -1102,6 +1122,120 @@ std::string AppWindow::formatTimecode(int frame) const
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d:%02d", hours, minutes, seconds, frames);
     return buf;
+}
+
+void AppWindow::performAutosave()
+{
+    std::string dir = autosave::directory();
+    if (dir.empty())
+        return;
+
+    std::string base = autosave::baseNameFor(m_currentProjectPath, m_autosaveSessionId);
+    std::string autosavePath = dir + "/" + base + ".ustudio";
+    std::string metaPath = dir + "/" + base + ".meta";
+
+    if (!core::saveProject(m_model, autosavePath).empty())
+        return; // silent: an autosave failure shouldn't interrupt the user
+
+    autosave::Meta meta;
+    meta.originalPath = m_currentProjectPath;
+    meta.timestampUnix = static_cast<int64_t>(std::time(nullptr));
+    autosave::writeMeta(metaPath, meta);
+
+    m_lastAutosaveMonotonicUsec = g_get_monotonic_time();
+    Log::debug("[app] Autosaved to " + autosavePath);
+}
+
+void AppWindow::onAutosaveHeartbeat()
+{
+    if (m_undoStack.isClean())
+        return;
+    // Already covered this edit -- avoid re-writing the same state every
+    // 10s while the user is away with nothing new to capture.
+    if (m_lastAutosaveMonotonicUsec >= m_lastEditMonotonicUsec)
+        return;
+
+    constexpr gint64 kAutosaveDelayUsec = 120 * G_USEC_PER_SEC; // doc 09: 2 minutes since the last command
+    if (g_get_monotonic_time() - m_lastEditMonotonicUsec >= kAutosaveDelayUsec)
+        performAutosave();
+}
+
+void AppWindow::onWindowActiveChanged()
+{
+    // doc 09: autosave "on focus loss" too, not just the 2-minute timer.
+    if (!gtk_window_is_active(GTK_WINDOW(m_window)) && !m_undoStack.isClean())
+        performAutosave();
+}
+
+void AppWindow::offerRecoveryIfAny()
+{
+    auto found = autosave::findRecoverable();
+    if (!found)
+        return;
+
+    auto timestamp = static_cast<std::time_t>(found->meta.timestampUnix);
+    char timeBuf[64] = {};
+    std::tm tmBuf{};
+    localtime_r(&timestamp, &tmBuf);
+    std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M", &tmBuf);
+
+    std::string body =
+        found->meta.originalPath.empty()
+            ? std::string("An unsaved, untitled project from ") + timeBuf + " was found."
+            : std::string("An unsaved version of “") + found->meta.originalPath + "” from " + timeBuf + " was found.";
+
+    AdwDialog *dialog = adw_alert_dialog_new("Recover unsaved work?", body.c_str());
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "discard", "Discard");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "recover", "Recover");
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "recover", ADW_RESPONSE_SUGGESTED);
+    adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "recover");
+    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "discard");
+
+    struct RecoveryContext
+    {
+        AppWindow *self;
+        autosave::Recoverable found;
+    };
+    auto *ctx = new RecoveryContext{this, *found};
+
+    adw_alert_dialog_choose(
+        ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            std::unique_ptr<RecoveryContext> owned(static_cast<RecoveryContext *>(userData));
+            const char *response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+
+            if (response && std::string(response) == "recover") {
+                auto loaded = core::loadProject(owned->found.autosavePath);
+                if (loaded.has_value()) {
+                    owned->self->m_model = std::move(*loaded);
+                    owned->self->m_currentProjectPath = owned->found.meta.originalPath;
+                    owned->self->m_undoStack.clear();
+                    // Deliberately no setCleanPoint(): recovered content is
+                    // unsaved relative to m_currentProjectPath (or has no
+                    // target at all) -- the title bar's dirty mark should
+                    // say so.
+                    owned->self->m_engineSync->reset();
+                    owned->self->m_playback->setTractor(owned->self->m_engineSync->tractorPtr());
+                    owned->self->m_activeTrack = 0;
+                    owned->self->m_selectedClip = -1;
+                    owned->self->syncEngine();
+                    owned->self->refreshTimeline();
+                    owned->self->updateWindowTitle();
+                    owned->self->showStatus("Recovered unsaved work.");
+                } else {
+                    owned->self->showStatus("Couldn't recover: " + loaded.error());
+                }
+            } else {
+                owned->self->showStatus("Discarded the recovered autosave.");
+            }
+
+            // Consumed either way: recovering it once is enough, and a
+            // discard means the owner said no (doc 09: "discarded ones are
+            // deleted").
+            std::remove(owned->found.autosavePath.c_str());
+            std::remove(owned->found.metaPath.c_str());
+        },
+        ctx);
 }
 
 // ---- GTK/GObject trampolines: static C-linkage-compatible callbacks that
@@ -1231,6 +1365,17 @@ void AppWindow::undoActionActivated(GSimpleAction *, GVariant *, gpointer userDa
 void AppWindow::redoActionActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onRedo();
+}
+
+gboolean AppWindow::autosaveHeartbeatTrampoline(gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onAutosaveHeartbeat();
+    return G_SOURCE_CONTINUE;
+}
+
+void AppWindow::windowActiveChangedTrampoline(GObject *, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onWindowActiveChanged();
 }
 
 } // namespace ustudio::app
