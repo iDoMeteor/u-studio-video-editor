@@ -15,3 +15,12 @@ test_engine_sync_exe = executable(
 )
 
 test('engine-sync', test_engine_sync_exe)
+
+test_xml_playback_exe = executable(
+  'test_xml_playback',
+  files('test_xml_playback.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+
+test('engine-xml-playback', test_xml_playback_exe)

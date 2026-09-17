@@ -1,8 +1,11 @@
 libustudio_core_sources = files(
   'log.cpp',
   'model/model.cpp',
+  'model/mlt_order.cpp',
   'commands/primitives.cpp',
   'commands/undo_stack.cpp',
+  'xml/writer.cpp',
+  'xml/reader.cpp',
 )
 
 libustudio_core = static_library(

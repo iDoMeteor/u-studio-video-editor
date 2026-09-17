@@ -1,6 +1,7 @@
 #include "engine_sync.h"
 
 #include "core/log.h"
+#include "core/model/mlt_order.h"
 
 #include <algorithm>
 
@@ -79,9 +80,9 @@ void EngineSync::rebuildAll()
     newTractor->set_track(black, 0);
     order.emplace_back(std::nullopt);
 
-    // Audio tracks first (model order), then video tracks bottom-to-top:
-    // the model stores tracks in visual order (index 0 = top), so video
-    // tracks are walked in reverse to get ascending MLT indices (doc 03).
+    // core::mltTrackOrder: audio tracks first (model order), then video
+    // tracks bottom-to-top (doc 03) -- shared with core/xml's writer so
+    // the saved file's MLT-facing structure matches this exactly.
     // Mlt::Playlist has no move constructor (only Playlist(Playlist&), a
     // non-const-ref copy), so std::vector<Playlist> can't grow -- each is
     // heap-allocated instead. set_track() bumps the underlying mlt_service's
@@ -90,22 +91,12 @@ void EngineSync::rebuildAll()
     // for locals passed to Playlist::insert()).
     std::vector<std::unique_ptr<Mlt::Playlist>> playlists;
 
-    for (const core::Track &modelTrack : seq.tracks) {
-        if (modelTrack.kind != core::Track::Kind::Audio)
-            continue;
+    for (core::TrackId trackId : core::mltTrackOrder(seq)) {
+        const core::Track &modelTrack = m_model.track(trackId);
         auto playlist = std::make_unique<Mlt::Playlist>(*m_profile);
         rebuildTrackPlaylist(modelTrack, *playlist);
         newTractor->set_track(*playlist, static_cast<int>(order.size()));
-        order.emplace_back(modelTrack.id);
-        playlists.push_back(std::move(playlist));
-    }
-    for (auto it = seq.tracks.rbegin(); it != seq.tracks.rend(); ++it) {
-        if (it->kind != core::Track::Kind::Video)
-            continue;
-        auto playlist = std::make_unique<Mlt::Playlist>(*m_profile);
-        rebuildTrackPlaylist(*it, *playlist);
-        newTractor->set_track(*playlist, static_cast<int>(order.size()));
-        order.emplace_back(it->id);
+        order.emplace_back(trackId);
         playlists.push_back(std::move(playlist));
     }
 
