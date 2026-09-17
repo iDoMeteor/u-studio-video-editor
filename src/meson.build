@@ -1,14 +1,11 @@
-sources = files(
-  'main.cpp',
-  'engine/mlt_engine.cpp',
-  'engine/waveform_cache.cpp',
-  'ui/app_window.cpp',
-  'util/log.cpp',
-)
+# Include directory rooted at src/ itself, so every target below can keep
+# using the existing "engine/mlt_engine.h"-style includes unchanged.
+src_inc = include_directories('.')
 
-executable(
-  'u-studio-video-editor',
-  sources,
-  dependencies: [gtk4_dep, adwaita_dep, mlt_dep, mltpp_dep, glib_dep, gio_dep, gobject_dep, pulse_dep],
-  install: true,
-)
+subdir('core')
+subdir('engine')
+subdir('app')
+
+if get_option('render_tool')
+  subdir('render')
+endif

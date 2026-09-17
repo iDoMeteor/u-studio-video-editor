@@ -31,74 +31,153 @@ single-track skeleton.
   format (H.264 High/yuv420p, 1920×1080, 30fps, AAC 48kHz stereo) via the
   header bar's "Render…" button. Runs on a background thread.
 - Save/load a project (its own format — see "Project files" below).
-- Timestamped debug/info/warn/error logging to `logs/`, level configurable
-  via `USTUDIO_LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`none`, default
-  `info`).
+- Timestamped debug/info/warn/error logging to
+  `$XDG_STATE_HOME/ustudio/logs/` (falls back to
+  `~/.local/state/ustudio/logs/` if `XDG_STATE_HOME` is unset), level
+  configurable via `USTUDIO_LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`none`,
+  default `info`).
+- No Qt/KDE anywhere in the *running process*, not just the link line —
+  `FactoryPolicy` curates the MLT module directory at startup so Qt6's MLT
+  modules never get `dlopen`'d. See "Architecture" below.
 
 Not yet: effects, titling, undo/redo, proxy/transcode, configurable export
 formats (render is currently hardcoded to this project's own working
 format — see "Render implementation notes" below), ripple/overwrite editing
 beyond move/trim's "destination must be empty" rule.
 
+## Roadmap
+
+Active development is following a v2 rewrite plan recorded under
+[`docs/plans/v2/`](docs/plans/v2/) — architecture, project model, milestones
+(M0–M7), and the ADRs that are the binding contract for load-bearing
+decisions. Milestone M0 (this restructure: `core/engine/app/render` layout,
+tests, CI, packaging metadata — no behavior change) is the current one in
+flight; see [`docs/plans/v2/12-roadmap-and-milestones.md`](docs/plans/v2/12-roadmap-and-milestones.md)
+for what ships in what order. `CLAUDE.md` governs day-to-day coding/agent
+conventions for this repo.
+
 ## Building
 
-One system package is required beyond what's typically already on a GNOME
-dev machine:
+System packages needed beyond what's typically already on a GNOME dev
+machine:
 
 ```sh
-sudo dnf install mlt-devel
+sudo dnf install mlt-devel pulseaudio-libs-devel
 ```
 
-PulseAudio's simple API is also needed for audio output (works against this
-machine's PipeWire-Pulse compatibility layer):
+(GTK4, libadwaita, GLib/GIO, libxml2, meson, and ninja are assumed already
+present — libxml2 in particular is normally already pulled in as an MLT
+transitive dependency.) doctest (M0's test framework) needs no system
+package — it's vendored under `subprojects/doctest/`.
+
+### Development tools
+
+Two more tools are needed to actually run the `.clang-format`/`justfile`
+deliverables locally (not just have the files present):
 
 ```sh
-sudo dnf install pulseaudio-libs-devel
+sudo dnf install clang-tools-extra just
 ```
 
-(GTK4, libadwaita, meson, and ninja are assumed already present.)
+- **`clang-tools-extra`** provides `clang-format`, the formatter `.clang-format`
+  configures and `just fmt` / CI's `format` job run.
+- **`just`** is the command-runner behind the `justfile` recipes below (a
+  thin wrapper so local and CI invocations stay identical — see
+  [`docs/plans/v2/11-build-test-ci-packaging.md`](docs/plans/v2/11-build-test-ci-packaging.md)).
+  Without it, run the underlying `meson`/`ninja`/`clang-format` commands
+  directly (each recipe's `justfile` body shows the equivalent command).
+
+### Build, run, test
+
+With `just` installed:
+
+```sh
+just setup   # meson setup builddir -Dbuildtype=debug -Dtests=enabled
+just build   # meson compile -C builddir
+just test    # meson test -C builddir --print-errorlogs
+just run     # ./builddir/src/app/u-studio-video-editor
+just fmt     # clang-format -i on every tracked .cpp/.h
+```
+
+Without `just`, the equivalent plain commands:
 
 ```sh
 meson setup builddir
 meson compile -C builddir
-./builddir/src/u-studio-video-editor
+meson test -C builddir --print-errorlogs
+./builddir/src/app/u-studio-video-editor
 ```
 
-Confirm there's no Qt/KDE anywhere in the link:
+Confirm there's no Qt/KDE anywhere in the link *or the running process*:
 
 ```sh
-ldd builddir/src/u-studio-video-editor | grep -iE 'qt|kde'   # expect no output
+ldd builddir/src/app/u-studio-video-editor | grep -iE 'qt|kde'   # expect no output (link line)
+./builddir/tests/engine/test_factory_policy                      # expect PASS (runtime: /proc/self/maps has no libQt)
 ```
 
 For verbose logging during development:
 
 ```sh
-USTUDIO_LOG_LEVEL=debug ./builddir/src/u-studio-video-editor
+USTUDIO_LOG_LEVEL=debug ./builddir/src/app/u-studio-video-editor
 ```
 
 ## Architecture
 
-- `src/engine/mlt_engine.{h,cpp}` — the main module touching MLT types for
-  live editing/playback. Owns a `Mlt::Profile` (fixed at `atsc_1080p_30` —
-  1920×1080/30fps — matching this project's real source/export format; see
-  "Render implementation notes"), one `Mlt::Playlist` per track wired into a
-  `Mlt::Tractor`, and a dedicated worker thread that pulls one decoded frame
-  (image + audio) at a time and hands the image to the GTK main thread via
-  `g_idle_add()`. Everything above this module deals only in plain C++ types
-  — no MLT, no GTK inside the engine.
-- `src/engine/waveform_cache.{h,cpp}` — a small, separate MLT touchpoint
-  (opens its own throwaway `Profile`/`Producer` per clip) for background
-  audio-peak extraction, kept outside `MltEngine` specifically so it never
-  contends with `m_mltMutex` or blocks editing/playback.
-- `src/ui/app_window.{h,cpp}` — the app shell (header bar, preview pane,
+Layered as `core` (pure C++23, no GTK/MLT) → `engine` (the only layer that
+touches `mlt++`) → `app` (GTK4/libadwaita; never includes an MLT or Pulse
+header directly — enforced by a build-time grep in
+`src/app/meson.build`, not just review) and `render` (a headless CLI
+skeleton for now; the real implementation is milestone M6). Full rationale
+in [`docs/plans/v2/02-architecture.md`](docs/plans/v2/02-architecture.md).
+
+- `src/core/log.{h,cpp}` (`ustudio::core::Log`) — the logging module, thread-
+  safe, no dependencies. Writes to `$XDG_STATE_HOME/ustudio/logs/`.
+- `src/engine/factory_policy.{h,cpp}` (`ustudio::engine::FactoryPolicy`) —
+  owns `Mlt::Factory::init()`/`close()` for the whole process: exactly one
+  instance, constructed in `main()` before any window or `MltEngine`,
+  destroyed after `g_application_run()` returns. Builds a curated MLT
+  module directory under `$XDG_RUNTIME_DIR/ustudio-mlt-modules/` (or, when
+  `XDG_RUNTIME_DIR` isn't set — CI containers and other headless
+  environments don't have a logind session — under the system temp
+  directory instead) containing symlinks to every module except a
+  `qt6`/`glaxnimate-qt6` denylist, so
+  `Mlt::Factory::init()` never `dlopen`s Qt6 — a plain, argument-less
+  `Factory::init()` measurably does (32 Qt library mappings observed on
+  this machine); the curated approach was verified, via a standalone
+  repro, to give zero Qt mappings while every consumer/transition this app
+  needs stays available. See ADR-007. `MltEngine` itself no longer calls
+  `Factory::init()`/`close()` — doing so from two places would silently
+  re-run init with the wrong (default) directory the second time.
+- `src/engine/mlt_engine.{h,cpp}` (`ustudio::engine::MltEngine`) — the main
+  module touching MLT types for live editing/playback. Owns a
+  `Mlt::Profile` (fixed at `atsc_1080p_30` — 1920×1080/30fps — matching
+  this project's real source/export format; see "Render implementation
+  notes"), one `Mlt::Playlist` per track wired into a `Mlt::Tractor`, and a
+  dedicated worker thread that pulls one decoded frame (image + audio) at
+  a time and hands the image to the GTK main thread via `g_idle_add()`.
+  Everything above this module deals only in plain C++ types — no MLT, no
+  GTK inside the engine.
+- `src/engine/waveform_cache.{h,cpp}` (`ustudio::engine::WaveformCache`) —
+  a small, separate MLT touchpoint (opens its own throwaway
+  `Profile`/`Producer` per clip) for background audio-peak extraction,
+  kept outside `MltEngine` specifically so it never contends with
+  `m_mltMutex` or blocks editing/playback.
+- `src/app/main.cpp`, `src/app/app_window.{h,cpp}`
+  (`ustudio::app::AppWindow`) — the app shell (header bar, preview pane,
   multi-row timeline, transport bar), built imperatively against GTK4's C
-  API (no `.ui`/GResource files — fewer moving parts).
-- `src/ui/style_css.h` — a GTK4 CSS theme mapping the
+  API (no `.ui` files for the shell — fewer moving parts).
+- `src/app/style/style.css` — a GTK4 CSS theme mapping the
   [Unicorn Tears design system](~/projects/unicorn-tears/claude-design-system)'s
   color tokens onto libadwaita's named colors (`@accent_bg_color`,
   `@window_bg_color`, etc.), so the whole shell reskins without per-widget
-  overrides.
-- `src/util/log.{h,cpp}` — the logging module described above.
+  overrides. Compiled into the binary via GResource
+  (`data/ustudio.gresource.xml`), loaded at startup with
+  `gtk_css_provider_load_from_resource()`.
+- `src/render/main.cpp` — placeholder; the real headless render CLI
+  (`u-studio-render`) is milestone M6.
+- `tests/core/`, `tests/engine/` — doctest suites (vendored under
+  `subprojects/doctest/`, no system package needed). `tests/engine/`
+  needs MLT but no display and no media files.
 
 ### Playback engine notes
 

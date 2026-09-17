@@ -4,12 +4,14 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <sstream>
-#include <sys/stat.h>
+
+namespace ustudio::core {
 
 namespace {
 
@@ -78,6 +80,19 @@ std::string timestampForFilename()
     return oss.str();
 }
 
+// $XDG_STATE_HOME/ustudio/logs/, falling back to the XDG-spec default
+// ~/.local/state/ustudio/logs/ if XDG_STATE_HOME is unset. Moved here from
+// a plain ./logs/ (relative to cwd) in v2's M0 restructure (doc 14) — a
+// deliberate, documented exception to M0's "no behaviour change" rule.
+std::filesystem::path logDirectory()
+{
+    if (const char *stateHome = std::getenv("XDG_STATE_HOME"); stateHome && *stateHome)
+        return std::filesystem::path(stateHome) / "ustudio" / "logs";
+    if (const char *home = std::getenv("HOME"); home && *home)
+        return std::filesystem::path(home) / ".local" / "state" / "ustudio" / "logs";
+    return std::filesystem::path("ustudio-logs"); // last-resort cwd fallback if even HOME is unset
+}
+
 void writeLine(LogLevel level, const std::string &message)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -100,9 +115,11 @@ void init(const std::string &appName)
     std::lock_guard<std::mutex> lock(g_mutex);
     g_level = levelFromEnv();
 
-    mkdir("logs", 0755); // ignore EEXIST; any other failure just means no file sink
+    std::filesystem::path dir = logDirectory();
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec); // ignore failure; any error just means no file sink
 
-    std::string path = "logs/" + appName + "-" + timestampForFilename() + ".log";
+    std::filesystem::path path = dir / (appName + "-" + timestampForFilename() + ".log");
     g_file.open(path, std::ios::out | std::ios::trunc);
 }
 
@@ -139,3 +156,5 @@ void debug(const std::string &message)
 }
 
 } // namespace Log
+
+} // namespace ustudio::core

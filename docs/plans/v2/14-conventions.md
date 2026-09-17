@@ -46,7 +46,10 @@ Short, because a `.clang-format` and the compiler enforce most of it.
 - Actions: every user command is a `GAction` (`app.` or `win.` prefix) with
   an accelerator registered in one table (`app/actions.cpp`), so menus,
   shortcuts, and the shortcuts window agree.
-- Wrap GTK includes in `GTK_INCLUDE_BEGIN/END` to silence C-cast warnings.
+- GTK/GLib/MLT C-cast warning noise is silenced via `include_type: 'system'`
+  on those `dependency()` calls (root `meson.build`), not a pragma wrapper
+  around the includes — see doc 11 for why the pragma approach doesn't
+  actually cover call-site macro use.
 - CSS classes, not per-widget style overrides. Named colours from
   `style.css`; cairo/snapshot colours from generated `tokens.h`.
 - Threads never touch widgets. If you're holding a `GtkWidget*` on a worker

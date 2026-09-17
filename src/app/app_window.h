@@ -10,6 +10,8 @@
 #include "engine/mlt_engine.h"
 #include "engine/waveform_cache.h"
 
+namespace ustudio::app {
+
 // What an in-progress timeline drag is doing, decided in onTrackDragBegin
 // from where the press landed (handle strip / clip edge / clip body /
 // empty space) and finalized in onTrackDragEnd.
@@ -29,12 +31,15 @@ enum class TimelineDragMode
 // step for this first milestone.
 class AppWindow
 {
-public:
+  public:
     explicit AppWindow(GtkApplication *app);
 
-    GtkWidget *widget() const { return GTK_WIDGET(m_window); }
+    GtkWidget *widget() const
+    {
+        return GTK_WIDGET(m_window);
+    }
 
-private:
+  private:
     void buildUi(GtkApplication *app);
     void onImportClicked();
     void onFileOpened(GObject *sourceObject, GAsyncResult *result);
@@ -84,8 +89,8 @@ private:
     static void splitClickedTrampoline(GtkButton *button, gpointer userData);
     static void timelineDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer userData);
     static void timelineClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
-    static void
-    timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
+    static void timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
+                                             gpointer userData);
     static void deleteClipClickedTrampoline(GtkButton *button, gpointer userData);
     static void closeGapClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTrackClickedTrampoline(GtkButton *button, gpointer userData);
@@ -105,9 +110,9 @@ private:
     GtkWidget *m_closeGapButton = nullptr;
     GtkWidget *m_removeTrackButton = nullptr;
 
-    std::unique_ptr<MltEngine> m_engine;
-    std::unique_ptr<WaveformCache> m_waveforms;
-    std::vector<MltEngine::ClipInfo> m_clips;
+    std::unique_ptr<engine::MltEngine> m_engine;
+    std::unique_ptr<engine::WaveformCache> m_waveforms;
+    std::vector<engine::MltEngine::ClipInfo> m_clips;
     int m_selectedClip = -1;
     // Which track new imports/splits target; set by clicking a track's row.
     int m_activeTrack = 0;
@@ -144,3 +149,5 @@ private:
 
     bool m_suppressSeekSignal = false;
 };
+
+} // namespace ustudio::app

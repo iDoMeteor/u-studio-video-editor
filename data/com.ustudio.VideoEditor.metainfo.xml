@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.ustudio.VideoEditor</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>u Studio Video Editor</name>
+  <summary>Non-linear video editor built on GTK4, libadwaita and MLT</summary>
+  <launchable type="desktop-id">com.ustudio.VideoEditor.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.0.1" date="2026-09-17"/>
+  </releases>
+</component>

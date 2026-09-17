@@ -1,0 +1,41 @@
+# First-cut config, not yet verified against the installed clang-format
+# (not present on the dev machine at the time this was written — see the
+# README's "Development tools" section). Encodes the style already used by
+# hand throughout src/ and described in CLAUDE.md: 4-space indent, braces
+# on their own line for functions/classes/namespaces, same line for control
+# flow, 120-column soft limit. Run `just fmt` once clang-format is
+# installed and adjust anything that doesn't match intent.
+
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 120
+UseTab: Never
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: false
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: true
+  AfterUnion: true
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+AlignAfterOpenBracket: Align
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BinPackArguments: true
+BinPackParameters: true
+PointerAlignment: Right
+ReferenceAlignment: Right
+SpaceBeforeParens: ControlStatements
+NamespaceIndentation: None
+SortIncludes: Never

@@ -1,11 +1,15 @@
 #include "app_window.h"
 
-#include "util/log.h"
+#include "core/log.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <memory>
 #include <thread>
+
+namespace ustudio::app {
+
+namespace Log = ustudio::core::Log;
 
 namespace {
 // Mirrors the tokens in style_css.h. Kept as plain hex here because clips
@@ -24,11 +28,11 @@ constexpr double kWaveformR = 0x9d / 255.0, kWaveformG = 0x4e / 255.0, kWaveform
 
 AppWindow::AppWindow(GtkApplication *app)
 {
-    m_engine = std::make_unique<MltEngine>();
+    m_engine = std::make_unique<engine::MltEngine>();
     m_engine->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
-    m_waveforms = std::make_unique<WaveformCache>([this] { onWaveformReady(); });
+    m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
 
     buildUi(app);
     showStatus("Import a media file to begin.");
@@ -319,7 +323,7 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
             std::string err;
             std::string path;
         };
-        auto *result = new Result{this, ok, std::move(err), path};
+        auto *renderResult = new Result{this, ok, std::move(err), path};
         g_idle_add(
             [](gpointer data) -> gboolean {
                 std::unique_ptr<Result> r(static_cast<Result *>(data));
@@ -329,7 +333,7 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
                     r->self->showStatus("Render failed: " + r->err);
                 return G_SOURCE_REMOVE;
             },
-            result);
+            renderResult);
     }).detach();
 }
 
@@ -432,8 +436,8 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     gtk_widget_set_visible(m_closeGapButton, m_contextMenuGapStartFrame >= 0);
     gtk_widget_set_visible(m_removeTrackButton, m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0);
 
-    GdkRectangle rect{
-        static_cast<int>(x), static_cast<int>(row * kTrackRowHeight), 1, static_cast<int>(kTrackRowHeight)};
+    GdkRectangle rect{static_cast<int>(x), static_cast<int>(row * kTrackRowHeight), 1,
+                      static_cast<int>(kTrackRowHeight)};
     gtk_popover_set_pointing_to(m_trackContextMenu, &rect);
     gtk_popover_popup(m_trackContextMenu);
 }
@@ -569,8 +573,8 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
     int deltaFrames = static_cast<int>(offsetX / contentWidth * total);
 
     if (m_dragMode == TimelineDragMode::MoveClip) {
-        m_dragPreviewTrack = std::clamp(
-            static_cast<int>((m_dragStartY + offsetY) / kTrackRowHeight), 0, std::max(trackCount - 1, 0));
+        m_dragPreviewTrack =
+            std::clamp(static_cast<int>((m_dragStartY + offsetY) / kTrackRowHeight), 0, std::max(trackCount - 1, 0));
         m_dragPreviewStartFrame = std::max(0, m_dragClipStartFrame + deltaFrames);
         m_dragPreviewFrames = m_dragClipFrames;
     } else if (m_dragMode == TimelineDragMode::TrimClipStart) {
@@ -603,14 +607,14 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             m_selectedClip = -1;
             showStatus("Moved track " + std::to_string(m_draggingTrack) + " to " + std::to_string(targetRow) + ".");
         }
-    } else if (mode == TimelineDragMode::MoveClip || mode == TimelineDragMode::TrimClipStart
-               || mode == TimelineDragMode::TrimClipEnd) {
+    } else if (mode == TimelineDragMode::MoveClip || mode == TimelineDragMode::TrimClipStart ||
+               mode == TimelineDragMode::TrimClipEnd) {
         if (trivial) {
             // Not really a drag -- treat as the plain click it was.
             onTimelineClicked(m_dragStartX, m_dragStartY);
         } else if (mode == TimelineDragMode::MoveClip) {
-            if (m_engine->moveClip(
-                    m_dragClipTrack, m_dragClipStartFrame, m_dragPreviewTrack, m_dragPreviewStartFrame)) {
+            if (m_engine->moveClip(m_dragClipTrack, m_dragClipStartFrame, m_dragPreviewTrack,
+                                   m_dragPreviewStartFrame)) {
                 m_activeTrack = m_dragPreviewTrack;
             } else {
                 showStatus("Can't move the clip there — that space is occupied.");
@@ -710,7 +714,7 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     // (its in/out are changing every frame during a trim, which would just
     // thrash the cache) — reasonable to not bother re-drawing a waveform
     // for the ~second a drag lasts.
-    auto drawWaveform = [&](const MltEngine::ClipInfo &clip, double x, double w) {
+    auto drawWaveform = [&](const engine::MltEngine::ClipInfo &clip, double x, double w) {
         if (clip.resource.empty())
             return;
         const std::vector<float> *peaks = m_waveforms->peaksFor(clip.resource, clip.in, clip.out);
@@ -726,9 +730,11 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_set_source_rgba(cr, kWaveformR, kWaveformG, kWaveformB, 0.85);
         cairo_set_line_width(cr, 1.0);
         for (int px = 0; px < pixelWidth; ++px) {
-            size_t startIdx = static_cast<size_t>((static_cast<double>(px) / pixelWidth) * peakCount);
-            size_t endIdx =
-                std::min(peakCount, std::max(startIdx + 1, static_cast<size_t>((static_cast<double>(px + 1) / pixelWidth) * peakCount)));
+            size_t startIdx =
+                static_cast<size_t>((static_cast<double>(px) / pixelWidth) * static_cast<double>(peakCount));
+            size_t endIdx = std::min(
+                peakCount, std::max(startIdx + 1, static_cast<size_t>((static_cast<double>(px + 1) / pixelWidth) *
+                                                                      static_cast<double>(peakCount))));
 
             float peak = 0.0f;
             for (size_t k = startIdx; k < endIdx; ++k)
@@ -744,8 +750,8 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
 
     for (size_t i = 0; i < m_clips.size(); ++i) {
         const auto &clip = m_clips[i];
-        bool isDragged = m_dragMode != TimelineDragMode::None && clip.trackIndex == m_dragClipTrack
-            && clip.startFrame == m_dragClipStartFrame;
+        bool isDragged = m_dragMode != TimelineDragMode::None && clip.trackIndex == m_dragClipTrack &&
+                         clip.startFrame == m_dragClipStartFrame;
         bool selected = (static_cast<int>(i) == m_selectedClip);
 
         if (isDragged && m_dragMode == TimelineDragMode::MoveClip)
@@ -941,3 +947,5 @@ void AppWindow::trackDragEndTrampoline(GtkGestureDrag *, double offsetX, double 
 {
     static_cast<AppWindow *>(userData)->onTrackDragEnd(offsetX, offsetY);
 }
+
+} // namespace ustudio::app

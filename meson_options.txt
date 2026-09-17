@@ -1,0 +1,7 @@
+option('tests', type: 'feature', value: 'enabled',
+       description: 'Build the doctest-based test suites under tests/')
+option('render_tool', type: 'boolean', value: true,
+       description: 'Build the u-studio-render out-of-process render CLI')
+# NOTE: -Dwerror is meson's own built-in option (reserved name, can't be
+# redeclared here) -- CI passes it directly; local dev builds leave it at
+# meson's default (false).

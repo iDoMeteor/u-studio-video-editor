@@ -1,6 +1,6 @@
 #include "waveform_cache.h"
 
-#include "util/log.h"
+#include "core/log.h"
 
 #include <glib.h>
 #include <mlt++/Mlt.h>
@@ -8,6 +8,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+
+namespace ustudio::engine {
+
+namespace Log = ustudio::core::Log;
 
 WaveformCache::WaveformCache(std::function<void()> onReady) : m_onReady(std::move(onReady))
 {
@@ -93,7 +97,7 @@ void WaveformCache::workerMain()
                         int n = samples * channels;
                         for (int s = 0; s < n; ++s)
                             peakAbs = std::max(peakAbs, std::abs(static_cast<int>(s16[s])));
-                        peak = peakAbs / 32767.0f;
+                        peak = static_cast<float>(peakAbs) / 32767.0f;
                     }
                 }
                 peaks.push_back(peak);
@@ -122,3 +126,5 @@ void WaveformCache::workerMain()
             cb);
     }
 }
+
+} // namespace ustudio::engine

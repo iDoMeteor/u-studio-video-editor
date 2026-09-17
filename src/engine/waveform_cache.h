@@ -11,6 +11,8 @@
 #include <thread>
 #include <vector>
 
+namespace ustudio::engine {
+
 // Computes and caches per-clip audio waveform peak data (one normalized
 // [0,1] peak value per frame across a clip's [in,out] range) on a
 // dedicated background worker thread, so drawing the timeline never blocks
@@ -23,7 +25,7 @@
 // blocks playback/editing while it works.
 class WaveformCache
 {
-public:
+  public:
     // onReady is invoked (already marshaled onto the GLib main thread)
     // each time a previously-unavailable waveform finishes computing —
     // callers should just queue a redraw and call peaksFor() again.
@@ -41,7 +43,7 @@ public:
     // an entry, once inserted, is never mutated again).
     const std::vector<float> *peaksFor(const std::string &resource, int in, int out);
 
-private:
+  private:
     struct Job
     {
         std::string key;
@@ -62,3 +64,5 @@ private:
     std::atomic<bool> m_quit{false};
     std::function<void()> m_onReady;
 };
+
+} // namespace ustudio::engine

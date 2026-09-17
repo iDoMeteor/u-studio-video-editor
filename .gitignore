@@ -1,3 +1,5 @@
 builddir/
 logs/
 .claude/
+subprojects/.wraplock
+subprojects/packagecache/

@@ -1,6 +1,6 @@
 #include "mlt_engine.h"
 
-#include "util/log.h"
+#include "core/log.h"
 
 #include <mlt++/Mlt.h>
 
@@ -10,6 +10,10 @@
 #include <algorithm>
 #include <chrono>
 
+namespace ustudio::engine {
+
+namespace Log = ustudio::core::Log;
+
 namespace {
 constexpr int kAudioRate = 48000;
 constexpr int kAudioChannels = 2;
@@ -17,9 +21,12 @@ constexpr int kAudioChannels = 2;
 
 MltEngine::MltEngine()
 {
-    // Repository* is intentionally not retained: it lives for the process
-    // lifetime and Factory::close() releases MLT's global state regardless.
-    Mlt::Factory::init();
+    // Mlt::Factory::init()/close() are NOT called here — FactoryPolicy owns
+    // them exclusively, once, for the process lifetime (constructed in
+    // main() before any MltEngine exists; see factory_policy.h). Calling
+    // init() a second time from here would silently re-run it with the
+    // default, non-curated module directory, undoing FactoryPolicy's whole
+    // point.
 
     // 1920x1080/30fps matches this project's real-world source/export
     // format (an AI-video-pipeline MP4: h264 High/yuv420p/bt709 @30fps,
@@ -57,8 +64,8 @@ MltEngine::MltEngine()
     attr.fragsize = static_cast<uint32_t>(-1);
 
     int paError = 0;
-    m_audioStream = pa_simple_new(
-        nullptr, "u Studio Video Editor", PA_STREAM_PLAYBACK, nullptr, "preview", &spec, nullptr, &attr, &paError);
+    m_audioStream = pa_simple_new(nullptr, "u Studio Video Editor", PA_STREAM_PLAYBACK, nullptr, "preview", &spec,
+                                  nullptr, &attr, &paError);
     if (!m_audioStream) {
         Log::warn(std::string("Audio output unavailable (") + pa_strerror(paError) + "); preview will be silent.");
     } else {
@@ -79,12 +86,9 @@ MltEngine::~MltEngine()
     if (m_audioStream)
         pa_simple_free(m_audioStream);
 
-    // Destroy MLT objects before tearing down the factory.
     m_tractor.reset();
     m_tracks.clear();
     m_profile.reset();
-
-    Mlt::Factory::close();
 }
 
 int MltEngine::addTrack()
@@ -200,9 +204,8 @@ bool MltEngine::importClip(const std::string &path, int trackIndex, std::string 
     m_tracks[trackIndex]->append(producer);
     m_tractor->refresh();
     m_totalFramesCache.store(m_tractor->get_length());
-    Log::info(
-        "Imported clip to track " + std::to_string(trackIndex) + ": " + path + " ("
-        + std::to_string(producer.get_length()) + " frames)");
+    Log::info("Imported clip to track " + std::to_string(trackIndex) + ": " + path + " (" +
+              std::to_string(producer.get_length()) + " frames)");
     return true;
 }
 
@@ -230,9 +233,8 @@ bool MltEngine::splitAt(int trackIndex, int absoluteFrame)
         m_totalFramesCache.store(m_tractor->get_length());
         Log::info("Split track " + std::to_string(trackIndex) + " at frame " + std::to_string(absoluteFrame));
     } else {
-        Log::debug(
-            "Split track " + std::to_string(trackIndex) + " at frame " + std::to_string(absoluteFrame)
-            + " was a no-op (clip boundary)");
+        Log::debug("Split track " + std::to_string(trackIndex) + " at frame " + std::to_string(absoluteFrame) +
+                   " was a no-op (clip boundary)");
     }
     return didSplit;
 }
@@ -253,8 +255,8 @@ bool MltEngine::isRangeFree(Mlt::Playlist &playlist, int start, int length, int 
     return true;
 }
 
-bool MltEngine::carveAndInsert(
-    Mlt::Playlist &playlist, int start, int length, const std::string &resource, int in, int out)
+bool MltEngine::carveAndInsert(Mlt::Playlist &playlist, int start, int length, const std::string &resource, int in,
+                               int out)
 {
     int neededLength = start + length;
     if (neededLength > playlist.get_length()) {
@@ -325,9 +327,8 @@ bool MltEngine::moveClip(int trackIndex, int startFrame, int destTrack, int dest
 
     m_tractor->refresh();
     m_totalFramesCache.store(m_tractor->get_length());
-    Log::info(
-        "Moved clip: track " + std::to_string(trackIndex) + "@" + std::to_string(startFrame) + " -> track "
-        + std::to_string(destTrack) + "@" + std::to_string(destStartFrame));
+    Log::info("Moved clip: track " + std::to_string(trackIndex) + "@" + std::to_string(startFrame) + " -> track " +
+              std::to_string(destTrack) + "@" + std::to_string(destStartFrame));
     return true;
 }
 
@@ -382,9 +383,8 @@ bool MltEngine::trimClipStart(int trackIndex, int startFrame, int newStartFrame)
 
     m_tractor->refresh();
     m_totalFramesCache.store(m_tractor->get_length());
-    Log::info(
-        "Trimmed start of clip on track " + std::to_string(trackIndex) + ": " + std::to_string(startFrame) + " -> "
-        + std::to_string(actualNewStart));
+    Log::info("Trimmed start of clip on track " + std::to_string(trackIndex) + ": " + std::to_string(startFrame) +
+              " -> " + std::to_string(actualNewStart));
     return true;
 }
 
@@ -418,9 +418,8 @@ bool MltEngine::trimClipEnd(int trackIndex, int startFrame, int newEndFrame)
     playlist.resize_clip(index, in, newOut);
     m_tractor->refresh();
     m_totalFramesCache.store(m_tractor->get_length());
-    Log::info(
-        "Trimmed end of clip on track " + std::to_string(trackIndex) + " at " + std::to_string(startFrame) + ": out "
-        + std::to_string(out) + " -> " + std::to_string(newOut));
+    Log::info("Trimmed end of clip on track " + std::to_string(trackIndex) + " at " + std::to_string(startFrame) +
+              ": out " + std::to_string(out) + " -> " + std::to_string(newOut));
     return true;
 }
 
@@ -884,8 +883,8 @@ void MltEngine::pullLoopMain()
         if (playing) {
             int elapsedFrames = frameNumber - playStartFrame + 1;
             double frameDurationSec = 1.0 / fps();
-            auto target = playStartWallClock
-                + duration_cast<steady_clock::duration>(duration<double>(elapsedFrames * frameDurationSec));
+            auto target = playStartWallClock +
+                          duration_cast<steady_clock::duration>(duration<double>(elapsedFrames * frameDurationSec));
             auto now = steady_clock::now();
             if (now < target) {
                 std::this_thread::sleep_for(target - now);
@@ -897,9 +896,8 @@ void MltEngine::pullLoopMain()
                 // for a given file.
                 auto behindMs = duration_cast<milliseconds>(now - target).count();
                 if (behindMs > 100) {
-                    Log::debug(
-                        "Playback behind schedule by " + std::to_string(behindMs) + "ms at frame "
-                        + std::to_string(frameNumber));
+                    Log::debug("Playback behind schedule by " + std::to_string(behindMs) + "ms at frame " +
+                               std::to_string(frameNumber));
                 }
             }
         }
@@ -914,3 +912,5 @@ gboolean MltEngine::deliverOnMainThread(gpointer data)
     }
     return G_SOURCE_REMOVE;
 }
+
+} // namespace ustudio::engine

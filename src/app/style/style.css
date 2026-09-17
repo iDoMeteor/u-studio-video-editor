@@ -1,14 +1,12 @@
-#pragma once
+/* Theme derived from the "Unicorn Tears" neon-rave design system
+   (~/projects/unicorn-tears/claude-design-system). Colors are the brand's
+   own hex tokens; glow effects are intentionally restricted to
+   selection/focus states rather than static chrome, since this app is meant
+   to be looked at for hours at a time. The brand's Space Grotesk / JetBrains
+   Mono fonts are not bundled (no font files or system installs were found
+   on this machine at scaffold time) so every rule falls back to a generic
+   family — see README.md for how to add the real fonts later. */
 
-// Theme derived from the "Unicorn Tears" neon-rave design system
-// (~/projects/unicorn-tears/claude-design-system). Colors are the brand's
-// own hex tokens; glow effects are intentionally restricted to
-// selection/focus states rather than static chrome, since this app is meant
-// to be looked at for hours at a time. The brand's Space Grotesk / JetBrains
-// Mono fonts are not bundled (no font files or system installs were found
-// on this machine at scaffold time) so every rule falls back to a generic
-// family — see README.md for how to add the real fonts later.
-inline constexpr const char *kAppStyleCss = R"css(
 /* ---- Raw brand tokens ---- */
 @define-color ink_900 #07060d;
 @define-color ink_850 #0c0a16;
@@ -68,4 +66,3 @@ window {
 .preview-frame {
   background-color: black;
 }
-)css";
