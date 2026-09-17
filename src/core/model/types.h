@@ -28,6 +28,8 @@ struct MediaInfo
     std::string videoCodec, audioCodec, container;
     bool isImageSequence = false;
     bool isStillImage = false;
+
+    bool operator==(const MediaInfo &) const = default;
 };
 
 struct Asset
@@ -46,6 +48,8 @@ struct Asset
     } status = Status::Pending;
     std::string proxyPath;       // empty if none
     std::string fileFingerprint; // size + mtime, for relink and cache keys
+
+    bool operator==(const Asset &) const = default;
 };
 
 struct Keyframe
@@ -58,16 +62,22 @@ struct Keyframe
         Smooth,
         Hold
     } interp = Interp::Linear;
+
+    bool operator==(const Keyframe &) const = default;
 };
 
 struct Color
 {
     uint8_t r = 0, g = 0, b = 0, a = 255;
+
+    bool operator==(const Color &) const = default;
 };
 
 struct Rect
 {
     double x = 0, y = 0, w = 0, h = 0;
+
+    bool operator==(const Rect &) const = default;
 };
 
 struct Param
@@ -75,6 +85,8 @@ struct Param
     std::string name; // MLT property name
     std::variant<double, int64_t, bool, std::string, Color, Rect> value;
     std::vector<Keyframe> keyframes; // empty = constant; positions relative to clip start
+
+    bool operator==(const Param &) const = default;
 };
 
 struct Effect
@@ -84,11 +96,15 @@ struct Effect
     std::string displayName;
     bool enabled = true;
     std::vector<Param> params;
+
+    bool operator==(const Effect &) const = default;
 };
 
 struct FadeSpec
 {
     FrameIndex length = 0;
+
+    bool operator==(const FadeSpec &) const = default;
 };
 
 struct Clip
@@ -112,6 +128,8 @@ struct Clip
     {
         return position + length();
     } // exclusive
+
+    bool operator==(const Clip &) const = default;
 };
 
 struct Track
@@ -127,6 +145,8 @@ struct Track
     std::vector<ClipId> clips;   // sorted by position, non-overlapping (invariant)
     std::vector<Effect> effects; // track-level (e.g. volume)
     double volume = 1.0;         // audio tracks and the audio part of video tracks
+
+    bool operator==(const Track &) const = default;
 };
 
 struct Transition
@@ -136,6 +156,8 @@ struct Transition
     ClipId a, b;
     FrameIndex length = 0;
     std::string service = "luma"; // "luma" (dissolve) in v2.0; "mix" for audio auto
+
+    bool operator==(const Transition &) const = default;
 };
 
 struct Marker
@@ -144,6 +166,8 @@ struct Marker
     FrameIndex at = 0;
     std::string text;
     uint8_t color = 0;
+
+    bool operator==(const Marker &) const = default;
 };
 
 struct Profile
@@ -155,6 +179,8 @@ struct Profile
     bool progressive = true;
     int colorspace = 709;
     std::string mltName; // "atsc_1080p_25" if it maps to a stock profile, else ""
+
+    bool operator==(const Profile &) const = default;
 };
 
 struct Sequence
@@ -174,6 +200,8 @@ struct Sequence
             max = std::max(max, entry.second.end());
         return max;
     }
+
+    bool operator==(const Sequence &) const = default;
 };
 
 struct Project
@@ -183,6 +211,8 @@ struct Project
     SequenceId activeSequence;
     uint64_t nextId = 1;                         // id allocator state; 0 is reserved for "invalid"
     std::map<std::string, std::string> settings; // free-form, persisted
+
+    bool operator==(const Project &) const = default;
 };
 
 } // namespace ustudio::core

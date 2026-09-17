@@ -1,0 +1,199 @@
+#pragma once
+
+#include "command.h"
+#include "core/model/model.h"
+
+#include <string>
+
+namespace ustudio::core {
+
+// One primitive command per Model mutator (doc 04's primitive-commands
+// table). Composite commands (RippleDelete, InsertAt, ...) are built from
+// these inside a Transaction; none are needed until the multi-clip
+// timeline UI (M3), so they're not implemented yet.
+
+class AddAsset : public Command
+{
+  public:
+    explicit AddAsset(Asset asset);
+    std::string label() const override
+    {
+        return "Add asset";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+    AssetId assetId() const
+    {
+        return m_assetId;
+    }
+
+  private:
+    Asset m_asset;
+    AssetId m_assetId;
+    bool m_appliedBefore = false;
+};
+
+class AddTrack : public Command
+{
+  public:
+    AddTrack(Track::Kind kind, size_t index, std::string name);
+    std::string label() const override
+    {
+        return "Add track";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+    TrackId trackId() const
+    {
+        return m_trackId;
+    }
+
+  private:
+    Track::Kind m_kind;
+    size_t m_index;
+    std::string m_name;
+    TrackId m_trackId;
+    bool m_appliedBefore = false;
+};
+
+// Captures the removed track (minus its clip list, restored separately)
+// and every clip that lived on it, so revert() reconstructs both exactly.
+class RemoveTrack : public Command
+{
+  public:
+    explicit RemoveTrack(TrackId track);
+    std::string label() const override
+    {
+        return "Remove track";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    TrackId m_track;
+    Track m_capturedTrack;
+    size_t m_capturedIndex = 0;
+    std::vector<Clip> m_capturedClips;
+};
+
+class SetTrackFlags : public Command
+{
+  public:
+    SetTrackFlags(TrackId track, bool muted, bool hidden, bool locked);
+    std::string label() const override
+    {
+        return "Set track flags";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    TrackId m_track;
+    bool m_muted, m_hidden, m_locked;
+    bool m_oldMuted = false, m_oldHidden = false, m_oldLocked = false;
+};
+
+class InsertClip : public Command
+{
+  public:
+    InsertClip(TrackId track, AssetId asset, FrameIndex pos, FrameIndex in, FrameIndex out);
+    std::string label() const override
+    {
+        return "Insert clip";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+    ClipId clipId() const
+    {
+        return m_clipId;
+    }
+
+  private:
+    TrackId m_track;
+    AssetId m_asset;
+    FrameIndex m_pos, m_in, m_out;
+    ClipId m_clipId;
+    bool m_appliedBefore = false;
+};
+
+// Captures the full Clip at apply time so revert() restores every field,
+// not just the ones InsertClip's forward path sets (doc 04).
+class RemoveClip : public Command
+{
+  public:
+    explicit RemoveClip(ClipId clip);
+    std::string label() const override
+    {
+        return "Remove clip";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    ClipId m_clip;
+    Clip m_captured;
+};
+
+class MoveClip : public Command
+{
+  public:
+    MoveClip(ClipId clip, TrackId newTrack, FrameIndex newPos);
+    std::string label() const override
+    {
+        return "Move clip";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    ClipId m_clip;
+    TrackId m_newTrack;
+    FrameIndex m_newPos;
+    TrackId m_oldTrack;
+    FrameIndex m_oldPos = 0;
+};
+
+class ResizeClip : public Command
+{
+  public:
+    ResizeClip(ClipId clip, FrameIndex newIn, FrameIndex newOut, FrameIndex newPos);
+    std::string label() const override
+    {
+        return "Resize clip";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    ClipId m_clip;
+    FrameIndex m_newIn, m_newOut, m_newPos;
+    FrameIndex m_oldIn = 0, m_oldOut = 0, m_oldPos = 0;
+};
+
+// Implemented as doc 04 describes: apply splits into left (this clip,
+// resized) + right (a new InsertClip-equivalent); revert removes the
+// right half and restores the left's original `out`.
+class SplitClip : public Command
+{
+  public:
+    SplitClip(ClipId clip, FrameIndex at);
+    std::string label() const override
+    {
+        return "Split clip";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+    ClipId rightId() const
+    {
+        return m_rightId;
+    }
+
+  private:
+    ClipId m_clip;
+    FrameIndex m_at;
+    FrameIndex m_oldOut = 0;
+    ClipId m_rightId;
+    bool m_appliedBefore = false;
+};
+
+} // namespace ustudio::core

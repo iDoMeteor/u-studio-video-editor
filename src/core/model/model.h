@@ -25,6 +25,13 @@ class Model
     {
         return m_project;
     }
+    // Value equality on the project state (doc 04): what a revert-after-
+    // apply property test checks -- ignores nothing, including ids.
+    bool operator==(const Model &other) const
+    {
+        return m_project == other.m_project;
+    }
+
     const Sequence &sequence() const;
     Sequence &mutableSequence();
 
@@ -34,6 +41,11 @@ class Model
     const Clip &clip(ClipId) const;
     bool hasTrack(TrackId) const;
     const Track &track(TrackId) const;
+    // Pure query, no mutation: true if [start, end) is free of clips on
+    // `trackId`, ignoring `ignoreClip` if given (a clip checking against
+    // its own future position). Used by core/commands to validate before
+    // apply(), per doc 04's dry-run-query pattern.
+    bool isRangeFree(TrackId, FrameIndex start, FrameIndex end, std::optional<ClipId> ignoreClip = std::nullopt) const;
 
     // --- Mutators -----------------------------------------------------
     AssetId addAsset(Asset newAsset, std::optional<AssetId> reuseId = std::nullopt);
@@ -52,6 +64,15 @@ class Model
     // Returns the id of the new right-hand clip; the original clip (now the
     // left half) keeps its id.
     ClipId splitClip(ClipId, FrameIndex at, std::optional<ClipId> reuseRightId = std::nullopt);
+
+    // Verbatim restore, used by Command::revert paths (core/commands) that
+    // captured a full Clip/Track at apply time (e.g. RemoveClip, RemoveTrack)
+    // -- unlike insertClip/addTrack, these don't derive any field, they just
+    // put back exactly what was captured, under its original id. `track`
+    // passed to restoreTrack should have an empty `clips` list; restoreClip
+    // repopulates it as each of the track's clips is restored.
+    void restoreClip(Clip clipToRestore);
+    void restoreTrack(Track trackToRestore, size_t index);
 
     // Emitted synchronously, main thread only, after state is consistent.
     Signal<const ModelEvent &> changed;

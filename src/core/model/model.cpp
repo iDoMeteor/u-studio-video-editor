@@ -112,6 +112,19 @@ const Track &Model::track(TrackId id) const
     return *it;
 }
 
+bool Model::isRangeFree(TrackId trackId, FrameIndex start, FrameIndex end, std::optional<ClipId> ignoreClip) const
+{
+    const Track &target = track(trackId);
+    for (ClipId clipId : target.clips) {
+        if (ignoreClip && clipId == *ignoreClip)
+            continue;
+        const Clip &existing = clip(clipId);
+        if (start < existing.end() && end > existing.position)
+            return false; // overlap
+    }
+    return true;
+}
+
 Track &Model::mutableTrack(TrackId id)
 {
     auto &tracks = activeSequence().tracks;
@@ -294,6 +307,33 @@ ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRig
 
     notify(ClipResized{id});
     return rightId;
+}
+
+void Model::restoreClip(Clip clipToRestore)
+{
+    reserveId(clipToRestore.id.value);
+    ClipId id = clipToRestore.id;
+    TrackId trackId = clipToRestore.track;
+
+    activeSequence().clips.emplace(id, std::move(clipToRestore));
+
+    Track &target = mutableTrack(trackId);
+    target.clips.push_back(id);
+    sortTrackClips(target);
+
+    notify(ClipInserted{id});
+}
+
+void Model::restoreTrack(Track trackToRestore, size_t index)
+{
+    reserveId(trackToRestore.id.value);
+    TrackId id = trackToRestore.id;
+
+    auto &tracks = activeSequence().tracks;
+    size_t clampedIndex = std::min(index, tracks.size());
+    tracks.insert(tracks.begin() + static_cast<std::ptrdiff_t>(clampedIndex), std::move(trackToRestore));
+
+    notify(TrackAdded{id});
 }
 
 // --- Invariants (doc 03) -----------------------------------------------------

@@ -1,6 +1,8 @@
 libustudio_core_sources = files(
   'log.cpp',
   'model/model.cpp',
+  'commands/primitives.cpp',
+  'commands/undo_stack.cpp',
 )
 
 libustudio_core = static_library(
