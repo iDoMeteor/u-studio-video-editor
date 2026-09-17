@@ -55,35 +55,54 @@ bool isDenied(const std::string &filename, const std::vector<std::string> &deny)
     return false;
 }
 
-// Builds (or refreshes) a curated module directory under XDG_RUNTIME_DIR
-// containing symlinks to every module in USTUDIO_MLT_MODULE_DIR except the
-// denylist. Returns the curated directory path, or empty on any failure
-// (caller falls back to default init).
-std::string buildCuratedModuleDir()
+// XDG_RUNTIME_DIR is only set inside a logind session; CI containers and
+// other headless environments don't have one. Fall back to the process's
+// system temp directory (std::filesystem::temp_directory_path(), which
+// itself honours TMPDIR) rather than degrading to unsafe default MLT
+// init -- ADR-007's whole point is that Qt6 never loads, and a temp-dir
+// location is just as valid a place for the curated symlink farm.
+fs::path moduleCacheBaseDir()
 {
-    const char *runtimeDir = std::getenv("XDG_RUNTIME_DIR");
-    if (!runtimeDir || !*runtimeDir) {
-        Log::warn("[engine] FactoryPolicy: XDG_RUNTIME_DIR not set, falling back to default MLT module loading");
+    if (const char *runtimeDir = std::getenv("XDG_RUNTIME_DIR"); runtimeDir && *runtimeDir)
+        return fs::path(runtimeDir);
+
+    std::error_code ec;
+    fs::path tmp = fs::temp_directory_path(ec);
+    if (ec) {
+        Log::warn("[engine] FactoryPolicy: XDG_RUNTIME_DIR not set and no system temp directory found (" +
+                  ec.message() + "), falling back to default MLT module loading");
         return {};
     }
 
-    fs::path curated = fs::path(runtimeDir) / "ustudio-mlt-modules";
+    Log::info("[engine] FactoryPolicy: XDG_RUNTIME_DIR not set, using " + tmp.string() + " instead");
+    return tmp;
+}
+
+// Builds (or refreshes) a curated module directory containing symlinks to
+// every module in USTUDIO_MLT_MODULE_DIR except the denylist. Returns the
+// curated directory path, or empty on any failure (caller falls back to
+// default init).
+std::string buildCuratedModuleDir()
+{
+    fs::path base = moduleCacheBaseDir();
+    if (base.empty())
+        return {};
+
+    fs::path curated = base / "ustudio-mlt-modules";
     fs::path source = USTUDIO_MLT_MODULE_DIR;
 
     std::error_code ec;
     fs::remove_all(curated, ec); // refresh: drop any stale symlinks from a previous run
     fs::create_directories(curated, ec);
     if (ec) {
-        Log::warn(
-            "[engine] FactoryPolicy: could not create " + curated.string() + " (" + ec.message()
-            + "), falling back to default MLT module loading");
+        Log::warn("[engine] FactoryPolicy: could not create " + curated.string() + " (" + ec.message() +
+                  "), falling back to default MLT module loading");
         return {};
     }
 
     if (!fs::exists(source, ec) || ec) {
-        Log::warn(
-            "[engine] FactoryPolicy: MLT module source dir " + source.string()
-            + " not found, falling back to default MLT module loading");
+        Log::warn("[engine] FactoryPolicy: MLT module source dir " + source.string() +
+                  " not found, falling back to default MLT module loading");
         return {};
     }
 
@@ -104,15 +123,13 @@ std::string buildCuratedModuleDir()
         ++linked;
     }
     if (ec) {
-        Log::warn(
-            "[engine] FactoryPolicy: error scanning " + source.string() + " (" + ec.message()
-            + "), falling back to default MLT module loading");
+        Log::warn("[engine] FactoryPolicy: error scanning " + source.string() + " (" + ec.message() +
+                  "), falling back to default MLT module loading");
         return {};
     }
 
-    Log::info(
-        "[engine] FactoryPolicy: curated MLT module dir " + curated.string() + " (" + std::to_string(linked)
-        + " linked, " + std::to_string(skipped) + " denied)");
+    Log::info("[engine] FactoryPolicy: curated MLT module dir " + curated.string() + " (" + std::to_string(linked) +
+              " linked, " + std::to_string(skipped) + " denied)");
     return curated.string();
 }
 

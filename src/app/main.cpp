@@ -15,8 +15,8 @@ void applyStyle(GtkApplication *)
 {
     GtkCssProvider *provider = gtk_css_provider_new();
     gtk_css_provider_load_from_resource(provider, "/com/ustudio/VideoEditor/style.css");
-    gtk_style_context_add_provider_for_display(
-        gdk_display_get_default(), GTK_STYLE_PROVIDER(provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
+                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(provider);
 }
 
@@ -39,8 +39,7 @@ int main(int argc, char **argv)
     ustudio::core::Log::init("u-studio-video-editor");
     const char *envLevel = std::getenv("USTUDIO_LOG_LEVEL");
     ustudio::core::Log::info(
-        "[app] Starting u Studio Video Editor (log level=" + std::string(envLevel ? envLevel : "info (default)")
-        + ")");
+        "[app] Starting u Studio Video Editor (log level=" + std::string(envLevel ? envLevel : "info (default)") + ")");
 
     // Constructed before any window (and before the first MltEngine, which
     // no longer calls Mlt::Factory::init() itself — see factory_policy.h),

@@ -136,8 +136,11 @@ in [`docs/plans/v2/02-architecture.md`](docs/plans/v2/02-architecture.md).
   owns `Mlt::Factory::init()`/`close()` for the whole process: exactly one
   instance, constructed in `main()` before any window or `MltEngine`,
   destroyed after `g_application_run()` returns. Builds a curated MLT
-  module directory under `$XDG_RUNTIME_DIR/ustudio-mlt-modules/` (symlinks
-  to every module except a `qt6`/`glaxnimate-qt6` denylist) so
+  module directory under `$XDG_RUNTIME_DIR/ustudio-mlt-modules/` (or, when
+  `XDG_RUNTIME_DIR` isn't set — CI containers and other headless
+  environments don't have a logind session — under the system temp
+  directory instead) containing symlinks to every module except a
+  `qt6`/`glaxnimate-qt6` denylist, so
   `Mlt::Factory::init()` never `dlopen`s Qt6 — a plain, argument-less
   `Factory::init()` measurably does (32 Qt library mappings observed on
   this machine); the curated approach was verified, via a standalone

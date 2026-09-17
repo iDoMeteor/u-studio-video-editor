@@ -16,9 +16,9 @@ test: build
 run: build
     ./{{builddir}}/src/app/u-studio-video-editor
 
-# Format every tracked .cpp/.h in place.
+# Format every tracked .cpp/.h in place (excludes vendored subprojects/).
 fmt:
-    clang-format -i $(git ls-files '*.cpp' '*.h')
+    clang-format -i $(git ls-files '*.cpp' '*.h' ':(exclude)subprojects/*')
 
 # The factory-policy test alone -- the "no Qt in the process" proof.
 check-qt: build

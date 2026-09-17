@@ -10,11 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     container: fedora:44
     steps:
+      # git must be present before actions/checkout runs, or checkout falls
+      # back to downloading a tarball via the GitHub REST API instead of a
+      # real git clone -- no .git directory results, silently, and anything
+      # later that runs `git` (the format job, notably) breaks.
+      - name: Install git
+        run: dnf install -y git
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           dnf install -y gcc-c++ meson ninja-build gtk4-devel libadwaita-devel \
-            mlt-devel libxml2-devel pulseaudio-libs-devel xorg-x11-server-Xvfb git
+            mlt-devel libxml2-devel pulseaudio-libs-devel xorg-x11-server-Xvfb
       - name: Configure
         run: meson setup builddir -Dwerror=true -Dbuildtype=debugoptimized
       - name: Build
@@ -29,11 +35,13 @@ jobs:
     runs-on: ubuntu-latest
     container: fedora:44
     steps:
+      - name: Install git
+        run: dnf install -y git
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           dnf install -y gcc-c++ meson ninja-build gtk4-devel libadwaita-devel \
-            mlt-devel libxml2-devel pulseaudio-libs-devel git
+            mlt-devel libxml2-devel pulseaudio-libs-devel
       - name: Configure
         run: meson setup builddir -Dbuildtype=debugoptimized
       - name: Build the factory-policy test
@@ -45,8 +53,12 @@ jobs:
     runs-on: ubuntu-latest
     container: fedora:44
     steps:
+      - name: Install git
+        run: dnf install -y git
       - uses: actions/checkout@v4
       - name: Install clang-tools-extra
-        run: dnf install -y clang-tools-extra git
+        run: dnf install -y clang-tools-extra
       - name: Check formatting
-        run: clang-format --dry-run --Werror $(git ls-files '*.cpp' '*.h')
+        # Excludes subprojects/ (vendored doctest.h, ADR-010) -- third-party
+        # code isn't ours to reformat or hold to this style.
+        run: clang-format --dry-run --Werror $(git ls-files '*.cpp' '*.h' ':(exclude)subprojects/*')

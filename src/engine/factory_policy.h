@@ -25,7 +25,7 @@ namespace ustudio::engine {
 
 class FactoryPolicy
 {
-public:
+  public:
     FactoryPolicy();
     ~FactoryPolicy();
 
@@ -35,9 +35,12 @@ public:
     // The directory actually passed to Factory::init() — the curated
     // directory, or empty if it fell back to the system default. Exposed
     // for the factory-policy test and for diagnostics.
-    const std::string &moduleDirectoryUsed() const { return m_moduleDirectoryUsed; }
+    const std::string &moduleDirectoryUsed() const
+    {
+        return m_moduleDirectoryUsed;
+    }
 
-private:
+  private:
     std::string m_moduleDirectoryUsed;
 };
 

@@ -25,7 +25,7 @@ namespace ustudio::engine {
 // blocks playback/editing while it works.
 class WaveformCache
 {
-public:
+  public:
     // onReady is invoked (already marshaled onto the GLib main thread)
     // each time a previously-unavailable waveform finishes computing —
     // callers should just queue a redraw and call peaksFor() again.
@@ -43,7 +43,7 @@ public:
     // an entry, once inserted, is never mutated again).
     const std::vector<float> *peaksFor(const std::string &resource, int in, int out);
 
-private:
+  private:
     struct Job
     {
         std::string key;

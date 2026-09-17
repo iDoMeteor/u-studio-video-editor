@@ -46,7 +46,7 @@ namespace ustudio::engine {
 // track directly below them.
 class MltEngine
 {
-public:
+  public:
     struct ClipInfo
     {
         std::string name;
@@ -54,7 +54,7 @@ public:
         int trackIndex = 0;
         int startFrame = 0;
         int frames = 0;
-        int in = 0; // source in/out, for waveform lookups (identifies the
+        int in = 0;  // source in/out, for waveform lookups (identifies the
         int out = 0; // exact trim, distinguishing re-trims of the same file)
     };
 
@@ -161,12 +161,18 @@ public:
     void play();
     void pause();
     void togglePlay();
-    bool isPlaying() const { return m_playing.load(); }
+    bool isPlaying() const
+    {
+        return m_playing.load();
+    }
 
     // Non-blocking: requests the worker thread seek and deliver one frame.
     void seek(int frame);
 
-    int currentFrame() const { return m_lastKnownFrame.load(); }
+    int currentFrame() const
+    {
+        return m_lastKnownFrame.load();
+    }
     int totalFrames() const;
     double fps() const;
 
@@ -174,7 +180,7 @@ public:
 
     void setFrameCallback(FrameCallback cb);
 
-private:
+  private:
     struct PendingFrame
     {
         MltEngine *engine;

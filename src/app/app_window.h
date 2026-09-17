@@ -31,12 +31,15 @@ enum class TimelineDragMode
 // step for this first milestone.
 class AppWindow
 {
-public:
+  public:
     explicit AppWindow(GtkApplication *app);
 
-    GtkWidget *widget() const { return GTK_WIDGET(m_window); }
+    GtkWidget *widget() const
+    {
+        return GTK_WIDGET(m_window);
+    }
 
-private:
+  private:
     void buildUi(GtkApplication *app);
     void onImportClicked();
     void onFileOpened(GObject *sourceObject, GAsyncResult *result);
@@ -86,8 +89,8 @@ private:
     static void splitClickedTrampoline(GtkButton *button, gpointer userData);
     static void timelineDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer userData);
     static void timelineClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
-    static void
-    timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
+    static void timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
+                                             gpointer userData);
     static void deleteClipClickedTrampoline(GtkButton *button, gpointer userData);
     static void closeGapClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTrackClickedTrampoline(GtkButton *button, gpointer userData);

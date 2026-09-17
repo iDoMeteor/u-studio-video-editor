@@ -1,6 +1,6 @@
 # ADR-007: Curated MLT module directory
 
-**Status:** Proposed
+**Status:** Accepted (implemented in M0)
 
 ## Context
 `Mlt::Factory::init()` with no argument loads every module in
@@ -11,19 +11,27 @@ containing symlinks to every module except `*qt6*`. All required consumers,
 transitions, and profiles remain available.
 
 ## Decision
-`engine::FactoryPolicy` creates (or refreshes) a per-user directory
-`$XDG_RUNTIME_DIR/ustudio-mlt-modules/` of symlinks to the system module
-directory, excluding a denylist (`qt6`, `glaxnimate-qt6`), and calls
-`Mlt::Factory::init(thatDir)`. The denylist is a constant in code, overridable
-by `USTUDIO_MLT_DENYLIST` for debugging. A test asserts no `libQt` mapping
-after init and that the required service names exist. The Flatpak build
-compiles MLT without the Qt modules, making the policy structural there.
+`engine::FactoryPolicy` creates (or refreshes) a directory
+`ustudio-mlt-modules/` of symlinks to the system module directory,
+excluding a denylist (`qt6`, `glaxnimate-qt6`), and calls
+`Mlt::Factory::init(thatDir)`. It's placed under `$XDG_RUNTIME_DIR` when
+set, or the system temp directory otherwise — CI containers and other
+headless environments have no logind session and so no
+`XDG_RUNTIME_DIR`, and that must not silently degrade to unsafe default
+init (found in M0: both CI jobs exercising this test failed exactly this
+way before the temp-dir fallback was added). The denylist is a constant in
+code, overridable by `USTUDIO_MLT_DENYLIST` for debugging. A test asserts
+no `libQt` mapping after init and that the required service names exist.
+The Flatpak build compiles MLT without the Qt modules, making the policy
+structural there.
 
 ## Consequences
-- The "no Qt/KDE in the stack" claim becomes true and continuously tested.
+- The "no Qt/KDE in the stack" claim becomes true and continuously tested,
+  including in CI (no `XDG_RUNTIME_DIR` there).
 - Depends on `mlt_factory_init(directory)` semantics (stable since MLT 6).
 - Modules that need data files (`MLT_DATA`) keep working because data lookup
   is independent of the module directory (verified).
-- If the runtime dir can't be created, fall back to default init and log a
-  warning; the test would catch this in CI but a user machine would run
-  with Qt loaded rather than fail to start.
+- If neither `XDG_RUNTIME_DIR` nor the system temp directory is usable,
+  fall back to default init and log a warning; the test would catch this
+  in CI but a user machine would run with Qt loaded rather than fail to
+  start.

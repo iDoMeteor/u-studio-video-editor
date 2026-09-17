@@ -436,8 +436,8 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     gtk_widget_set_visible(m_closeGapButton, m_contextMenuGapStartFrame >= 0);
     gtk_widget_set_visible(m_removeTrackButton, m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0);
 
-    GdkRectangle rect{
-        static_cast<int>(x), static_cast<int>(row * kTrackRowHeight), 1, static_cast<int>(kTrackRowHeight)};
+    GdkRectangle rect{static_cast<int>(x), static_cast<int>(row * kTrackRowHeight), 1,
+                      static_cast<int>(kTrackRowHeight)};
     gtk_popover_set_pointing_to(m_trackContextMenu, &rect);
     gtk_popover_popup(m_trackContextMenu);
 }
@@ -573,8 +573,8 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
     int deltaFrames = static_cast<int>(offsetX / contentWidth * total);
 
     if (m_dragMode == TimelineDragMode::MoveClip) {
-        m_dragPreviewTrack = std::clamp(
-            static_cast<int>((m_dragStartY + offsetY) / kTrackRowHeight), 0, std::max(trackCount - 1, 0));
+        m_dragPreviewTrack =
+            std::clamp(static_cast<int>((m_dragStartY + offsetY) / kTrackRowHeight), 0, std::max(trackCount - 1, 0));
         m_dragPreviewStartFrame = std::max(0, m_dragClipStartFrame + deltaFrames);
         m_dragPreviewFrames = m_dragClipFrames;
     } else if (m_dragMode == TimelineDragMode::TrimClipStart) {
@@ -607,14 +607,14 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             m_selectedClip = -1;
             showStatus("Moved track " + std::to_string(m_draggingTrack) + " to " + std::to_string(targetRow) + ".");
         }
-    } else if (mode == TimelineDragMode::MoveClip || mode == TimelineDragMode::TrimClipStart
-               || mode == TimelineDragMode::TrimClipEnd) {
+    } else if (mode == TimelineDragMode::MoveClip || mode == TimelineDragMode::TrimClipStart ||
+               mode == TimelineDragMode::TrimClipEnd) {
         if (trivial) {
             // Not really a drag -- treat as the plain click it was.
             onTimelineClicked(m_dragStartX, m_dragStartY);
         } else if (mode == TimelineDragMode::MoveClip) {
-            if (m_engine->moveClip(
-                    m_dragClipTrack, m_dragClipStartFrame, m_dragPreviewTrack, m_dragPreviewStartFrame)) {
+            if (m_engine->moveClip(m_dragClipTrack, m_dragClipStartFrame, m_dragPreviewTrack,
+                                   m_dragPreviewStartFrame)) {
                 m_activeTrack = m_dragPreviewTrack;
             } else {
                 showStatus("Can't move the clip there — that space is occupied.");
@@ -733,11 +733,8 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
             size_t startIdx =
                 static_cast<size_t>((static_cast<double>(px) / pixelWidth) * static_cast<double>(peakCount));
             size_t endIdx = std::min(
-                peakCount,
-                std::max(
-                    startIdx + 1,
-                    static_cast<size_t>(
-                        (static_cast<double>(px + 1) / pixelWidth) * static_cast<double>(peakCount))));
+                peakCount, std::max(startIdx + 1, static_cast<size_t>((static_cast<double>(px + 1) / pixelWidth) *
+                                                                      static_cast<double>(peakCount))));
 
             float peak = 0.0f;
             for (size_t k = startIdx; k < endIdx; ++k)
@@ -753,8 +750,8 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
 
     for (size_t i = 0; i < m_clips.size(); ++i) {
         const auto &clip = m_clips[i];
-        bool isDragged = m_dragMode != TimelineDragMode::None && clip.trackIndex == m_dragClipTrack
-            && clip.startFrame == m_dragClipStartFrame;
+        bool isDragged = m_dragMode != TimelineDragMode::None && clip.trackIndex == m_dragClipTrack &&
+                         clip.startFrame == m_dragClipStartFrame;
         bool selected = (static_cast<int>(i) == m_selectedClip);
 
         if (isDragged && m_dragMode == TimelineDragMode::MoveClip)
