@@ -1,5 +1,6 @@
 libustudio_core_sources = files(
   'log.cpp',
+  'model/model.cpp',
 )
 
 libustudio_core = static_library(
