@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <memory>
+#include <thread>
 
 namespace {
 // Mirrors the tokens in style_css.h. Kept as plain hex here because clips
@@ -17,6 +19,7 @@ constexpr double kTrackRowHeight = 60.0;
 constexpr double kHandleWidth = 22.0;
 constexpr double kEdgeGrabWidth = 8.0;
 constexpr double kDragClickThreshold = 3.0; // below this, a "drag" is really just a click
+constexpr double kWaveformR = 0x9d / 255.0, kWaveformG = 0x4e / 255.0, kWaveformB = 0xff / 255.0; // brand violet
 } // namespace
 
 AppWindow::AppWindow(GtkApplication *app)
@@ -25,6 +28,7 @@ AppWindow::AppWindow(GtkApplication *app)
     m_engine->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
+    m_waveforms = std::make_unique<WaveformCache>([this] { onWaveformReady(); });
 
     buildUi(app);
     showStatus("Import a media file to begin.");
@@ -61,6 +65,11 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_tooltip_text(saveButton, "Save project…");
     g_signal_connect(saveButton, "clicked", G_CALLBACK(&AppWindow::saveClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), saveButton);
+
+    GtkWidget *renderButton = gtk_button_new_with_label("Render…");
+    gtk_widget_set_tooltip_text(renderButton, "Render the project to an MP4 file");
+    g_signal_connect(renderButton, "clicked", G_CALLBACK(&AppWindow::renderClickedTrampoline), this);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), renderButton);
 
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbarView), headerBar);
 
@@ -106,12 +115,30 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(drag, "drag-end", G_CALLBACK(&AppWindow::trackDragEndTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(drag));
 
+    // One popover, three possible actions — onTimelineRightClicked decides
+    // which single one is relevant (clip under the cursor -> Delete Clip;
+    // gap under the cursor -> Close Gap; otherwise -> Remove Track) and
+    // shows only that button.
     m_trackContextMenu = GTK_POPOVER(gtk_popover_new());
     gtk_widget_set_parent(GTK_WIDGET(m_trackContextMenu), GTK_WIDGET(m_timeline));
-    GtkWidget *removeTrackButton = gtk_button_new_with_label("Remove Track");
-    gtk_widget_add_css_class(removeTrackButton, "flat");
-    g_signal_connect(removeTrackButton, "clicked", G_CALLBACK(&AppWindow::removeTrackClickedTrampoline), this);
-    gtk_popover_set_child(m_trackContextMenu, removeTrackButton);
+    GtkWidget *contextMenuBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+
+    m_deleteClipButton = gtk_button_new_with_label("Delete Clip");
+    gtk_widget_add_css_class(m_deleteClipButton, "flat");
+    g_signal_connect(m_deleteClipButton, "clicked", G_CALLBACK(&AppWindow::deleteClipClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_deleteClipButton);
+
+    m_closeGapButton = gtk_button_new_with_label("Close Gap");
+    gtk_widget_add_css_class(m_closeGapButton, "flat");
+    g_signal_connect(m_closeGapButton, "clicked", G_CALLBACK(&AppWindow::closeGapClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_closeGapButton);
+
+    m_removeTrackButton = gtk_button_new_with_label("Remove Track");
+    gtk_widget_add_css_class(m_removeTrackButton, "flat");
+    g_signal_connect(m_removeTrackButton, "clicked", G_CALLBACK(&AppWindow::removeTrackClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_removeTrackButton);
+
+    gtk_popover_set_child(m_trackContextMenu, contextMenuBox);
 
     gtk_box_append(GTK_BOX(bottomBox), GTK_WIDGET(m_timeline));
 
@@ -249,6 +276,63 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
     g_object_unref(file);
 }
 
+void AppWindow::onRenderClicked()
+{
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Render Project");
+    gtk_file_dialog_set_initial_name(dialog, "export.mp4");
+    gtk_file_dialog_save(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::renderFinishedTrampoline, this);
+    g_object_unref(dialog);
+}
+
+void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
+{
+    GError *error = nullptr;
+    GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(sourceObject), result, &error);
+    if (!file) {
+        if (error)
+            g_error_free(error);
+        return;
+    }
+
+    char *pathC = g_file_get_path(file);
+    g_object_unref(file);
+    if (!pathC)
+        return;
+    std::string path = pathC;
+    g_free(pathC);
+
+    showStatus("Rendering to " + path + " … (this can take a while — the window will stay responsive)");
+
+    // MltEngine outlives this window for the whole process, and AppWindow
+    // itself is never destroyed during normal operation (see main.cpp) —
+    // capturing `this`/m_engine in this detached thread is safe on that
+    // basis, matching the same reasoning WaveformCache's worker relies on.
+    std::thread([this, path]() {
+        std::string err;
+        bool ok = m_engine->renderProject(path, err);
+
+        struct Result
+        {
+            AppWindow *self;
+            bool ok;
+            std::string err;
+            std::string path;
+        };
+        auto *result = new Result{this, ok, std::move(err), path};
+        g_idle_add(
+            [](gpointer data) -> gboolean {
+                std::unique_ptr<Result> r(static_cast<Result *>(data));
+                if (r->ok)
+                    r->self->showStatus("Rendered: " + r->path);
+                else
+                    r->self->showStatus("Render failed: " + r->err);
+                return G_SOURCE_REMOVE;
+            },
+            result);
+    }).detach();
+}
+
 void AppWindow::onAddTrackClicked()
 {
     int newTrack = m_engine->addTrack();
@@ -315,17 +399,73 @@ void AppWindow::onTimelineClicked(double x, double y)
 
 void AppWindow::onTimelineRightClicked(double x, double y)
 {
-    (void)x;
     int trackCount = m_engine->trackCount();
     if (trackCount <= 0)
         return;
 
     int row = std::clamp(static_cast<int>(y / kTrackRowHeight), 0, trackCount - 1);
     m_contextMenuTrack = row;
+    m_contextMenuClipStartFrame = -1;
+    m_contextMenuGapStartFrame = -1;
 
-    GdkRectangle rect{static_cast<int>(x), static_cast<int>(row * kTrackRowHeight), 1, static_cast<int>(kTrackRowHeight)};
+    int total = m_engine->totalFrames();
+    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
+    int frame = -1;
+    if (total > 0 && widgetWidth > kHandleWidth && x >= kHandleWidth) {
+        double contentWidth = widgetWidth - kHandleWidth;
+        frame = static_cast<int>(((x - kHandleWidth) / contentWidth) * total);
+    }
+    m_contextMenuFrame = frame;
+
+    if (frame >= 0) {
+        for (const auto &clip : m_clips) {
+            if (clip.trackIndex == row && frame >= clip.startFrame && frame < clip.startFrame + clip.frames) {
+                m_contextMenuClipStartFrame = clip.startFrame;
+                break;
+            }
+        }
+        if (m_contextMenuClipStartFrame < 0 && m_engine->isGapAt(row, frame))
+            m_contextMenuGapStartFrame = frame;
+    }
+
+    gtk_widget_set_visible(m_deleteClipButton, m_contextMenuClipStartFrame >= 0);
+    gtk_widget_set_visible(m_closeGapButton, m_contextMenuGapStartFrame >= 0);
+    gtk_widget_set_visible(m_removeTrackButton, m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0);
+
+    GdkRectangle rect{
+        static_cast<int>(x), static_cast<int>(row * kTrackRowHeight), 1, static_cast<int>(kTrackRowHeight)};
     gtk_popover_set_pointing_to(m_trackContextMenu, &rect);
     gtk_popover_popup(m_trackContextMenu);
+}
+
+void AppWindow::onDeleteClipClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (m_contextMenuClipStartFrame < 0)
+        return;
+
+    if (m_engine->deleteClip(m_contextMenuTrack, m_contextMenuClipStartFrame)) {
+        m_selectedClip = -1;
+        refreshTimeline();
+        showStatus("Deleted clip — gap left behind. Right-click the gap to close it.");
+    } else {
+        showStatus("Couldn't delete that clip.");
+    }
+}
+
+void AppWindow::onCloseGapClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (m_contextMenuGapStartFrame < 0)
+        return;
+
+    if (m_engine->closeGap(m_contextMenuTrack, m_contextMenuGapStartFrame)) {
+        m_selectedClip = -1;
+        refreshTimeline();
+        showStatus("Closed gap.");
+    } else {
+        showStatus("Couldn't close that gap.");
+    }
 }
 
 void AppWindow::onRemoveTrackClicked()
@@ -564,6 +704,44 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_stroke(cr);
     };
 
+    // Waveform: fetches cached peaks (kicking off async computation if not
+    // yet available — see WaveformCache) and draws a vertical-bar envelope
+    // across the clip's rectangle. Skipped for the actively-dragged clip
+    // (its in/out are changing every frame during a trim, which would just
+    // thrash the cache) — reasonable to not bother re-drawing a waveform
+    // for the ~second a drag lasts.
+    auto drawWaveform = [&](const MltEngine::ClipInfo &clip, double x, double w) {
+        if (clip.resource.empty())
+            return;
+        const std::vector<float> *peaks = m_waveforms->peaksFor(clip.resource, clip.in, clip.out);
+        if (!peaks || peaks->empty())
+            return;
+
+        double rowY = clip.trackIndex * kTrackRowHeight;
+        double midY = rowY + kTrackRowHeight / 2.0;
+        double maxBarHalfHeight = (kTrackRowHeight - 12.0) / 2.0;
+        size_t peakCount = peaks->size();
+        int pixelWidth = std::max(static_cast<int>(w), 1);
+
+        cairo_set_source_rgba(cr, kWaveformR, kWaveformG, kWaveformB, 0.85);
+        cairo_set_line_width(cr, 1.0);
+        for (int px = 0; px < pixelWidth; ++px) {
+            size_t startIdx = static_cast<size_t>((static_cast<double>(px) / pixelWidth) * peakCount);
+            size_t endIdx =
+                std::min(peakCount, std::max(startIdx + 1, static_cast<size_t>((static_cast<double>(px + 1) / pixelWidth) * peakCount)));
+
+            float peak = 0.0f;
+            for (size_t k = startIdx; k < endIdx; ++k)
+                peak = std::max(peak, (*peaks)[k]);
+
+            double barHalf = std::max(static_cast<double>(peak) * maxBarHalfHeight, 1.0);
+            double colX = x + px + 0.5;
+            cairo_move_to(cr, colX, midY - barHalf);
+            cairo_line_to(cr, colX, midY + barHalf);
+            cairo_stroke(cr);
+        }
+    };
+
     for (size_t i = 0; i < m_clips.size(); ++i) {
         const auto &clip = m_clips[i];
         bool isDragged = m_dragMode != TimelineDragMode::None && clip.trackIndex == m_dragClipTrack
@@ -573,10 +751,16 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         if (isDragged && m_dragMode == TimelineDragMode::MoveClip)
             continue; // drawn as a ghost at the preview position instead, below
 
-        if (isDragged)
-            drawClipRect(m_dragPreviewTrack, m_dragPreviewStartFrame, m_dragPreviewFrames, selected, false);
-        else
-            drawClipRect(clip.trackIndex, clip.startFrame, clip.frames, selected, false);
+        int drawTrack = isDragged ? m_dragPreviewTrack : clip.trackIndex;
+        int drawStart = isDragged ? m_dragPreviewStartFrame : clip.startFrame;
+        int drawFrames = isDragged ? m_dragPreviewFrames : clip.frames;
+        drawClipRect(drawTrack, drawStart, drawFrames, selected, false);
+
+        if (!isDragged) {
+            double x = kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth;
+            double w = (static_cast<double>(clip.frames) / total) * contentWidth;
+            drawWaveform(clip, x, w);
+        }
     }
 
     if (m_dragMode == TimelineDragMode::MoveClip)
@@ -594,6 +778,11 @@ void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, i
     }
 
     refreshTransport(frameNumber);
+}
+
+void AppWindow::onWaveformReady()
+{
+    gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
 }
 
 void AppWindow::refreshTimeline()
@@ -677,6 +866,16 @@ void AppWindow::openProjectFinishedTrampoline(GObject *sourceObject, GAsyncResul
     static_cast<AppWindow *>(userData)->onOpenProjectFinished(sourceObject, result);
 }
 
+void AppWindow::renderClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRenderClicked();
+}
+
+void AppWindow::renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRenderFinished(sourceObject, result);
+}
+
 void AppWindow::addTrackClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onAddTrackClicked();
@@ -710,6 +909,16 @@ void AppWindow::timelineClickTrampoline(GtkGestureClick *, int, double x, double
 void AppWindow::timelineRightClickTrampoline(GtkGestureClick *, int, double x, double y, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onTimelineRightClicked(x, y);
+}
+
+void AppWindow::deleteClipClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onDeleteClipClicked();
+}
+
+void AppWindow::closeGapClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onCloseGapClicked();
 }
 
 void AppWindow::removeTrackClickedTrampoline(GtkButton *, gpointer userData)

@@ -21,15 +21,24 @@ single-track skeleton.
 - Play/pause, scrub (including mid-playback), split a clip at the playhead.
 - Drag a clip's body to move it — within a track or to a different one.
   Drag near a clip's left/right edge (~8px) to trim it shorter or longer.
-  Right-click a track for a "Remove Track" popover.
+  Right-click a clip to delete it (leaves a gap — "lift", nothing else
+  moves); right-click a gap to close it (ripples later content earlier to
+  fill it); right-click empty track space for "Remove Track".
+- Per-clip audio waveforms, drawn on every clip that has audio (video or
+  audio-only), computed on a background thread so the UI never stalls —
+  see `src/engine/waveform_cache.{h,cpp}`.
+- Render the project to an MP4 matching this project's fixed working
+  format (H.264 High/yuv420p, 1920×1080, 30fps, AAC 48kHz stereo) via the
+  header bar's "Render…" button. Runs on a background thread.
 - Save/load a project (its own format — see "Project files" below).
 - Timestamped debug/info/warn/error logging to `logs/`, level configurable
   via `USTUDIO_LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`none`, default
   `info`).
 
-Not yet: effects, titling, undo/redo, waveform display, proxy/transcode,
-export/render UI (MLT can render via an `avformat` consumer — just not
-wired to the UI yet).
+Not yet: effects, titling, undo/redo, proxy/transcode, configurable export
+formats (render is currently hardcoded to this project's own working
+format — see "Render implementation notes" below), ripple/overwrite editing
+beyond move/trim's "destination must be empty" rule.
 
 ## Building
 
@@ -69,12 +78,18 @@ USTUDIO_LOG_LEVEL=debug ./builddir/src/u-studio-video-editor
 
 ## Architecture
 
-- `src/engine/mlt_engine.{h,cpp}` — the *only* module that includes an MLT
-  header. Owns a `Mlt::Profile`, one `Mlt::Playlist` per track wired into a
+- `src/engine/mlt_engine.{h,cpp}` — the main module touching MLT types for
+  live editing/playback. Owns a `Mlt::Profile` (fixed at `atsc_1080p_30` —
+  1920×1080/30fps — matching this project's real source/export format; see
+  "Render implementation notes"), one `Mlt::Playlist` per track wired into a
   `Mlt::Tractor`, and a dedicated worker thread that pulls one decoded frame
   (image + audio) at a time and hands the image to the GTK main thread via
   `g_idle_add()`. Everything above this module deals only in plain C++ types
   — no MLT, no GTK inside the engine.
+- `src/engine/waveform_cache.{h,cpp}` — a small, separate MLT touchpoint
+  (opens its own throwaway `Profile`/`Producer` per clip) for background
+  audio-peak extraction, kept outside `MltEngine` specifically so it never
+  contends with `m_mltMutex` or blocks editing/playback.
 - `src/ui/app_window.{h,cpp}` — the app shell (header bar, preview pane,
   multi-row timeline, transport bar), built imperatively against GTK4's C
   API (no `.ui`/GResource files — fewer moving parts).
@@ -143,6 +158,25 @@ Three MLT playlist facts, each verified empirically before relying on them:
   Simpler and much harder to accidentally destroy content with; a real
   "insert and ripple the rest of the track forward" edit mode is a
   reasonable future addition, not attempted here.
+
+### Render implementation notes
+
+`renderProject()` uses MLT's `avformat` consumer, with properties confirmed
+against its actual YAML metadata rather than guessed from ffmpeg CLI-flag
+muscle memory (`vcodec`/`acodec`/`f`/`vb`/`ab`/`ar`/`channels`/`pix_fmt`/
+`real_time` — not, say, `b:v`/`crf`). The target format itself — h264 High
+profile, yuv420p, 1920×1080, 30fps, ~923kbps video / AAC-LC 48kHz stereo
+~126kbps, MP4 — was read directly off a real reference export file via
+`ffprobe`, and the whole pipeline (profile choice, consumer properties) was
+validated with a standalone render-then-reprobe round-trip that confirmed
+an exact match before any of it was wired into the engine.
+
+It renders from a completely separate, throwaway `Profile`/`Tractor` built
+from a quick snapshot of the current tracks/clips (same
+resource/in/out capture as `saveProject()`) rather than through the live
+`m_tractor` — so a render, which can take real encode time for a long
+project, never holds `m_mltMutex` and never blocks editing or playback
+while it runs.
 
 ### Project files
 

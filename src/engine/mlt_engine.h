@@ -48,9 +48,12 @@ public:
     struct ClipInfo
     {
         std::string name;
+        std::string resource; // source file path, for waveform lookups
         int trackIndex = 0;
         int startFrame = 0;
         int frames = 0;
+        int in = 0; // source in/out, for waveform lookups (identifies the
+        int out = 0; // exact trim, distinguishing re-trims of the same file)
     };
 
     // Invoked already marshaled onto the GLib main thread — safe to touch
@@ -110,6 +113,25 @@ public:
     // later content, matching a standard ripple-trim.
     bool trimClipEnd(int trackIndex, int startFrame, int newEndFrame);
 
+    // "Lift": removes the clip at (trackIndex, startFrame), leaving a blank
+    // gap of the same length in its place — nothing else on the track
+    // moves. Pairs with closeGap() as a deliberate two-step "cut a piece
+    // out, then separately decide whether to ripple the rest of the track
+    // up to fill the hole" workflow. Returns false if there's no clip
+    // there.
+    bool deleteClip(int trackIndex, int startFrame);
+
+    // Removes the blank gap at (trackIndex, frame) — a right-click-in-a-gap
+    // "Close Gap" action — rippling everything after it on that track
+    // earlier to fill the space. Returns false if that position isn't a
+    // blank.
+    bool closeGap(int trackIndex, int frame);
+
+    // True if (trackIndex, frame) falls inside a blank gap in the track's
+    // current content (not past its end). Used to decide what a
+    // right-click on the timeline should offer.
+    bool isGapAt(int trackIndex, int frame) const;
+
     // Saves/loads the track/clip layout (tracks, each clip's file + in/out
     // trim points) as a small GKeyFile-format project file — not MLT's own
     // XML format. MLT's "xml" producer, when reloaded, presents itself as a
@@ -122,6 +144,17 @@ public:
     // for normal editing sidesteps that entirely.
     bool saveProject(const std::string &path, std::string &error);
     bool loadProject(const std::string &path, std::string &error);
+
+    // Renders the whole project to outputPath as H.264 (High, yuv420p,
+    // 1920x1080, 30fps) + AAC (48kHz stereo) in an MP4 container — matching
+    // this project's fixed working profile/format (see the profile comment
+    // in the constructor). Blocking and potentially slow (real encode
+    // time); the caller is expected to run this on its own thread, not the
+    // GTK main thread. Builds a completely separate, throwaway
+    // Profile/Tractor from a snapshot of the current tracks/clips rather
+    // than rendering through the live m_tractor, so editing/playback isn't
+    // blocked or disturbed for however long the render takes.
+    bool renderProject(const std::string &outputPath, std::string &error);
 
     void play();
     void pause();
@@ -151,6 +184,13 @@ private:
 
     void pullLoopMain();
     static gboolean deliverOnMainThread(gpointer data);
+
+    // Plants the composite (video, full-frame top-wins) + mix (audio,
+    // start=1/sum=1 — see rebuildTractor) transition pair connecting track
+    // `index` to `index - 1` on `tractor`/`profile`. Shared by
+    // rebuildTractor (the live m_tractor) and renderProject (a throwaway
+    // render-only tractor) so the two don't silently drift apart.
+    static void plantTrackTransitions(Mlt::Profile &profile, Mlt::Tractor &tractor, int index);
 
     // Rebuilds m_tractor from scratch against the current m_tracks order:
     // re-registers every track and re-plants the composite/mix transition

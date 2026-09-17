@@ -1,6 +1,7 @@
 sources = files(
   'main.cpp',
   'engine/mlt_engine.cpp',
+  'engine/waveform_cache.cpp',
   'ui/app_window.cpp',
   'util/log.cpp',
 )

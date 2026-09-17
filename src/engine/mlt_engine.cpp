@@ -21,7 +21,13 @@ MltEngine::MltEngine()
     // lifetime and Factory::close() releases MLT's global state regardless.
     Mlt::Factory::init();
 
-    m_profile = std::make_unique<Mlt::Profile>("atsc_1080p_25");
+    // 1920x1080/30fps matches this project's real-world source/export
+    // format (an AI-video-pipeline MP4: h264 High/yuv420p/bt709 @30fps,
+    // AAC 48kHz stereo) — see renderProject() for the matching export
+    // settings. A fixed project-wide profile (rather than per-import) is a
+    // real limitation if source material varies in fps/resolution; a
+    // future improvement could pick this from the first imported clip.
+    m_profile = std::make_unique<Mlt::Profile>("atsc_1080p_30");
     m_tractor = std::make_unique<Mlt::Tractor>(*m_profile);
     addTrack(); // track 0 always exists
 
@@ -132,6 +138,29 @@ bool MltEngine::moveTrack(int fromIndex, int toIndex)
     return true;
 }
 
+void MltEngine::plantTrackTransitions(Mlt::Profile &profile, Mlt::Tractor &tractor, int index)
+{
+    // Video: plain "composite" already does a full-frame top-track-wins
+    // overlay by default (verified empirically — no PIP geometry gotcha).
+    // Chained pairwise (i-1, i) so N tracks stack correctly, and a
+    // pure-audio clip on the upper track leaves the video below untouched
+    // (also verified).
+    Mlt::Transition composite(profile, "composite");
+    tractor.field()->plant_transition(composite, index - 1, index);
+
+    // Audio: tracks do NOT auto-mix — verified empirically that without an
+    // explicit "mix" transition, only track 0's audio is audible at all.
+    // "start=1" sets a constant (non-crossfade) full mix level; "sum=1" is
+    // required too — the default halve-then-add algorithm measured no
+    // different from not mixing at all in testing, while sum=1 measurably
+    // summed both tracks' energy correctly.
+    Mlt::Transition mix(profile, "mix");
+    mix.set("start", 1.0);
+    mix.set("sum", 1);
+    mix.set("always_active", 1);
+    tractor.field()->plant_transition(mix, index - 1, index);
+}
+
 void MltEngine::rebuildTractor()
 {
     int preservedPosition = m_tractor ? m_tractor->position() : 0;
@@ -140,29 +169,8 @@ void MltEngine::rebuildTractor()
     for (size_t i = 0; i < m_tracks.size(); ++i) {
         int index = static_cast<int>(i);
         newTractor->set_track(*m_tracks[i], index);
-
-        if (index > 0) {
-            // Video: plain "composite" already does a full-frame
-            // top-track-wins overlay by default (verified empirically — no
-            // PIP geometry gotcha). Chained pairwise (i-1, i) so N tracks
-            // stack correctly, and a pure-audio clip on the upper track
-            // leaves the video below untouched (also verified).
-            Mlt::Transition composite(*m_profile, "composite");
-            newTractor->field()->plant_transition(composite, index - 1, index);
-
-            // Audio: tracks do NOT auto-mix — verified empirically that
-            // without an explicit "mix" transition, only track 0's audio is
-            // audible at all. "start=1" sets a constant (non-crossfade)
-            // full mix level; "sum=1" is required too — the default
-            // halve-then-add algorithm measured no different from not
-            // mixing at all in testing, while sum=1 measurably summed both
-            // tracks' energy correctly.
-            Mlt::Transition mix(*m_profile, "mix");
-            mix.set("start", 1.0);
-            mix.set("sum", 1);
-            mix.set("always_active", 1);
-            newTractor->field()->plant_transition(mix, index - 1, index);
-        }
+        if (index > 0)
+            plantTrackTransitions(*m_profile, *newTractor, index);
     }
 
     m_tractor = std::move(newTractor);
@@ -416,6 +424,59 @@ bool MltEngine::trimClipEnd(int trackIndex, int startFrame, int newEndFrame)
     return true;
 }
 
+bool MltEngine::deleteClip(int trackIndex, int startFrame)
+{
+    std::lock_guard<std::mutex> lock(m_mltMutex);
+
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_tracks.size()))
+        return false;
+
+    Mlt::Playlist &playlist = *m_tracks[trackIndex];
+    int index = playlist.get_clip_index_at(startFrame);
+    if (index < 0 || playlist.is_blank(index))
+        return false;
+
+    std::unique_ptr<Mlt::Producer> removed(playlist.replace_with_blank(index));
+    m_tractor->refresh();
+    m_totalFramesCache.store(m_tractor->get_length());
+    Log::info("Deleted clip on track " + std::to_string(trackIndex) + " at frame " + std::to_string(startFrame));
+    return true;
+}
+
+bool MltEngine::closeGap(int trackIndex, int frame)
+{
+    std::lock_guard<std::mutex> lock(m_mltMutex);
+
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_tracks.size()))
+        return false;
+
+    Mlt::Playlist &playlist = *m_tracks[trackIndex];
+    int index = playlist.get_clip_index_at(frame);
+    if (index < 0 || !playlist.is_blank(index))
+        return false;
+
+    playlist.remove(index); // ripples everything after it earlier — verified
+    m_tractor->refresh();
+    m_totalFramesCache.store(m_tractor->get_length());
+    Log::info("Closed gap on track " + std::to_string(trackIndex) + " at frame " + std::to_string(frame));
+    return true;
+}
+
+bool MltEngine::isGapAt(int trackIndex, int frame) const
+{
+    std::lock_guard<std::mutex> lock(m_mltMutex);
+
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_tracks.size()))
+        return false;
+
+    Mlt::Playlist &playlist = *m_tracks[trackIndex];
+    if (frame < 0 || frame >= playlist.get_length())
+        return false;
+
+    int index = playlist.get_clip_index_at(frame);
+    return index >= 0 && playlist.is_blank(index);
+}
+
 bool MltEngine::saveProject(const std::string &path, std::string &error)
 {
     std::lock_guard<std::mutex> lock(m_mltMutex);
@@ -525,6 +586,101 @@ bool MltEngine::loadProject(const std::string &path, std::string &error)
     return true;
 }
 
+bool MltEngine::renderProject(const std::string &outputPath, std::string &error)
+{
+    struct ClipSnapshot
+    {
+        std::string resource;
+        int in;
+        int out;
+    };
+
+    // Snapshot the current structure quickly, then release the lock before
+    // doing any real (potentially slow) work — so editing/playback aren't
+    // blocked for the whole render.
+    std::vector<std::vector<ClipSnapshot>> trackSnapshots;
+    {
+        std::lock_guard<std::mutex> lock(m_mltMutex);
+        for (auto &trackPtr : m_tracks) {
+            Mlt::Playlist &playlist = *trackPtr;
+            std::vector<ClipSnapshot> clips;
+            int count = playlist.count();
+            for (int i = 0; i < count; ++i) {
+                if (playlist.is_blank(i))
+                    continue;
+                std::unique_ptr<Mlt::Producer> clip(playlist.get_clip(i));
+                if (!clip)
+                    continue;
+                const char *resource = clip->parent().get("resource");
+                if (!resource)
+                    continue;
+                clips.push_back({resource, clip->get_in(), clip->get_out()});
+            }
+            trackSnapshots.push_back(std::move(clips));
+        }
+    }
+
+    // A completely separate Profile/Tractor for rendering, built fresh from
+    // the snapshot — independent of m_profile/m_tractor for the whole
+    // (possibly long) duration of the render.
+    Mlt::Profile renderProfile("atsc_1080p_30");
+    Mlt::Tractor renderTractor(renderProfile);
+    std::vector<std::unique_ptr<Mlt::Playlist>> renderTracks;
+
+    for (auto &clips : trackSnapshots) {
+        auto playlist = std::make_unique<Mlt::Playlist>(renderProfile);
+        for (auto &c : clips) {
+            Mlt::Producer producer(renderProfile, c.resource.c_str());
+            if (producer.is_valid())
+                playlist->append(producer, c.in, c.out);
+            else
+                Log::warn("renderProject: could not reopen media file, skipping: " + c.resource);
+        }
+        renderTracks.push_back(std::move(playlist));
+    }
+
+    for (size_t i = 0; i < renderTracks.size(); ++i) {
+        int index = static_cast<int>(i);
+        renderTractor.set_track(*renderTracks[i], index);
+        if (index > 0)
+            plantTrackTransitions(renderProfile, renderTractor, index);
+    }
+    renderTractor.refresh();
+
+    // Matches this project's fixed working format (see the profile comment
+    // in the constructor): h264 High/yuv420p, 1920x1080, 30fps, AAC 48kHz
+    // stereo, MP4 — verified against a real reference file's ffprobe
+    // output and confirmed via a standalone render+reprobe round-trip
+    // before wiring this in.
+    Mlt::Consumer consumer(renderProfile, "avformat", outputPath.c_str());
+    if (!consumer.is_valid()) {
+        error = "Could not create renderer for: " + outputPath;
+        Log::error(error);
+        return false;
+    }
+    consumer.set("vcodec", "libx264");
+    consumer.set("acodec", "aac");
+    consumer.set("f", "mp4");
+    consumer.set("vb", "922698");
+    consumer.set("ab", "126422");
+    consumer.set("ar", "48000");
+    consumer.set("channels", 2);
+    consumer.set("pix_fmt", "yuv420p");
+    consumer.set("real_time", -1); // render every frame; don't drop frames to keep up with a clock
+    consumer.connect(renderTractor);
+
+    Log::info("Rendering project to " + outputPath + " ...");
+    int result = consumer.run();
+    if (result != 0) {
+        error = "Render failed (consumer returned " + std::to_string(result) + ")";
+        Log::error(error);
+        return false;
+    }
+
+    Log::info("Rendered project to " + outputPath);
+    return true;
+}
+
 void MltEngine::play()
 {
     Log::debug("play() at frame " + std::to_string(currentFrame()));
@@ -578,23 +734,27 @@ std::vector<MltEngine::ClipInfo> MltEngine::clips() const
                 continue;
 
             std::string name = "Clip";
+            std::string resourcePath;
             std::unique_ptr<Mlt::Producer> clip(playlist.get_clip(i));
             if (clip) {
                 // See saveProject(): get_clip() is a "cut", read the real
                 // path from its parent.
                 const char *resource = clip->parent().get("resource");
                 if (resource) {
-                    std::string full(resource);
-                    auto pos = full.find_last_of('/');
-                    name = (pos == std::string::npos) ? full : full.substr(pos + 1);
+                    resourcePath = resource;
+                    auto pos = resourcePath.find_last_of('/');
+                    name = (pos == std::string::npos) ? resourcePath : resourcePath.substr(pos + 1);
                 }
             }
 
             ClipInfo info;
             info.name = name;
+            info.resource = resourcePath;
             info.trackIndex = static_cast<int>(t);
             info.startFrame = playlist.clip_start(i);
             info.frames = playlist.clip_length(i);
+            info.in = clip ? clip->get_in() : 0;
+            info.out = clip ? clip->get_out() : 0;
             result.push_back(std::move(info));
         }
     }

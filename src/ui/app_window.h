@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "engine/mlt_engine.h"
+#include "engine/waveform_cache.h"
 
 // What an in-progress timeline drag is doing, decided in onTrackDragBegin
 // from where the press landed (handle strip / clip edge / clip body /
@@ -41,13 +42,18 @@ private:
     void onSaveFinished(GObject *sourceObject, GAsyncResult *result);
     void onOpenProjectClicked();
     void onOpenProjectFinished(GObject *sourceObject, GAsyncResult *result);
+    void onRenderClicked();
+    void onRenderFinished(GObject *sourceObject, GAsyncResult *result);
     void onAddTrackClicked();
     void onPlayToggled();
     void onSeekChanged();
     void onSplitClicked();
     void onTimelineClicked(double x, double y);
     void onTimelineRightClicked(double x, double y);
+    void onDeleteClipClicked();
+    void onCloseGapClicked();
     void onRemoveTrackClicked();
+    void onWaveformReady();
     // Returns true if the press hit something draggable (a track handle or
     // a clip) and the gesture should claim the sequence — denying the
     // competing click gesture on the same widget, which would otherwise
@@ -70,6 +76,8 @@ private:
     static void saveFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void openProjectClickedTrampoline(GtkButton *button, gpointer userData);
     static void openProjectFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
+    static void renderClickedTrampoline(GtkButton *button, gpointer userData);
+    static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);
     static void playToggledTrampoline(GtkButton *button, gpointer userData);
     static void seekChangedTrampoline(GtkRange *range, gpointer userData);
@@ -78,6 +86,8 @@ private:
     static void timelineClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
     static void
     timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
+    static void deleteClipClickedTrampoline(GtkButton *button, gpointer userData);
+    static void closeGapClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTrackClickedTrampoline(GtkButton *button, gpointer userData);
     static void trackDragBeginTrampoline(GtkGestureDrag *gesture, double x, double y, gpointer userData);
     static void trackDragUpdateTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
@@ -91,14 +101,25 @@ private:
     GtkLabel *m_timecodeLabel = nullptr;
     GtkLabel *m_statusLabel = nullptr;
     GtkPopover *m_trackContextMenu = nullptr;
+    GtkWidget *m_deleteClipButton = nullptr;
+    GtkWidget *m_closeGapButton = nullptr;
+    GtkWidget *m_removeTrackButton = nullptr;
 
     std::unique_ptr<MltEngine> m_engine;
+    std::unique_ptr<WaveformCache> m_waveforms;
     std::vector<MltEngine::ClipInfo> m_clips;
     int m_selectedClip = -1;
     // Which track new imports/splits target; set by clicking a track's row.
     int m_activeTrack = 0;
-    // Track a right-click's context menu is currently open for (-1 = none).
+    // What a right-click's context menu is currently open for: the track
+    // row, the frame position clicked, and — if the click landed on a clip
+    // or a gap — that clip's/gap's start frame (-1 if neither applies).
+    // Which popover buttons are visible is decided from these at
+    // right-click time (see onTimelineRightClicked).
     int m_contextMenuTrack = -1;
+    int m_contextMenuFrame = -1;
+    int m_contextMenuClipStartFrame = -1;
+    int m_contextMenuGapStartFrame = -1;
 
     // --- Timeline drag state (track reorder, clip move, clip trim) ---
     TimelineDragMode m_dragMode = TimelineDragMode::None;
