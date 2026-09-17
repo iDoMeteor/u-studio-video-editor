@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Placeholder icon (brand ink/magenta tokens from style.css). Real
+       artwork is a later milestone. -->
+  <rect width="128" height="128" rx="24" fill="#07060d"/>
+  <rect x="20" y="34" width="88" height="60" rx="8" fill="#1b1230" stroke="#342357" stroke-width="2"/>
+  <path d="M54 52 L80 64 L54 76 Z" fill="#ff2bd6"/>
+</svg>

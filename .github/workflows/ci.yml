@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          dnf install -y gcc-c++ meson ninja-build gtk4-devel libadwaita-devel \
+            mlt-devel libxml2-devel pulseaudio-libs-devel xorg-x11-server-Xvfb git
+      - name: Configure
+        run: meson setup builddir -Dwerror=true -Dbuildtype=debugoptimized
+      - name: Build
+        run: meson compile -C builddir
+      - name: Test
+        run: xvfb-run -a meson test -C builddir --print-errorlogs
+
+  # Called out as its own job (in addition to being exercised inside
+  # build-test's test suite) so a Qt regression fails loudly and
+  # specifically, per docs/plans/v2/11-build-test-ci-packaging.md.
+  no-qt-policy:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          dnf install -y gcc-c++ meson ninja-build gtk4-devel libadwaita-devel \
+            mlt-devel libxml2-devel pulseaudio-libs-devel git
+      - name: Configure
+        run: meson setup builddir -Dbuildtype=debugoptimized
+      - name: Build the factory-policy test
+        run: meson compile -C builddir tests/engine/test_factory_policy
+      - name: Run the factory-policy test
+        run: ./builddir/tests/engine/test_factory_policy
+
+  format:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-tools-extra
+        run: dnf install -y clang-tools-extra git
+      - name: Check formatting
+        run: clang-format --dry-run --Werror $(git ls-files '*.cpp' '*.h')

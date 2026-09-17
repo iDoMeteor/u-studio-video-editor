@@ -21,6 +21,8 @@ class Tractor;
 // Forward-declared so nothing outside this module needs a PulseAudio include.
 struct pa_simple;
 
+namespace ustudio::engine {
+
 // The only class in the codebase that touches MLT types directly. Everything
 // above this (app/, ui/) talks to plain C++ types only, so the MLT engine
 // could be swapped or the UI toolkit could change without the other side
@@ -241,3 +243,5 @@ private:
 
     FrameCallback m_callback;
 };
+
+} // namespace ustudio::engine

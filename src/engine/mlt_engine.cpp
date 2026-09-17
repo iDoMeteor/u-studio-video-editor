@@ -1,6 +1,6 @@
 #include "mlt_engine.h"
 
-#include "util/log.h"
+#include "core/log.h"
 
 #include <mlt++/Mlt.h>
 
@@ -10,6 +10,10 @@
 #include <algorithm>
 #include <chrono>
 
+namespace ustudio::engine {
+
+namespace Log = ustudio::core::Log;
+
 namespace {
 constexpr int kAudioRate = 48000;
 constexpr int kAudioChannels = 2;
@@ -17,9 +21,12 @@ constexpr int kAudioChannels = 2;
 
 MltEngine::MltEngine()
 {
-    // Repository* is intentionally not retained: it lives for the process
-    // lifetime and Factory::close() releases MLT's global state regardless.
-    Mlt::Factory::init();
+    // Mlt::Factory::init()/close() are NOT called here — FactoryPolicy owns
+    // them exclusively, once, for the process lifetime (constructed in
+    // main() before any MltEngine exists; see factory_policy.h). Calling
+    // init() a second time from here would silently re-run it with the
+    // default, non-curated module directory, undoing FactoryPolicy's whole
+    // point.
 
     // 1920x1080/30fps matches this project's real-world source/export
     // format (an AI-video-pipeline MP4: h264 High/yuv420p/bt709 @30fps,
@@ -79,12 +86,9 @@ MltEngine::~MltEngine()
     if (m_audioStream)
         pa_simple_free(m_audioStream);
 
-    // Destroy MLT objects before tearing down the factory.
     m_tractor.reset();
     m_tracks.clear();
     m_profile.reset();
-
-    Mlt::Factory::close();
 }
 
 int MltEngine::addTrack()
@@ -914,3 +918,5 @@ gboolean MltEngine::deliverOnMainThread(gpointer data)
     }
     return G_SOURCE_REMOVE;
 }
+
+} // namespace ustudio::engine

@@ -11,6 +11,8 @@
 #include <thread>
 #include <vector>
 
+namespace ustudio::engine {
+
 // Computes and caches per-clip audio waveform peak data (one normalized
 // [0,1] peak value per frame across a clip's [in,out] range) on a
 // dedicated background worker thread, so drawing the timeline never blocks
@@ -62,3 +64,5 @@ private:
     std::atomic<bool> m_quit{false};
     std::function<void()> m_onReady;
 };
+
+} // namespace ustudio::engine

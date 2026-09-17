@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=u Studio Video Editor
+Comment=Non-linear video editor built on GTK4, libadwaita and MLT
+Exec=u-studio-video-editor
+Icon=com.ustudio.VideoEditor
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;VideoEditor;GTK;
+StartupNotify=true

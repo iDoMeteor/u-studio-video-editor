@@ -10,6 +10,8 @@
 #include "engine/mlt_engine.h"
 #include "engine/waveform_cache.h"
 
+namespace ustudio::app {
+
 // What an in-progress timeline drag is doing, decided in onTrackDragBegin
 // from where the press landed (handle strip / clip edge / clip body /
 // empty space) and finalized in onTrackDragEnd.
@@ -105,9 +107,9 @@ private:
     GtkWidget *m_closeGapButton = nullptr;
     GtkWidget *m_removeTrackButton = nullptr;
 
-    std::unique_ptr<MltEngine> m_engine;
-    std::unique_ptr<WaveformCache> m_waveforms;
-    std::vector<MltEngine::ClipInfo> m_clips;
+    std::unique_ptr<engine::MltEngine> m_engine;
+    std::unique_ptr<engine::WaveformCache> m_waveforms;
+    std::vector<engine::MltEngine::ClipInfo> m_clips;
     int m_selectedClip = -1;
     // Which track new imports/splits target; set by clicking a track's row.
     int m_activeTrack = 0;
@@ -144,3 +146,5 @@ private:
 
     bool m_suppressSeekSignal = false;
 };
+
+} // namespace ustudio::app

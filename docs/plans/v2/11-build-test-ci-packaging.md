@@ -21,9 +21,18 @@ ships GCC 16; the Flatpak GNOME 49 SDK ships GCC 15. Ubuntu 24.04's GCC 13
 compiles it (no `std::print` use; keep it out).
 
 Warnings: `warning_level=3`, `-Wshadow -Wconversion -Wold-style-cast
--Wnon-virtual-dtor`, `werror=true` in CI only. GTK's C headers trip
-`-Wold-style-cast` inside macros; wrap GTK includes in a
-`GTK_INCLUDE_BEGIN/END` pragma pair that pushes/pops the diagnostic.
+-Wnon-virtual-dtor`, `werror=true` in CI only. GTK/GLib/MLT's C headers trip
+`-Wold-style-cast` inside macros (`GTK_WIDGET`, `G_CALLBACK`,
+`G_DEFINE_AUTOPTR_CLEANUP_FUNC`, ...) at every call site, not just where the
+header is included, so a `GTK_INCLUDE_BEGIN/END` pragma pair around the
+`#include` (as originally planned here) only silences the subset of these
+that happen to expand during header parsing itself — verified empirically
+during M0 to leave most call-site warnings in place. Instead every
+third-party `dependency()` in the root `meson.build` is declared with
+`include_type: 'system'`, which makes meson pass `-isystem` instead of `-I`;
+GCC exempts warnings whose diagnostic traces back to a system header
+(including macros defined there) regardless of where in our code they're
+expanded. Confirmed clean under `meson setup -Dwerror=true`.
 
 Dependency isolation is enforced in `src/app/meson.build` with a custom
 target that greps the app sources for `mlt` and `pulse` includes and fails.
