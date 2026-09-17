@@ -4,6 +4,8 @@
 
 #include <mlt++/Mlt.h>
 
+#include <unistd.h>
+
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -88,11 +90,20 @@ std::string buildCuratedModuleDir()
     if (base.empty())
         return {};
 
-    fs::path curated = base / "ustudio-mlt-modules";
+    // Per-PID, not a fixed shared name: two processes building/dlopen-ing
+    // against the same directory concurrently race (one's remove_all()+
+    // rebuild interleaves with the other's dlopen -- reproduced by two
+    // engine test binaries in the same meson test run, both constructing
+    // FactoryPolicy with no XDG_RUNTIME_DIR set). A real desktop user
+    // launching two app instances in one session would hit the identical
+    // race even with XDG_RUNTIME_DIR set, since that path was shared
+    // per-session, not per-process. FactoryPolicy's destructor removes
+    // this directory, so it doesn't accumulate across runs.
+    fs::path curated = base / ("ustudio-mlt-modules-" + std::to_string(getpid()));
     fs::path source = USTUDIO_MLT_MODULE_DIR;
 
     std::error_code ec;
-    fs::remove_all(curated, ec); // refresh: drop any stale symlinks from a previous run
+    fs::remove_all(curated, ec); // refresh: drop anything left over from a crashed run with this same pid
     fs::create_directories(curated, ec);
     if (ec) {
         Log::warn("[engine] FactoryPolicy: could not create " + curated.string() + " (" + ec.message() +
@@ -151,6 +162,14 @@ FactoryPolicy::FactoryPolicy()
 FactoryPolicy::~FactoryPolicy()
 {
     Mlt::Factory::close();
+
+    // Only ever removes what buildCuratedModuleDir() itself created (a
+    // per-PID directory of symlinks); empty when init fell back to the
+    // default, uncurated MLT module loading.
+    if (!m_moduleDirectoryUsed.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(m_moduleDirectoryUsed, ec);
+    }
 }
 
 } // namespace ustudio::engine

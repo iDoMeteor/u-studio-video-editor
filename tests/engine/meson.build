@@ -6,3 +6,12 @@ test_factory_policy_exe = executable(
 )
 
 test('engine-factory-policy', test_factory_policy_exe)
+
+test_engine_sync_exe = executable(
+  'test_engine_sync',
+  files('test_engine_sync.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+
+test('engine-sync', test_engine_sync_exe)

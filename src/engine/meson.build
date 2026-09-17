@@ -2,6 +2,7 @@ libustudio_engine_sources = files(
   'factory_policy.cpp',
   'mlt_engine.cpp',
   'waveform_cache.cpp',
+  'engine_sync.cpp',
 )
 
 # The real MLT module directory (e.g. /usr/lib64/mlt-7), baked in at build
