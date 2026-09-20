@@ -174,7 +174,15 @@ std::string readJsonString(const std::string &json, size_t &pos)
             ++pos;
         }
     }
-    ++pos; // skip closing quote
+    // Untrusted input (CLAUDE.md): an unterminated string in a hand-edited
+    // or corrupted project file means the loop above ran off the end
+    // without finding the closing quote, leaving pos == json.size()
+    // already. Unconditionally advancing past that would push pos PAST
+    // size() -- not the one-past-the-end position std::string::operator[]
+    // tolerates, a true out-of-bounds index the very next dereference
+    // anywhere in this file would read (audit C3).
+    if (pos < json.size())
+        ++pos; // skip closing quote
     return jsonUnescape(raw);
 }
 
@@ -204,12 +212,16 @@ std::vector<Marker> parseMarkersJson(const std::string &json)
             std::string key = readJsonString(json, pos);
             while (pos < json.size() && json[pos] != ':')
                 ++pos;
-            ++pos; // skip ':'
+            // Same "malformed input, colon never found" case as
+            // readJsonString above -- guard both the skip and the read
+            // that follows it (audit C3).
+            if (pos < json.size())
+                ++pos; // skip ':'
             while (pos < json.size() && json[pos] == ' ')
                 ++pos;
 
             std::string value;
-            if (json[pos] == '"') {
+            if (pos < json.size() && json[pos] == '"') {
                 value = readJsonString(json, pos);
             } else {
                 size_t start = pos;
@@ -310,6 +322,17 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         seq.profile.colorspace = static_cast<int>(toI64(attr(profileNode, "colorspace")));
     }
     seq.profile.mltName = prop(tractor, "ustudio:mlt_profile_name");
+
+    // Untrusted input (CLAUDE.md, audit C3): a hand-edited or foreign-tool
+    // <profile> with frame_rate_den="0" (or a negative/zero numerator)
+    // would later reach Mlt::Profile::set_frame_rate() and every fps-based
+    // FrameIndex<->time conversion in the app; fail the load cleanly here
+    // instead of dividing by zero somewhere downstream.
+    if (seq.profile.fps.num <= 0 || seq.profile.fps.den <= 0) {
+        xmlFreeDoc(doc);
+        return std::unexpected(path + ": invalid <profile> frame rate (frame_rate_num/frame_rate_den must be "
+                                       "positive)");
+    }
 
     Project project;
     project.activeSequence = SequenceId{toU64(prop(tractor, "ustudio:active_sequence", "1"))};
@@ -443,10 +466,47 @@ std::expected<Model, std::string> loadProject(const std::string &path)
     for (ParsedTrack &parsed : parsedTracks)
         seq.tracks.push_back(std::move(parsed.track));
 
+    // Untrusted input (audit C3): a missing ustudio:next_id defaults to
+    // "1" above, and a hand-edited or truncated file could carry a
+    // next_id that's simply wrong -- either would collide a future
+    // allocateId() with an id already in use here. Rather than trust the
+    // file, take the largest id actually seen (sequence, tracks, clips,
+    // bin assets) and make sure nextId clears it, exactly what
+    // Model::reserveId() does for ids arriving through ordinary commands.
+    uint64_t maxIdSeen = std::max<uint64_t>(seq.id.value, project.activeSequence.value);
+    for (const Track &t : seq.tracks)
+        maxIdSeen = std::max(maxIdSeen, t.id.value);
+    for (const auto &[clipId, clipEntry] : seq.clips) {
+        (void)clipEntry;
+        maxIdSeen = std::max(maxIdSeen, clipId.value);
+    }
+    for (const Asset &a : project.bin)
+        maxIdSeen = std::max(maxIdSeen, a.id.value);
+    project.nextId = std::max(project.nextId, maxIdSeen + 1);
+
     project.sequences.push_back(std::move(seq));
 
     xmlFreeDoc(doc);
-    return Model(std::move(project));
+    Model model(std::move(project));
+    // Final defense-in-depth gate (audit C3): a hand-edited or foreign-
+    // tool-generated file can be well-formed XML yet violate an invariant
+    // check() already knows how to name (an out-of-range clip span, a
+    // clip on the wrong track, a video-enabled clip on an audio track, an
+    // id not less than nextId despite the self-heal above catching the
+    // common case) -- refuse to hand back a Model the rest of the app
+    // would otherwise have to assume is sound.
+    std::vector<std::string> problems = model.check();
+    if (!problems.empty()) {
+        std::string message = path + ": invalid project (";
+        for (size_t i = 0; i < problems.size(); ++i) {
+            if (i > 0)
+                message += "; ";
+            message += problems[i];
+        }
+        message += ")";
+        return std::unexpected(message);
+    }
+    return model;
 }
 
 } // namespace ustudio::core

@@ -21,6 +21,22 @@ class Model
     static Model createEmpty(Profile profile = {});
     explicit Model(Project project);
 
+    // Hand-written, not compiler-generated, because `changed` (a Signal)
+    // is deliberately non-copyable/non-movable (audit C4): a copy or a
+    // freshly move-constructed Model is a new value with its own, empty
+    // `changed` -- nothing "comes along" from wherever the source Model's
+    // data came from (a render thread's snapshot must never carry the
+    // live EngineSync's subscription with it). Assignment, by contrast,
+    // touches ONLY m_project and deliberately leaves the target's
+    // existing `changed` (and whatever is already subscribed to it, e.g.
+    // EngineSync's own connection) untouched -- "Open Project" relies on
+    // exactly this to replace the live model's contents without losing
+    // the engine's subscription out from under it.
+    Model(const Model &other);
+    Model &operator=(const Model &other);
+    Model(Model &&other) noexcept;
+    Model &operator=(Model &&other) noexcept;
+
     const Project &project() const
     {
         return m_project;
@@ -50,6 +66,17 @@ class Model
     // --- Mutators -----------------------------------------------------
     AssetId addAsset(Asset newAsset, std::optional<AssetId> reuseId = std::nullopt);
     void removeAsset(AssetId);
+    // Raises info.lengthInSequenceFrames to `minimumLength` if it's
+    // currently shorter; no-op (not even a notify) otherwise -- never
+    // shrinks it. For a boundless asset (isBoundless()), the recorded
+    // length is really just "how far any clip has asked to cut from it so
+    // far" -- a still image or generator has no real fixed duration, so
+    // InsertClip/ResizeClip call this with the clip's own new `out + 1` to
+    // keep it truthful for both EngineSync (which sizes the underlying MLT
+    // producer from it, doc 13's E3) and the saved project file. Like the
+    // other mutators, asserts on an unknown id rather than refusing --
+    // callers are expected to have already validated hasAsset().
+    void extendAssetLength(AssetId, FrameIndex minimumLength);
 
     TrackId addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId = std::nullopt);
     void removeTrack(TrackId);
@@ -77,6 +104,13 @@ class Model
     // audio-only clip and the now video-only original -- but generic
     // enough for a future per-clip mute/hide toggle too.
     void setClipEnabled(ClipId, bool videoEnabled, bool audioEnabled);
+    // Sets a clip's fade-out marker directly (std::nullopt = no fade).
+    // Currently only SplitClip::revert uses this, to put back the fade a
+    // split's own apply() clears from the clip that becomes its left half
+    // (audit C5) -- narrow on purpose: there's no fade-editing UI/command
+    // yet (doc 13), so this exists to restore a captured value, not to set
+    // one from scratch.
+    void setClipFadeOut(ClipId, std::optional<FadeSpec> fadeOut);
 
     // Verbatim restore, used by Command::revert paths (core/commands) that
     // captured a full Clip/Track at apply time (e.g. RemoveClip, RemoveTrack)

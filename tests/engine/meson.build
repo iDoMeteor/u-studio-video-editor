@@ -44,3 +44,12 @@ test_probe_media_exe = executable(
 )
 
 test('engine-probe-media', test_probe_media_exe)
+
+test_waveform_cache_exe = executable(
+  'test_waveform_cache',
+  files('test_waveform_cache.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+
+test('engine-waveform-cache', test_waveform_cache_exe)

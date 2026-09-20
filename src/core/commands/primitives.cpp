@@ -155,18 +155,34 @@ bool InsertClip::apply(Model &model)
         return false;
     if (model.track(m_track).locked)
         return false;
-    if (m_in > m_out || m_pos < 0)
+    // m_in < 0 is rejected unconditionally, not just for bounded assets: MLT
+    // clamps a negative cut `in` to 0 rather than rejecting it, so letting one
+    // through here would silently shift where playback starts inside the
+    // source and desync every clip laid out after it on the track.
+    if (m_in < 0 || m_in > m_out || m_pos < 0)
         return false;
     if (!model.isRangeFree(m_track, m_pos, m_pos + (m_out - m_in + 1)))
         return false;
 
     const Asset &sourceAsset = model.asset(m_asset);
-    if (!sourceAsset.info.isBoundless() && (m_in < 0 || m_out >= sourceAsset.info.lengthInSequenceFrames))
+    bool boundless = sourceAsset.info.isBoundless();
+    if (!boundless && m_out >= sourceAsset.info.lengthInSequenceFrames)
         return false;
 
+    // Two model mutations for a boundless asset (the clip, then the asset's
+    // recorded length) -- wrap in a batch so EngineSync coalesces them into
+    // one rebuild instead of two, same as CompositeCommand.
+    model.notify(BatchBegin{});
     m_clipId = model.insertClip(m_track, m_asset, m_pos, m_in, m_out,
                                 m_appliedBefore ? std::optional<ClipId>(m_clipId) : std::nullopt);
     m_appliedBefore = true;
+    // A still image or generator has no real fixed duration (doc 13's E3):
+    // keep the asset's recorded length truthful for whatever clip has cut
+    // furthest into it, so EngineSync sizes the underlying MLT producer
+    // long enough and the saved project file matches what's on the timeline.
+    if (boundless)
+        model.extendAssetLength(m_asset, m_out + 1);
+    model.notify(BatchEnd{});
     return true;
 }
 
@@ -234,7 +250,8 @@ bool ResizeClip::apply(Model &model)
 {
     if (!model.hasClip(m_clip))
         return false;
-    if (m_newIn > m_newOut || m_newPos < 0)
+    // m_newIn < 0 is rejected unconditionally -- see InsertClip::apply.
+    if (m_newIn < 0 || m_newIn > m_newOut || m_newPos < 0)
         return false;
 
     const Clip &current = model.clip(m_clip);
@@ -244,16 +261,24 @@ bool ResizeClip::apply(Model &model)
     if (!model.isRangeFree(current.track, m_newPos, m_newPos + newLength, m_clip))
         return false;
 
+    bool boundless = false;
     if (model.hasAsset(current.asset)) {
         const Asset &sourceAsset = model.asset(current.asset);
-        if (!sourceAsset.info.isBoundless() && (m_newIn < 0 || m_newOut >= sourceAsset.info.lengthInSequenceFrames))
+        boundless = sourceAsset.info.isBoundless();
+        if (!boundless && m_newOut >= sourceAsset.info.lengthInSequenceFrames)
             return false;
     }
 
     m_oldIn = current.in;
     m_oldOut = current.out;
     m_oldPos = current.position;
+    // See InsertClip::apply for why this is batched and why boundless assets
+    // get their recorded length extended alongside the resize.
+    model.notify(BatchBegin{});
     model.resizeClip(m_clip, m_newIn, m_newOut, m_newPos);
+    if (boundless)
+        model.extendAssetLength(current.asset, m_newOut + 1);
+    model.notify(BatchEnd{});
     return true;
 }
 
@@ -275,6 +300,7 @@ bool SplitClip::apply(Model &model)
         return false;
 
     m_oldOut = current.out;
+    m_oldFadeOut = current.fadeOut;
     m_rightId = model.splitClip(m_clip, m_at, m_appliedBefore ? std::optional<ClipId>(m_rightId) : std::nullopt);
     m_appliedBefore = true;
     return true;
@@ -285,6 +311,11 @@ void SplitClip::revert(Model &model)
     model.removeClip(m_rightId);
     const Clip &left = model.clip(m_clip);
     model.resizeClip(m_clip, left.in, m_oldOut, left.position);
+    // Model::splitClip() clears the left clip's fadeOut (the new right edge
+    // becomes a hard cut) -- resizeClip() above restores the geometry but
+    // doesn't know about fades, so put back whatever was captured at apply()
+    // time explicitly (audit C5).
+    model.setClipFadeOut(m_clip, m_oldFadeOut);
 }
 
 // --- SplitAudio --------------------------------------------------------

@@ -3,6 +3,7 @@
 #include "command.h"
 #include "core/model/model.h"
 
+#include <optional>
 #include <string>
 
 namespace ustudio::core {
@@ -233,6 +234,7 @@ class SplitClip : public Command
     ClipId m_clip;
     FrameIndex m_at;
     FrameIndex m_oldOut = 0;
+    std::optional<FadeSpec> m_oldFadeOut;
     ClipId m_rightId;
     bool m_appliedBefore = false;
 };

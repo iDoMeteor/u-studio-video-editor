@@ -54,9 +54,30 @@ EngineSync::EngineSync(core::Model &model) : m_model(model)
     connectToModel();
 }
 
+EngineSync::~EngineSync()
+{
+    m_model.changed.disconnect(m_modelConnection);
+}
+
 void EngineSync::reset()
 {
     m_masterProducers.clear();
+
+    // Keep the OLD profile alive across applyProfile()+rebuildAll(), not
+    // just swap it in place: applyProfile() would otherwise destroy it
+    // immediately (Mlt::Profile's destructor frees the underlying
+    // mlt_profile struct), while the tractor/producers the *running*
+    // consumer is still actively pulling frames from (via its read-ahead
+    // thread, at any speed including 0) were built from it and hold raw
+    // pointers to it -- reading fps/width/height out of freed memory the
+    // whole time rebuildAll() runs (which opens a producer per asset, so
+    // this window is long for a real project). rebuildAll() ends by
+    // firing `rebuilt`, which PlaybackController::setTractor() handles
+    // synchronously by stopping the consumer *before* touching the new
+    // tractor -- so by the time rebuildAll() returns below, nothing is
+    // reading the old tractor (or its profile) anymore, and it's safe for
+    // `oldProfile` to go out of scope and free it.
+    std::unique_ptr<Mlt::Profile> oldProfile = std::move(m_profile);
     applyProfile();
     rebuildAll();
     connectToModel();
@@ -64,7 +85,12 @@ void EngineSync::reset()
 
 void EngineSync::connectToModel()
 {
-    m_model.changed.connect([this](const core::ModelEvent &event) { onModelEvent(event); });
+    // Idempotent (audit C4): disconnects whatever this EngineSync was
+    // previously subscribed with before adding a new one, so calling this
+    // twice (construction, then reset()) never leaves two live
+    // subscriptions both firing onModelEvent() for the same edit.
+    m_model.changed.disconnect(m_modelConnection);
+    m_modelConnection = m_model.changed.connect([this](const core::ModelEvent &event) { onModelEvent(event); });
 }
 
 void EngineSync::onModelEvent(const core::ModelEvent &event)
@@ -113,27 +139,32 @@ EngineSync::ProbedMedia EngineSync::probeMedia(const std::string &path)
 
 Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId)
 {
-    auto it = m_masterProducers.find(assetId.value);
-    if (it != m_masterProducers.end())
-        return *it->second;
-
     const core::Asset &asset = m_model.asset(assetId);
-    auto producer = std::make_shared<Mlt::Producer>(*m_profile, asset.path.c_str());
+
+    auto it = m_masterProducers.find(assetId.value);
+    if (it == m_masterProducers.end()) {
+        auto producer = std::make_shared<Mlt::Producer>(*m_profile, asset.path.c_str());
+        it = m_masterProducers.emplace(assetId.value, std::move(producer)).first;
+    }
+    Mlt::Producer &producer = *it->second;
+
     // Still images default to a fixed length in MLT (pixbuf: 15000 frames,
     // verified empirically) regardless of how long a clip the model wants
     // to cut from them -- a still is boundless (MediaInfo::isBoundless()),
-    // so the model may legitimately ask for an out point past that. Bump
-    // the producer's own "length" property to match before any cut is
-    // taken, so master.cut(in, out) never silently clips to 15000 frames
-    // for a watermark spanning a longer timeline. Harmless for a real
-    // (non-still) asset: its own natural length is left alone.
-    if (asset.info.isStillImage && asset.info.lengthInSequenceFrames > producer->get_length()) {
-        producer->set("length", static_cast<int>(asset.info.lengthInSequenceFrames));
-        producer->set_in_and_out(0, static_cast<int>(asset.info.lengthInSequenceFrames - 1));
+    // so the model may legitimately ask for an out point past that, and
+    // that recorded length (core::Model::extendAssetLength) can keep
+    // growing as later edits cut further in. Re-check and bump on EVERY
+    // call, not just when the producer is first created above: a cached
+    // producer from an earlier, shorter cut would otherwise keep
+    // master.cut(in, out) silently clipping to the old length after a
+    // later InsertClip/ResizeClip extends the asset past it (doc 13's E3).
+    // Harmless for a real (non-still) asset: its own natural length is
+    // left alone.
+    if (asset.info.isStillImage && asset.info.lengthInSequenceFrames > producer.get_length()) {
+        producer.set("length", static_cast<int>(asset.info.lengthInSequenceFrames));
+        producer.set_in_and_out(0, static_cast<int>(asset.info.lengthInSequenceFrames - 1));
     }
-    Mlt::Producer &ref = *producer;
-    m_masterProducers.emplace(assetId.value, std::move(producer));
-    return ref;
+    return producer;
 }
 
 void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playlist &playlist)

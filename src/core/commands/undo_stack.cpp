@@ -11,7 +11,17 @@ bool UndoStack::execute(std::unique_ptr<Command> command)
 
     m_redo.clear();
 
-    if (!m_undo.empty() && m_undo.back()->mergeWith(*command)) {
+    // Never merge into the top entry when the stack is exactly at the
+    // last clean point (m_undo.size() == m_cleanDepth, doc 13's C2):
+    // isClean() only compares stack SIZE against that depth, so silently
+    // absorbing a brand-new edit into the already-saved top entry (e.g. a
+    // second, later drag on the same track that mergeWith() can't tell
+    // apart from a continuation of the first) would leave the size
+    // unchanged and isClean() would keep reporting "clean" even though the
+    // model has genuinely changed since the save. Pushing a new entry
+    // instead bumps the size and correctly flips isClean() to false.
+    bool atCleanPoint = m_undo.size() == m_cleanDepth;
+    if (!atCleanPoint && !m_undo.empty() && m_undo.back()->mergeWith(*command)) {
         // `command`'s effect is already applied to the model (mergeWith
         // is asked to absorb it into the existing top entry, e.g. so a
         // slider drag is one undo step); the new object itself is

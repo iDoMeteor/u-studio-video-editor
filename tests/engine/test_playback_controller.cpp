@@ -262,6 +262,55 @@ TEST_CASE("PlaybackController: loop range wraps playback back to loop-in at loop
         CHECK(position <= 20);
 }
 
+TEST_CASE("PlaybackController: a loop range does not affect paused seeking, "
+          "including past loop-out")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+    auto tractor = makeOneClipTractor(profile, 60);
+
+    PlaybackController controller;
+    std::mutex mutex;
+    std::vector<int> deliveredPositions;
+    controller.setFrameCallback([&](std::vector<uint8_t>, int, int, int frameNumber) {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.push_back(frameNumber);
+    });
+    controller.setTractor(tractor);
+    controller.setLoopRange(std::make_pair(5, 15));
+
+    // Bug audit E4: the loop-wrap check in drainSlot() had no m_playing
+    // guard, so a paused "refresh" frame (delivered by the same
+    // consumer-frame-show path as active playback) landing at or past
+    // loop-out snapped straight back to loop-in instead of showing the
+    // frame actually asked for. seek(40) is past loop-out (15) while
+    // stopped -- this must land exactly on 40, not wrap to 5.
+    controller.seek(40);
+    bool got40 = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return !deliveredPositions.empty() && deliveredPositions.back() == 40;
+        },
+        std::chrono::seconds(3));
+    CHECK(got40);
+    CHECK(controller.currentFrame() == 40);
+
+    // toEnd() is the other named trigger in the audit -- also must not wrap.
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.clear();
+    }
+    controller.toEnd();
+    bool gotEnd = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return !deliveredPositions.empty() && deliveredPositions.back() == 59;
+        },
+        std::chrono::seconds(3));
+    CHECK(gotEnd);
+    CHECK(controller.currentFrame() == 59);
+}
+
 TEST_CASE("PlaybackController: shutdown during playback is clean, repeated 100 times")
 {
     sharedFactoryPolicy();

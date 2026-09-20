@@ -104,6 +104,51 @@ TEST_CASE("EngineSync: a clip with video/audio disabled gets video_index/audio_i
     CHECK(audioCut->get_int("audio_index") != -1);
 }
 
+TEST_CASE("EngineSync: a still image's master producer grows again after a second extension past a cached length "
+          "(audit E3)")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+
+    // color: is a generator, but EngineSync only looks at asset.info -- not
+    // the actual mlt_service -- to decide whether an asset is a still image,
+    // so setting isStillImage here exercises the same code path a real
+    // pixbuf/qimage asset would. Both default to MLT's usual 15000-frame
+    // producer length (verified: a plain "color:" producer's get_length()
+    // is 15000 too), so lengths must cross that to actually exercise the
+    // bump -- the owner's cited case is an hour-long livestream crossing it
+    // within the first eight minutes.
+    Asset stillAsset;
+    stillAsset.path = "color:red";
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.hasVideo = true;
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 20'000;
+    AssetId assetId = model.addAsset(stillAsset);
+    ClipId clip = model.insertClip(track, assetId, 0, 0, 19'999); // 20,000 frames
+
+    EngineSync sync(model);
+    REQUIRE(sync.verify().empty());
+    {
+        Mlt::Playlist playlist(*sync.tractor().track(1));
+        CHECK(playlist.get_length() == 20'000);
+    }
+
+    // Simulates a later ResizeClip (InsertClip::apply/ResizeClip::apply both
+    // now call Model::extendAssetLength) stretching the same still further,
+    // well past the length its ALREADY-CACHED master producer was bumped to
+    // on the first rebuildAll() above. Before the fix, masterProducerFor()
+    // only checked/bumped a still's producer length on cache miss, so this
+    // second rebuild would silently keep cutting at the old 20,000-frame
+    // length instead of the clip's new, longer span.
+    model.resizeClip(clip, 0, 39'999, 0); // 40,000 frames
+    model.extendAssetLength(assetId, 40'000);
+
+    Mlt::Playlist playlist(*sync.tractor().track(1));
+    CHECK(playlist.get_length() == 40'000);
+}
+
 namespace {
 double peakAmplitude(Mlt::Producer &producer)
 {
@@ -239,6 +284,55 @@ TEST_CASE("EngineSync: automatically resyncs when the model changes, with no exp
 
     model.removeClip(model.track(track).clips.front());
     CHECK(sync.tractor().get_length() == 1);
+    CHECK(sync.verify().empty());
+}
+
+TEST_CASE("EngineSync: Model::splitClip is one rebuild, not two (audit C5)")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addGeneratorAsset(model, "color:red");
+    ClipId clip = model.insertClip(track, asset, 0, 0, 99);
+
+    EngineSync sync(model);
+    int rebuiltCount = 0;
+    sync.rebuilt.connect([&] { ++rebuiltCount; });
+
+    // splitClip() internally does an insertClip() (its own ClipInserted)
+    // plus a handful of raw field copies onto the new right-hand clip
+    // followed by a ClipResized -- without batching, each of those two
+    // notifies drives its own immediate rebuildAll().
+    model.splitClip(clip, 40);
+    CHECK(rebuiltCount == 1);
+    CHECK(sync.verify().empty());
+}
+
+TEST_CASE("EngineSync: reset() called repeatedly never accumulates duplicate Model::changed subscriptions "
+          "(audit C4)")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addGeneratorAsset(model, "color:red");
+
+    EngineSync sync(model);
+    int rebuiltCount = 0;
+    sync.rebuilt.connect([&] { ++rebuiltCount; });
+
+    // "Open Project" calls reset() once per load; simulate several loads in
+    // a row on the same EngineSync/Model pair. Before the fix, each
+    // reset() added a second, independent subscription to Model::changed
+    // on top of the one from construction (and every previous reset()),
+    // so a single model edit afterwards would fire onModelEvent() -- and
+    // therefore rebuildAll() -- once per accumulated subscription instead
+    // of once.
+    for (int i = 0; i < 5; ++i)
+        sync.reset();
+    rebuiltCount = 0; // only care about what happens AFTER the resets
+
+    model.insertClip(track, asset, 0, 0, 9);
+    CHECK(rebuiltCount == 1);
     CHECK(sync.verify().empty());
 }
 

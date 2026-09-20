@@ -49,6 +49,11 @@ class EngineSync
 {
   public:
     explicit EngineSync(core::Model &model);
+    // Disconnects from Model::changed (audit C4): Model outlives EngineSync
+    // in every current caller, but nothing enforces that, and a dangling
+    // subscription firing into a destroyed `this` is exactly the kind of
+    // bug that only shows up once something changes that assumption.
+    ~EngineSync();
 
     Mlt::Profile &profile()
     {
@@ -86,13 +91,16 @@ class EngineSync
     // entirely different assets. Re-derives the profile from the model
     // too, in case the loaded project's differs.
     //
-    // Also re-subscribes to Model::changed: the caller reassigns *this
-    // EngineSync's* m_model's contents wholesale for "Open Project"
-    // (`m_model = std::move(*loaded)`), and Model's implicit assignment
-    // operator overwrites every member including `changed` itself -- which
-    // silently drops whatever was connected to it. reset() is the one
-    // operation defined to run right after that kind of replacement, so
-    // it's where the subscription gets re-established.
+    // Also re-subscribes to Model::changed via connectToModel(), which is
+    // idempotent (disconnects its own previous connection first, audit
+    // C4) -- safe to call again here even though the subscription from
+    // construction is still perfectly valid: Model::operator=, the
+    // "Open Project" reassignment this runs after (`m_model =
+    // std::move(*loaded)`), deliberately leaves the target's existing
+    // `changed` and its subscribers untouched (Model's copy/move are
+    // hand-written for exactly this, see model.h), so nothing here is
+    // actually replacing a dropped connection any more -- it's just
+    // cheap insurance against ever assuming that in the future.
     void reset();
 
     // Debug/test safety net (doc 05): for each model track, compares its
@@ -135,6 +143,9 @@ class EngineSync
     // sub-command.
     int m_batchDepth = 0;
     bool m_dirty = false;
+    // 0 = not connected. Signal ids start at 1 (signal.h), so 0 is a safe
+    // sentinel; disconnect(0) is a harmless no-op (nothing to remove).
+    int m_modelConnection = 0;
 
     void applyProfile();
     void connectToModel();

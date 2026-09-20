@@ -20,6 +20,45 @@ AssetId addTestAsset(Model &model, FrameIndex lengthInFrames = 300)
 
 } // namespace
 
+TEST_CASE("Model: a copy gets its own, empty changed Signal, never the source's subscribers (audit C4)")
+{
+    Model original = Model::createEmpty();
+    int firedOnOriginal = 0;
+    original.changed.connect([&](const ModelEvent &) { ++firedOnOriginal; });
+
+    Model copy = original; // copy-construct
+    int firedOnCopy = 0;
+    // If the copy had inherited original's subscriber list, this would be
+    // the SECOND slot in it; instead it must be the copy's only slot.
+    copy.changed.connect([&](const ModelEvent &) { ++firedOnCopy; });
+
+    TrackId track = copy.addTrack(Track::Kind::Video, 0, "V1");
+    (void)track;
+    CHECK(firedOnCopy == 1);
+    CHECK(firedOnOriginal == 0); // original's own subscriber never saw the copy's edit
+}
+
+TEST_CASE("Model: assignment keeps the target's existing changed subscribers (audit C4)")
+{
+    Model target = Model::createEmpty();
+    int firedOnTarget = 0;
+    target.changed.connect([&](const ModelEvent &) { ++firedOnTarget; });
+
+    Model source = Model::createEmpty();
+    source.addTrack(Track::Kind::Video, 0, "from-source");
+
+    // Simulates "Open Project": target (the live, subscribed-to model) is
+    // reassigned wholesale from a freshly-loaded Model that has never had
+    // anything connect to its own `changed`. Before the fix, this silently
+    // replaced target's `changed` (subscribers and all) with source's
+    // (empty) one -- exactly the class of bug that leaves whatever was
+    // listening (EngineSync, in practice) permanently disconnected.
+    target = std::move(source);
+    CHECK(firedOnTarget == 0);
+    target.addTrack(Track::Kind::Video, 0, "after-assignment");
+    CHECK(firedOnTarget == 1);
+}
+
 TEST_CASE("Model: empty project has no invariant violations")
 {
     Model model = Model::createEmpty();

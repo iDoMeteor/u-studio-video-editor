@@ -29,14 +29,15 @@ WaveformCache::~WaveformCache()
         m_worker.join();
 }
 
-std::string WaveformCache::keyFor(const std::string &resource, int in, int out)
+std::string WaveformCache::keyFor(const std::string &resource, int in, int out, core::Rational fps)
 {
-    return resource + "|" + std::to_string(in) + "|" + std::to_string(out);
+    return resource + "|" + std::to_string(in) + "|" + std::to_string(out) + "|" + std::to_string(fps.num) + "/" +
+           std::to_string(fps.den);
 }
 
-const std::vector<float> *WaveformCache::peaksFor(const std::string &resource, int in, int out)
+const std::vector<float> *WaveformCache::peaksFor(const std::string &resource, int in, int out, core::Rational fps)
 {
-    std::string key = keyFor(resource, in, out);
+    std::string key = keyFor(resource, in, out, fps);
     std::lock_guard<std::mutex> lock(m_mutex);
 
     auto it = m_cache.find(key);
@@ -45,7 +46,7 @@ const std::vector<float> *WaveformCache::peaksFor(const std::string &resource, i
 
     if (m_inFlight.find(key) == m_inFlight.end()) {
         m_inFlight.insert(key);
-        m_queue.push_back(Job{key, resource, in, out});
+        m_queue.push_back(Job{key, resource, in, out, fps});
         m_cv.notify_one();
     }
     return nullptr;
@@ -71,7 +72,11 @@ void WaveformCache::workerMain()
 
         // Independent Profile/Producer per job — never touches MltEngine's
         // own objects, m_mltMutex, or the live playback/editing state.
-        Mlt::Profile profile("atsc_1080p_30");
+        // frame_rate is set from the job's (sequence) fps, not a hardcoded
+        // stock profile: see peaksFor()'s comment for why a mismatched
+        // rate here would seek every job to the wrong wall-clock position.
+        Mlt::Profile profile;
+        profile.set_frame_rate(job.fps.num, job.fps.den);
         Mlt::Producer producer(profile, job.resource.c_str());
         if (producer.is_valid()) {
             producer.seek(job.in);
@@ -103,7 +108,7 @@ void WaveformCache::workerMain()
                 peaks.push_back(peak);
             }
         } else {
-            Log::warn("Waveform: could not open " + job.resource);
+            Log::warn("[waveform] could not open " + job.resource);
         }
 
         {

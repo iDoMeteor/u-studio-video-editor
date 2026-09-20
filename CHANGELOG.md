@@ -4,6 +4,21 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.4.2
+
+- Fixed a still image/watermark stretched past its imported length
+  playing shorter than the timeline showed, shifting every clip after it
+  once the mismatch resolved itself later.
+- Fixed the loop range affecting a seek or frame-step while paused, even
+  well past the loop's own out point.
+- Fixed the unsaved-changes indicator sometimes reporting "no changes"
+  right after a save when a new edit immediately followed one already on
+  the undo stack.
+- Opening a corrupted or hand-edited project file now fails with a clear
+  reason instead of silently loading invalid data.
+- Fixed a rare crash opening a project while the previous one's engine
+  state was still tearing down.
+
 ## 0.4.1
 
 - Fixed playback silently failing to advance after an edit (import,

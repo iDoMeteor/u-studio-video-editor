@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <sstream>
 
 using namespace ustudio::core;
 
@@ -49,6 +50,20 @@ AssetId addTestAsset(Model &model, const std::string &path, FrameIndex lengthInF
     asset.info.container = "mp4";
     asset.status = Asset::Status::Ready;
     return model.addAsset(asset);
+}
+
+std::string readWholeFile(const fs::path &path)
+{
+    std::ifstream in(path);
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+}
+
+void writeWholeFile(const fs::path &path, const std::string &content)
+{
+    std::ofstream out(path, std::ios::trunc);
+    out << content;
 }
 
 } // namespace
@@ -179,6 +194,76 @@ TEST_CASE("XML round-trip: refuses a file with no ustudio:format_version")
         std::ofstream out(file.path);
         out << "<mlt><tractor><track producer=\"black\"/></tractor></mlt>";
     }
+
+    auto loaded = loadProject(file.path.string());
+    CHECK_FALSE(loaded.has_value());
+}
+
+TEST_CASE("XML round-trip: refuses a <profile> with frame_rate_den=\"0\" (audit C3)")
+{
+    TempProjectFile file("bad-fps");
+    REQUIRE(saveProject(Model::createEmpty(), file.path.string()).empty());
+
+    std::string xml = readWholeFile(file.path);
+    size_t pos = xml.find("frame_rate_den=\"1\"");
+    REQUIRE(pos != std::string::npos);
+    xml.replace(pos, std::string("frame_rate_den=\"1\"").size(), "frame_rate_den=\"0\"");
+    writeWholeFile(file.path, xml);
+
+    auto loaded = loadProject(file.path.string());
+    CHECK_FALSE(loaded.has_value());
+}
+
+TEST_CASE("XML round-trip: a missing/wrong ustudio:next_id is corrected instead of causing an id collision "
+          "(audit C3)")
+{
+    TempProjectFile file("bad-next-id");
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, "color:red");
+    model.insertClip(track, asset, 0, 0, 49);
+    REQUIRE(saveProject(model, file.path.string()).empty());
+
+    // Roll ustudio:next_id back down to "1" -- well below every id already
+    // in use (track/asset/clip ids are all > 1 by this point) -- simulating
+    // either a missing property (defaults to "1") or a hand-edited one.
+    std::string xml = readWholeFile(file.path);
+    size_t nameAt = xml.find("name=\"ustudio:next_id\"");
+    REQUIRE(nameAt != std::string::npos);
+    size_t contentStart = xml.find('>', nameAt) + 1;
+    size_t contentEnd = xml.find('<', contentStart);
+    xml.replace(contentStart, contentEnd - contentStart, "1");
+    writeWholeFile(file.path, xml);
+
+    auto loaded = loadProject(file.path.string());
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->check().empty());
+
+    // A fresh id allocated after loading must not collide with anything
+    // already in the file -- exactly what a corrected nextId guarantees.
+    AssetId newAsset = loaded->addAsset(Asset{});
+    CHECK(newAsset != asset);
+    CHECK(loaded->check().empty());
+}
+
+TEST_CASE("XML round-trip: refuses a file whose clip span is out of range for its asset (audit C3)")
+{
+    TempProjectFile file("bad-span");
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, "/home/user/videos/clip.mp4", 100);
+    model.insertClip(track, asset, 0, 0, 49); // in-range: [0, 49] of a 100-frame asset
+    REQUIRE(saveProject(model, file.path.string()).empty());
+
+    // Push the clip's "out" attribute past the asset's recorded length --
+    // Model::check() names this "an invalid in/out range" / "out-of-range
+    // source span" (invariant 3), which loadProject() must now refuse
+    // rather than silently hand back a Model check() already knows is bad.
+    std::string xml = readWholeFile(file.path);
+    size_t pos = xml.find("out=\"49\"");
+    REQUIRE(pos != std::string::npos);
+    xml.replace(pos, std::string("out=\"49\"").size(), "out=\"999\"");
+    writeWholeFile(file.path, xml);
 
     auto loaded = loadProject(file.path.string());
     CHECK_FALSE(loaded.has_value());

@@ -1265,7 +1265,8 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     auto drawWaveform = [&](const ClipDisplay &clip, double x, double w) {
         if (clip.resource.empty())
             return;
-        const std::vector<float> *peaks = m_waveforms->peaksFor(clip.resource, clip.in, clip.out);
+        const std::vector<float> *peaks =
+            m_waveforms->peaksFor(clip.resource, clip.in, clip.out, m_model.sequence().profile.fps);
         if (!peaks || peaks->empty())
             return;
 

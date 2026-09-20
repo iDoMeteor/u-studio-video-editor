@@ -43,7 +43,12 @@ void PlaybackController::shutdown()
 
 bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
 {
-    Mlt::Profile *profile = tractor.profile();
+    // Mlt::Service::profile() heap-allocates a fresh wrapper around a
+    // *clone* of the service's profile on every call (confirmed
+    // empirically alongside the E2 fix: two calls on the same tractor
+    // gave different wrapper addresses) -- ours to free, hence the
+    // unique_ptr rather than a raw pointer this function used to leak.
+    std::unique_ptr<Mlt::Profile> profile(tractor.profile());
 
     for (const char *name : kConsumerBackends) {
         auto consumer = std::make_unique<Mlt::Consumer>(*profile, name);
@@ -252,8 +257,12 @@ void PlaybackController::applyResolvedScale()
     case PreviewScale::Auto: {
         // doc 05: half-res while playing a 1080p+ profile (halves
         // decode/upload cost during playback); full when paused, so a
-        // stopped-on frame is crisp.
-        bool isHighRes = m_tractor && m_tractor->profile() && m_tractor->profile()->height() >= 1080;
+        // stopped-on frame is crisp. tractor->profile() heap-allocates a
+        // fresh wrapper on every call (see selectAndStartConsumer's
+        // comment) -- called once here and owned, not twice and leaked;
+        // this runs on every play/pause/scale-preference change.
+        std::unique_ptr<Mlt::Profile> profile(m_tractor ? m_tractor->profile() : nullptr);
+        bool isHighRes = profile && profile->height() >= 1080;
         resolved = (m_playing.load() && isHighRes) ? 0.5 : 1.0;
         break;
     }
@@ -339,7 +348,15 @@ void PlaybackController::drainSlot()
     if (!data)
         return;
 
-    if (m_loopRange && data->position >= m_loopRange->second) {
+    // Only while actually playing forward: this frame-show path also
+    // carries paused "refresh" frames (after seek(), stepFrame(), toEnd(),
+    // a timeline click), and without this guard landing the playhead at or
+    // past loop-out via any of those snapped it straight back to loop-in --
+    // a paused seek should go exactly where asked, not be redirected by a
+    // loop that's only meant to apply during playback. Guarding speed > 0
+    // too: a reverse shuttle crossing loop-out on its way somewhere else
+    // shouldn't wrap forward either.
+    if (m_loopRange && m_playing.load() && m_speed.load() > 0.0 && data->position >= m_loopRange->second) {
         // Not the generic seek(): while playing, seek() deliberately
         // leaves the prefetch buffer alone ("the consumer catches up",
         // doc 05) for a normal user scrub -- but that means frames already

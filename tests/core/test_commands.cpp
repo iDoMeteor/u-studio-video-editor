@@ -117,6 +117,85 @@ TEST_CASE("ResizeClip: apply then revert restores an equal model")
     CHECK(model == before);
 }
 
+TEST_CASE("InsertClip: cutting past a boundless asset's recorded length extends it (audit E3)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset stillAsset;
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 100;
+    AssetId assetId = model.addAsset(stillAsset);
+
+    InsertClip cmd(track, assetId, 0, 0, 499); // 500 frames, past the recorded 100
+    REQUIRE(cmd.apply(model));
+    CHECK(model.asset(assetId).info.lengthInSequenceFrames == 500);
+}
+
+TEST_CASE("InsertClip: a shorter cut never shrinks a boundless asset's recorded length")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset stillAsset;
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 1000;
+    AssetId assetId = model.addAsset(stillAsset);
+
+    InsertClip cmd(track, assetId, 0, 0, 49); // 50 frames, well under the recorded 1000
+    REQUIRE(cmd.apply(model));
+    CHECK(model.asset(assetId).info.lengthInSequenceFrames == 1000);
+}
+
+TEST_CASE("ResizeClip: extending a boundless clip past the asset's recorded length extends it (audit E3)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset stillAsset;
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 100;
+    AssetId assetId = model.addAsset(stillAsset);
+    ClipId clip = model.insertClip(track, assetId, 0, 0, 99);
+
+    ResizeClip cmd(clip, 0, 599, 0); // 600 frames, past the recorded 100
+    REQUIRE(cmd.apply(model));
+    CHECK(model.asset(assetId).info.lengthInSequenceFrames == 600);
+}
+
+TEST_CASE("InsertClip refuses a negative in point even for a boundless asset (audit C1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset stillAsset;
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 100;
+    AssetId assetId = model.addAsset(stillAsset);
+    Model before = model;
+
+    InsertClip cmd(track, assetId, 0, -10, 99);
+    CHECK_FALSE(cmd.apply(model));
+    CHECK(model == before);
+}
+
+TEST_CASE("ResizeClip refuses a negative in point even for a boundless asset (audit C1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset stillAsset;
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 100;
+    AssetId assetId = model.addAsset(stillAsset);
+    ClipId clip = model.insertClip(track, assetId, 0, 0, 99);
+    Model before = model;
+
+    ResizeClip cmd(clip, -5, 99, 0);
+    CHECK_FALSE(cmd.apply(model));
+    CHECK(model == before);
+}
+
 TEST_CASE("SplitClip: apply then revert restores an equal model, including the removed right half")
 {
     Model model = Model::createEmpty();
@@ -132,6 +211,27 @@ TEST_CASE("SplitClip: apply then revert restores an equal model, including the r
 
     cmd.revert(model);
     CHECK_FALSE(model.hasClip(cmd.rightId()));
+    CHECK(equalIgnoringIdAllocator(model, before));
+}
+
+TEST_CASE("SplitClip: revert restores the left clip's fadeOut, not just its out point (audit C5)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(track, asset, 0, 0, 99);
+    model.setClipFadeOut(clip, FadeSpec{10});
+    Model before = model;
+
+    SplitClip cmd(clip, 40);
+    REQUIRE(cmd.apply(model));
+    // Model::splitClip() clears the left half's fadeOut: the split point is
+    // now a hard cut, not a fade.
+    CHECK_FALSE(model.clip(clip).fadeOut.has_value());
+
+    cmd.revert(model);
+    REQUIRE(model.clip(clip).fadeOut.has_value());
+    CHECK(model.clip(clip).fadeOut->length == 10);
     CHECK(equalIgnoringIdAllocator(model, before));
 }
 
@@ -481,6 +581,32 @@ TEST_CASE("UndoStack: isClean tracks the save point across undo/redo")
     CHECK_FALSE(undoStack.isClean());
 
     undoStack.setCleanPoint();
+    CHECK(undoStack.isClean());
+}
+
+TEST_CASE("UndoStack: a new drag right after a save is never merged into the just-saved entry (audit C2)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Audio, 0, "A1");
+    UndoStack undoStack(model);
+
+    // First "drag": one push, since the stack starts empty and there's
+    // nothing yet to merge into.
+    REQUIRE(undoStack.execute(std::make_unique<SetTrackVolume>(track, 0.5)));
+    undoStack.setCleanPoint(); // simulates a Save right after this drag
+
+    // A second, later drag on the SAME track: SetTrackVolume::mergeWith
+    // only checks "same track" (see the dedicated merge test above), so
+    // without the fix this would merge straight into the entry that was
+    // just marked clean, leaving the stack size (and isClean()) unchanged.
+    REQUIRE(undoStack.execute(std::make_unique<SetTrackVolume>(track, 0.9)));
+    CHECK_FALSE(undoStack.isClean());
+
+    // The saved value must still be recoverable by undoing exactly once:
+    // if the second drag had wrongly merged into the saved entry, one
+    // undo would jump all the way back to the value before EITHER drag.
+    CHECK(undoStack.undo());
+    CHECK(model.track(track).volume == doctest::Approx(0.5));
     CHECK(undoStack.isClean());
 }
 

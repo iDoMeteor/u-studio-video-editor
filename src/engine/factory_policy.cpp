@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -90,26 +91,33 @@ std::string buildCuratedModuleDir()
     if (base.empty())
         return {};
 
-    // Per-PID, not a fixed shared name: two processes building/dlopen-ing
-    // against the same directory concurrently race (one's remove_all()+
-    // rebuild interleaves with the other's dlopen -- reproduced by two
-    // engine test binaries in the same meson test run, both constructing
-    // FactoryPolicy with no XDG_RUNTIME_DIR set). A real desktop user
-    // launching two app instances in one session would hit the identical
-    // race even with XDG_RUNTIME_DIR set, since that path was shared
-    // per-session, not per-process. FactoryPolicy's destructor removes
-    // this directory, so it doesn't accumulate across runs.
-    fs::path curated = base / ("ustudio-mlt-modules-" + std::to_string(getpid()));
+    // Not a predictable per-PID path: this directory is what gets
+    // dlopen()'d into the process (that's the entire point of it), so a
+    // guessable, world-writable location under /tmp (the XDG_RUNTIME_DIR-
+    // unset fallback -- headless/CI, not a normal desktop session with a
+    // per-user 0700 runtime dir) would let another local user pre-create
+    // or race-replace an entry before we symlink into it, getting their
+    // code loaded into this process. mkdtemp() creates the directory
+    // atomically with a random suffix and mode 0700, closing that off;
+    // two processes racing to build a curated dir at the same moment
+    // (reproduced by two engine test binaries in the same meson test run
+    // with no XDG_RUNTIME_DIR set) now always get two distinct
+    // directories instead of contending for one. FactoryPolicy's
+    // destructor removes this directory, so it doesn't accumulate across
+    // clean runs; a stray one from a crash is a rare, low-cost leftover
+    // rather than a stable name anything can plan around.
+    std::string curatedTemplate = (base / "ustudio-mlt-modules-XXXXXX").string();
+    std::vector<char> curatedBuf(curatedTemplate.begin(), curatedTemplate.end());
+    curatedBuf.push_back('\0');
+    if (!mkdtemp(curatedBuf.data())) {
+        Log::warn(std::string("[engine] FactoryPolicy: could not create a curated module directory under ") +
+                  base.string() + " (" + std::strerror(errno) + "), falling back to default MLT module loading");
+        return {};
+    }
+    fs::path curated(curatedBuf.data());
     fs::path source = USTUDIO_MLT_MODULE_DIR;
 
     std::error_code ec;
-    fs::remove_all(curated, ec); // refresh: drop anything left over from a crashed run with this same pid
-    fs::create_directories(curated, ec);
-    if (ec) {
-        Log::warn("[engine] FactoryPolicy: could not create " + curated.string() + " (" + ec.message() +
-                  "), falling back to default MLT module loading");
-        return {};
-    }
 
     if (!fs::exists(source, ec) || ec) {
         Log::warn("[engine] FactoryPolicy: MLT module source dir " + source.string() +
@@ -120,21 +128,30 @@ std::string buildCuratedModuleDir()
     std::vector<std::string> deny = denylist();
     int linked = 0;
     int skipped = 0;
-    for (const auto &entry : fs::directory_iterator(source, ec)) {
+    // Separate error_code from the one used per-symlink below: sharing one
+    // meant a single failed symlink (a dangling entry, a permissions
+    // quirk) left it non-clear after the loop, which this check then
+    // misread as "the whole directory scan failed" -- discarding an
+    // otherwise-successfully-curated directory and falling back to
+    // default (Qt-loading) MLT init over one bad entry, exactly the
+    // outcome ADR-007 exists to prevent.
+    std::error_code scanEc;
+    for (const auto &entry : fs::directory_iterator(source, scanEc)) {
         std::string name = entry.path().filename().string();
         if (isDenied(name, deny)) {
             ++skipped;
             continue;
         }
-        fs::create_symlink(entry.path(), curated / name, ec);
-        if (ec) {
-            Log::warn("[engine] FactoryPolicy: could not symlink " + name + ": " + ec.message());
+        std::error_code symlinkEc;
+        fs::create_symlink(entry.path(), curated / name, symlinkEc);
+        if (symlinkEc) {
+            Log::warn("[engine] FactoryPolicy: could not symlink " + name + ": " + symlinkEc.message());
             continue;
         }
         ++linked;
     }
-    if (ec) {
-        Log::warn("[engine] FactoryPolicy: error scanning " + source.string() + " (" + ec.message() +
+    if (scanEc) {
+        Log::warn("[engine] FactoryPolicy: error scanning " + source.string() + " (" + scanEc.message() +
                   "), falling back to default MLT module loading");
         return {};
     }

@@ -20,6 +20,22 @@ Model Model::createEmpty(Profile profile)
 
 Model::Model(Project project) : m_project(std::move(project)) {}
 
+Model::Model(const Model &other) : m_project(other.m_project) {}
+
+Model &Model::operator=(const Model &other)
+{
+    m_project = other.m_project;
+    return *this;
+}
+
+Model::Model(Model &&other) noexcept : m_project(std::move(other.m_project)) {}
+
+Model &Model::operator=(Model &&other) noexcept
+{
+    m_project = std::move(other.m_project);
+    return *this;
+}
+
 uint64_t Model::allocateId()
 {
     return m_project.nextId++;
@@ -158,6 +174,17 @@ void Model::removeAsset(AssetId id)
     auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
     assert(it != bin.end() && "Model::removeAsset: unknown AssetId");
     bin.erase(it);
+    notify(AssetChanged{id});
+}
+
+void Model::extendAssetLength(AssetId id, FrameIndex minimumLength)
+{
+    auto &bin = m_project.bin;
+    auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
+    assert(it != bin.end() && "Model::extendAssetLength: unknown AssetId");
+    if (minimumLength <= it->info.lengthInSequenceFrames)
+        return;
+    it->info.lengthInSequenceFrames = minimumLength;
     notify(AssetChanged{id});
 }
 
@@ -317,6 +344,15 @@ ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRig
     left.out = left.in + offsetIntoClip - 1;
     left.fadeOut.reset(); // the new right edge is a hard cut
 
+    // Batched (audit C5): insertClip() below fires its own ClipInserted
+    // before the effects/flags/fade copies just below it run, so a
+    // listener that resyncs immediately on every event (EngineSync) would
+    // otherwise rebuild once against the right clip's momentary default
+    // flags/effects, then again once ClipResized fires with the real
+    // ones -- functionally harmless (both notifies are synchronous within
+    // this call, so nothing outside ever observes the intermediate state),
+    // but two rebuilds for what is, from the caller's side, one edit.
+    notify(BatchBegin{});
     ClipId rightId = insertClip(left.track, right.asset, right.position, right.in, right.out, reuseRightId);
     Clip &insertedRight = mutableClip(rightId);
     insertedRight.effects = right.effects;
@@ -327,6 +363,7 @@ ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRig
     insertedRight.fadeOut = right.fadeOut;
 
     notify(ClipResized{id});
+    notify(BatchEnd{});
     return rightId;
 }
 
@@ -335,6 +372,13 @@ void Model::setClipEnabled(ClipId id, bool videoEnabled, bool audioEnabled)
     Clip &target = mutableClip(id);
     target.videoEnabled = videoEnabled;
     target.audioEnabled = audioEnabled;
+    notify(ClipFlagsChanged{id});
+}
+
+void Model::setClipFadeOut(ClipId id, std::optional<FadeSpec> fadeOut)
+{
+    Clip &target = mutableClip(id);
+    target.fadeOut = fadeOut;
     notify(ClipFlagsChanged{id});
 }
 
@@ -372,6 +416,14 @@ std::vector<std::string> Model::check() const
     std::vector<std::string> problems;
     const Sequence &seq = activeSequence();
 
+    // A zero or negative fps reaches Mlt::Profile::set_frame_rate() and
+    // every fps-based FrameIndex<->time conversion in the app (audit C3);
+    // the loader already refuses this up front for a freshly-opened file,
+    // but check() is meant to be the one place every caller (including a
+    // future non-file source of a Project) can trust to catch it.
+    if (seq.profile.fps.num <= 0 || seq.profile.fps.den <= 0)
+        problems.push_back("sequence profile fps is not a valid positive ratio");
+
     for (const auto &trackEntry : seq.tracks) {
         FrameIndex previousEnd = -1;
         for (ClipId clipId : trackEntry.clips) {
@@ -402,10 +454,17 @@ std::vector<std::string> Model::check() const
             if (!hasAsset(clipEntry.asset)) {
                 problems.push_back("clip " + std::to_string(clipEntry.id.value) + " references missing asset " +
                                    std::to_string(clipEntry.asset.value)); // invariant 5
+            } else if (clipEntry.in < 0 || clipEntry.in > clipEntry.out) {
+                // Checked unconditionally, not just for bounded assets
+                // (audit C1): MLT clamps a negative cut `in` to 0 rather
+                // than rejecting it, so a boundless (still image/generator)
+                // asset is just as able to carry an invalid span here as a
+                // bounded one.
+                problems.push_back("clip " + std::to_string(clipEntry.id.value) +
+                                   " has an invalid in/out range"); // invariant 3
             } else {
                 const Asset &sourceAsset = asset(clipEntry.asset);
-                if (!sourceAsset.info.isBoundless() && !(clipEntry.in >= 0 && clipEntry.in <= clipEntry.out &&
-                                    clipEntry.out < sourceAsset.info.lengthInSequenceFrames)) {
+                if (!sourceAsset.info.isBoundless() && clipEntry.out >= sourceAsset.info.lengthInSequenceFrames) {
                     problems.push_back("clip " + std::to_string(clipEntry.id.value) +
                                        " has an out-of-range source span"); // invariant 3
                 }
