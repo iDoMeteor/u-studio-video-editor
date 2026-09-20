@@ -1,3 +1,7 @@
+---
+applyTo: "**"
+---
+
 # u Studio Video Editor — Agent & coding standards
 
 This file governs all AI-assisted development on `u-studio-video-editor`.
