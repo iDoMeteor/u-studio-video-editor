@@ -57,6 +57,10 @@ class Model
     // Reorders a track within the visual stack (drag-to-reorder in the
     // UI). `newIndex` is clamped to the current track count.
     void moveTrack(TrackId, size_t newIndex);
+    // Linear scale (0 = silent, 1 = unity, >1 = boost); EngineSync converts
+    // to the dB "level" a volume filter takes. Applies to the whole track
+    // (doc 03: "audio tracks and the audio part of video tracks").
+    void setTrackVolume(TrackId, double volume);
 
     ClipId insertClip(TrackId, AssetId, FrameIndex pos, FrameIndex in, FrameIndex out,
                       std::optional<ClipId> reuseId = std::nullopt);

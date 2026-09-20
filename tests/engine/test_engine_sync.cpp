@@ -4,6 +4,8 @@
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <random>
 
@@ -100,6 +102,59 @@ TEST_CASE("EngineSync: a clip with video/audio disabled gets video_index/audio_i
     REQUIRE(audioCut != nullptr);
     CHECK(audioCut->get_int("video_index") == -1);
     CHECK(audioCut->get_int("audio_index") != -1);
+}
+
+namespace {
+double peakAmplitude(Mlt::Producer &producer)
+{
+    std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+    mlt_audio_format format = mlt_audio_s16;
+    int frequency = 48000;
+    int channels = 2;
+    int samples = 1920;
+    auto *audio = static_cast<int16_t *>(frame->get_audio(format, frequency, channels, samples));
+    double peak = 0.0;
+    for (int i = 0; i < samples * channels; ++i)
+        peak = std::max(peak, std::abs(static_cast<double>(audio[i])));
+    return peak;
+}
+} // namespace
+
+TEST_CASE("EngineSync: Track::volume attaches a volume filter that actually scales the track's audio")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId fullVolume = model.addTrack(Track::Kind::Audio, 0, "A1");
+    TrackId quietTrack = model.addTrack(Track::Kind::Audio, 1, "A2");
+    model.setTrackVolume(quietTrack, 0.1); // -20dB
+
+    AssetId tone = model.addAsset([] {
+        Asset asset;
+        asset.path = "tone:880"; // explicit argument -- "tone:" alone hits verify()'s
+                                 // shorthand-stripping edge case for an empty argument
+        asset.displayName = "tone:880";
+        asset.info.hasAudio = true;
+        asset.info.lengthInSequenceFrames = 100;
+        return asset;
+    }());
+    model.insertClip(fullVolume, tone, 0, 0, 99);
+    model.insertClip(quietTrack, tone, 0, 0, 99);
+
+    EngineSync sync(model);
+    // Not sync.verify(): its resource check reports a pre-existing,
+    // unrelated mismatch for audio-only generator producers specifically
+    // ("tone:" cuts report the "<producer>" placeholder in a way verify()'s
+    // shorthand-stripping doesn't handle -- every other EngineSync test
+    // uses a video generator instead, which doesn't hit this). Track
+    // count/order is enough to know the right tracks are being measured.
+    REQUIRE(sync.tractor().count() == 3);
+
+    // Index 0 = black, 1 = fullVolume (audio tracks come first, model
+    // order), 2 = quietTrack.
+    double loud = peakAmplitude(*sync.tractor().track(1));
+    double quiet = peakAmplitude(*sync.tractor().track(2));
+    REQUIRE(loud > 0.0);
+    CHECK(quiet / loud == doctest::Approx(0.1).epsilon(0.02));
 }
 
 TEST_CASE("EngineSync: rebuildAll after a model change keeps verify() clean")

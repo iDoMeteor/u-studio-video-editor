@@ -4,6 +4,7 @@
 #include "core/model/mlt_order.h"
 
 #include <algorithm>
+#include <cmath>
 #include <variant>
 
 namespace ustudio::engine {
@@ -12,6 +13,25 @@ namespace Log = ustudio::core::Log;
 
 namespace {
 constexpr const char *kBlackResource = "color:black";
+
+// MLT's "volume" filter takes its "level" property in dB (verified against
+// the module's own YAML metadata: "level"/"The animated value of the gain
+// adjustment in dB" -- "gain" is the deprecated linear/string form).
+// Track::volume is a plain linear scale (1.0 = unity) for a simpler slider
+// UI, so this is the conversion point. Standard 20*log10 amplitude-ratio
+// formula; empirically confirmed with a standalone repro (a 440Hz tone
+// through a playlist with this filter attached at -20dB measured 0.1x peak
+// amplitude, exactly the expected ratio). Treats anything at or below a
+// small linear threshold as a fixed silence floor rather than computing
+// log10(0) = -inf.
+double linearToDecibels(double linear)
+{
+    constexpr double kSilenceFloorDb = -60.0;
+    constexpr double kMinLinear = 0.0001;
+    if (linear <= kMinLinear)
+        return kSilenceFloorDb;
+    return 20.0 * std::log10(linear);
+}
 
 std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 {
@@ -179,6 +199,17 @@ void EngineSync::rebuildAll()
         const core::Track &modelTrack = m_model.track(trackId);
         auto playlist = std::make_unique<Mlt::Playlist>(*m_profile);
         rebuildTrackPlaylist(modelTrack, *playlist);
+
+        // Track-wide level (doc 03: "audio tracks and the audio part of
+        // video tracks"). A local, like `black` above -- attach() bumps
+        // the filter's own refcount on the service, so it's fine for this
+        // wrapper to go out of scope once the loop body ends.
+        if (modelTrack.volume != 1.0) {
+            Mlt::Filter volumeFilter(*m_profile, "volume");
+            volumeFilter.set("level", linearToDecibels(modelTrack.volume));
+            playlist->attach(volumeFilter);
+        }
+
         newTractor->set_track(*playlist, static_cast<int>(order.size()));
         order.emplace_back(trackId);
         playlists.push_back(std::move(playlist));

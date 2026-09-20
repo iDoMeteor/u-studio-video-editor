@@ -4,6 +4,16 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.4.0
+
+- Track locking: right-click empty track space to lock/unlock a track.
+  A locked track refuses insert/move/resize/split/remove on its clips
+  (and as a move/Split Audio destination) until unlocked; locked rows
+  get a subtle tint.
+- Per-track volume: a slider in the same right-click menu sets each
+  track's level independently (previously only a single, whole-project
+  volume control existed).
+
 ## 0.3.0
 
 - "Split Audio" on a clip's right-click menu: pulls its audio out to a

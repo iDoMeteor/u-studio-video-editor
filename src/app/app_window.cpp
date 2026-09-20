@@ -27,6 +27,11 @@ constexpr double kClipFillR = 0x1b / 255.0, kClipFillG = 0x12 / 255.0, kClipFill
 constexpr double kClipBorderR = 0x34 / 255.0, kClipBorderG = 0x23 / 255.0, kClipBorderB = 0x57 / 255.0;
 constexpr double kSelectedR = 0x19 / 255.0, kSelectedG = 0xe3 / 255.0, kSelectedB = 0xff / 255.0;
 constexpr double kActiveTrackR = 0x19 / 255.0, kActiveTrackG = 0xe3 / 255.0, kActiveTrackB = 0xff / 255.0;
+// --warning (claude-design-system/tokens/colors.css) -- a locked track's
+// row tint; warning/caution is the closest existing token to "you can't
+// edit this", and reusing it keeps this from inventing an off-palette
+// color for a single indicator.
+constexpr double kLockedR = 0xff / 255.0, kLockedG = 0xc2 / 255.0, kLockedB = 0x4d / 255.0;
 constexpr double kTrackRowHeight = 60.0;
 constexpr double kHandleWidth = 22.0;
 constexpr double kEdgeGrabWidth = 8.0;
@@ -210,6 +215,24 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_add_css_class(m_closeGapButton, "flat");
     g_signal_connect(m_closeGapButton, "clicked", G_CALLBACK(&AppWindow::closeGapClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_closeGapButton);
+
+    // Volume + Lock/Unlock + Remove Track: all whole-track actions, shown
+    // together whenever the right-click landed on empty track space (see
+    // onTimelineRightClicked) rather than on a clip or a gap.
+    GtkWidget *volumeRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(volumeRow), gtk_label_new("Track volume"));
+    m_trackVolumeScale = GTK_SCALE(gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 1.0, 0.05));
+    gtk_scale_set_draw_value(m_trackVolumeScale, FALSE);
+    gtk_widget_set_hexpand(GTK_WIDGET(m_trackVolumeScale), TRUE);
+    gtk_widget_set_size_request(GTK_WIDGET(m_trackVolumeScale), 120, -1);
+    g_signal_connect(m_trackVolumeScale, "value-changed", G_CALLBACK(&AppWindow::trackVolumeChangedTrampoline), this);
+    gtk_box_append(GTK_BOX(volumeRow), GTK_WIDGET(m_trackVolumeScale));
+    gtk_box_append(GTK_BOX(contextMenuBox), volumeRow);
+
+    m_toggleLockButton = gtk_button_new_with_label("Lock Track");
+    gtk_widget_add_css_class(m_toggleLockButton, "flat");
+    g_signal_connect(m_toggleLockButton, "clicked", G_CALLBACK(&AppWindow::toggleLockClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_toggleLockButton);
 
     m_removeTrackButton = gtk_button_new_with_label("Remove Track");
     gtk_widget_add_css_class(m_removeTrackButton, "flat");
@@ -817,7 +840,18 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     gtk_widget_set_visible(m_splitAudioButton, showSplitAudio);
 
     gtk_widget_set_visible(m_closeGapButton, m_contextMenuGapStartFrame >= 0);
-    gtk_widget_set_visible(m_removeTrackButton, m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0);
+
+    bool onEmptyTrackSpace = m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0;
+    gtk_widget_set_visible(m_removeTrackButton, onEmptyTrackSpace);
+    gtk_widget_set_visible(m_toggleLockButton, onEmptyTrackSpace);
+    gtk_widget_set_visible(gtk_widget_get_parent(GTK_WIDGET(m_trackVolumeScale)), onEmptyTrackSpace);
+    if (onEmptyTrackSpace) {
+        const core::Track &track = m_model.track(trackIdForRow(row));
+        gtk_button_set_label(GTK_BUTTON(m_toggleLockButton), track.locked ? "Unlock Track" : "Lock Track");
+        m_suppressTrackVolumeSignal = true;
+        gtk_range_set_value(GTK_RANGE(m_trackVolumeScale), track.volume);
+        m_suppressTrackVolumeSignal = false;
+    }
 
     GdkRectangle rect{static_cast<int>(x), static_cast<int>(row * kTrackRowHeight), 1,
                       static_cast<int>(kTrackRowHeight)};
@@ -940,6 +974,36 @@ void AppWindow::onRemoveTrackClicked()
         showStatus("Couldn't remove that track.");
     }
     m_contextMenuTrack = -1;
+}
+
+void AppWindow::onToggleLockClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (m_contextMenuTrack < 0)
+        return;
+
+    core::TrackId trackId = trackIdForRow(m_contextMenuTrack);
+    const core::Track &track = m_model.track(trackId);
+    bool newLocked = !track.locked;
+    if (m_undoStack.execute(std::make_unique<core::SetTrackFlags>(trackId, track.muted, track.hidden, newLocked))) {
+        refreshTimeline();
+        showStatus(newLocked ? "Track locked." : "Track unlocked.");
+    } else {
+        showStatus("Couldn't change that track's lock.");
+    }
+    m_contextMenuTrack = -1;
+}
+
+void AppWindow::onTrackVolumeChanged()
+{
+    if (m_suppressTrackVolumeSignal || m_contextMenuTrack < 0)
+        return;
+    core::TrackId trackId = trackIdForRow(m_contextMenuTrack);
+    double volume = gtk_range_get_value(GTK_RANGE(m_trackVolumeScale));
+    // Not gated on hasTrack/success feedback: a slider drag fires many of
+    // these, and SetTrackVolume::mergeWith coalesces them into one undo
+    // step already -- a status message per tick would just be noise.
+    m_undoStack.execute(std::make_unique<core::SetTrackVolume>(trackId, volume));
 }
 
 bool AppWindow::onTrackDragBegin(double x, double y)
@@ -1120,6 +1184,16 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     // the handle strip.
     for (int t = 0; t < trackCount; ++t) {
         double rowY = t * kTrackRowHeight;
+        bool locked = m_model.track(trackIdForRow(t)).locked;
+
+        if (locked) {
+            // Flat tint, not a glow (design system: glow is selection/focus
+            // only) -- just enough to notice a row is different at a glance
+            // without a per-track header widget to put a lock icon on yet.
+            cairo_set_source_rgba(cr, kLockedR, kLockedG, kLockedB, 0.08);
+            cairo_rectangle(cr, 0, rowY, width, kTrackRowHeight);
+            cairo_fill(cr);
+        }
 
         if (m_draggingTrack >= 0 && t == m_dragHoverRow) {
             cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.12);
@@ -1140,8 +1214,13 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         }
 
         // Grip icon: three short horizontal lines centered in the handle
-        // strip, signaling "drag here to reorder".
-        cairo_set_source_rgb(cr, kClipBorderR, kClipBorderG, kClipBorderB);
+        // strip, signaling "drag here to reorder" -- tinted the same
+        // warning color as the row when locked, since dragging a clip is
+        // blocked there but reordering the track itself still isn't.
+        if (locked)
+            cairo_set_source_rgb(cr, kLockedR, kLockedG, kLockedB);
+        else
+            cairo_set_source_rgb(cr, kClipBorderR, kClipBorderG, kClipBorderB);
         cairo_set_line_width(cr, 2.0);
         double gripCenterX = kHandleWidth / 2.0;
         double gripCenterY = rowY + kTrackRowHeight / 2.0;
@@ -1578,6 +1657,16 @@ void AppWindow::closeGapClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::removeTrackClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onRemoveTrackClicked();
+}
+
+void AppWindow::toggleLockClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onToggleLockClicked();
+}
+
+void AppWindow::trackVolumeChangedTrampoline(GtkRange *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onTrackVolumeChanged();
 }
 
 void AppWindow::trackDragBeginTrampoline(GtkGestureDrag *gesture, double x, double y, gpointer userData)

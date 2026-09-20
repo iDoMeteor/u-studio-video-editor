@@ -208,6 +208,13 @@ void Model::setTrackFlags(TrackId id, bool muted, bool hidden, bool locked)
     notify(TrackFlagsChanged{id});
 }
 
+void Model::setTrackVolume(TrackId id, double volume)
+{
+    Track &target = mutableTrack(id);
+    target.volume = volume;
+    notify(TrackVolumeChanged{id});
+}
+
 void Model::moveTrack(TrackId id, size_t newIndex)
 {
     auto &tracks = activeSequence().tracks;

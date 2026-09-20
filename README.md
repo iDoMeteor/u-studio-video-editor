@@ -40,7 +40,11 @@ single-track skeleton.
   nearest audio track with room, creating one if none has room — the two
   halves can then be moved/trimmed independently); right-click a gap to
   close it (ripples later content earlier to fill it); right-click empty
-  track space for "Remove Track".
+  track space for a per-track volume slider, "Lock Track"/"Unlock Track",
+  and "Remove Track". A locked track refuses insert/move/resize/split/
+  remove on its own clips (and as a move/Split Audio destination) until
+  unlocked — reordering the track itself and toggling the lock stay
+  available. Locked rows get a subtle tint so you can tell at a glance.
 - Per-clip audio waveforms, drawn on every clip that has audio (video or
   audio-only), computed on a background thread so the UI never stalls —
   see `src/engine/waveform_cache.{h,cpp}`.
@@ -291,7 +295,14 @@ empirically with a standalone repro. A clip's `videoEnabled`/
 the shared master producer — `cut->set("video_index", -1)` /
 `set("audio_index", -1)` (`-1` = "off", confirmed against `avformat`'s own
 YAML metadata) — so silencing one clip's video or audio never affects any
-other cut of the same asset elsewhere on the timeline.
+other cut of the same asset elsewhere on the timeline. Per-track volume
+(`Track::volume`, a linear 0..1 scale for the UI) is applied by attaching
+an `Mlt::Filter("volume")` to the track's playlist and converting to the
+filter's own `"level"` property (dB — `"gain"` is documented deprecated
+in its YAML metadata) with the standard `20*log10` amplitude-ratio
+formula; confirmed with a standalone repro that -20dB measures a 0.1x
+peak-amplitude ratio, exactly as expected, and again against the real
+engine pipeline in `tests/engine/test_engine_sync.cpp`.
 
 ### Render implementation notes
 

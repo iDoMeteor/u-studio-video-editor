@@ -51,6 +51,8 @@ bool RemoveTrack::apply(Model &model)
     // otherwise trusts the caller), so it's the command's job.
     if (model.sequence().tracks.size() <= 1)
         return false;
+    if (model.track(m_track).locked)
+        return false;
 
     const Sequence &seq = model.sequence();
     const auto &tracks = seq.tracks;
@@ -116,6 +118,31 @@ void SetTrackFlags::revert(Model &model)
     model.setTrackFlags(m_track, m_oldMuted, m_oldHidden, m_oldLocked);
 }
 
+SetTrackVolume::SetTrackVolume(TrackId track, double volume) : m_track(track), m_volume(volume) {}
+
+bool SetTrackVolume::apply(Model &model)
+{
+    if (!model.hasTrack(m_track))
+        return false;
+    m_oldVolume = model.track(m_track).volume;
+    model.setTrackVolume(m_track, m_volume);
+    return true;
+}
+
+void SetTrackVolume::revert(Model &model)
+{
+    model.setTrackVolume(m_track, m_oldVolume);
+}
+
+bool SetTrackVolume::mergeWith(const Command &next)
+{
+    const auto *nextVolume = dynamic_cast<const SetTrackVolume *>(&next);
+    if (!nextVolume || nextVolume->m_track != m_track)
+        return false;
+    m_volume = nextVolume->m_volume; // keep this command's m_oldVolume: the drag's true start
+    return true;
+}
+
 // --- InsertClip / RemoveClip / MoveClip / ResizeClip / SplitClip -----------
 
 InsertClip::InsertClip(TrackId track, AssetId asset, FrameIndex pos, FrameIndex in, FrameIndex out)
@@ -125,6 +152,8 @@ InsertClip::InsertClip(TrackId track, AssetId asset, FrameIndex pos, FrameIndex 
 bool InsertClip::apply(Model &model)
 {
     if (!model.hasTrack(m_track) || !model.hasAsset(m_asset))
+        return false;
+    if (model.track(m_track).locked)
         return false;
     if (m_in > m_out || m_pos < 0)
         return false;
@@ -153,6 +182,8 @@ bool RemoveClip::apply(Model &model)
     if (!model.hasClip(m_clip))
         return false;
     m_captured = model.clip(m_clip);
+    if (model.track(m_captured.track).locked)
+        return false;
     model.removeClip(m_clip);
     return true;
 }
@@ -174,6 +205,12 @@ bool MoveClip::apply(Model &model)
         return false;
 
     const Clip &current = model.clip(m_clip);
+    // Both ends of the move must be unlocked: leaving a locked track's
+    // content untouched is the whole point, and dropping something new
+    // onto a locked track is just as much an edit to it as moving one of
+    // its own clips would be.
+    if (model.track(current.track).locked || model.track(m_newTrack).locked)
+        return false;
     FrameIndex length = current.length();
     if (!model.isRangeFree(m_newTrack, m_newPos, m_newPos + length, m_clip))
         return false;
@@ -201,6 +238,8 @@ bool ResizeClip::apply(Model &model)
         return false;
 
     const Clip &current = model.clip(m_clip);
+    if (model.track(current.track).locked)
+        return false;
     FrameIndex newLength = m_newOut - m_newIn + 1;
     if (!model.isRangeFree(current.track, m_newPos, m_newPos + newLength, m_clip))
         return false;
@@ -230,6 +269,8 @@ bool SplitClip::apply(Model &model)
     if (!model.hasClip(m_clip))
         return false;
     const Clip &current = model.clip(m_clip);
+    if (model.track(current.track).locked)
+        return false;
     if (!(m_at > current.position && m_at < current.end()))
         return false;
 
@@ -255,13 +296,17 @@ bool SplitAudio::apply(Model &model)
     if (!model.hasClip(m_clip))
         return false;
     const Clip &original = model.clip(m_clip);
+    if (model.track(original.track).locked)
+        return false;
     if (!original.audioEnabled || !original.videoEnabled)
         return false; // nothing to split, or already audio-only
 
     TrackId audioTrackId;
     bool found = false;
     for (const Track &track : model.sequence().tracks) {
-        if (track.kind == Track::Kind::Audio &&
+        // A locked audio track is not a valid destination either, same as
+        // one that's occupied -- keep searching past it.
+        if (track.kind == Track::Kind::Audio && !track.locked &&
             model.isRangeFree(track.id, original.position, original.end())) {
             audioTrackId = track.id;
             found = true;

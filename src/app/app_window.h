@@ -118,6 +118,8 @@ class AppWindow
     void onSplitAudioClicked();
     void onCloseGapClicked();
     void onRemoveTrackClicked();
+    void onToggleLockClicked();
+    void onTrackVolumeChanged();
     void onWaveformReady();
     // Returns true if the press hit something draggable (a track handle or
     // a clip) and the gesture should claim the sequence — denying the
@@ -173,6 +175,8 @@ class AppWindow
     static void splitAudioClickedTrampoline(GtkButton *button, gpointer userData);
     static void closeGapClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTrackClickedTrampoline(GtkButton *button, gpointer userData);
+    static void toggleLockClickedTrampoline(GtkButton *button, gpointer userData);
+    static void trackVolumeChangedTrampoline(GtkRange *range, gpointer userData);
     static void trackDragBeginTrampoline(GtkGestureDrag *gesture, double x, double y, gpointer userData);
     static void trackDragUpdateTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
     static void trackDragEndTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
@@ -208,6 +212,13 @@ class AppWindow
     GtkWidget *m_splitAudioButton = nullptr;
     GtkWidget *m_closeGapButton = nullptr;
     GtkWidget *m_removeTrackButton = nullptr;
+    GtkWidget *m_toggleLockButton = nullptr;
+    GtkScale *m_trackVolumeScale = nullptr;
+    // "value-changed" fires while merely repositioning the slider to the
+    // right-clicked track's current volume (see onTimelineRightClicked) --
+    // this suppresses turning that into a spurious SetTrackVolume command,
+    // matching m_suppressSeekSignal's existing role for the seek scale.
+    bool m_suppressTrackVolumeSignal = false;
 
     core::Model m_model = core::Model::createEmpty();
     core::UndoStack m_undoStack{m_model};

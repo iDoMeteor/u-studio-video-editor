@@ -110,6 +110,30 @@ class SetTrackFlags : public Command
     bool m_oldMuted = false, m_oldHidden = false, m_oldLocked = false;
 };
 
+// Deliberately NOT gated by Track::locked (unlike every clip-content
+// command below): locking a track must stay reversible from the same UI
+// that set it, and toggling mute/hide/lock is a track-level setting, not
+// a content edit.
+class SetTrackVolume : public Command
+{
+  public:
+    SetTrackVolume(TrackId track, double volume);
+    std::string label() const override
+    {
+        return "Set track volume";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+    // Coalesces a volume-slider drag into one undo step (doc 04's
+    // SetParam precedent: "mergeable while dragging").
+    bool mergeWith(const Command &next) override;
+
+  private:
+    TrackId m_track;
+    double m_volume;
+    double m_oldVolume = 1.0;
+};
+
 class InsertClip : public Command
 {
   public:

@@ -280,6 +280,92 @@ TEST_CASE("SetTrackFlags: revert restores old flags")
     CHECK(model == before);
 }
 
+TEST_CASE("SetTrackVolume: apply then revert restores an equal model; consecutive same-track sets merge")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Audio, 0, "A1");
+    Model before = model;
+
+    SetTrackVolume cmd(track, 0.5);
+    REQUIRE(cmd.apply(model));
+    CHECK(model.track(track).volume == 0.5);
+
+    SetTrackVolume second(track, 0.25);
+    REQUIRE(second.apply(model)); // simulates UndoStack::execute() applying it before offering the merge
+    REQUIRE(cmd.mergeWith(second));
+    CHECK(model.track(track).volume == 0.25); // second's own apply() already landed this
+
+    cmd.revert(model);
+    CHECK(model == before); // reverting the merged command undoes back to the pre-drag start, not just the last tick
+}
+
+TEST_CASE("SetTrackVolume: does not merge across different tracks")
+{
+    Model model = Model::createEmpty();
+    TrackId trackA = model.addTrack(Track::Kind::Audio, 0, "A1");
+    TrackId trackB = model.addTrack(Track::Kind::Audio, 1, "A2");
+
+    SetTrackVolume cmd(trackA, 0.5);
+    REQUIRE(cmd.apply(model));
+    SetTrackVolume other(trackB, 0.5);
+    REQUIRE(other.apply(model));
+    CHECK_FALSE(cmd.mergeWith(other));
+}
+
+TEST_CASE("Locked tracks refuse insert/move/resize/split/remove, but not the toggle itself")
+{
+    Model model = Model::createEmpty();
+    TrackId locked = model.addTrack(Track::Kind::Video, 0, "V1");
+    TrackId other = model.addTrack(Track::Kind::Video, 1, "V2");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(locked, asset, 0, 0, 99);
+
+    REQUIRE(SetTrackFlags(locked, false, false, true).apply(model)); // lock it
+    CHECK(model.track(locked).locked);
+
+    CHECK_FALSE(InsertClip(locked, asset, 200, 0, 99).apply(model));
+    CHECK_FALSE(RemoveClip(clip).apply(model));
+    CHECK_FALSE(ResizeClip(clip, 0, 49, 0).apply(model));
+    CHECK_FALSE(SplitClip(clip, 50).apply(model));
+    CHECK_FALSE(SplitAudio(clip).apply(model));
+    // Both directions: moving a clip onto a locked track, and moving the
+    // locked track's own clip elsewhere, must each refuse.
+    ClipId otherClip = model.insertClip(other, asset, 300, 0, 99);
+    CHECK_FALSE(MoveClip(otherClip, locked, 400).apply(model));
+    CHECK_FALSE(MoveClip(clip, other, 400).apply(model));
+
+    // Unlocking is never blocked by the lock it's about to clear.
+    CHECK(SetTrackFlags(locked, false, false, false).apply(model));
+    CHECK_FALSE(model.track(locked).locked);
+    CHECK(MoveClip(clip, locked, 500).apply(model)); // now allowed
+}
+
+TEST_CASE("SplitAudio skips a locked audio track and creates a new one instead")
+{
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    TrackId lockedAudio = model.addTrack(Track::Kind::Audio, 1, "A1");
+    REQUIRE(SetTrackFlags(lockedAudio, false, false, true).apply(model));
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(video, asset, 0, 0, 99);
+
+    SplitAudio cmd(clip);
+    REQUIRE(cmd.apply(model));
+    TrackId destination = model.clip(cmd.audioClipId()).track;
+    CHECK(destination != lockedAudio);
+    CHECK(model.sequence().tracks.size() == 3); // a new track was created, the locked one was skipped
+}
+
+TEST_CASE("RemoveTrack refuses a locked track")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    model.addTrack(Track::Kind::Video, 1, "V2"); // so "last track" isn't the reason for refusal
+    REQUIRE(SetTrackFlags(track, false, false, true).apply(model));
+
+    CHECK_FALSE(RemoveTrack(track).apply(model));
+}
+
 TEST_CASE("Transaction: a failing command rolls back everything applied before it")
 {
     Model model = Model::createEmpty();
