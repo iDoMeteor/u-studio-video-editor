@@ -130,6 +130,19 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
 
         Mlt::Producer &master = masterProducerFor(clip.asset);
         std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(clip.in), static_cast<int>(clip.out)));
+        // video_index/audio_index=-1 ("off"), verified against avformat's
+        // own YAML metadata. Set on the cut, not the master: cuts carry
+        // their own property overrides in MLT (the mechanism that already
+        // lets different cuts of the same file have different speed/
+        // effects), so this only silences this one clip, not every other
+        // cut of the same asset elsewhere on the timeline. This is what
+        // makes SplitAudio's two resulting clips (a video-only original, a
+        // new audio-only one) actually play as split, not just look split
+        // in the model.
+        if (!clip.videoEnabled)
+            cut->set("video_index", -1);
+        if (!clip.audioEnabled)
+            cut->set("audio_index", -1);
         playlist.append(*cut);
 
         cursor = clip.end();

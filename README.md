@@ -35,8 +35,12 @@ single-track skeleton.
 - Drag a clip's body to move it — within a track or to a different one.
   Drag near a clip's left/right edge (~8px) to trim it shorter or longer.
   Right-click a clip to delete it (leaves a gap — "lift", nothing else
-  moves); right-click a gap to close it (ripples later content earlier to
-  fill it); right-click empty track space for "Remove Track".
+  moves); right-click a clip that has audio and isn't already audio-only
+  for "Split Audio" (pulls its audio out to a new, independent clip on the
+  nearest audio track with room, creating one if none has room — the two
+  halves can then be moved/trimmed independently); right-click a gap to
+  close it (ripples later content earlier to fill it); right-click empty
+  track space for "Remove Track".
 - Per-clip audio waveforms, drawn on every clip that has audio (video or
   audio-only), computed on a background thread so the UI never stalls —
   see `src/engine/waveform_cache.{h,cpp}`.
@@ -282,7 +286,12 @@ a per-asset master producer (`Mlt::Producer::cut()`), so no source file is
 reopened per clip. `playlist.get_clip()`'s own `resource` property on a cut
 is the placeholder string `"<producer>"`, not the real file path — that's
 on the master producer / the model's own `Asset::path`, confirmed
-empirically with a standalone repro.
+empirically with a standalone repro. A clip's `videoEnabled`/
+`audioEnabled` flags (used by "Split Audio") are applied per cut, not on
+the shared master producer — `cut->set("video_index", -1)` /
+`set("audio_index", -1)` (`-1` = "off", confirmed against `avformat`'s own
+YAML metadata) — so silencing one clip's video or audio never affects any
+other cut of the same asset elsewhere on the timeline.
 
 ### Render implementation notes
 

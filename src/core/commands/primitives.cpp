@@ -246,4 +246,51 @@ void SplitClip::revert(Model &model)
     model.resizeClip(m_clip, left.in, m_oldOut, left.position);
 }
 
+// --- SplitAudio --------------------------------------------------------
+
+SplitAudio::SplitAudio(ClipId clip) : m_clip(clip) {}
+
+bool SplitAudio::apply(Model &model)
+{
+    if (!model.hasClip(m_clip))
+        return false;
+    const Clip &original = model.clip(m_clip);
+    if (!original.audioEnabled || !original.videoEnabled)
+        return false; // nothing to split, or already audio-only
+
+    TrackId audioTrackId;
+    bool found = false;
+    for (const Track &track : model.sequence().tracks) {
+        if (track.kind == Track::Kind::Audio &&
+            model.isRangeFree(track.id, original.position, original.end())) {
+            audioTrackId = track.id;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        size_t audioTrackCount = 0;
+        for (const Track &track : model.sequence().tracks) {
+            if (track.kind == Track::Kind::Audio)
+                ++audioTrackCount;
+        }
+        audioTrackId = model.addTrack(Track::Kind::Audio, model.sequence().tracks.size(),
+                                      "A" + std::to_string(audioTrackCount + 1));
+    }
+
+    m_audioClipId = model.insertClip(audioTrackId, original.asset, original.position, original.in, original.out,
+                                     m_appliedBefore ? std::optional<ClipId>(m_audioClipId) : std::nullopt);
+    model.setClipEnabled(m_audioClipId, /*videoEnabled=*/false, /*audioEnabled=*/true);
+    model.setClipEnabled(m_clip, /*videoEnabled=*/true, /*audioEnabled=*/false);
+
+    m_appliedBefore = true;
+    return true;
+}
+
+void SplitAudio::revert(Model &model)
+{
+    model.removeClip(m_audioClipId);
+    model.setClipEnabled(m_clip, /*videoEnabled=*/true, /*audioEnabled=*/true);
+}
+
 } // namespace ustudio::core

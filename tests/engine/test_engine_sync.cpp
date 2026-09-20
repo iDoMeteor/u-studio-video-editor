@@ -71,6 +71,37 @@ TEST_CASE("EngineSync: one clip on one video track lands in the playlist at the 
     CHECK(playlist.get_length() == 60); // 10 blank + 50 clip
 }
 
+TEST_CASE("EngineSync: a clip with video/audio disabled gets video_index/audio_index=-1 on its cut")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    TrackId audio = model.addTrack(Track::Kind::Audio, 1, "A1");
+    AssetId asset = addGeneratorAsset(model, "color:red");
+
+    // Simulates SplitAudio's two resulting clips: the original with its
+    // audio silenced, and the extracted one with its video silenced.
+    ClipId videoOnly = model.insertClip(video, asset, 0, 0, 49);
+    model.setClipEnabled(videoOnly, /*videoEnabled=*/true, /*audioEnabled=*/false);
+    ClipId audioOnly = model.insertClip(audio, asset, 0, 0, 49);
+    model.setClipEnabled(audioOnly, /*videoEnabled=*/false, /*audioEnabled=*/true);
+
+    EngineSync sync(model);
+    CHECK(sync.verify().empty()); // verify() doesn't check these properties, but the graph shape must still hold
+
+    Mlt::Playlist videoPlaylist(*sync.tractor().track(2)); // index 0=black, 1=audio (lowest), 2=video
+    std::unique_ptr<Mlt::Producer> videoCut(videoPlaylist.get_clip(0));
+    REQUIRE(videoCut != nullptr);
+    CHECK(videoCut->get_int("audio_index") == -1);
+    CHECK(videoCut->get_int("video_index") != -1);
+
+    Mlt::Playlist audioPlaylist(*sync.tractor().track(1));
+    std::unique_ptr<Mlt::Producer> audioCut(audioPlaylist.get_clip(0));
+    REQUIRE(audioCut != nullptr);
+    CHECK(audioCut->get_int("video_index") == -1);
+    CHECK(audioCut->get_int("audio_index") != -1);
+}
+
 TEST_CASE("EngineSync: rebuildAll after a model change keeps verify() clean")
 {
     sharedFactoryPolicy();

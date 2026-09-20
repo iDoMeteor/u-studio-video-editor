@@ -213,4 +213,42 @@ class SplitClip : public Command
     bool m_appliedBefore = false;
 };
 
+// Pulls a clip's audio out to a new, independent clip on an audio track
+// (doc 04, doc 06's clip context menu, doc 13 Q2's decided design: a
+// normal clip carries its own audio; "split audio" is the explicit
+// escape hatch that separates them into two ordinary clips with no
+// runtime link -- each can be moved/trimmed independently afterward,
+// which is the entire point). Refuses if the clip has no audio to split
+// (audioEnabled already false) or is already video-less (videoEnabled
+// already false, i.e. it's already an audio-only clip).
+//
+// Reuses the first existing audio track with room for this clip's exact
+// span (in model track order), creating a new one at the end only if
+// none has room -- "creating one if needed", doc 04. revert() removes
+// only the extracted clip and restores the original's audioEnabled; a
+// track created by apply() is deliberately left in place afterward, per
+// doc 04's own revert entry for this command (it does not mention
+// removing a track), and because doing otherwise would fail if the user
+// dropped another clip onto that track before undoing.
+class SplitAudio : public Command
+{
+  public:
+    explicit SplitAudio(ClipId clip);
+    std::string label() const override
+    {
+        return "Split audio";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+    ClipId audioClipId() const
+    {
+        return m_audioClipId;
+    }
+
+  private:
+    ClipId m_clip;
+    ClipId m_audioClipId;
+    bool m_appliedBefore = false;
+};
+
 } // namespace ustudio::core

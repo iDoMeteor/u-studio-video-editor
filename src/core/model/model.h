@@ -67,6 +67,12 @@ class Model
     // Returns the id of the new right-hand clip; the original clip (now the
     // left half) keeps its id.
     ClipId splitClip(ClipId, FrameIndex at, std::optional<ClipId> reuseRightId = std::nullopt);
+    // Toggles which of a clip's media streams the engine actually plays
+    // (EngineSync sets video_index/audio_index=-1 on the cut for whichever
+    // is false). Used directly by SplitAudio's two sides -- the extracted
+    // audio-only clip and the now video-only original -- but generic
+    // enough for a future per-clip mute/hide toggle too.
+    void setClipEnabled(ClipId, bool videoEnabled, bool audioEnabled);
 
     // Verbatim restore, used by Command::revert paths (core/commands) that
     // captured a full Clip/Track at apply time (e.g. RemoveClip, RemoveTrack)

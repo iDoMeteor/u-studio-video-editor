@@ -115,6 +115,7 @@ class AppWindow
     void onTimelineClicked(double x, double y);
     void onTimelineRightClicked(double x, double y);
     void onDeleteClipClicked();
+    void onSplitAudioClicked();
     void onCloseGapClicked();
     void onRemoveTrackClicked();
     void onWaveformReady();
@@ -169,6 +170,7 @@ class AppWindow
     static void timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
                                              gpointer userData);
     static void deleteClipClickedTrampoline(GtkButton *button, gpointer userData);
+    static void splitAudioClickedTrampoline(GtkButton *button, gpointer userData);
     static void closeGapClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTrackClickedTrampoline(GtkButton *button, gpointer userData);
     static void trackDragBeginTrampoline(GtkGestureDrag *gesture, double x, double y, gpointer userData);
@@ -203,6 +205,7 @@ class AppWindow
     GtkDropDown *m_previewScaleDropdown = nullptr;
     GtkPopover *m_trackContextMenu = nullptr;
     GtkWidget *m_deleteClipButton = nullptr;
+    GtkWidget *m_splitAudioButton = nullptr;
     GtkWidget *m_closeGapButton = nullptr;
     GtkWidget *m_removeTrackButton = nullptr;
 

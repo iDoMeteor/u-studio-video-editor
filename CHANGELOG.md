@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.3.0
+
+- "Split Audio" on a clip's right-click menu: pulls its audio out to a
+  new, independent clip on the nearest audio track with room (creating
+  one if none has room). The two halves can then be moved and trimmed
+  independently of each other.
+
 ## 0.2.0
 
 - Importing a still image (PNG, JPEG, ...) now auto-detects it as such and

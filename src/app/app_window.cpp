@@ -201,6 +201,11 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_deleteClipButton, "clicked", G_CALLBACK(&AppWindow::deleteClipClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_deleteClipButton);
 
+    m_splitAudioButton = gtk_button_new_with_label("Split Audio");
+    gtk_widget_add_css_class(m_splitAudioButton, "flat");
+    g_signal_connect(m_splitAudioButton, "clicked", G_CALLBACK(&AppWindow::splitAudioClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_splitAudioButton);
+
     m_closeGapButton = gtk_button_new_with_label("Close Gap");
     gtk_widget_add_css_class(m_closeGapButton, "flat");
     g_signal_connect(m_closeGapButton, "clicked", G_CALLBACK(&AppWindow::closeGapClickedTrampoline), this);
@@ -794,6 +799,23 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     }
 
     gtk_widget_set_visible(m_deleteClipButton, m_contextMenuClipStartFrame >= 0);
+
+    // Doc 06: only offered when the clip actually has audio to pull out
+    // and isn't already audio-only (splitting an audio-only clip would be
+    // a no-op InsertClip of silence onto a second audio track).
+    bool showSplitAudio = false;
+    if (m_contextMenuClipStartFrame >= 0) {
+        for (const auto &clip : m_clips) {
+            if (clip.trackIndex == row && clip.startFrame == m_contextMenuClipStartFrame) {
+                const core::Clip &modelClip = m_model.clip(clip.id);
+                showSplitAudio = modelClip.videoEnabled && modelClip.audioEnabled &&
+                                m_model.hasAsset(modelClip.asset) && m_model.asset(modelClip.asset).info.hasAudio;
+                break;
+            }
+        }
+    }
+    gtk_widget_set_visible(m_splitAudioButton, showSplitAudio);
+
     gtk_widget_set_visible(m_closeGapButton, m_contextMenuGapStartFrame >= 0);
     gtk_widget_set_visible(m_removeTrackButton, m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0);
 
@@ -823,6 +845,28 @@ void AppWindow::onDeleteClipClicked()
         showStatus("Deleted clip — gap left behind. Right-click the gap to close it.");
     } else {
         showStatus("Couldn't delete that clip.");
+    }
+}
+
+void AppWindow::onSplitAudioClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (m_contextMenuClipStartFrame < 0)
+        return;
+
+    core::ClipId clipId;
+    for (const auto &clip : m_clips) {
+        if (clip.trackIndex == m_contextMenuTrack && clip.startFrame == m_contextMenuClipStartFrame) {
+            clipId = clip.id;
+            break;
+        }
+    }
+
+    if (clipId.isValid() && m_undoStack.execute(std::make_unique<core::SplitAudio>(clipId))) {
+        refreshTimeline();
+        showStatus("Split audio to its own track.");
+    } else {
+        showStatus("Couldn't split that clip's audio.");
     }
 }
 
@@ -1519,6 +1563,11 @@ void AppWindow::timelineRightClickTrampoline(GtkGestureClick *, int, double x, d
 void AppWindow::deleteClipClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onDeleteClipClicked();
+}
+
+void AppWindow::splitAudioClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSplitAudioClicked();
 }
 
 void AppWindow::closeGapClickedTrampoline(GtkButton *, gpointer userData)

@@ -323,6 +323,14 @@ ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRig
     return rightId;
 }
 
+void Model::setClipEnabled(ClipId id, bool videoEnabled, bool audioEnabled)
+{
+    Clip &target = mutableClip(id);
+    target.videoEnabled = videoEnabled;
+    target.audioEnabled = audioEnabled;
+    notify(ClipFlagsChanged{id});
+}
+
 void Model::restoreClip(Clip clipToRestore)
 {
     reserveId(clipToRestore.id.value);

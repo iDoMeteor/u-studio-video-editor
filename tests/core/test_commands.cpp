@@ -135,6 +135,101 @@ TEST_CASE("SplitClip: apply then revert restores an equal model, including the r
     CHECK(equalIgnoringIdAllocator(model, before));
 }
 
+TEST_CASE("SplitAudio: reuses an existing empty audio track and fully reverts")
+{
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    TrackId audio = model.addTrack(Track::Kind::Audio, 1, "A1");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(video, asset, 10, 0, 99);
+    Model before = model;
+
+    SplitAudio cmd(clip);
+    REQUIRE(cmd.apply(model));
+
+    CHECK(model.clip(clip).videoEnabled);
+    CHECK_FALSE(model.clip(clip).audioEnabled);
+    REQUIRE(model.hasClip(cmd.audioClipId()));
+    const Clip &audioClip = model.clip(cmd.audioClipId());
+    CHECK(audioClip.track == audio);
+    CHECK_FALSE(audioClip.videoEnabled);
+    CHECK(audioClip.audioEnabled);
+    CHECK(audioClip.position == 10);
+    CHECK(audioClip.in == 0);
+    CHECK(audioClip.out == 99);
+    // No new track: the existing empty one was reused.
+    CHECK(model.sequence().tracks.size() == 2);
+
+    cmd.revert(model);
+    CHECK_FALSE(model.hasClip(cmd.audioClipId()));
+    CHECK(equalIgnoringIdAllocator(model, before));
+}
+
+TEST_CASE("SplitAudio: creates a new audio track when none exists; revert leaves it in place")
+{
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(video, asset, 0, 0, 99);
+    size_t tracksBefore = model.sequence().tracks.size();
+
+    SplitAudio cmd(clip);
+    REQUIRE(cmd.apply(model));
+    REQUIRE(model.sequence().tracks.size() == tracksBefore + 1);
+    TrackId newAudioTrack = model.clip(cmd.audioClipId()).track;
+    CHECK(model.track(newAudioTrack).kind == Track::Kind::Audio);
+
+    // Doc 04's revert entry for SplitAudio is "RemoveClip(audioClipId) +
+    // restore audio on the original clip" -- it does not remove a track
+    // apply() created, so the track is deliberately left behind, empty.
+    cmd.revert(model);
+    CHECK(model.hasTrack(newAudioTrack));
+    CHECK(model.track(newAudioTrack).clips.empty());
+    CHECK(model.clip(clip).audioEnabled);
+    CHECK(model.clip(clip).videoEnabled);
+}
+
+TEST_CASE("SplitAudio: skips an occupied audio track for a later free one")
+{
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    TrackId occupiedAudio = model.addTrack(Track::Kind::Audio, 1, "A1");
+    TrackId freeAudio = model.addTrack(Track::Kind::Audio, 2, "A2");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(video, asset, 0, 0, 99);
+    // Occupy the first audio track over the exact span the split needs.
+    model.insertClip(occupiedAudio, asset, 0, 0, 99);
+
+    SplitAudio cmd(clip);
+    REQUIRE(cmd.apply(model));
+    CHECK(model.clip(cmd.audioClipId()).track == freeAudio);
+    CHECK(model.sequence().tracks.size() == 3); // no track created -- freeAudio had room
+}
+
+TEST_CASE("SplitAudio: refuses a clip with no audio to split")
+{
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(video, asset, 0, 0, 99);
+    model.setClipEnabled(clip, /*videoEnabled=*/true, /*audioEnabled=*/false);
+
+    SplitAudio cmd(clip);
+    CHECK_FALSE(cmd.apply(model));
+}
+
+TEST_CASE("SplitAudio: refuses a clip that is already audio-only")
+{
+    Model model = Model::createEmpty();
+    TrackId audio = model.addTrack(Track::Kind::Audio, 0, "A1");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(audio, asset, 0, 0, 99);
+    model.setClipEnabled(clip, /*videoEnabled=*/false, /*audioEnabled=*/true);
+
+    SplitAudio cmd(clip);
+    CHECK_FALSE(cmd.apply(model));
+}
+
 TEST_CASE("AddTrack / RemoveTrack: revert restores the track's clips too")
 {
     Model model = Model::createEmpty();
