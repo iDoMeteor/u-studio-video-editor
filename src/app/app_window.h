@@ -11,7 +11,7 @@
 #include "core/commands/undo_stack.h"
 #include "core/model/model.h"
 #include "engine/engine_sync.h"
-#include "engine/mlt_engine.h"
+#include "engine/playback_controller.h"
 #include "engine/waveform_cache.h"
 
 namespace ustudio::app {
@@ -47,19 +47,19 @@ struct ClipDisplay
 };
 
 // The app shell: owns the project Model, its UndoStack, the EngineSync
-// projection of it into MLT, a playback-only MltEngine that plays whatever
-// tractor EngineSync last built, and every top-level widget. UI widgets are
-// built imperatively in C++ (no .ui/GResource files) to keep the build to a
-// single translation unit per concern and avoid an extra resource-compile
-// step for this first milestone.
+// projection of it into MLT, a PlaybackController that plays whatever
+// tractor EngineSync last built (doc 05/ADR-002), and every top-level
+// widget. UI widgets are built imperatively in C++ (no .ui/GResource
+// files) to keep the build to a single translation unit per concern and
+// avoid an extra resource-compile step for this first milestone.
 //
 // Edit flow: a UI gesture builds a core::Command, UndoStack::execute()
 // applies it to the model. Model::changed then drives the rest
 // automatically (doc 02: "Model -> engine -> screen, never backwards"):
 // EngineSync is subscribed to it and resyncs the tractor on its own
 // (engine_sync.h), and its `rebuilt` signal (connected once, in this
-// class's constructor) is what points MltEngine at the new tractor -- no
-// call site here needs to remember to do either.
+// class's constructor) is what points PlaybackController at the new
+// tractor -- no call site here needs to remember to do either.
 class AppWindow
 {
   public:
@@ -164,7 +164,7 @@ class AppWindow
     core::Model m_model = core::Model::createEmpty();
     core::UndoStack m_undoStack{m_model};
     std::unique_ptr<engine::EngineSync> m_engineSync;
-    std::unique_ptr<engine::MltEngine> m_playback;
+    std::unique_ptr<engine::PlaybackController> m_playback;
     std::unique_ptr<engine::WaveformCache> m_waveforms;
     std::vector<ClipDisplay> m_clips;
     int m_selectedClip = -1;

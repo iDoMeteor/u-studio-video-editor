@@ -58,11 +58,11 @@ class EngineSync
     {
         return *m_tractor;
     }
-    // shared_ptr, not the plain reference above: MltEngine's playback loop
-    // holds this too, so a rebuildAll() that replaces the tractor doesn't
-    // free the one MltEngine might still be mid-get_frame() on -- it stays
-    // alive until MltEngine's own setTractor() call drops its reference,
-    // under MltEngine's mutex.
+    // shared_ptr, not the plain reference above: PlaybackController's
+    // Mlt::Consumer holds this too (via its own setTractor()), so a
+    // rebuildAll() that replaces the tractor doesn't free the one the
+    // consumer might still be mid-frame on -- it stays alive until
+    // PlaybackController's own setTractor() call drops its reference.
     std::shared_ptr<Mlt::Tractor> tractorPtr() const
     {
         return m_tractor;
@@ -72,8 +72,8 @@ class EngineSync
     // rebuildAll() -- whether triggered by an automatic model-event resync
     // or by an explicit call (reset(), a test). tractorPtr() has just
     // changed identity; listeners that hand the tractor to a consumer
-    // (MltEngine::setTractor) connect here once instead of calling it after
-    // every edit themselves.
+    // (PlaybackController::setTractor) connect here once instead of
+    // calling it after every edit themselves.
     core::Signal<> rebuilt;
 
     // Rebuilds the black backing track, every model track's playlist, and

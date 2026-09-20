@@ -56,7 +56,7 @@ AppWindow::AppWindow(GtkApplication *app)
 
     m_engineSync = std::make_unique<engine::EngineSync>(m_model);
 
-    m_playback = std::make_unique<engine::MltEngine>();
+    m_playback = std::make_unique<engine::PlaybackController>();
     m_playback->setTractor(m_engineSync->tractorPtr());
     // The one place playback gets re-pointed at a rebuilt tractor: fires on
     // every EngineSync::rebuildAll(), whether triggered automatically by a

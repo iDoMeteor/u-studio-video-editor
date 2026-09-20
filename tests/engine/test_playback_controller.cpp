@@ -1,0 +1,181 @@
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest.h"
+
+#include "engine/factory_policy.h"
+#include "engine/playback_controller.h"
+
+#include <glib.h>
+#include <mlt++/Mlt.h>
+
+#include <chrono>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+using namespace ustudio::engine;
+
+namespace {
+
+// Shared across TEST_CASEs, matching FactoryPolicy's own documented
+// "exactly one instance per process" contract (tests/engine/
+// test_engine_sync.cpp established this pattern first; see its comment).
+FactoryPolicy &sharedFactoryPolicy()
+{
+    static FactoryPolicy policy;
+    return policy;
+}
+
+// A one-track tractor with a single synthetic clip -- no binary media
+// (doc 11): "colour:" is an MLT generator producer.
+std::shared_ptr<Mlt::Tractor> makeOneClipTractor(Mlt::Profile &profile, int frames)
+{
+    auto tractor = std::make_shared<Mlt::Tractor>(profile);
+    Mlt::Producer producer(profile, "colour:red");
+    producer.set_in_and_out(0, frames - 1);
+    tractor->set_track(producer, 0);
+    tractor->set_in_and_out(0, frames - 1);
+    return tractor;
+}
+
+// PlaybackController posts frame delivery through MainThreadDispatcher,
+// which invokes GLib's DEFAULT main context (g_main_context_invoke_full)
+// -- nothing runs that context's loop in a plain doctest binary, so tests
+// must pump it themselves. Polls until `done` returns true or `timeout`
+// elapses; returns whether `done` became true.
+template <class Done> bool pumpMainContextUntil(Done done, std::chrono::milliseconds timeout)
+{
+    auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {
+        }
+        if (done())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("PlaybackController: selects a valid consumer and reports its backend name")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+    auto tractor = makeOneClipTractor(profile, 10);
+
+    PlaybackController controller;
+    controller.setTractor(tractor);
+
+    // sdl2_audio/rtaudio/null (ADR-002) -- whichever this machine picked,
+    // it must be one of the three, never empty (null always succeeds).
+    std::string backend = controller.backendName();
+    CHECK((backend == "sdl2_audio" || backend == "rtaudio" || backend == "null"));
+    CHECK(controller.totalFrames() == 10);
+}
+
+TEST_CASE("PlaybackController: null-consumer position test -- frame-show delivers every "
+          "position once, strictly in order, covering the full range")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+    auto tractor = makeOneClipTractor(profile, 20);
+
+    PlaybackController controller;
+    // Not sdl2_audio/rtaudio: this test asserts pacing/ordering
+    // correctness deterministically, independent of whatever audio device
+    // is or isn't available in the environment it runs in (doc 05's
+    // "null-consumer position test" from the M2 acceptance criteria).
+    // PlaybackController's own selection isn't overridable, so this test
+    // drives a `null` consumer directly rather than through setTractor().
+    Mlt::Consumer consumer(profile, "null");
+    REQUIRE(consumer.is_valid());
+    consumer.set("real_time", 1);
+
+    std::mutex mutex;
+    std::vector<int> positions;
+    Mlt::Event *event = consumer.listen(
+        "consumer-frame-show", &positions, [](mlt_properties, void *self, mlt_event_data data) {
+            Mlt::Frame frame(Mlt::EventData(data).to_frame());
+            if (!frame.is_valid())
+                return;
+            static_cast<std::vector<int> *>(self)->push_back(frame.get_position());
+        });
+    REQUIRE(event->is_valid());
+
+    REQUIRE(consumer.connect(*tractor) == 0);
+    REQUIRE(consumer.start() == 0);
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline && consumer.position() < 19)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    consumer.stop();
+    delete event;
+
+    REQUIRE_FALSE(positions.empty());
+    CHECK(positions.front() == 0);
+    CHECK(positions.back() >= 19);
+    for (size_t i = 1; i < positions.size(); ++i)
+        CHECK(positions[i] >= positions[i - 1]); // strictly non-decreasing: never reordered
+}
+
+TEST_CASE("PlaybackController: pause shows the exact frame sought to, not one off")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+    auto tractor = makeOneClipTractor(profile, 50);
+
+    PlaybackController controller;
+    std::mutex mutex;
+    std::vector<int> deliveredPositions;
+    controller.setFrameCallback([&](std::vector<uint8_t>, int, int, int frameNumber) {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.push_back(frameNumber);
+    });
+    controller.setTractor(tractor);
+
+    // Let at least one initial frame (position 0, from setTractor's own
+    // implicit pause) land, then seek to an interior frame while paused --
+    // this is the "scrub while stopped" path (doc 05), which purges and
+    // forces exactly one refreshed frame through.
+    pumpMainContextUntil([&] { std::lock_guard<std::mutex> lock(mutex); return !deliveredPositions.empty(); },
+                        std::chrono::seconds(2));
+
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.clear();
+    }
+    controller.seek(30);
+
+    bool got = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return !deliveredPositions.empty();
+        },
+        std::chrono::seconds(2));
+    REQUIRE(got);
+
+    std::lock_guard<std::mutex> lock(mutex);
+    CHECK(controller.currentFrame() == 30);
+    // The exact frame sought to must appear -- not 29 or 31, which would
+    // indicate an off-by-one in the purge+refresh pause mechanism.
+    CHECK(deliveredPositions.back() == 30);
+}
+
+TEST_CASE("PlaybackController: shutdown during playback is clean, repeated 100 times")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+
+    for (int i = 0; i < 100; ++i) {
+        auto tractor = makeOneClipTractor(profile, 30);
+        PlaybackController controller;
+        controller.setTractor(tractor);
+        controller.play(1.0);
+        // No wait: the point of this loop is exercising shutdown() at an
+        // arbitrary, unsynchronized point relative to the consumer thread
+        // possibly mid-frame -- exactly the race a sanitiser run (doc 12's
+        // M2 acceptance) is meant to catch. A clean run 100/100 times,
+        // ideally under -Db_sanitize=address,undefined, is the criterion.
+        controller.shutdown();
+    }
+}

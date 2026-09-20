@@ -74,9 +74,10 @@ void EngineSync::applyProfile()
 core::FrameIndex EngineSync::probeLength(const std::string &path)
 {
     // Its own throwaway profile, not the live *m_profile: that one backs
-    // the tractor MltEngine's worker thread may be pulling from right now
-    // (CLAUDE.md: things that must not contend with the live playback
-    // state open their own Profile/Producer, same as renderProject()).
+    // the tractor PlaybackController's Mlt::Consumer may be pulling a
+    // frame from right now, on its own thread (CLAUDE.md: things that must
+    // not contend with the live playback state open their own
+    // Profile/Producer, same as renderProject()).
     std::unique_ptr<Mlt::Profile> probeProfile = makeProfileFrom(m_model.sequence().profile);
     Mlt::Producer producer(*probeProfile, path.c_str());
     if (!producer.is_valid())

@@ -28,7 +28,8 @@ void onActivate(GtkApplication *app, gpointer /*userData*/)
     // Leaked intentionally: the app has exactly one window for its whole
     // lifetime, and GTK owns/destroys the underlying widget tree on quit.
     // Stashed on `app` (not just leaked) so onShutdown below can reach its
-    // MltEngine and stop the worker thread before Factory::close() runs.
+    // PlaybackController and stop the Mlt::Consumer before Factory::close()
+    // runs.
     auto *window = new AppWindow(app);
     g_object_set_data(G_OBJECT(app), "ustudio-window", window);
     gtk_window_present(GTK_WINDOW(window->widget()));
@@ -37,8 +38,9 @@ void onActivate(GtkApplication *app, gpointer /*userData*/)
 // Fires once, synchronously inside g_application_run(), after the main
 // loop stops but before it returns -- i.e. still before main()'s
 // FactoryPolicy local goes out of scope and calls Mlt::Factory::close().
-// This is the hook point that stops MltEngine's worker thread first, so
-// Factory::close() never runs concurrently with it (see MltEngine::shutdown).
+// This is the hook point that stops the Mlt::Consumer first (its own MLT-
+// owned thread(s)), so Factory::close() never runs concurrently with it
+// (see PlaybackController::shutdown).
 void onShutdown(GtkApplication *app, gpointer /*userData*/)
 {
     if (auto *window = static_cast<AppWindow *>(g_object_get_data(G_OBJECT(app), "ustudio-window")))
@@ -55,10 +57,10 @@ int main(int argc, char **argv)
     ustudio::core::Log::info(
         "[app] Starting u Studio Video Editor (log level=" + std::string(envLevel ? envLevel : "info (default)") + ")");
 
-    // Constructed before any window (and before the first MltEngine, which
-    // no longer calls Mlt::Factory::init() itself — see factory_policy.h),
-    // destroyed after g_application_run() returns: RAII brackets the
-    // required init()/close() lifetime automatically.
+    // Constructed before any window (and before the first
+    // PlaybackController, which never calls Mlt::Factory::init() itself —
+    // see factory_policy.h), destroyed after g_application_run() returns:
+    // RAII brackets the required init()/close() lifetime automatically.
     ustudio::engine::FactoryPolicy factoryPolicy;
 
     AdwApplication *app = adw_application_new("com.ustudio.VideoEditor", G_APPLICATION_DEFAULT_FLAGS);

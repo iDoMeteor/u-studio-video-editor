@@ -18,11 +18,11 @@ namespace ustudio::engine {
 // dedicated background worker thread, so drawing the timeline never blocks
 // on decoding.
 //
-// A narrow, separate MLT touchpoint from MltEngine — kept outside it
-// specifically so waveform computation (which opens its own throwaway
-// Producer/Profile per clip and can take a noticeable moment for long
-// clips) never needs to contend with MltEngine's m_mltMutex, and never
-// blocks playback/editing while it works.
+// A narrow, separate MLT touchpoint from EngineSync/PlaybackController —
+// kept outside them specifically so waveform computation (which opens its
+// own throwaway Producer/Profile per clip and can take a noticeable moment
+// for long clips) never contends with the live tractor or consumer, and
+// never blocks playback/editing while it works.
 class WaveformCache
 {
   public:

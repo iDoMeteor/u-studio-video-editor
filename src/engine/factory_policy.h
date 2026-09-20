@@ -16,11 +16,11 @@
 //
 // FactoryPolicy owns Mlt::Factory::init()/close() for the whole process:
 // exactly one instance, constructed in main() before any window or
-// MltEngine, destroyed after g_application_run() returns (RAII brackets
-// this automatically — see src/app/main.cpp). MltEngine itself no longer
-// calls Factory::init()/close(); doing so from two places would silently
-// re-run init() with the wrong (default, non-curated) directory the
-// second time, undoing the whole policy.
+// PlaybackController, destroyed after g_application_run() returns (RAII
+// brackets this automatically — see src/app/main.cpp). PlaybackController
+// itself never calls Factory::init()/close(); doing so from two places
+// would silently re-run init() with the wrong (default, non-curated)
+// directory the second time, undoing the whole policy.
 namespace ustudio::engine {
 
 class FactoryPolicy

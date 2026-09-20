@@ -1,6 +1,7 @@
 libustudio_engine_sources = files(
   'factory_policy.cpp',
-  'mlt_engine.cpp',
+  'dispatcher.cpp',
+  'playback_controller.cpp',
   'waveform_cache.cpp',
   'engine_sync.cpp',
 )
@@ -16,7 +17,7 @@ libustudio_engine = static_library(
   'ustudio_engine',
   libustudio_engine_sources,
   cpp_args: factory_policy_args,
-  dependencies: [libustudio_core_dep, mltpp_dep, mlt_dep, glib_dep, pulse_dep],
+  dependencies: [libustudio_core_dep, mltpp_dep, mlt_dep, glib_dep],
   include_directories: src_inc,
   install: false,
 )
@@ -24,5 +25,5 @@ libustudio_engine = static_library(
 libustudio_engine_dep = declare_dependency(
   link_with: libustudio_engine,
   include_directories: src_inc,
-  dependencies: [libustudio_core_dep, mltpp_dep, mlt_dep, glib_dep, pulse_dep],
+  dependencies: [libustudio_core_dep, mltpp_dep, mlt_dep, glib_dep],
 )

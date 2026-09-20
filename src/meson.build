@@ -1,5 +1,5 @@
 # Include directory rooted at src/ itself, so every target below can keep
-# using the existing "engine/mlt_engine.h"-style includes unchanged.
+# using the existing "engine/engine_sync.h"-style includes unchanged.
 src_inc = include_directories('.')
 
 subdir('core')

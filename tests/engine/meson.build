@@ -24,3 +24,14 @@ test_xml_playback_exe = executable(
 )
 
 test('engine-xml-playback', test_xml_playback_exe)
+
+test_playback_controller_exe = executable(
+  'test_playback_controller',
+  files('test_playback_controller.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep],
+  install: false,
+)
+
+# Runs a live sdl2_audio/rtaudio/null consumer and repeats a 100-iteration
+# shutdown loop -- slower than the other engine tests, hence its own timeout.
+test('engine-playback-controller', test_playback_controller_exe, timeout: 60)
