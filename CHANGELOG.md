@@ -1,0 +1,22 @@
+# Changelog
+
+All notable user-facing changes to this project are documented here.
+Format: newest first, one line per change. Internal refactors, tests, and
+docs-only changes are not listed (CLAUDE.md).
+
+## 0.1.0
+
+- Playback now runs through a real MLT consumer (`sdl2_audio`, falling
+  back to `rtaudio`, then `null`) instead of a hand-rolled pull loop —
+  removes the ~150ms A/V offset and PulseAudio dependency of earlier
+  builds.
+- New transport controls: `J`/`K`/`L` shuttle (with speed ramping),
+  frame-step (`Left`/`Right`), jump to start/end (`Home`/`End`), loop
+  in/out (`I`/`O`), a volume slider, and a preview-scale preference
+  (Auto/Full/Half/Quarter).
+- Undo/redo for every edit, with labels and `Ctrl+Z`/`Ctrl+Shift+Z`.
+- Project files are now MLT XML with `ustudio:` properties instead of a
+  bespoke `GKeyFile` format — `.ustudio` files can be played directly by
+  `melt` with no editor involved.
+- Autosave and crash recovery: unsaved work is offered back on the next
+  launch after a crash.
