@@ -142,6 +142,11 @@ TEST_CASE("AddTrack / RemoveTrack: revert restores the track's clips too")
 
     AddTrack addCmd(Track::Kind::Video, 0, "V1");
     REQUIRE(addCmd.apply(model));
+    // RemoveTrack refuses to leave the sequence with zero tracks (matching
+    // v1's MltEngine::removeTrack), so a second track keeps this test
+    // exercising apply()/revert()'s mechanics rather than that refusal.
+    AddTrack secondTrackCmd(Track::Kind::Video, 1, "V2");
+    REQUIRE(secondTrackCmd.apply(model));
     AssetId asset = addTestAsset(model);
     ClipId clip = model.insertClip(addCmd.trackId(), asset, 0, 0, 99);
     (void)clip;
@@ -153,6 +158,17 @@ TEST_CASE("AddTrack / RemoveTrack: revert restores the track's clips too")
 
     removeCmd.revert(model);
     CHECK(model == beforeRemoval);
+}
+
+TEST_CASE("RemoveTrack: refuses to remove the sequence's last remaining track")
+{
+    Model model = Model::createEmpty();
+    AddTrack addCmd(Track::Kind::Video, 0, "V1");
+    REQUIRE(addCmd.apply(model));
+
+    RemoveTrack removeCmd(addCmd.trackId());
+    CHECK_FALSE(removeCmd.apply(model));
+    CHECK(model.hasTrack(addCmd.trackId()));
 }
 
 TEST_CASE("SetTrackFlags: revert restores old flags")
@@ -190,12 +206,27 @@ TEST_CASE("Transaction: commit keeps every applied command's effect")
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     AssetId asset = addTestAsset(model);
 
+    auto first = std::make_unique<InsertClip>(track, asset, 0, 0, 99);
+    InsertClip *firstCmd = first.get();
+    auto second = std::make_unique<InsertClip>(track, asset, 200, 0, 99);
+    InsertClip *secondCmd = second.get();
+
     Transaction tx(model);
-    REQUIRE(tx.run(std::make_unique<InsertClip>(track, asset, 0, 0, 99)));
-    REQUIRE(tx.run(std::make_unique<InsertClip>(track, asset, 200, 0, 99)));
+    REQUIRE(tx.run(std::move(first)));
+    REQUIRE(tx.run(std::move(second)));
     tx.commit();
 
-    CHECK(model.track(track).clips.size() == 2);
+    // Not just a count: a commit bug that landed both clips at the same
+    // position, or dropped one and duplicated the other, would still leave
+    // clips.size() == 2. Track::clips is kept sorted by position
+    // (Model::sortTrackClips), so checking both ids and positions directly
+    // confirms each command's own effect actually landed, not just that
+    // two clips of *some* shape exist.
+    REQUIRE(model.track(track).clips.size() == 2);
+    CHECK(model.track(track).clips[0] == firstCmd->clipId());
+    CHECK(model.track(track).clips[1] == secondCmd->clipId());
+    CHECK(model.clip(firstCmd->clipId()).position == 0);
+    CHECK(model.clip(secondCmd->clipId()).position == 200);
 }
 
 TEST_CASE("UndoStack: execute/undo/redo and labels")

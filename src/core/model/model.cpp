@@ -389,9 +389,7 @@ std::vector<std::string> Model::check() const
                                    std::to_string(clipEntry.asset.value)); // invariant 5
             } else {
                 const Asset &sourceAsset = asset(clipEntry.asset);
-                bool boundless = sourceAsset.info.isStillImage || sourceAsset.info.isImageSequence ||
-                                 sourceAsset.info.lengthInSequenceFrames <= 0;
-                if (!boundless && !(clipEntry.in >= 0 && clipEntry.in <= clipEntry.out &&
+                if (!sourceAsset.info.isBoundless() && !(clipEntry.in >= 0 && clipEntry.in <= clipEntry.out &&
                                     clipEntry.out < sourceAsset.info.lengthInSequenceFrames)) {
                     problems.push_back("clip " + std::to_string(clipEntry.id.value) +
                                        " has an out-of-range source span"); // invariant 3

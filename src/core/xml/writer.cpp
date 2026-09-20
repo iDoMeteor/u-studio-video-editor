@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <array>
+#include <charconv>
 #include <filesystem>
 #include <sstream>
 #include <system_error>
@@ -33,6 +35,19 @@ xmlNodePtr addProperty(xmlNodePtr parent, const std::string &name, const std::st
     xmlNodePtr prop = xmlNewTextChild(parent, nullptr, BAD_CAST "property", BAD_CAST value.c_str());
     xmlNewProp(prop, BAD_CAST "name", BAD_CAST name.c_str());
     return prop;
+}
+
+// std::to_string(double) formats via the process's C locale (LC_NUMERIC),
+// which can be non-"C" (GTK/GLib i18n init calls setlocale(LC_ALL, "")) --
+// exactly what this file's own LC_NUMERIC="C" root attribute exists to
+// keep out of the saved values themselves. std::to_chars is specified
+// locale-independent, and reader.cpp's toDouble() (std::from_chars) is its
+// exact inverse.
+std::string doubleToString(double value)
+{
+    std::array<char, 64> buf{};
+    auto result = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+    return std::string(buf.data(), result.ptr);
 }
 
 std::string jsonEscape(const std::string &s)
@@ -135,12 +150,17 @@ void writeAssetProducer(xmlNodePtr mlt, const Asset &asset, const fs::path &proj
     addProperty(producer, "ustudio:sar_den", std::to_string(info.sar.den));
     addProperty(producer, "ustudio:audio_channels", std::to_string(info.audioChannels));
     addProperty(producer, "ustudio:sample_rate", std::to_string(info.sampleRate));
-    addProperty(producer, "ustudio:native_duration", std::to_string(info.nativeDurationSeconds));
+    addProperty(producer, "ustudio:native_duration", doubleToString(info.nativeDurationSeconds));
     addProperty(producer, "ustudio:video_codec", info.videoCodec);
     addProperty(producer, "ustudio:audio_codec", info.audioCodec);
     addProperty(producer, "ustudio:container", info.container);
     addProperty(producer, "ustudio:is_image_sequence", info.isImageSequence ? "1" : "0");
     addProperty(producer, "ustudio:is_still_image", info.isStillImage ? "1" : "0");
+    // Read back directly (reader.cpp), not derived from the node's "out"
+    // attribute below -- out=length-1 collapses both "boundless/unknown"
+    // (length<=0) and "exactly 1 frame" to the same out="0", which is
+    // ambiguous to invert.
+    addProperty(producer, "ustudio:length_in_sequence_frames", std::to_string(info.lengthInSequenceFrames));
 }
 
 void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &producerId)
@@ -152,7 +172,7 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
 
     addProperty(entry, "ustudio:clip_id", std::to_string(clip.id.value));
     addProperty(entry, "ustudio:name", clip.name);
-    addProperty(entry, "ustudio:speed", std::to_string(clip.speed));
+    addProperty(entry, "ustudio:speed", doubleToString(clip.speed));
     addProperty(entry, "ustudio:video_enabled", clip.videoEnabled ? "1" : "0");
     addProperty(entry, "ustudio:audio_enabled", clip.audioEnabled ? "1" : "0");
     if (clip.fadeIn)
@@ -178,7 +198,7 @@ void writeTrackPlaylist(xmlNodePtr mlt, const Model &model, const Track &track, 
     addProperty(playlist, "ustudio:muted", track.muted ? "1" : "0");
     addProperty(playlist, "ustudio:hidden", track.hidden ? "1" : "0");
     addProperty(playlist, "ustudio:locked", track.locked ? "1" : "0");
-    addProperty(playlist, "ustudio:volume", std::to_string(track.volume));
+    addProperty(playlist, "ustudio:volume", doubleToString(track.volume));
 
     FrameIndex cursor = 0;
     for (ClipId clipId : track.clips) {

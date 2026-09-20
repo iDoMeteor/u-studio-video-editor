@@ -64,17 +64,24 @@ MltEngine::MltEngine()
     Log::debug("MltEngine constructed, worker thread started");
 }
 
-MltEngine::~MltEngine()
+void MltEngine::shutdown()
 {
-    Log::debug("MltEngine shutting down");
     m_quit.store(true);
     if (m_worker.joinable())
         m_worker.join();
 
-    if (m_audioStream)
+    if (m_audioStream) {
         pa_simple_free(m_audioStream);
+        m_audioStream = nullptr;
+    }
 
     m_tractor.reset();
+}
+
+MltEngine::~MltEngine()
+{
+    Log::debug("MltEngine shutting down");
+    shutdown();
 }
 
 void MltEngine::setTractor(std::shared_ptr<Mlt::Tractor> tractor)
@@ -280,7 +287,7 @@ void MltEngine::pullLoopMain()
                 // for a given file.
                 auto behindMs = duration_cast<milliseconds>(now - target).count();
                 if (behindMs > 100) {
-                    Log::debug("Playback behind schedule by " + std::to_string(behindMs) + "ms at frame " +
+                    Log::debug("[engine] Playback behind schedule by " + std::to_string(behindMs) + "ms at frame " +
                                std::to_string(frameNumber));
                 }
             }

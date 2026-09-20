@@ -45,6 +45,12 @@ bool RemoveTrack::apply(Model &model)
 {
     if (!model.hasTrack(m_track))
         return false;
+    // A sequence with zero tracks has nowhere for a future import/insert to
+    // land, and v1 refused this for the same reason; the model itself
+    // doesn't enforce a minimum (doc 03: it asserts on programmer error and
+    // otherwise trusts the caller), so it's the command's job.
+    if (model.sequence().tracks.size() <= 1)
+        return false;
 
     const Sequence &seq = model.sequence();
     const auto &tracks = seq.tracks;
@@ -125,6 +131,10 @@ bool InsertClip::apply(Model &model)
     if (!model.isRangeFree(m_track, m_pos, m_pos + (m_out - m_in + 1)))
         return false;
 
+    const Asset &sourceAsset = model.asset(m_asset);
+    if (!sourceAsset.info.isBoundless() && (m_in < 0 || m_out >= sourceAsset.info.lengthInSequenceFrames))
+        return false;
+
     m_clipId = model.insertClip(m_track, m_asset, m_pos, m_in, m_out,
                                 m_appliedBefore ? std::optional<ClipId>(m_clipId) : std::nullopt);
     m_appliedBefore = true;
@@ -197,9 +207,7 @@ bool ResizeClip::apply(Model &model)
 
     if (model.hasAsset(current.asset)) {
         const Asset &sourceAsset = model.asset(current.asset);
-        bool boundless = sourceAsset.info.isStillImage || sourceAsset.info.isImageSequence ||
-                         sourceAsset.info.lengthInSequenceFrames <= 0;
-        if (!boundless && (m_newIn < 0 || m_newOut >= sourceAsset.info.lengthInSequenceFrames))
+        if (!sourceAsset.info.isBoundless() && (m_newIn < 0 || m_newOut >= sourceAsset.info.lengthInSequenceFrames))
             return false;
     }
 

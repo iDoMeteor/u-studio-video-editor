@@ -54,9 +54,12 @@ struct ClipDisplay
 // step for this first milestone.
 //
 // Edit flow: a UI gesture builds a core::Command, UndoStack::execute()
-// applies it to the model, then EngineSync::rebuildAll() projects the new
-// model state into a fresh tractor and MltEngine::setTractor() points
-// playback at it (doc 02: "Model -> engine -> screen, never backwards").
+// applies it to the model. Model::changed then drives the rest
+// automatically (doc 02: "Model -> engine -> screen, never backwards"):
+// EngineSync is subscribed to it and resyncs the tractor on its own
+// (engine_sync.h), and its `rebuilt` signal (connected once, in this
+// class's constructor) is what points MltEngine at the new tractor -- no
+// call site here needs to remember to do either.
 class AppWindow
 {
   public:
@@ -66,6 +69,11 @@ class AppWindow
     {
         return GTK_WIDGET(m_window);
     }
+
+    // Stops the playback worker thread before Factory::close() runs on
+    // quit (main.cpp's "shutdown" handler). AppWindow itself is never
+    // destroyed, so its members' destructors are not the shutdown path.
+    void prepareForShutdown();
 
   private:
     void buildUi(GtkApplication *app);
@@ -101,10 +109,6 @@ class AppWindow
     void onTimelineDraw(cairo_t *cr, int width, int height);
     void onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber);
 
-    // Re-projects the model into MLT (EngineSync::rebuildAll()) and points
-    // playback at the new tractor. Called after every command that changes
-    // the model.
-    void syncEngine();
     void refreshTimeline();
     void refreshTransport(int frameNumber);
     void updateWindowTitle();

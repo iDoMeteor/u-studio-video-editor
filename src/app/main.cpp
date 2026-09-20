@@ -27,8 +27,22 @@ void onActivate(GtkApplication *app, gpointer /*userData*/)
 
     // Leaked intentionally: the app has exactly one window for its whole
     // lifetime, and GTK owns/destroys the underlying widget tree on quit.
+    // Stashed on `app` (not just leaked) so onShutdown below can reach its
+    // MltEngine and stop the worker thread before Factory::close() runs.
     auto *window = new AppWindow(app);
+    g_object_set_data(G_OBJECT(app), "ustudio-window", window);
     gtk_window_present(GTK_WINDOW(window->widget()));
+}
+
+// Fires once, synchronously inside g_application_run(), after the main
+// loop stops but before it returns -- i.e. still before main()'s
+// FactoryPolicy local goes out of scope and calls Mlt::Factory::close().
+// This is the hook point that stops MltEngine's worker thread first, so
+// Factory::close() never runs concurrently with it (see MltEngine::shutdown).
+void onShutdown(GtkApplication *app, gpointer /*userData*/)
+{
+    if (auto *window = static_cast<AppWindow *>(g_object_get_data(G_OBJECT(app), "ustudio-window")))
+        window->prepareForShutdown();
 }
 
 } // namespace
@@ -49,6 +63,7 @@ int main(int argc, char **argv)
 
     AdwApplication *app = adw_application_new("com.ustudio.VideoEditor", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(ustudio::app::onActivate), nullptr);
+    g_signal_connect(app, "shutdown", G_CALLBACK(ustudio::app::onShutdown), nullptr);
 
     int status = g_application_run(G_APPLICATION(app), argc, argv);
     g_object_unref(app);

@@ -57,6 +57,18 @@ class MltEngine
     MltEngine(const MltEngine &) = delete;
     MltEngine &operator=(const MltEngine &) = delete;
 
+    // Stops the worker thread and releases the tractor/audio stream, ahead
+    // of destruction. AppWindow is intentionally never destroyed on normal
+    // quit (main.cpp), so this class's destructor never runs on that path
+    // either -- but Mlt::Factory::close() (FactoryPolicy, main.cpp) does,
+    // since it's a stack-local in main(). Without an explicit call to this
+    // before that, Factory::close() can tear down MLT's global state while
+    // this worker thread is still mid pullLoopMain() -- exactly what
+    // CLAUDE.md's threading rule forbids ("never destroy an MLT service a
+    // running consumer/pull loop can still reach"). Idempotent: safe to
+    // call once from "shutdown" and again from the destructor.
+    void shutdown();
+
     // Points playback at a new tractor (after any model change that
     // required EngineSync::rebuildAll()), preserving the current playhead
     // position (clamped to the new tractor's length). Safe to call from

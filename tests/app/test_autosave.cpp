@@ -6,22 +6,36 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 using namespace ustudio::app::autosave;
 namespace fs = std::filesystem;
 
 namespace {
 
-// Directory() is fixed at $XDG_STATE_HOME/ustudio/autosave -- these tests
-// share it with a real session's autosaves if run on a dev machine, so
-// every test cleans up only the specific files it created, named with a
-// "doctest-" prefix baked into each test's own original-path/sessionId
-// arguments to keep them from colliding with anything real.
+// meson.build points XDG_STATE_HOME at a build-dir-local scratch path for
+// this test binary, so directory() never touches a real session's
+// autosaves; the "doctest-" filename prefixes are defense in depth on top
+// of that. removeIfExists() is still used mid-test (to clear state before
+// writing), but final cleanup goes through Guard below so it runs even
+// when a REQUIRE fails partway through (REQUIRE throws, per doctest,
+// which would otherwise skip a plain removeIfExists() at the end of the
+// test body -- exactly the case where leftover files matter most).
 void removeIfExists(const std::string &path)
 {
     std::error_code ec;
     fs::remove(path, ec);
 }
+
+struct Guard
+{
+    std::vector<std::string> paths;
+    ~Guard()
+    {
+        for (const auto &path : paths)
+            removeIfExists(path);
+    }
+};
 
 } // namespace
 
@@ -52,6 +66,7 @@ TEST_CASE("autosave: baseNameFor is stable for the same input and differs for di
 TEST_CASE("autosave: meta round-trips through write/read exactly")
 {
     std::string metaPath = directory() + "/doctest-meta-roundtrip.meta";
+    Guard guard{{metaPath}};
     removeIfExists(metaPath);
 
     Meta meta;
@@ -62,13 +77,12 @@ TEST_CASE("autosave: meta round-trips through write/read exactly")
     auto loaded = readMeta(metaPath);
     REQUIRE(loaded.has_value());
     CHECK(*loaded == meta);
-
-    removeIfExists(metaPath);
 }
 
 TEST_CASE("autosave: meta round-trips an empty (untitled) original path")
 {
     std::string metaPath = directory() + "/doctest-meta-untitled.meta";
+    Guard guard{{metaPath}};
     removeIfExists(metaPath);
 
     Meta meta;
@@ -80,8 +94,6 @@ TEST_CASE("autosave: meta round-trips an empty (untitled) original path")
     REQUIRE(loaded.has_value());
     CHECK(loaded->originalPath.empty());
     CHECK(loaded->timestampUnix == 42);
-
-    removeIfExists(metaPath);
 }
 
 TEST_CASE("autosave: readMeta fails cleanly on a missing or malformed file")
@@ -89,12 +101,12 @@ TEST_CASE("autosave: readMeta fails cleanly on a missing or malformed file")
     CHECK_FALSE(readMeta(directory() + "/doctest-does-not-exist.meta").has_value());
 
     std::string badPath = directory() + "/doctest-malformed.meta";
+    Guard guard{{badPath}};
     {
         std::ofstream out(badPath);
         out << "not json at all";
     }
     CHECK_FALSE(readMeta(badPath).has_value());
-    removeIfExists(badPath);
 }
 
 TEST_CASE("autosave: findRecoverable finds an untitled autosave with no target file")
@@ -102,6 +114,7 @@ TEST_CASE("autosave: findRecoverable finds an untitled autosave with no target f
     std::string base = baseNameFor("", "doctest-untitled-session");
     std::string autosavePath = directory() + "/" + base + ".ustudio";
     std::string metaPath = directory() + "/" + base + ".meta";
+    Guard guard{{autosavePath, metaPath}};
     removeIfExists(autosavePath);
     removeIfExists(metaPath);
 
@@ -117,14 +130,12 @@ TEST_CASE("autosave: findRecoverable finds an untitled autosave with no target f
     REQUIRE(found.has_value());
     CHECK(found->autosavePath == autosavePath);
     CHECK(found->meta.originalPath.empty());
-
-    removeIfExists(autosavePath);
-    removeIfExists(metaPath);
 }
 
 TEST_CASE("autosave: findRecoverable offers an autosave newer than its target, not one older")
 {
     std::string targetPath = (fs::temp_directory_path() / "doctest-autosave-target.ustudio").string();
+    Guard targetGuard{{targetPath}};
     {
         std::ofstream(targetPath) << "<mlt/>";
     }
@@ -132,6 +143,7 @@ TEST_CASE("autosave: findRecoverable offers an autosave newer than its target, n
     std::string base = baseNameFor(targetPath, "unused-when-path-is-set");
     std::string autosavePath = directory() + "/" + base + ".ustudio";
     std::string metaPath = directory() + "/" + base + ".meta";
+    Guard guard{{autosavePath, metaPath}};
     removeIfExists(autosavePath);
     removeIfExists(metaPath);
 
@@ -158,8 +170,4 @@ TEST_CASE("autosave: findRecoverable offers an autosave newer than its target, n
     REQUIRE(found.has_value());
     CHECK(found->autosavePath == autosavePath);
     CHECK(found->meta.originalPath == targetPath);
-
-    removeIfExists(autosavePath);
-    removeIfExists(metaPath);
-    removeIfExists(targetPath);
 }

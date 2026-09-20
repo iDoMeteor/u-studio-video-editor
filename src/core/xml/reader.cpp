@@ -4,6 +4,7 @@
 #include <libxml/tree.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
@@ -69,9 +70,18 @@ uint64_t toU64(const std::string &s)
     return s.empty() ? 0 : std::strtoull(s.c_str(), nullptr, 10);
 }
 
+// std::strtod consults the process's C locale (LC_NUMERIC), which can be
+// non-"C" if anything in the process calls setlocale(LC_ALL, "") (GTK/GLib
+// i18n init does) -- exactly the class of bug the writer's own
+// LC_NUMERIC="C" root attribute is there to avoid on the write side.
+// std::from_chars for floating point is specified to be locale-independent
+// (always "C"-like), so it's the correct parse here, not g_ascii_strtod
+// (which would pull GLib into core/, against the layer boundary).
 double toDouble(const std::string &s)
 {
-    return s.empty() ? 0.0 : std::strtod(s.c_str(), nullptr);
+    double value = 0.0;
+    auto result = std::from_chars(s.data(), s.data() + s.size(), value);
+    return result.ec == std::errc{} ? value : 0.0;
 }
 
 bool toBool(const std::string &s)
@@ -343,8 +353,12 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         info.container = prop(node, "ustudio:container");
         info.isImageSequence = toBool(prop(node, "ustudio:is_image_sequence"));
         info.isStillImage = toBool(prop(node, "ustudio:is_still_image"));
-        FrameIndex out = toI64(attr(node, "out"));
-        info.lengthInSequenceFrames = out > 0 ? out + 1 : 0;
+        // Read the length directly rather than deriving it from the node's
+        // "out" attribute: the writer collapses both "boundless/unknown"
+        // and "exactly 1 frame long" to out="0" (there's no way to tell
+        // them apart from out alone), so a real 1-frame asset would
+        // round-trip as boundless if this derived length from out.
+        info.lengthInSequenceFrames = toI64(prop(node, "ustudio:length_in_sequence_frames", "0"));
 
         assetIdByNodeId.emplace(attr(node, "id"), asset.id);
         project.bin.push_back(std::move(asset));
@@ -387,10 +401,23 @@ std::expected<Model, std::string> loadProject(const std::string &path)
             if (xmlStrcmp(entryNode->name, BAD_CAST "entry") != 0)
                 continue;
 
+            std::string producerNodeId = attr(entryNode, "producer");
+            auto assetIt = assetIdByNodeId.find(producerNodeId);
+            if (assetIt == assetIdByNodeId.end()) {
+                // Untrusted input (CLAUDE.md): a hand-edited, truncated, or
+                // foreign project file can reference a producer id that was
+                // never registered as an asset (or wasn't, because it's
+                // missing its ustudio:asset_id property). Fail the load
+                // cleanly instead of letting an unordered_map::at() throw
+                // past this function's std::expected contract.
+                xmlFreeDoc(doc);
+                return std::unexpected(path + ": clip entry references unknown producer '" + producerNodeId + "'");
+            }
+
             Clip clip;
             clip.id = ClipId{toU64(prop(entryNode, "ustudio:clip_id"))};
             clip.track = track.id;
-            clip.asset = assetIdByNodeId.at(attr(entryNode, "producer"));
+            clip.asset = assetIt->second;
             clip.position = cursor;
             clip.in = toI64(attr(entryNode, "in"));
             clip.out = toI64(attr(entryNode, "out"));

@@ -4,6 +4,7 @@
 #include "core/model/mlt_order.h"
 
 #include <algorithm>
+#include <variant>
 
 namespace ustudio::engine {
 
@@ -11,12 +12,26 @@ namespace Log = ustudio::core::Log;
 
 namespace {
 constexpr const char *kBlackResource = "color:black";
+
+std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
+{
+    auto profile = std::make_unique<Mlt::Profile>();
+    profile->set_width(p.width);
+    profile->set_height(p.height);
+    profile->set_frame_rate(p.fps.num, p.fps.den);
+    profile->set_sample_aspect(p.sar.num, p.sar.den);
+    profile->set_display_aspect(p.dar.num, p.dar.den);
+    profile->set_progressive(p.progressive ? 1 : 0);
+    profile->set_colorspace(p.colorspace);
+    return profile;
 }
+} // namespace
 
 EngineSync::EngineSync(core::Model &model) : m_model(model)
 {
     applyProfile();
     rebuildAll();
+    connectToModel();
 }
 
 void EngineSync::reset()
@@ -24,24 +39,46 @@ void EngineSync::reset()
     m_masterProducers.clear();
     applyProfile();
     rebuildAll();
+    connectToModel();
+}
+
+void EngineSync::connectToModel()
+{
+    m_model.changed.connect([this](const core::ModelEvent &event) { onModelEvent(event); });
+}
+
+void EngineSync::onModelEvent(const core::ModelEvent &event)
+{
+    if (std::holds_alternative<core::BatchBegin>(event)) {
+        ++m_batchDepth;
+        return;
+    }
+    if (std::holds_alternative<core::BatchEnd>(event)) {
+        if (m_batchDepth > 0)
+            --m_batchDepth;
+        if (m_batchDepth == 0 && m_dirty)
+            rebuildAll();
+        return;
+    }
+
+    m_dirty = true;
+    if (m_batchDepth == 0)
+        rebuildAll();
 }
 
 void EngineSync::applyProfile()
 {
-    const core::Profile &p = m_model.sequence().profile;
-    m_profile = std::make_unique<Mlt::Profile>();
-    m_profile->set_width(p.width);
-    m_profile->set_height(p.height);
-    m_profile->set_frame_rate(p.fps.num, p.fps.den);
-    m_profile->set_sample_aspect(p.sar.num, p.sar.den);
-    m_profile->set_display_aspect(p.dar.num, p.dar.den);
-    m_profile->set_progressive(p.progressive ? 1 : 0);
-    m_profile->set_colorspace(p.colorspace);
+    m_profile = makeProfileFrom(m_model.sequence().profile);
 }
 
 core::FrameIndex EngineSync::probeLength(const std::string &path)
 {
-    Mlt::Producer producer(*m_profile, path.c_str());
+    // Its own throwaway profile, not the live *m_profile: that one backs
+    // the tractor MltEngine's worker thread may be pulling from right now
+    // (CLAUDE.md: things that must not contend with the live playback
+    // state open their own Profile/Producer, same as renderProject()).
+    std::unique_ptr<Mlt::Profile> probeProfile = makeProfileFrom(m_model.sequence().profile);
+    Mlt::Producer producer(*probeProfile, path.c_str());
     if (!producer.is_valid())
         return 0;
     return producer.get_length();
@@ -132,6 +169,8 @@ void EngineSync::rebuildAll()
     newTractor->refresh();
     m_tractor = std::move(newTractor);
     m_mltTrackOrder = std::move(order);
+    m_dirty = false;
+    rebuilt.emit();
 }
 
 std::vector<std::string> EngineSync::verify() const
@@ -228,7 +267,7 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     Mlt::Consumer consumer(renderSync.profile(), "avformat", outputPath.c_str());
     if (!consumer.is_valid()) {
         error = "Could not create renderer for: " + outputPath;
-        Log::error(error);
+        Log::error("[engine] " + error);
         return false;
     }
     // Matches this project's fixed working format (see mlt_engine.cpp's
@@ -247,15 +286,15 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     consumer.set("real_time", -1); // render every frame; don't drop frames to keep up with a clock
     consumer.connect(renderSync.tractor());
 
-    Log::info("Rendering project to " + outputPath + " ...");
+    Log::info("[engine] Rendering project to " + outputPath + " ...");
     int result = consumer.run();
     if (result != 0) {
         error = "Render failed (consumer returned " + std::to_string(result) + ")";
-        Log::error(error);
+        Log::error("[engine] " + error);
         return false;
     }
 
-    Log::info("Rendered project to " + outputPath);
+    Log::info("[engine] Rendered project to " + outputPath);
     return true;
 }
 

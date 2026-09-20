@@ -58,6 +58,14 @@ AppWindow::AppWindow(GtkApplication *app)
 
     m_playback = std::make_unique<engine::MltEngine>();
     m_playback->setTractor(m_engineSync->tractorPtr());
+    // The one place playback gets re-pointed at a rebuilt tractor: fires on
+    // every EngineSync::rebuildAll(), whether triggered automatically by a
+    // model edit or by an explicit reset() (Open Project, recovery load) --
+    // no call site below needs its own setTractor() anymore.
+    m_engineSync->rebuilt.connect([this] {
+        m_playback->setTractor(m_engineSync->tractorPtr());
+        m_lastEditMonotonicUsec = g_get_monotonic_time();
+    });
     m_playback->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
@@ -81,6 +89,12 @@ AppWindow::AppWindow(GtkApplication *app)
     updateWindowTitle();
     offerRecoveryIfAny();
     showStatus("Import a media file to begin.");
+}
+
+void AppWindow::prepareForShutdown()
+{
+    if (m_playback)
+        m_playback->shutdown();
 }
 
 void AppWindow::buildUi(GtkApplication *app)
@@ -267,7 +281,7 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
     GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(sourceObject), result, &error);
     if (!file) {
         if (error) {
-            Log::debug(std::string("Import file dialog closed without a selection: ") + error->message);
+            Log::debug(std::string("[app] Import file dialog closed without a selection: ") + error->message);
             g_error_free(error);
         }
         return;
@@ -301,7 +315,6 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
                 auto composite = std::make_unique<core::CompositeCommand>("Import clip", std::move(steps));
 
                 if (m_undoStack.execute(std::move(composite))) {
-                    syncEngine();
                     refreshTimeline();
                     showStatus(std::string("Imported to track ") + std::to_string(m_activeTrack) + ": " + path);
                 } else {
@@ -378,11 +391,9 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
             m_currentProjectPath = path;
             m_undoStack.clear();
             m_undoStack.setCleanPoint();
-            m_engineSync->reset();
-            m_playback->setTractor(m_engineSync->tractorPtr());
+            m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
             m_activeTrack = 0;
             m_selectedClip = -1;
-            syncEngine();
             refreshTimeline();
             updateWindowTitle();
             showStatus(std::string("Opened: ") + path);
@@ -421,18 +432,20 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
     showStatus("Rendering to " + path + " … (this can take a while — the window will stay responsive)");
 
     // AppWindow itself is never destroyed during normal operation (see
-    // main.cpp) — capturing `this`/&m_model in this detached thread is
-    // safe on that basis. renderProject() builds its own throwaway
-    // EngineSync from the model rather than touching the live one, so it
-    // only ever *reads* m_model, never races the main thread's edits
-    // against it... except it isn't actually safe to read m_model
-    // concurrently with an edit on the main thread without synchronization
-    // -- see the note in the class comment: renders are expected to be
-    // launched between edits, not literally simultaneous with one. A real
-    // guard against that is render-queue territory (M6), out of scope here.
-    std::thread([this, path]() {
+    // main.cpp) — capturing `this` in this detached thread is safe on that
+    // basis. `snapshot` is a deep copy of m_model taken HERE, synchronously
+    // on the main thread, before the thread starts: core::Model has no
+    // internal synchronization, so handing the render thread a reference to
+    // the live m_model (which UndoStack::execute()/undo()/redo() mutate in
+    // place on the main thread, with no lock) would be an unsynchronized
+    // concurrent read/write the moment an edit happens mid-render. Copying
+    // once up front instead means the render thread only ever touches its
+    // own independent Model after this point -- a real render *queue* that
+    // could serialize renders against edits is M6 territory, out of scope
+    // here, but this closes the actual data race.
+    std::thread([this, path, snapshot = m_model]() mutable {
         std::string err;
-        bool ok = engine::renderProject(m_model, path, err);
+        bool ok = engine::renderProject(snapshot, path, err);
 
         struct Result
         {
@@ -465,7 +478,6 @@ void AppWindow::onAddTrackClicked()
     auto cmd = std::make_unique<core::AddTrack>(core::Track::Kind::Video, 0, "V" + std::to_string(trackNumber));
     if (m_undoStack.execute(std::move(cmd))) {
         m_activeTrack = 0;
-        syncEngine();
         refreshTimeline();
         showStatus("Added a track (now active).");
     }
@@ -475,7 +487,6 @@ void AppWindow::onUndo()
 {
     if (m_undoStack.undo()) {
         m_selectedClip = -1;
-        syncEngine();
         refreshTimeline();
         updateWindowTitle();
         showStatus("Undid: " + m_undoStack.redoLabel());
@@ -486,7 +497,6 @@ void AppWindow::onRedo()
 {
     if (m_undoStack.redo()) {
         m_selectedClip = -1;
-        syncEngine();
         refreshTimeline();
         updateWindowTitle();
         showStatus("Redid: " + m_undoStack.undoLabel());
@@ -514,7 +524,6 @@ void AppWindow::onSplitClicked()
     for (const auto &clip : m_clips) {
         if (clip.trackIndex == m_activeTrack && frame > clip.startFrame && frame < clip.startFrame + clip.frames) {
             if (m_undoStack.execute(std::make_unique<core::SplitClip>(clip.id, frame))) {
-                syncEngine();
                 refreshTimeline();
             } else {
                 showStatus("Couldn't split there.");
@@ -626,7 +635,6 @@ void AppWindow::onDeleteClipClicked()
 
     if (clipId.isValid() && m_undoStack.execute(std::make_unique<core::RemoveClip>(clipId))) {
         m_selectedClip = -1;
-        syncEngine();
         refreshTimeline();
         showStatus("Deleted clip — gap left behind. Right-click the gap to close it.");
     } else {
@@ -678,7 +686,6 @@ void AppWindow::onCloseGapClicked()
         !moves.empty() && m_undoStack.execute(std::make_unique<core::CompositeCommand>("Close gap", std::move(moves)));
     if (ok) {
         m_selectedClip = -1;
-        syncEngine();
         refreshTimeline();
         showStatus("Closed gap.");
     } else {
@@ -699,7 +706,6 @@ void AppWindow::onRemoveTrackClicked()
         int trackCount = static_cast<int>(m_model.sequence().tracks.size());
         m_activeTrack = std::clamp(m_activeTrack, 0, std::max(trackCount - 1, 0));
         m_selectedClip = -1;
-        syncEngine();
         refreshTimeline();
         showStatus("Removed track " + std::to_string(m_contextMenuTrack) + ".");
     } else {
@@ -825,7 +831,6 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             if (m_undoStack.execute(std::make_unique<core::MoveTrack>(trackId, static_cast<size_t>(targetRow)))) {
                 m_activeTrack = targetRow;
                 m_selectedClip = -1;
-                syncEngine();
                 showStatus("Moved track " + std::to_string(m_draggingTrack) + " to " + std::to_string(targetRow) + ".");
             }
         }
@@ -839,7 +844,6 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             if (m_undoStack.execute(
                     std::make_unique<core::MoveClip>(m_dragClipId, destTrack, m_dragPreviewStartFrame))) {
                 m_activeTrack = m_dragPreviewTrack;
-                syncEngine();
             } else {
                 showStatus("Can't move the clip there — that space is occupied.");
             }
@@ -850,8 +854,6 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             if (!m_undoStack.execute(
                     std::make_unique<core::ResizeClip>(m_dragClipId, newIn, clip.out, m_dragPreviewStartFrame))) {
                 showStatus("Can't trim the clip that far — space is occupied or the source has no more frames.");
-            } else {
-                syncEngine();
             }
         } else if (mode == TimelineDragMode::TrimClipEnd) {
             const core::Clip &clip = m_model.clip(m_dragClipId);
@@ -864,8 +866,6 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
                     std::make_unique<core::ResizeClip>(m_dragClipId, clip.in, newOut, clip.position))) {
                 showStatus("Can't trim the clip that far — move the next clip out of the way first, or the "
                            "source has no more frames.");
-            } else {
-                syncEngine();
             }
         }
     }
@@ -1031,20 +1031,11 @@ void AppWindow::onWaveformReady()
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
 }
 
-void AppWindow::syncEngine()
-{
-    m_engineSync->rebuildAll();
-    m_playback->setTractor(m_engineSync->tractorPtr());
-    // Called after every successful edit (and after Open, where the undo
-    // stack is clean so the heartbeat's isClean() check skips it anyway).
-    m_lastEditMonotonicUsec = g_get_monotonic_time();
-}
-
 core::TrackId AppWindow::trackIdForRow(int row) const
 {
     const auto &tracks = m_model.sequence().tracks;
     if (row < 0 || row >= static_cast<int>(tracks.size())) {
-        Log::error("trackIdForRow: row " + std::to_string(row) + " out of range (" + std::to_string(tracks.size()) +
+        Log::error("[app] trackIdForRow: row " + std::to_string(row) + " out of range (" + std::to_string(tracks.size()) +
                    " tracks)");
         return core::TrackId{};
     }
@@ -1214,11 +1205,9 @@ void AppWindow::offerRecoveryIfAny()
                     // unsaved relative to m_currentProjectPath (or has no
                     // target at all) -- the title bar's dirty mark should
                     // say so.
-                    owned->self->m_engineSync->reset();
-                    owned->self->m_playback->setTractor(owned->self->m_engineSync->tractorPtr());
+                    owned->self->m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
                     owned->self->m_activeTrack = 0;
                     owned->self->m_selectedClip = -1;
-                    owned->self->syncEngine();
                     owned->self->refreshTimeline();
                     owned->self->updateWindowTitle();
                     owned->self->showStatus("Recovered unsaved work.");

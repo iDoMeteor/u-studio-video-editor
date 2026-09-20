@@ -9,9 +9,25 @@
 #include <cstdio>
 #include <filesystem>
 #include <memory>
+#include <random>
 
 using namespace ustudio::core;
 using namespace ustudio::engine;
+
+namespace {
+// RAII so the temp file is removed even if a REQUIRE below throws --
+// doctest's REQUIRE failure unwinds via an exception, which would
+// otherwise skip a plain std::remove() at the end of the test body.
+struct RemoveOnExit
+{
+    std::filesystem::path path;
+    ~RemoveOnExit()
+    {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+};
+} // namespace
 
 // doc 12's M1 acceptance: "melt saved.ustudio (or u-studio-render) plays
 // the saved file with no editor". `melt` itself isn't installed on this
@@ -43,7 +59,13 @@ TEST_CASE("A file our writer saves plays via MLT's own xml producer, independent
     AssetId assetId = model.addAsset(asset);
     model.insertClip(track, assetId, 0, 0, 49);
 
-    std::filesystem::path path = std::filesystem::temp_directory_path() / "ustudio-xml-playback-test.ustudio";
+    // A random suffix, not a fixed name: two concurrent test runs (agent
+    // worktrees, or a local run racing CI) could otherwise collide on the
+    // same path mid-write (CLAUDE.md's concurrent-session hazard).
+    std::random_device rd;
+    std::filesystem::path path =
+        std::filesystem::temp_directory_path() / ("ustudio-xml-playback-test-" + std::to_string(rd()) + ".ustudio");
+    RemoveOnExit cleanup{path};
     REQUIRE(saveProject(model, path.string()).empty());
 
     Mlt::Profile profile;
@@ -54,6 +76,4 @@ TEST_CASE("A file our writer saves plays via MLT's own xml producer, independent
     std::unique_ptr<Mlt::Frame> frame(loaded.get_frame());
     REQUIRE(frame != nullptr);
     CHECK(frame->is_valid());
-
-    std::remove(path.string().c_str());
 }

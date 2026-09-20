@@ -29,6 +29,16 @@ struct MediaInfo
     bool isImageSequence = false;
     bool isStillImage = false;
 
+    // Still images/sequences and assets with no known length (0 = length
+    // not yet probed, or a generator with no fixed duration) have no
+    // meaningful source-range bound; a clip's in/out against them is never
+    // rejected for being "out of range" (Model::check(), ResizeClip,
+    // InsertClip all share this predicate so the definition can't drift).
+    bool isBoundless() const
+    {
+        return isStillImage || isImageSequence || lengthInSequenceFrames <= 0;
+    }
+
     bool operator==(const MediaInfo &) const = default;
 };
 

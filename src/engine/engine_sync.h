@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/model/model.h"
+#include "core/model/model_event.h"
+#include "core/model/signal.h"
 
 #include <mlt++/Mlt.h>
 
@@ -17,10 +19,23 @@ namespace core = ustudio::core;
 // Owns both the Mlt::Profile (built from Sequence::profile, doc 05 -- not
 // a stock name, so custom profiles work) and the Mlt::Tractor built FROM
 // the Model: the model is the source of truth, EngineSync is a one-way
-// projection of it into MLT objects. Rebuild policy (ADR-005):
-// rebuildAll() clears and repopulates every track playlist under the
-// tractor -- O(clips on all tracks), always consistent. Cuts share a
-// per-asset master producer so no file is reopened per clip (doc 07).
+// projection of it into MLT objects (ADR-003). It subscribes to
+// Model::changed itself (connectToModel()) so a caller never has to
+// remember to resync after an edit -- the only thing that used to make
+// that true was every AppWindow call site calling rebuildAll() manually,
+// which nothing enforced.
+//
+// Rebuild policy (ADR-005 simplified): every model event that isn't part
+// of an open batch (BatchBegin/BatchEnd, doc 04's Transaction/
+// CompositeCommand) triggers one rebuildAll() -- clears and repopulates
+// every track playlist under the tractor, O(clips on all tracks), always
+// consistent. Events inside a batch just mark "dirty" and are coalesced
+// into a single rebuildAll() at BatchEnd, so e.g. "Close gap" (N MoveClips)
+// costs one resync, not N. True per-track incremental rebuild (rebuilding
+// only the touched playlist in place, not the whole tractor) is ADR-005's
+// further-out optimisation; doc 13 (risk R5) calls it acceptable to defer
+// until profiling on real timelines asks for it. Cuts share a per-asset
+// master producer so no file is reopened per clip (doc 07).
 //
 // Simplified vs. doc 05's full graph: v1's MltEngine plants BOTH
 // "composite" and "mix" between every adjacent tractor track index
@@ -53,6 +68,14 @@ class EngineSync
         return m_tractor;
     }
 
+    // Fires synchronously, main thread only, at the end of every
+    // rebuildAll() -- whether triggered by an automatic model-event resync
+    // or by an explicit call (reset(), a test). tractorPtr() has just
+    // changed identity; listeners that hand the tractor to a consumer
+    // (MltEngine::setTractor) connect here once instead of calling it after
+    // every edit themselves.
+    core::Signal<> rebuilt;
+
     // Rebuilds the black backing track, every model track's playlist, and
     // the transition graph from scratch.
     void rebuildAll();
@@ -62,6 +85,14 @@ class EngineSync
     // edits (doc 07) -- after a project load, those ids may now name
     // entirely different assets. Re-derives the profile from the model
     // too, in case the loaded project's differs.
+    //
+    // Also re-subscribes to Model::changed: the caller reassigns *this
+    // EngineSync's* m_model's contents wholesale for "Open Project"
+    // (`m_model = std::move(*loaded)`), and Model's implicit assignment
+    // operator overwrites every member including `changed` itself -- which
+    // silently drops whatever was connected to it. reset() is the one
+    // operation defined to run right after that kind of replacement, so
+    // it's where the subscription gets re-established.
     void reset();
 
     // Debug/test safety net (doc 05): for each model track, compares its
@@ -84,7 +115,16 @@ class EngineSync
     // black backing track, not a model track).
     std::vector<std::optional<core::TrackId>> m_mltTrackOrder;
 
+    // >0 while inside a Transaction/CompositeCommand's BatchBegin..BatchEnd
+    // (doc 04); events during that window set m_dirty instead of resyncing
+    // immediately, so the whole batch costs one rebuildAll(), not one per
+    // sub-command.
+    int m_batchDepth = 0;
+    bool m_dirty = false;
+
     void applyProfile();
+    void connectToModel();
+    void onModelEvent(const core::ModelEvent &event);
     Mlt::Producer &masterProducerFor(core::AssetId);
     void rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playlist &playlist);
 };

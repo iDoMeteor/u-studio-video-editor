@@ -28,24 +28,33 @@ class CompositeCommand : public Command
         return m_label;
     }
 
+    // Wrapped in BatchBegin/BatchEnd (doc 04/05) so a listener projecting
+    // model events into MLT (EngineSync) coalesces the whole group into one
+    // resync instead of one per sub-command.
     bool apply(Model &model) override
     {
+        model.notify(BatchBegin{});
         size_t appliedCount = 0;
+        bool ok = true;
         for (auto &command : m_commands) {
             if (!command->apply(model)) {
                 for (size_t i = appliedCount; i-- > 0;)
                     m_commands[i]->revert(model);
-                return false;
+                ok = false;
+                break;
             }
             ++appliedCount;
         }
-        return true;
+        model.notify(BatchEnd{});
+        return ok;
     }
 
     void revert(Model &model) override
     {
+        model.notify(BatchBegin{});
         for (size_t i = m_commands.size(); i-- > 0;)
             m_commands[i]->revert(model);
+        model.notify(BatchEnd{});
     }
 
   private:

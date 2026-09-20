@@ -4,6 +4,7 @@
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 
+#include <memory>
 #include <random>
 
 using namespace ustudio::core;
@@ -25,11 +26,25 @@ AssetId addGeneratorAsset(Model &model, const std::string &resource, FrameIndex 
     return model.addAsset(asset);
 }
 
+// FactoryPolicy's own contract (factory_policy.h) is "exactly one instance
+// per process": Mlt::Factory::init()/close() are process-wide, and this
+// binary runs several TEST_CASEs sequentially. A fresh FactoryPolicy per
+// TEST_CASE would init()/close() the same global MLT state repeatedly in
+// one process -- unverified territory (CLAUDE.md's "reproduce before
+// relying" rule) that main.cpp's actual usage (exactly one, for the whole
+// process lifetime) never exercises. Share one instance for the whole
+// binary instead, matching that real usage.
+FactoryPolicy &sharedFactoryPolicy()
+{
+    static FactoryPolicy policy;
+    return policy;
+}
+
 } // namespace
 
 TEST_CASE("EngineSync: empty model produces a tractor with just the black backing track")
 {
-    FactoryPolicy policy;
+    sharedFactoryPolicy();
     Model model = Model::createEmpty();
 
     EngineSync sync(model);
@@ -39,7 +54,7 @@ TEST_CASE("EngineSync: empty model produces a tractor with just the black backin
 
 TEST_CASE("EngineSync: one clip on one video track lands in the playlist at the right position")
 {
-    FactoryPolicy policy;
+    sharedFactoryPolicy();
     Model model = Model::createEmpty();
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     AssetId asset = addGeneratorAsset(model, "color:red");
@@ -58,7 +73,7 @@ TEST_CASE("EngineSync: one clip on one video track lands in the playlist at the 
 
 TEST_CASE("EngineSync: rebuildAll after a model change keeps verify() clean")
 {
-    FactoryPolicy policy;
+    sharedFactoryPolicy();
     Model model = Model::createEmpty();
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     AssetId asset = addGeneratorAsset(model, "color:blue");
@@ -78,31 +93,72 @@ TEST_CASE("EngineSync: rebuildAll after a model change keeps verify() clean")
 
 TEST_CASE("EngineSync: audio tracks sit below video tracks, video tracks are bottom-to-top by model order")
 {
-    FactoryPolicy policy;
+    sharedFactoryPolicy();
     Model model = Model::createEmpty();
     // Model order (visual, top to bottom): topVideo, bottomVideo, then audio.
     TrackId topVideo = model.addTrack(Track::Kind::Video, 0, "V-top");
     TrackId bottomVideo = model.addTrack(Track::Kind::Video, 1, "V-bottom");
     TrackId audio = model.addTrack(Track::Kind::Audio, 2, "A1");
 
+    // One clip per track, each on a distinguishable generator resource, so
+    // the physical MLT track index each one lands at can actually be read
+    // back and checked -- verify() alone can't catch an ordering bug: it
+    // cross-checks the tractor against m_mltTrackOrder, which was populated
+    // by the same mltTrackOrder() call that built the tractor, so it's
+    // self-consistent with whatever order was produced, right or wrong.
+    model.insertClip(topVideo, addGeneratorAsset(model, "color:top"), 0, 0, 9);
+    model.insertClip(bottomVideo, addGeneratorAsset(model, "color:bottom"), 0, 0, 9);
+    model.insertClip(audio, addGeneratorAsset(model, "color:audio"), 0, 0, 9);
+
     EngineSync sync(model);
     // Index 0 = black, 1 = audio, 2 = bottomVideo, 3 = topVideo (doc 03:
     // audio gets the lowest indices; video is bottom-to-top, i.e. reversed
     // from the model's top-to-bottom visual order).
     REQUIRE(sync.tractor().count() == 4);
+    CHECK(sync.verify().empty());
+
+    auto resourceAt = [&](int index) -> std::string {
+        Mlt::Producer *raw = sync.tractor().track(index);
+        REQUIRE(raw != nullptr);
+        Mlt::Playlist playlist(*raw);
+        std::unique_ptr<Mlt::ClipInfo> info(playlist.clip_info(0));
+        REQUIRE(info != nullptr);
+        return info->resource ? info->resource : "";
+    };
+    CHECK(resourceAt(1) == "audio");
+    CHECK(resourceAt(2) == "bottom");
+    CHECK(resourceAt(3) == "top");
 
     // Re-run rebuildAll and confirm verify() still holds with all three
     // model tracks present, exercising the mixed audio+video ordering path.
-    (void)topVideo;
-    (void)bottomVideo;
-    (void)audio;
     sync.rebuildAll();
+    CHECK(sync.verify().empty());
+}
+
+TEST_CASE("EngineSync: automatically resyncs when the model changes, with no explicit rebuildAll() call")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addGeneratorAsset(model, "color:red");
+
+    EngineSync sync(model);
+    CHECK(sync.tractor().get_length() == 1); // empty sequence: length() is 0, clamped to 1
+
+    // No sync.rebuildAll() here: EngineSync subscribes to Model::changed
+    // itself (connectToModel()) and resyncs on its own.
+    model.insertClip(track, asset, 0, 0, 99);
+    CHECK(sync.tractor().get_length() == 100);
+    CHECK(sync.verify().empty());
+
+    model.removeClip(model.track(track).clips.front());
+    CHECK(sync.tractor().get_length() == 1);
     CHECK(sync.verify().empty());
 }
 
 TEST_CASE("EngineSync: tractor length matches sequence length, including after growth and shrink")
 {
-    FactoryPolicy policy;
+    sharedFactoryPolicy();
     Model model = Model::createEmpty();
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     AssetId asset = addGeneratorAsset(model, "color:green");
@@ -126,7 +182,7 @@ TEST_CASE("EngineSync: tractor length matches sequence length, including after g
 // the same random-command generator").
 TEST_CASE("EngineSync property: verify() never fails across 500 random edits")
 {
-    FactoryPolicy policy;
+    sharedFactoryPolicy();
     Model model = Model::createEmpty();
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     AssetId asset = addGeneratorAsset(model, "color:yellow", 1'000'000);
