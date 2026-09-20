@@ -161,6 +161,49 @@ TEST_CASE("PlaybackController: pause shows the exact frame sought to, not one of
     CHECK(deliveredPositions.back() == 30);
 }
 
+TEST_CASE("PlaybackController: loop range wraps playback back to loop-in at loop-out")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+    auto tractor = makeOneClipTractor(profile, 60);
+
+    PlaybackController controller;
+    std::mutex mutex;
+    std::vector<int> deliveredPositions;
+    controller.setFrameCallback([&](std::vector<uint8_t>, int, int, int frameNumber) {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.push_back(frameNumber);
+    });
+    controller.setTractor(tractor);
+    controller.setLoopRange(std::make_pair(5, 15));
+    controller.play(1.0);
+
+    // Run long enough to cross the loop-out point at least twice -- if
+    // looping didn't work, position would just climb past 15 towards 59
+    // and never come back down.
+    bool wrapped = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (deliveredPositions.size() < 2)
+                return false;
+            for (size_t i = 1; i < deliveredPositions.size(); ++i) {
+                if (deliveredPositions[i] < deliveredPositions[i - 1])
+                    return true; // a drop -- the wrap happened
+            }
+            return false;
+        },
+        std::chrono::seconds(5));
+
+    controller.pause();
+    std::lock_guard<std::mutex> lock(mutex);
+    REQUIRE(wrapped);
+    // Every delivered position must stay within a hair of the loop range --
+    // doc 05 accepts a one-frame overshoot before the wrap-seek lands, but
+    // nothing should ever reach the middle of the clip's untouched tail.
+    for (int position : deliveredPositions)
+        CHECK(position <= 20);
+}
+
 TEST_CASE("PlaybackController: shutdown during playback is clean, repeated 100 times")
 {
     sharedFactoryPolicy();

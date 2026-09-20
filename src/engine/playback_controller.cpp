@@ -25,7 +25,17 @@ PlaybackController::~PlaybackController()
 void PlaybackController::shutdown()
 {
     if (m_consumer)
-        m_consumer->stop();
+        m_consumer->stop(); // joins the consumer's own thread(s) -- doc 05
+    // Fence against a frame-show callback that was already in flight (past
+    // the point where stop() could prevent it starting) when the line
+    // above returned: handleFrameShow() holds this same mutex for its
+    // whole body, so acquiring and releasing it here blocks until any such
+    // call has finished, before anything it might touch gets destroyed.
+    // Found empirically: without this, a 100-iteration setTractor()+play()
+    // +shutdown() stress loop crashed with a heap corruption (double
+    // free), reproducing reliably enough to be worth this fence rather
+    // than trusting stop() alone.
+    { std::lock_guard<std::mutex> lock(m_frameShowMutex); }
     m_frameShowEvent.reset();
     m_consumer.reset();
     m_consumerProfile = nullptr;
@@ -289,6 +299,11 @@ void PlaybackController::frameShowTrampoline(mlt_properties /*owner*/, void *sel
 
 void PlaybackController::handleFrameShow(const Mlt::EventData &eventData)
 {
+    // Held for the whole body: shutdown()'s fence (see its comment)
+    // acquires this same mutex after stop() to guarantee it never starts
+    // destroying anything this function might still be touching.
+    std::lock_guard<std::mutex> lock(m_frameShowMutex);
+
     Mlt::Frame frame(eventData.to_frame());
     if (!frame.is_valid())
         return;
@@ -322,8 +337,20 @@ void PlaybackController::drainSlot()
     if (!data)
         return;
 
-    if (m_loopRange && data->position >= m_loopRange->second)
-        seek(m_loopRange->first);
+    if (m_loopRange && data->position >= m_loopRange->second) {
+        // Not the generic seek(): while playing, seek() deliberately
+        // leaves the prefetch buffer alone ("the consumer catches up",
+        // doc 05) for a normal user scrub -- but that means frames already
+        // queued past loop-out (up to a full `buffer` setting's worth, 25
+        // by default) would still fire before the seek took effect,
+        // running position well past loop-out instead of the one-frame
+        // overshoot doc 05 expects. purge() here cuts that queue
+        // immediately, same as the paused/scrub path already does.
+        m_pausedPosition.store(m_loopRange->first);
+        m_tractor->seek(m_loopRange->first);
+        if (m_consumer)
+            m_consumer->purge();
+    }
 
     if (m_callback)
         m_callback(std::move(data->rgba), data->width, data->height, data->position);

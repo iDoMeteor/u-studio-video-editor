@@ -119,10 +119,23 @@ Four kinds of threads, each with a fixed set of things it may touch.
 
 ### MainThreadDispatcher
 
-Replaces raw `g_idle_add`. Two responsibilities:
+Two responsibilities:
 
 1. **Post a closure to the main context**, via
-   `g_main_context_invoke_full(nullptr, G_PRIORITY_DEFAULT, …)`.
+   `g_idle_add_full(G_PRIORITY_DEFAULT, …)` — **not**
+   `g_main_context_invoke_full()`, which this doc originally named. That
+   function has a documented optimisation where, if nothing currently owns
+   the target context, the *calling* thread acquires it and runs the
+   function immediately, inline. For a poster on an MLT consumer thread
+   that defeats the entire point (the closure must never run on that
+   thread). Confirmed empirically (M2 1/N): a test that posted from a
+   consumer thread with no GTK main loop running anywhere in the process
+   crashed with heap corruption from unsynchronized concurrent access,
+   100/100 runs; switching to `g_idle_add_full` (which always creates a
+   genuine idle source and never runs inline on the poster's own thread)
+   fixed it outright. `g_idle_add_full` still always targets the process's
+   single default `GMainContext`, same as the plain `g_idle_add()` v1 used —
+   the actual change from v1 is response (2) below, not the post mechanism.
 2. **Guard lifetime.** Every subscriber holds a `LifetimeToken`
    (a `std::shared_ptr<void>`); posts capture a `std::weak_ptr` and are dropped
    silently if the token is dead by the time they run. This closes P4 from the

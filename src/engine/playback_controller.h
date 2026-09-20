@@ -169,6 +169,10 @@ class PlaybackController
     LatestFrameSlot m_slot;
     MainThreadDispatcher::LifetimeToken m_lifetimeToken = MainThreadDispatcher::makeToken();
     std::atomic<bool> m_drainQueued{false};
+    // Fences handleFrameShow() (consumer thread) against shutdown()
+    // (main thread) tearing down the consumer/event/tractor mid-callback
+    // -- see both methods' comments.
+    std::mutex m_frameShowMutex;
 
     std::atomic<bool> m_playing{false};
     std::atomic<double> m_speed{1.0};
