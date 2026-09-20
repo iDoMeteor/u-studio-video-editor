@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.2.0
+
+- Importing a still image (PNG, JPEG, ...) now auto-detects it as such and
+  defaults its length to span the rest of the current project from the
+  insert point, instead of MLT's fixed ~8-minute default — drop one onto
+  an empty top track for an instant full-timeline watermark/logo overlay.
+
 ## 0.1.0
 
 - Playback now runs through a real MLT consumer (`sdl2_audio`, falling

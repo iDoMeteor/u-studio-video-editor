@@ -33,14 +33,15 @@ constexpr double kEdgeGrabWidth = 8.0;
 constexpr double kDragClickThreshold = 3.0; // below this, a "drag" is really just a click
 constexpr double kWaveformR = 0x9d / 255.0, kWaveformG = 0x4e / 255.0, kWaveformB = 0xff / 255.0; // brand violet
 
-core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length)
+core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length, bool isStillImage, bool hasAudio)
 {
     core::Asset asset;
     asset.path = path;
     auto slash = path.find_last_of('/');
     asset.displayName = (slash == std::string::npos) ? path : path.substr(slash + 1);
     asset.info.hasVideo = true;
-    asset.info.hasAudio = true;
+    asset.info.hasAudio = hasAudio;
+    asset.info.isStillImage = isStillImage;
     asset.info.lengthInSequenceFrames = length;
     asset.status = core::Asset::Status::Ready;
     return asset;
@@ -353,13 +354,36 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
         if (m_model.sequence().tracks.empty()) {
             showStatus("Add a track first.");
         } else {
-            core::FrameIndex length = m_engineSync->probeLength(path);
-            if (length <= 0) {
+            engine::EngineSync::ProbedMedia probed = m_engineSync->probeMedia(path);
+            if (probed.length <= 0) {
                 showStatus(std::string("Could not open media file: ") + path);
             } else {
                 core::TrackId trackId = trackIdForRow(m_activeTrack);
                 const core::Track &track = m_model.track(trackId);
                 core::FrameIndex insertPos = track.clips.empty() ? 0 : m_model.clip(track.clips.back()).end();
+
+                // A still image is boundless (MediaInfo::isBoundless()) --
+                // MLT's own default (15000 frames via pixbuf, verified
+                // empirically) has nothing to do with how long a clip cut
+                // from it should be. Default to spanning the rest of the
+                // *current* project length from the insert point, so
+                // dropping a logo/watermark PNG onto an otherwise-empty top
+                // track immediately covers the whole timeline, matching
+                // what a still image is for -- no manual trim-to-fit
+                // needed. Falls back to a modest 10s default when there's
+                // nothing yet to cover (an empty project, or inserting
+                // past the current end).
+                core::FrameIndex length = probed.length;
+                if (probed.isStillImage) {
+                    core::FrameIndex timelineLength = m_model.sequence().length();
+                    if (timelineLength > insertPos) {
+                        length = timelineLength - insertPos;
+                    } else {
+                        const core::Rational &fps = m_model.sequence().profile.fps;
+                        double fpsValue = fps.den > 0 ? static_cast<double>(fps.num) / fps.den : 30.0;
+                        length = static_cast<core::FrameIndex>(fpsValue * 10.0);
+                    }
+                }
 
                 // AddAsset applies first (below) and, with no reuseId,
                 // allocates exactly model.project().nextId as read here --
@@ -369,7 +393,8 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
                 core::AssetId predictedAssetId{m_model.project().nextId};
 
                 std::vector<std::unique_ptr<core::Command>> steps;
-                steps.push_back(std::make_unique<core::AddAsset>(makeImportedAsset(path, length)));
+                steps.push_back(std::make_unique<core::AddAsset>(
+                    makeImportedAsset(path, length, probed.isStillImage, probed.hasAudio)));
                 steps.push_back(
                     std::make_unique<core::InsertClip>(trackId, predictedAssetId, insertPos, 0, length - 1));
 

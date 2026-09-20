@@ -100,11 +100,25 @@ class EngineSync
     // compares tractor length to sequence.length(). Empty = OK.
     std::vector<std::string> verify() const;
 
+    struct ProbedMedia
+    {
+        core::FrameIndex length = 0; // 0 if the path couldn't be opened
+        bool isStillImage = false;
+        bool hasAudio = false;
+    };
+
     // Opens `path` against this EngineSync's profile just long enough to
-    // read its length in sequence frames -- 0 if it can't be opened. Used
-    // by the app layer to fill in InsertClip's out point on import, since
-    // app/ never touches MLT directly (build-enforced boundary).
-    core::FrameIndex probeLength(const std::string &path);
+    // read a few basic facts -- used by the app layer to fill in
+    // AddAsset/InsertClip on import, since app/ never touches MLT directly
+    // (build-enforced boundary). `isStillImage` is read from the opened
+    // producer's own `mlt_service` property (verified empirically: PNG/JPEG
+    // etc. load via the `pixbuf` service on this machine -- `qimage` is
+    // Qt-based and excluded by FactoryPolicy's denylist, per ADR-007 --
+    // never guessed from the file extension). `length` for a still image is
+    // whatever MLT's pixbuf producer defaults to (15000 frames, verified
+    // empirically) -- callers that need a specific duration should extend
+    // it themselves; see the comment on masterProducerFor's length bump.
+    ProbedMedia probeMedia(const std::string &path);
 
   private:
     core::Model &m_model;

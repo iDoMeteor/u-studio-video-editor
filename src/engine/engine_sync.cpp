@@ -71,7 +71,7 @@ void EngineSync::applyProfile()
     m_profile = makeProfileFrom(m_model.sequence().profile);
 }
 
-core::FrameIndex EngineSync::probeLength(const std::string &path)
+EngineSync::ProbedMedia EngineSync::probeMedia(const std::string &path)
 {
     // Its own throwaway profile, not the live *m_profile: that one backs
     // the tractor PlaybackController's Mlt::Consumer may be pulling a
@@ -81,8 +81,14 @@ core::FrameIndex EngineSync::probeLength(const std::string &path)
     std::unique_ptr<Mlt::Profile> probeProfile = makeProfileFrom(m_model.sequence().profile);
     Mlt::Producer producer(*probeProfile, path.c_str());
     if (!producer.is_valid())
-        return 0;
-    return producer.get_length();
+        return {};
+
+    ProbedMedia result;
+    result.length = producer.get_length();
+    const char *service = producer.get("mlt_service");
+    result.isStillImage = service && (std::string(service) == "pixbuf" || std::string(service) == "qimage");
+    result.hasAudio = !result.isStillImage;
+    return result;
 }
 
 Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId)
@@ -93,6 +99,18 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId)
 
     const core::Asset &asset = m_model.asset(assetId);
     auto producer = std::make_shared<Mlt::Producer>(*m_profile, asset.path.c_str());
+    // Still images default to a fixed length in MLT (pixbuf: 15000 frames,
+    // verified empirically) regardless of how long a clip the model wants
+    // to cut from them -- a still is boundless (MediaInfo::isBoundless()),
+    // so the model may legitimately ask for an out point past that. Bump
+    // the producer's own "length" property to match before any cut is
+    // taken, so master.cut(in, out) never silently clips to 15000 frames
+    // for a watermark spanning a longer timeline. Harmless for a real
+    // (non-still) asset: its own natural length is left alone.
+    if (asset.info.isStillImage && asset.info.lengthInSequenceFrames > producer->get_length()) {
+        producer->set("length", static_cast<int>(asset.info.lengthInSequenceFrames));
+        producer->set_in_and_out(0, static_cast<int>(asset.info.lengthInSequenceFrames - 1));
+    }
     Mlt::Producer &ref = *producer;
     m_masterProducers.emplace(assetId.value, std::move(producer));
     return ref;

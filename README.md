@@ -13,7 +13,12 @@ single-track skeleton.
 
 ## Current capabilities
 
-- Import media files onto any track (`GtkFileDialog`).
+- Import media files onto any track (`GtkFileDialog`). Still images (PNG,
+  JPEG, ...) are detected automatically (via the opened producer's own MLT
+  service, not the file extension) and default to spanning the rest of the
+  current project length from the insert point — drop one onto an empty top
+  track for an instant full-timeline watermark/logo overlay, no manual
+  trim-to-fit needed.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).
   Higher tracks composite over lower ones for video (full-frame, top wins);

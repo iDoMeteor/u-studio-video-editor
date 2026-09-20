@@ -35,3 +35,12 @@ test_playback_controller_exe = executable(
 # Runs a live sdl2_audio/rtaudio/null consumer and repeats a 100-iteration
 # shutdown loop -- slower than the other engine tests, hence its own timeout.
 test('engine-playback-controller', test_playback_controller_exe, timeout: 60)
+
+test_probe_media_exe = executable(
+  'test_probe_media',
+  files('test_probe_media.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+
+test('engine-probe-media', test_probe_media_exe)

@@ -1,0 +1,88 @@
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest.h"
+
+#include "core/model/model.h"
+#include "engine/engine_sync.h"
+#include "engine/factory_policy.h"
+
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <random>
+
+using namespace ustudio::core;
+using namespace ustudio::engine;
+
+namespace {
+
+FactoryPolicy &sharedFactoryPolicy()
+{
+    static FactoryPolicy policy;
+    return policy;
+}
+
+// A minimal, valid 2x2 RGBA PNG (half-transparent red), written as bytes
+// rather than committed as a binary file (doc 11: no binary media in the
+// repo) -- generated once with Python's zlib/struct and pasted in as data.
+constexpr unsigned char kTinyPng[] = {137, 80,  78,  71,  13, 10, 26,  10, 0,   0,   0,  13,  73,
+                                      72,  68,  82,  0,   0,  0,  2,   0,  0,   0,   2,  8,   6,
+                                      0,   0,   0,   114, 182, 13, 36, 0,  0,   0,   17, 73,  68,
+                                      65,  84,  120, 156, 99,  248, 207, 192, 208, 0,   194, 12,
+                                      48,  6,   0,   56,  232, 5,  253, 17, 51,  48,  201, 0,   0,
+                                      0,   0,   73,  69,  78,  68, 174, 66, 96,  130};
+
+struct RemoveOnExit
+{
+    std::filesystem::path path;
+    ~RemoveOnExit()
+    {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+};
+
+} // namespace
+
+TEST_CASE("EngineSync::probeMedia recognizes a still image via its MLT service, not the extension")
+{
+    sharedFactoryPolicy();
+    std::random_device rd;
+    std::filesystem::path path =
+        std::filesystem::temp_directory_path() / ("ustudio-probe-media-test-" + std::to_string(rd()) + ".png");
+    RemoveOnExit cleanup{path};
+    {
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(kTinyPng), sizeof(kTinyPng));
+    }
+
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+
+    EngineSync::ProbedMedia probed = sync.probeMedia(path.string());
+    CHECK(probed.length > 0);
+    CHECK(probed.isStillImage);
+    CHECK_FALSE(probed.hasAudio);
+}
+
+TEST_CASE("EngineSync::probeMedia reports a generator producer as not a still image")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+
+    // color: is a video generator, not an image file -- the still-image
+    // path (pixbuf/qimage) must not misfire on it.
+    EngineSync::ProbedMedia probed = sync.probeMedia("color:red");
+    CHECK(probed.length > 0);
+    CHECK_FALSE(probed.isStillImage);
+}
+
+TEST_CASE("EngineSync::probeMedia reports 0 length for a path nothing can open")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+
+    EngineSync::ProbedMedia probed = sync.probeMedia("/nonexistent/path/does-not-exist.mp4");
+    CHECK(probed.length == 0);
+}
