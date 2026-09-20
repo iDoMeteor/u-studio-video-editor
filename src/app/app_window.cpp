@@ -229,12 +229,45 @@ void AppWindow::buildUi(GtkApplication *app)
     m_seekScale = GTK_SCALE(gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1, 1));
     gtk_scale_set_draw_value(m_seekScale, FALSE);
     gtk_widget_set_hexpand(GTK_WIDGET(m_seekScale), TRUE);
+    // Not focusable: GtkRange's own key bindings would otherwise compete
+    // with (and pre-empt, depending on focus) the window-level Left/Right/
+    // Home/End actions below for frame-step/home/end -- there's no other
+    // reason for this widget to hold keyboard focus, since seeking is
+    // mouse-drag-driven.
+    gtk_widget_set_focusable(GTK_WIDGET(m_seekScale), FALSE);
     g_signal_connect(m_seekScale, "value-changed", G_CALLBACK(&AppWindow::seekChangedTrampoline), this);
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_seekScale));
 
     m_timecodeLabel = GTK_LABEL(gtk_label_new("00:00:00:00"));
     gtk_widget_add_css_class(GTK_WIDGET(m_timecodeLabel), "timecode-label");
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_timecodeLabel));
+
+    GtkWidget *volumeIcon = gtk_image_new_from_icon_name("audio-volume-high-symbolic");
+    gtk_box_append(GTK_BOX(transport), volumeIcon);
+    m_volumeScale = GTK_SCALE(gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 1.0, 0.05));
+    gtk_scale_set_draw_value(m_volumeScale, FALSE);
+    gtk_range_set_value(GTK_RANGE(m_volumeScale), 1.0);
+    gtk_widget_set_size_request(GTK_WIDGET(m_volumeScale), 90, -1);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(m_volumeScale), "Volume");
+    g_signal_connect(m_volumeScale, "value-changed", G_CALLBACK(&AppWindow::volumeChangedTrampoline), this);
+    gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_volumeScale));
+
+    const char *previewScaleLabels[] = {"Auto", "Full", "Half", "Quarter", nullptr};
+    GtkStringList *previewScaleModel = gtk_string_list_new(previewScaleLabels);
+    m_previewScaleDropdown = GTK_DROP_DOWN(gtk_drop_down_new(G_LIST_MODEL(previewScaleModel), nullptr));
+    gtk_widget_set_tooltip_text(GTK_WIDGET(m_previewScaleDropdown), "Preview scale");
+    g_signal_connect(m_previewScaleDropdown, "notify::selected", G_CALLBACK(&AppWindow::previewScaleChangedTrampoline),
+                     this);
+    gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_previewScaleDropdown));
+
+    m_loopStatusLabel = GTK_LABEL(gtk_label_new(""));
+    gtk_widget_add_css_class(GTK_WIDGET(m_loopStatusLabel), "dim-label");
+    gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_loopStatusLabel));
+
+    GtkWidget *clearLoopButton = gtk_button_new_from_icon_name("edit-clear-symbolic");
+    gtk_widget_set_tooltip_text(clearLoopButton, "Clear loop (I/O set loop in/out at the playhead)");
+    g_signal_connect(clearLoopButton, "clicked", G_CALLBACK(&AppWindow::clearLoopClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(transport), clearLoopButton);
 
     gtk_box_append(GTK_BOX(bottomBox), transport);
 
@@ -265,6 +298,34 @@ void AppWindow::installActions(GtkApplication *app)
     gtk_application_set_accels_for_action(app, "win.undo", undoAccels);
     const char *redoAccels[] = {"<Control><Shift>z", nullptr};
     gtk_application_set_accels_for_action(app, "win.redo", redoAccels);
+
+    // J/K/L shuttle, frame step, home/end, loop in/out (doc 05's M2
+    // transport deliverables). No accelerator for play/pause toggle here:
+    // the existing play button is mouse-only, and L already covers
+    // "start playing forward" from the keyboard.
+    addAction(app, "shuttle-forward", &AppWindow::shuttleForwardActivated, {"l"});
+    addAction(app, "shuttle-reverse", &AppWindow::shuttleReverseActivated, {"j"});
+    addAction(app, "shuttle-stop", &AppWindow::shuttleStopActivated, {"k"});
+    addAction(app, "step-forward", &AppWindow::stepForwardActivated, {"Right"});
+    addAction(app, "step-backward", &AppWindow::stepBackwardActivated, {"Left"});
+    addAction(app, "seek-home", &AppWindow::seekHomeActivated, {"Home"});
+    addAction(app, "seek-end", &AppWindow::seekEndActivated, {"End"});
+    addAction(app, "loop-set-in", &AppWindow::loopSetInActivated, {"i"});
+    addAction(app, "loop-set-out", &AppWindow::loopSetOutActivated, {"o"});
+}
+
+void AppWindow::addAction(GtkApplication *app, const char *name,
+                          void (*activated)(GSimpleAction *, GVariant *, gpointer),
+                          std::initializer_list<const char *> accels)
+{
+    GSimpleAction *action = g_simple_action_new(name, nullptr);
+    g_signal_connect(action, "activate", G_CALLBACK(activated), this);
+    g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(action));
+    g_object_unref(action);
+
+    std::vector<const char *> accelsWithNull(accels.begin(), accels.end());
+    accelsWithNull.push_back(nullptr);
+    gtk_application_set_accels_for_action(app, ("win." + std::string(name)).c_str(), accelsWithNull.data());
 }
 
 void AppWindow::onImportClicked()
@@ -506,8 +567,7 @@ void AppWindow::onRedo()
 void AppWindow::onPlayToggled()
 {
     m_playback->togglePlay();
-    const char *icon = m_playback->isPlaying() ? "media-playback-pause-symbolic" : "media-playback-start-symbolic";
-    gtk_button_set_icon_name(m_playButton, icon);
+    refreshPlayButtonIcon();
 }
 
 void AppWindow::onSeekChanged()
@@ -516,6 +576,105 @@ void AppWindow::onSeekChanged()
         return;
     int frame = static_cast<int>(gtk_range_get_value(GTK_RANGE(m_seekScale)));
     m_playback->seek(frame);
+}
+
+void AppWindow::onShuttleForward()
+{
+    double current = m_playback->speed();
+    double next = (current <= 0.0) ? 1.0 : std::min(current * 2.0, 8.0);
+    m_playback->play(next);
+    refreshPlayButtonIcon();
+}
+
+void AppWindow::onShuttleReverse()
+{
+    double current = m_playback->speed();
+    double next = (current >= 0.0) ? -1.0 : std::max(current * 2.0, -8.0);
+    m_playback->play(next);
+    refreshPlayButtonIcon();
+}
+
+void AppWindow::onShuttleStop()
+{
+    m_playback->pause();
+    refreshPlayButtonIcon();
+}
+
+void AppWindow::onStepForward()
+{
+    m_playback->stepFrame(1);
+    refreshPlayButtonIcon();
+}
+
+void AppWindow::onStepBackward()
+{
+    m_playback->stepFrame(-1);
+    refreshPlayButtonIcon();
+}
+
+void AppWindow::onSeekHome()
+{
+    m_playback->toHome();
+}
+
+void AppWindow::onSeekEnd()
+{
+    m_playback->toEnd();
+}
+
+void AppWindow::onSetLoopIn()
+{
+    int frame = m_playback->currentFrame();
+    auto range = m_playback->loopRange();
+    int out = range ? range->second : std::max(m_playback->totalFrames() - 1, 0);
+    if (frame >= out) {
+        showStatus("Loop in must be before loop out.");
+        return;
+    }
+    m_playback->setLoopRange(std::make_pair(frame, out));
+    refreshLoopStatusLabel();
+}
+
+void AppWindow::onSetLoopOut()
+{
+    int frame = m_playback->currentFrame();
+    auto range = m_playback->loopRange();
+    int in = range ? range->first : 0;
+    if (frame <= in) {
+        showStatus("Loop out must be after loop in.");
+        return;
+    }
+    m_playback->setLoopRange(std::make_pair(in, frame));
+    refreshLoopStatusLabel();
+}
+
+void AppWindow::onClearLoopClicked()
+{
+    m_playback->setLoopRange(std::nullopt);
+    refreshLoopStatusLabel();
+}
+
+void AppWindow::onVolumeChanged()
+{
+    m_playback->setVolume(gtk_range_get_value(GTK_RANGE(m_volumeScale)));
+}
+
+void AppWindow::onPreviewScaleChanged()
+{
+    switch (gtk_drop_down_get_selected(m_previewScaleDropdown)) {
+    case 1:
+        m_playback->setPreviewScale(engine::PlaybackController::PreviewScale::Full);
+        break;
+    case 2:
+        m_playback->setPreviewScale(engine::PlaybackController::PreviewScale::Half);
+        break;
+    case 3:
+        m_playback->setPreviewScale(engine::PlaybackController::PreviewScale::Quarter);
+        break;
+    default:
+        m_playback->setPreviewScale(engine::PlaybackController::PreviewScale::Auto);
+        break;
+    }
 }
 
 void AppWindow::onSplitClicked()
@@ -1084,6 +1243,23 @@ void AppWindow::refreshTransport(int frameNumber)
     gtk_label_set_text(m_timecodeLabel, formatTimecode(frameNumber).c_str());
 }
 
+void AppWindow::refreshPlayButtonIcon()
+{
+    const char *icon = m_playback->isPlaying() ? "media-playback-pause-symbolic" : "media-playback-start-symbolic";
+    gtk_button_set_icon_name(m_playButton, icon);
+}
+
+void AppWindow::refreshLoopStatusLabel()
+{
+    auto range = m_playback->loopRange();
+    if (!range) {
+        gtk_label_set_text(m_loopStatusLabel, "");
+        return;
+    }
+    std::string text = "Loop " + formatTimecode(range->first) + " – " + formatTimecode(range->second);
+    gtk_label_set_text(m_loopStatusLabel, text.c_str());
+}
+
 void AppWindow::updateWindowTitle()
 {
     std::string title = m_undoStack.isClean() ? "u Studio Video Editor" : "u Studio Video Editor •";
@@ -1354,6 +1530,66 @@ void AppWindow::undoActionActivated(GSimpleAction *, GVariant *, gpointer userDa
 void AppWindow::redoActionActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onRedo();
+}
+
+void AppWindow::shuttleForwardActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onShuttleForward();
+}
+
+void AppWindow::shuttleReverseActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onShuttleReverse();
+}
+
+void AppWindow::shuttleStopActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onShuttleStop();
+}
+
+void AppWindow::stepForwardActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onStepForward();
+}
+
+void AppWindow::stepBackwardActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onStepBackward();
+}
+
+void AppWindow::seekHomeActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSeekHome();
+}
+
+void AppWindow::seekEndActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSeekEnd();
+}
+
+void AppWindow::loopSetInActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSetLoopIn();
+}
+
+void AppWindow::loopSetOutActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSetLoopOut();
+}
+
+void AppWindow::clearLoopClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onClearLoopClicked();
+}
+
+void AppWindow::volumeChangedTrampoline(GtkRange *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onVolumeChanged();
+}
+
+void AppWindow::previewScaleChangedTrampoline(GtkDropDown *, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onPreviewScaleChanged();
 }
 
 gboolean AppWindow::autosaveHeartbeatTrampoline(gpointer userData)

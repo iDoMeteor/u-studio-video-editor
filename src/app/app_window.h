@@ -3,6 +3,7 @@
 #include <adwaita.h>
 #include <gtk/gtk.h>
 
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -91,6 +92,25 @@ class AppWindow
     void onRedo();
     void onPlayToggled();
     void onSeekChanged();
+    // J/K/L shuttle (doc 05): L accelerates forward (1x -> 2x -> 4x -> 8x),
+    // J mirrors it in reverse, K stops. Repeated presses ramp the existing
+    // direction's speed rather than resetting to 1x.
+    void onShuttleForward();
+    void onShuttleReverse();
+    void onShuttleStop();
+    void onStepForward();
+    void onStepBackward();
+    void onSeekHome();
+    void onSeekEnd();
+    // I/O set the loop-in/loop-out at the current playhead (clamped so
+    // in < out); there's no ruler widget yet to show the range visually
+    // (that's UsTimelineView/ADR-008, M3), so m_loopStatusLabel is the only
+    // feedback for now.
+    void onSetLoopIn();
+    void onSetLoopOut();
+    void onClearLoopClicked();
+    void onVolumeChanged();
+    void onPreviewScaleChanged();
     void onSplitClicked();
     void onTimelineClicked(double x, double y);
     void onTimelineRightClicked(double x, double y);
@@ -111,6 +131,8 @@ class AppWindow
 
     void refreshTimeline();
     void refreshTransport(int frameNumber);
+    void refreshPlayButtonIcon();
+    void refreshLoopStatusLabel();
     void updateWindowTitle();
     void showStatus(const std::string &text);
     std::string formatTimecode(int frame) const;
@@ -119,6 +141,14 @@ class AppWindow
     // in debug builds if out of range; callers only pass rows the timeline
     // itself just drew, so this should never be reached with a stale one.
     core::TrackId trackIdForRow(int row) const;
+
+    // Creates a stateless GSimpleAction named `name`, wires `activated` as
+    // its "activate" handler with `this` as user data, adds it to the
+    // window's action map, and binds `accels` to "win.<name>" -- the
+    // boilerplate every one of installActions()'s calls below shares.
+    void addAction(GtkApplication *app, const char *name,
+                   void (*activated)(GSimpleAction *, GVariant *, gpointer),
+                   std::initializer_list<const char *> accels);
 
     static void importClickedTrampoline(GtkButton *button, gpointer userData);
     static void fileOpenedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
@@ -146,6 +176,18 @@ class AppWindow
     static void trackDragEndTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
     static void undoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void redoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void shuttleForwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void shuttleReverseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void shuttleStopActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void stepForwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void stepBackwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void seekHomeActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void seekEndActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void loopSetInActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void loopSetOutActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void clearLoopClickedTrampoline(GtkButton *button, gpointer userData);
+    static void volumeChangedTrampoline(GtkRange *range, gpointer userData);
+    static void previewScaleChangedTrampoline(GtkDropDown *dropdown, GParamSpec *pspec, gpointer userData);
 
     AdwApplicationWindow *m_window = nullptr;
     GtkPicture *m_preview = nullptr;
@@ -156,6 +198,9 @@ class AppWindow
     GtkButton *m_redoButton = nullptr;
     GtkLabel *m_timecodeLabel = nullptr;
     GtkLabel *m_statusLabel = nullptr;
+    GtkLabel *m_loopStatusLabel = nullptr;
+    GtkScale *m_volumeScale = nullptr;
+    GtkDropDown *m_previewScaleDropdown = nullptr;
     GtkPopover *m_trackContextMenu = nullptr;
     GtkWidget *m_deleteClipButton = nullptr;
     GtkWidget *m_closeGapButton = nullptr;
