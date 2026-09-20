@@ -4,6 +4,15 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.4.1
+
+- Fixed playback silently failing to advance after an edit (import,
+  split, move, trim, ...): an optimization meant to avoid closing and
+  reopening the audio device on every edit was instead corrupting MLT's
+  internal playback state. Every edit now does a clean restart of the
+  playback consumer, which is slightly more expensive but actually
+  correct.
+
 ## 0.4.0
 
 - Track locking: right-click empty track space to lock/unlock a track.

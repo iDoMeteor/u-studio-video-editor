@@ -38,7 +38,6 @@ void PlaybackController::shutdown()
     { std::lock_guard<std::mutex> lock(m_frameShowMutex); }
     m_frameShowEvent.reset();
     m_consumer.reset();
-    m_consumerProfile = nullptr;
     m_tractor.reset();
 }
 
@@ -77,8 +76,8 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
 
         m_consumer = std::move(consumer);
         m_frameShowEvent = std::move(event);
-        m_consumerProfile = profile;
         m_backendName = name;
+        ++m_consumerRestartCount;
         applyResolvedScale();
 
         Log::info(std::string("[engine] Playback consumer: ") + name);
@@ -100,27 +99,30 @@ void PlaybackController::setTractor(std::shared_ptr<Mlt::Tractor> tractor)
     bool wasPlaying = m_playing.load();
     double previousSpeed = m_speed.load();
 
-    Mlt::Profile *newProfile = tractor->profile();
-
-    if (m_consumer && newProfile == m_consumerProfile) {
-        // Hot swap: the common case (every ordinary edit rebuilds the
-        // tractor via EngineSync). Reconnect the already-running consumer
-        // to the new tractor object in place -- no stop/restart, so
-        // editing never clicks or drops the audio device.
-        m_tractor = std::move(tractor);
-        m_consumer->connect(*m_tractor);
-    } else {
-        // Either the very first tractor we've ever seen, or the profile
-        // differs from what the running consumer was built for -- a
-        // project load with a different resolution/fps (doc 05: "changing
-        // the sequence profile rebuilds everything: stop consumer, destroy
-        // tractor, rebuild, reconnect").
-        shutdown();
-        m_tractor = std::move(tractor);
-        if (!selectAndStartConsumer(*m_tractor)) {
-            m_tractor.reset();
-            return;
-        }
+    // Always a full stop/reselect/restart -- never Mlt::Consumer::connect()
+    // on an already-running consumer. An earlier version of this function
+    // tried exactly that as an optimisation for the common case (every
+    // ordinary edit rebuilds the tractor via EngineSync, same profile), to
+    // avoid closing and reopening the real audio device on every edit.
+    // Confirmed via a standalone repro AND a doctest regression test that
+    // it corrupts MLT's internal state: connecting a live consumer to a
+    // new tractor while its background read-ahead (prefetch) thread is
+    // still running on the old one crashes later, inside MLT's own
+    // consumer_read_ahead_thread/mlt_service_get_frame, reproducing 3/3
+    // runs with a GDB backtrace pointing at freed memory from the tractor
+    // that had just been swapped out. The full restart path below is the
+    // one actually proven safe (100/100 clean runs in the
+    // shutdown-during-playback stress test) -- paying for a device
+    // close/reopen on every edit is the honest cost of that safety until
+    // hot-swapping a live consumer's producer can be shown safe some other
+    // way (CLAUDE.md: never destroy an MLT service a running consumer can
+    // still reach -- reconnecting away from one while its own read-ahead
+    // thread is mid-flight turns out to be exactly that).
+    shutdown();
+    m_tractor = std::move(tractor);
+    if (!selectAndStartConsumer(*m_tractor)) {
+        m_tractor.reset();
+        return;
     }
 
     int total = m_tractor->get_length();

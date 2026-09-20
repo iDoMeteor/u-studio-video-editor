@@ -50,15 +50,12 @@ class PlaybackController
     PlaybackController &operator=(const PlaybackController &) = delete;
 
     // Points playback at a new tractor, after any model change that
-    // required EngineSync::rebuildAll(). If a consumer is already running
-    // against the same profile (the common case: this tractor is a
-    // rebuild after an ordinary edit, not a project load), it is
-    // reconnected in place -- no stop/restart, so editing never clicks or
-    // drops the audio device. If the profile differs (a project load with
-    // a different resolution/fps), the consumer is stopped and a fresh one
-    // selected against the new profile (doc 05: "changing the sequence
-    // profile rebuilds everything"). Preserves the current playhead
-    // position and play/pause state across either path.
+    // required EngineSync::rebuildAll() (every ordinary edit, not just a
+    // project load). Always does a full stop/reselect/restart of the
+    // consumer, never reconnects a live one in place -- see this class's
+    // own comment and setTractor()'s definition for why an in-place
+    // hot-swap turned out to be unsafe. Preserves the current playhead
+    // position and play/pause state across the restart.
     void setTractor(std::shared_ptr<Mlt::Tractor> tractor);
     void setFrameCallback(FrameCallback cb);
 
@@ -121,6 +118,17 @@ class PlaybackController
         return m_backendName;
     }
 
+    // How many times a consumer has actually been selected/started --
+    // once per setTractor() call, by design (see its comment: every call
+    // does a full stop/reselect/restart, closing and reopening the real
+    // audio device each time). Mostly useful for tests confirming
+    // setTractor() actually ran to completion rather than bailing out
+    // with no valid consumer.
+    int consumerRestartCount() const
+    {
+        return m_consumerRestartCount;
+    }
+
     // Stops the consumer before Factory::close() runs on quit (main.cpp's
     // "shutdown" handler). Can't just be the destructor: AppWindow (and
     // everything it owns, including this) is intentionally never destroyed
@@ -161,9 +169,9 @@ class PlaybackController
     std::shared_ptr<Mlt::Tractor> m_tractor;
     std::unique_ptr<Mlt::Consumer> m_consumer;
     std::unique_ptr<Mlt::Event> m_frameShowEvent;
-    Mlt::Profile *m_consumerProfile = nullptr; // identity only, non-owning: which profile m_consumer was built for
 
     std::string m_backendName;
+    int m_consumerRestartCount = 0;
     FrameCallback m_callback;
 
     LatestFrameSlot m_slot;

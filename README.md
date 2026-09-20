@@ -262,15 +262,21 @@ milestone M6). Full rationale in
   `consumer-frame-show` event while playing, the last explicit seek target
   while paused. Never `tractor->position()` for display — it runs ahead of
   what's on screen by the consumer's prefetch buffer.
-- **A running consumer is reconnected in place on every ordinary edit, not
-  restarted.** `EngineSync` rebuilds the tractor as a new object after
-  every edit (see below); `PlaybackController::setTractor()` detects
-  whether the new tractor's `Mlt::Profile*` is the same object the running
-  consumer was built against (the common case — same session, same
-  profile) and just calls `consumer.connect(newTractor)` if so, so editing
-  never clicks or drops the audio device. Only an actual profile change
-  (a project load with a different resolution/fps) stops and re-selects
-  the consumer from scratch.
+- **Every `setTractor()` call is a full stop/reselect/restart of the
+  consumer — never `Mlt::Consumer::connect()` on one that's already
+  running.** `EngineSync` rebuilds the tractor as a new object after every
+  edit (see below), and an earlier version of `PlaybackController` tried
+  reconnecting the live consumer to the new tractor in place for the
+  common case (same profile) to avoid closing and reopening the real audio
+  device on every edit. That turned out to corrupt MLT's internal state:
+  reproduced 3/3 with a GDB backtrace crashing inside MLT's own
+  `consumer_read_ahead_thread`/`mlt_service_get_frame`, sometime after the
+  swap, reading through memory belonging to the tractor that had just been
+  replaced — its background read-ahead (prefetch) thread was still running
+  against the old one when the swap happened. Paying for a device
+  close/reopen on every edit is the actual cost of the safe version;
+  see `tests/engine/test_playback_controller.cpp`'s regression test for
+  the exact scenario.
 - **Multi-track audio does not mix by default.** An explicit `"mix"`
   transition is required between tracks, and it needs `start=1` (constant
   full level, not a crossfade) *and* `sum=1` (the default halve-then-add

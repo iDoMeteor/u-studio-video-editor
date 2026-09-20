@@ -73,6 +73,64 @@ TEST_CASE("PlaybackController: selects a valid consumer and reports its backend 
     CHECK(controller.totalFrames() == 10);
 }
 
+TEST_CASE("PlaybackController: repeated setTractor calls on a live, running consumer "
+          "are safe -- each does a full restart, never an in-place reconnect")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+
+    PlaybackController controller;
+    std::mutex mutex;
+    std::vector<int> positions;
+    controller.setFrameCallback([&](std::vector<uint8_t>, int, int, int frameNumber) {
+        std::lock_guard<std::mutex> lock(mutex);
+        positions.push_back(frameNumber);
+    });
+
+    controller.setTractor(makeOneClipTractor(profile, 10));
+    REQUIRE(controller.consumerRestartCount() == 1);
+    controller.play(1.0);
+
+    // Simulates several ordinary edits (EngineSync::rebuildAll() produces
+    // a brand-new Tractor object on every one, same profile) landing while
+    // playback is running -- e.g. trimming or moving a clip without
+    // stopping first. An earlier version of setTractor() tried to
+    // optimize this exact case with Mlt::Consumer::connect() on the
+    // already-running consumer instead of a full restart, to avoid
+    // closing and reopening the real audio device on every edit. That
+    // corrupted MLT's internal state: reproduced 3/3 with a GDB backtrace
+    // showing a crash inside MLT's own consumer_read_ahead_thread /
+    // mlt_service_get_frame, sometime after the swap, reading through
+    // memory that belonged to the tractor that had just been replaced --
+    // its background read-ahead (prefetch) thread was still running
+    // against the old one when the swap happened. Every setTractor() call
+    // below does its own full stop/reselect/restart instead
+    // (consumerRestartCount() increments every time), which is the version
+    // actually proven safe by the shutdown-during-playback stress test
+    // elsewhere in this file. This loop is this specific scenario's
+    // regression test.
+    for (int i = 0; i < 10; ++i)
+        controller.setTractor(makeOneClipTractor(profile, 10 + i));
+    CHECK(controller.consumerRestartCount() == 11);
+
+    // Playback must still be alive and producing frames after all that --
+    // not just "didn't crash", per doc 05's actual point of a real
+    // consumer: continuous delivery, not one-off refreshes. A generous
+    // timeout: this test binary's other suites (particularly the
+    // 100-iteration shutdown stress test) also cycle the real audio
+    // device heavily in the same process, and re-acquiring it can be
+    // measurably slower under that load than in isolation -- this loop
+    // ran clean in well under a second standalone but needed longer when
+    // run after the rest of the file's device churn.
+    bool gotFrames = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return positions.size() >= 5;
+        },
+        std::chrono::seconds(10));
+    CHECK(gotFrames);
+}
+
 TEST_CASE("PlaybackController: null-consumer position test -- frame-show delivers every "
           "position once, strictly in order, covering the full range")
 {
