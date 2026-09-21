@@ -52,12 +52,18 @@ single-track skeleton.
   format (H.264 High/yuv420p, 1920×1080, 30fps, AAC 48kHz stereo) via the
   header bar's "Render…" button. Runs on a background thread.
 - Save/load a project as MLT XML with `ustudio:` namespaced properties
-  (see "Project files" below), plus autosave and crash recovery.
+  (see "Project files" below), plus autosave and crash recovery. A Reload
+  button (refresh icon) re-opens the current project's file from disk
+  without a file-picker round trip; a New Project button resets to a
+  fresh, empty, untitled project. Neither touches what's on disk beyond
+  what Reload reads.
 - Timestamped debug/info/warn/error logging to
   `$XDG_STATE_HOME/ustudio/logs/` (falls back to
   `~/.local/state/ustudio/logs/` if `XDG_STATE_HOME` is unset), level
   configurable via `USTUDIO_LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`none`,
-  default `info`). Every user-facing status message (`AppWindow::
+  default **`debug`** while this app is actively being debugged — set
+  `USTUDIO_LOG_LEVEL=info` for quieter logs once things have settled.
+  Every user-facing status message (`AppWindow::
   showStatus()`, covering import/save/open/render/split/close-gap/lock/
   volume outcomes) is logged at debug level automatically, and the
   playback engine's consumer lifecycle (select/start/stop/restart) and

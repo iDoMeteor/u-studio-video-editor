@@ -85,6 +85,17 @@ class AppWindow
     void onSaveFinished(GObject *sourceObject, GAsyncResult *result);
     void onOpenProjectClicked();
     void onOpenProjectFinished(GObject *sourceObject, GAsyncResult *result);
+    // Re-loads m_currentProjectPath from disk, discarding in-memory edits --
+    // a quick way to pick up a fix or re-attempt opening the same file
+    // without going through the file-picker dialog again. A no-op (with a
+    // status message) if the project has never been saved/opened, since
+    // there's nothing on disk yet to reload from.
+    void onReloadProjectClicked();
+    // Resets to a brand new, empty, untitled project -- same effect as
+    // Open Project loading a fresh Model::createEmpty(), just without a
+    // file dialog. Does not touch whatever's on disk at
+    // m_currentProjectPath.
+    void onNewProjectClicked();
     void onRenderClicked();
     void onRenderFinished(GObject *sourceObject, GAsyncResult *result);
     void onAddTrackClicked();
@@ -165,6 +176,8 @@ class AppWindow
     static void saveFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void openProjectClickedTrampoline(GtkButton *button, gpointer userData);
     static void openProjectFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
+    static void reloadProjectClickedTrampoline(GtkButton *button, gpointer userData);
+    static void newProjectClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);

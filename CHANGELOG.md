@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.5.0
+
+- New header-bar buttons next to Save/Open: Reload (re-opens the current
+  project's file from disk) and New Project (resets to a fresh, empty,
+  untitled project).
+- Debug-level logging is now on by default (`USTUDIO_LOG_LEVEL=info` for
+  the old, quieter behavior).
+
 ## 0.4.4
 
 - Fixed a crash and "playback stopped working" after the app was

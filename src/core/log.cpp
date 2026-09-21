@@ -39,8 +39,15 @@ const char *levelName(LogLevel level)
 LogLevel levelFromEnv()
 {
     const char *env = std::getenv("USTUDIO_LOG_LEVEL");
+    // Default raised from Info to Debug (2026-09-20): a real crash and a
+    // "playback stopped working" report both turned out hard to diagnose
+    // from what Info-level logging alone had captured. Until this app is
+    // past its current run of active bug-hunting, debug output is worth
+    // more than the extra log volume by default -- USTUDIO_LOG_LEVEL still
+    // overrides it either way (info/warn/error/none) for anyone who wants
+    // the quieter behavior back.
     if (!env)
-        return LogLevel::Info;
+        return LogLevel::Debug;
     std::string v(env);
     for (auto &c : v)
         c = static_cast<char>(std::tolower(c));
@@ -54,7 +61,7 @@ LogLevel levelFromEnv()
         return LogLevel::Error;
     if (v == "none" || v == "off")
         return LogLevel::None;
-    return LogLevel::Info;
+    return LogLevel::Debug;
 }
 
 std::string timestampForLine()

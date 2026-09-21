@@ -80,7 +80,7 @@ int main(int argc, char **argv)
     ustudio::core::Log::init("u-studio-video-editor");
     const char *envLevel = std::getenv("USTUDIO_LOG_LEVEL");
     ustudio::core::Log::info(
-        "[app] Starting u Studio Video Editor (log level=" + std::string(envLevel ? envLevel : "info (default)") + ")");
+        "[app] Starting u Studio Video Editor (log level=" + std::string(envLevel ? envLevel : "debug (default)") + ")");
 
     // Constructed before any window (and before the first
     // PlaybackController, which never calls Mlt::Factory::init() itself —

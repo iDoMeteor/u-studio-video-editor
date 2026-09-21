@@ -148,6 +148,16 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_redoButton, "clicked", G_CALLBACK(&AppWindow::redoClickedTrampoline), this);
     adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_redoButton));
 
+    GtkWidget *newProjectButton = gtk_button_new_from_icon_name("document-new-symbolic");
+    gtk_widget_set_tooltip_text(newProjectButton, "New project (reset to an empty project)");
+    g_signal_connect(newProjectButton, "clicked", G_CALLBACK(&AppWindow::newProjectClickedTrampoline), this);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), newProjectButton);
+
+    GtkWidget *reloadButton = gtk_button_new_from_icon_name("view-refresh-symbolic");
+    gtk_widget_set_tooltip_text(reloadButton, "Reload project from disk");
+    g_signal_connect(reloadButton, "clicked", G_CALLBACK(&AppWindow::reloadProjectClickedTrampoline), this);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), reloadButton);
+
     GtkWidget *openButton = gtk_button_new_from_icon_name("document-open-symbolic");
     gtk_widget_set_tooltip_text(openButton, "Open project…");
     g_signal_connect(openButton, "clicked", G_CALLBACK(&AppWindow::openProjectClickedTrampoline), this);
@@ -553,6 +563,46 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
         g_free(path);
     }
     g_object_unref(file);
+}
+
+void AppWindow::onReloadProjectClicked()
+{
+    if (m_currentProjectPath.empty()) {
+        showStatus("Nothing to reload -- this project hasn't been saved or opened yet.");
+        return;
+    }
+
+    auto loaded = core::loadProject(m_currentProjectPath);
+    if (!loaded.has_value()) {
+        showStatus(loaded.error());
+        return;
+    }
+
+    m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy
+    m_undoStack.clear();
+    m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
+    m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
+    m_activeTrack = 0;
+    m_selectedClip = -1;
+    refreshTimeline();
+    showStatus(std::string("Reloaded: ") + m_currentProjectPath);
+}
+
+void AppWindow::onNewProjectClicked()
+{
+    m_model = core::Model::createEmpty();
+    // Pristine starting state, matching the constructor's own initial
+    // track -- not through the UndoStack, since there's nothing to undo
+    // back out of on a project that's just been reset.
+    m_model.addTrack(core::Track::Kind::Video, 0, "V1");
+    m_currentProjectPath.clear();
+    m_undoStack.clear();
+    m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
+    m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
+    m_activeTrack = 0;
+    m_selectedClip = -1;
+    refreshTimeline();
+    showStatus("New project.");
 }
 
 void AppWindow::onRenderClicked()
@@ -1677,6 +1727,16 @@ void AppWindow::openProjectClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::openProjectFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onOpenProjectFinished(sourceObject, result);
+}
+
+void AppWindow::reloadProjectClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onReloadProjectClicked();
+}
+
+void AppWindow::newProjectClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onNewProjectClicked();
 }
 
 void AppWindow::renderClickedTrampoline(GtkButton *, gpointer userData)
