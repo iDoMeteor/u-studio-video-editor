@@ -107,3 +107,38 @@ TEST_CASE("WaveformCache: the same resource/in/out at a different fps is a disti
     CHECK(at25->size() == 10);
     CHECK(at50->size() == 10);
 }
+
+TEST_CASE("WaveformCache: a very long clip is capped to a bounded peak count, decoded quickly (perf)")
+{
+    sharedFactoryPolicy();
+    std::mutex mutex;
+    int readyCount = 0;
+    WaveformCache cache([&] {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++readyCount;
+    });
+
+    // A real ~62-minute (110,854-frame) clip's waveform job was measured
+    // taking 18.2 SECONDS before this fix -- one Mlt::Producer::get_frame()
+    // decode per video frame, for a resolution drawWaveform()
+    // (app_window.cpp) was always going to re-bucket down to the clip's
+    // on-screen pixel width anyway. A million-frame request here (tone: is
+    // a generator, so "long" costs nothing to ask for) must still finish
+    // well inside this test's timeout and land at a bounded peak count, not
+    // one entry per requested frame.
+    const int lastFrame = 999'999;
+    CHECK(cache.peaksFor("tone:880", 0, lastFrame, Rational{30, 1}) == nullptr);
+
+    bool ready = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return readyCount > 0;
+        },
+        std::chrono::milliseconds(10'000));
+    REQUIRE(ready);
+
+    const std::vector<float> *peaks = cache.peaksFor("tone:880", 0, lastFrame, Rational{30, 1});
+    REQUIRE(peaks != nullptr);
+    CHECK(peaks->size() <= 2000);
+    CHECK(peaks->size() > 100); // still enough resolution to look like a waveform, not a handful of bars
+}

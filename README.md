@@ -356,6 +356,19 @@ exactly that rate. The peak cache is keyed on `(resource, in, out, fps)`
 for the same reason — a later project at a different rate must never reuse
 another rate's peaks for what would otherwise look like the same clip.
 
+Peak count is capped at 2000 per clip regardless of its length, decoding a
+stride of frames instead of every single one above that — `drawWaveform()`
+(`app_window.cpp`) already re-buckets whatever's in the peaks array down to
+the clip's actual on-screen pixel width, so one peak per video frame on a
+long clip was always more resolution than anything ever displayed. Measured
+on a real ~62-minute (110,854-frame) recording: 18.2 seconds decoding every
+frame before this fix, 2.5 seconds after (stride ≈ 55, ~1980 peaks) — and
+that 18 seconds of one CPU core solidly decoding the same file the live
+playback consumer was also trying to read from is the leading explanation
+for "playback doesn't work" reports that turned out to be "playback is
+starved for the fifteen-ish seconds after importing or editing a long
+clip," not a hard failure.
+
 ### Render implementation notes
 
 `renderProject()` uses MLT's `avformat` consumer, with properties confirmed

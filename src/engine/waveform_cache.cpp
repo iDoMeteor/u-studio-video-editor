@@ -83,12 +83,30 @@ void WaveformCache::workerMain()
         if (producer.is_valid()) {
             producer.seek(job.in);
             int frameCount = std::max(job.out - job.in + 1, 0);
-            peaks.reserve(static_cast<size_t>(frameCount));
 
-            // No per-frame seek() here either — same lesson as the
-            // playback engine: get_frame() already auto-advances the
-            // producer's position for the next call.
-            for (int i = 0; i < frameCount; ++i) {
+            // Cap decoded samples regardless of clip length: drawWaveform()
+            // (app_window.cpp) already re-buckets whatever ends up in
+            // `peaks` down to the clip's on-screen pixel width, so one peak
+            // per VIDEO FRAME on a long clip is far more resolution than
+            // anything ever displays -- measured 18.2 SECONDS for a single
+            // ~62-minute (110,854-frame) real clip's waveform job, entirely
+            // spent in per-frame Mlt::Producer::get_frame() calls, and
+            // reported as the live playback consumer effectively starved
+            // for the whole time this ran on its own background thread
+            // decoding the very same file. Above kMaxPeaks frames, stride
+            // through the clip instead of decoding every one of them --
+            // needs an explicit seek() per sample once striding, unlike the
+            // sequential (stride == 1) case below it, where get_frame()
+            // auto-advancing on its own is enough (same lesson as the
+            // playback engine: no per-frame seek() needed there either).
+            constexpr int kMaxPeaks = 2000;
+            int stride = frameCount > kMaxPeaks ? (frameCount + kMaxPeaks - 1) / kMaxPeaks : 1;
+            size_t peakCapacity = frameCount > 0 ? static_cast<size_t>((frameCount - 1) / stride) + 1 : 0;
+            peaks.reserve(peakCapacity);
+
+            for (int i = 0; i < frameCount; i += stride) {
+                if (stride > 1)
+                    producer.seek(job.in + i);
                 std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
                 float peak = 0.0f;
                 if (frame && frame->is_valid()) {

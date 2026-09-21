@@ -4,6 +4,17 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.5.1
+
+- Fixed a severe slowdown importing or editing a long clip (measured 18
+  seconds on a real ~62-minute recording): computing its waveform used
+  to decode every single video frame just for the audio peak display,
+  saturating a CPU core decoding the same file the live preview was
+  trying to play from at the same time. Waveform decoding is now capped
+  to a bounded number of samples regardless of clip length (2.5 seconds
+  for that same recording), with no visible loss of detail in the
+  drawn waveform.
+
 ## 0.5.0
 
 - New header-bar buttons next to Save/Open: Reload (re-opens the current
