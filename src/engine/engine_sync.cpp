@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <system_error>
 #include <variant>
 
 namespace ustudio::engine {
@@ -358,10 +360,20 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
 {
     EngineSync renderSync(model); // its own Profile/Tractor, independent of any live one
 
-    Mlt::Consumer consumer(renderSync.profile(), "avformat", outputPath.c_str());
+    // Audit A6: render to a "<path>.part" sibling and rename into place
+    // only on success, matching CLAUDE.md's "renders... written to an
+    // explicitly chosen output path, atomically" -- a render that dies
+    // partway through (crash, disk full, killed process) must never leave
+    // a half-written file sitting at the name the user actually asked for,
+    // which a later render or another program could mistake for a
+    // complete one.
+    std::string partPath = outputPath + ".part";
+    Mlt::Consumer consumer(renderSync.profile(), "avformat", partPath.c_str());
     if (!consumer.is_valid()) {
         error = "Could not create renderer for: " + outputPath;
         Log::error("[engine] " + error);
+        std::error_code ec;
+        std::filesystem::remove(partPath, ec);
         return false;
     }
     // Matches this project's fixed working format (see mlt_engine.cpp's
@@ -380,10 +392,27 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     consumer.set("real_time", -1); // render every frame; don't drop frames to keep up with a clock
     consumer.connect(renderSync.tractor());
 
-    Log::info("[engine] Rendering project to " + outputPath + " ...");
+    Log::info("[engine] Rendering project to " + outputPath + " (via " + partPath + ") ...");
     int result = consumer.run();
     if (result != 0) {
         error = "Render failed (consumer returned " + std::to_string(result) + ")";
+        Log::error("[engine] " + error);
+        std::error_code ec;
+        std::filesystem::remove(partPath, ec);
+        return false;
+    }
+
+    // consumer.run()'s return code is one more MLT value CLAUDE.md's
+    // empirical-knowledge rule says not to trust: reproduced by pointing
+    // outputPath at a directory that doesn't exist -- avformat logs
+    // "Could not open '<part path>'" and consumer.run() still returns 0,
+    // even though the .part file was never created. The rename below is
+    // the actual safety net for that case, not just for a genuine disk-
+    // full/permission failure partway through encoding.
+    std::error_code ec;
+    std::filesystem::rename(partPath, outputPath, ec);
+    if (ec) {
+        error = "Rendered successfully but couldn't move it to " + outputPath + " (" + ec.message() + ")";
         Log::error("[engine] " + error);
         return false;
     }

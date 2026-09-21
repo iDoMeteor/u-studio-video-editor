@@ -101,6 +101,59 @@ TEST_CASE("MoveClip: apply then revert restores an equal model")
     CHECK(model == before);
 }
 
+TEST_CASE("InsertClip onto an audio track disables video but leaves audio on (audit A4)")
+{
+    Model model = Model::createEmpty();
+    TrackId audioTrack = model.addTrack(Track::Kind::Audio, 0, "A1");
+    AssetId asset = addTestAsset(model); // hasVideo=hasAudio=true
+
+    InsertClip cmd(audioTrack, asset, 0, 0, 99);
+    REQUIRE(cmd.apply(model));
+    const Clip &inserted = model.clip(cmd.clipId());
+    CHECK_FALSE(inserted.videoEnabled);
+    CHECK(inserted.audioEnabled);
+    CHECK(model.check().empty()); // invariant 8 would otherwise flag this
+}
+
+TEST_CASE("MoveClip onto an audio track disables video and reverting restores it (audit A4)")
+{
+    Model model = Model::createEmpty();
+    TrackId videoTrack = model.addTrack(Track::Kind::Video, 0, "V1");
+    TrackId audioTrack = model.addTrack(Track::Kind::Audio, 1, "A1");
+    AssetId asset = addTestAsset(model); // hasVideo=hasAudio=true
+    ClipId clip = model.insertClip(videoTrack, asset, 0, 0, 99);
+    REQUIRE(model.clip(clip).videoEnabled);
+    Model before = model;
+
+    MoveClip cmd(clip, audioTrack, 0);
+    REQUIRE(cmd.apply(model));
+    CHECK_FALSE(model.clip(clip).videoEnabled);
+    CHECK(model.clip(clip).audioEnabled);
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(model.clip(clip).videoEnabled); // not just moved back -- video re-enabled too
+    CHECK(model == before);
+}
+
+TEST_CASE("MoveClip refuses landing a video-only clip on an audio track (audit A4)")
+{
+    Model model = Model::createEmpty();
+    TrackId videoTrack = model.addTrack(Track::Kind::Video, 0, "V1");
+    TrackId audioTrack = model.addTrack(Track::Kind::Audio, 1, "A1");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(videoTrack, asset, 0, 0, 99);
+    // Make the clip itself video-only even though its asset has audio, the
+    // same end state SplitAudio's video-only half is left in -- moving it
+    // onto an audio track would contribute neither picture nor sound.
+    model.setClipEnabled(clip, /*videoEnabled=*/true, /*audioEnabled=*/false);
+    Model before = model;
+
+    MoveClip cmd(clip, audioTrack, 0);
+    CHECK_FALSE(cmd.apply(model));
+    CHECK(model == before);
+}
+
 TEST_CASE("ResizeClip: apply then revert restores an equal model")
 {
     Model model = Model::createEmpty();
@@ -582,6 +635,42 @@ TEST_CASE("UndoStack: isClean tracks the save point across undo/redo")
 
     undoStack.setCleanPoint();
     CHECK(undoStack.isClean());
+}
+
+TEST_CASE("UndoStack: markDirty forces isClean() false even on an otherwise-clean empty stack (audit A2)")
+{
+    Model model = Model::createEmpty();
+    UndoStack undoStack(model);
+
+    // clear() alone resets m_cleanDepth to match the now-empty stack (0 ==
+    // 0), so it reports clean by definition -- exactly the trap recovery
+    // fell into: an empty stack looks identical to a freshly-saved one.
+    undoStack.clear();
+    CHECK(undoStack.isClean());
+
+    undoStack.markDirty();
+    CHECK_FALSE(undoStack.isClean());
+    // Still dirty even though nothing has been executed since -- no real
+    // undo-stack depth can accidentally satisfy the sentinel.
+    CHECK_FALSE(undoStack.canUndo());
+    CHECK_FALSE(undoStack.isClean());
+
+    undoStack.setCleanPoint();
+    CHECK(undoStack.isClean());
+}
+
+TEST_CASE("UndoStack: setCleanPoint and markDirty both emit changed (audit A1/A2)")
+{
+    Model model = Model::createEmpty();
+    UndoStack undoStack(model);
+    int changedCount = 0;
+    undoStack.changed.connect([&] { ++changedCount; });
+
+    undoStack.setCleanPoint();
+    CHECK(changedCount == 1);
+
+    undoStack.markDirty();
+    CHECK(changedCount == 2);
 }
 
 TEST_CASE("UndoStack: a new drag right after a save is never merged into the just-saved entry (audit C2)")

@@ -4,6 +4,30 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.4.3
+
+- The undo/redo buttons and the title bar's unsaved-changes mark now
+  update after every edit (import, split, move, trim, delete, add/remove
+  track, lock, volume) instead of staying stale until the first undo.
+- Recovering unsaved work after a crash now correctly shows as unsaved,
+  and its autosave is kept until a manual Save actually lands the
+  recovered content somewhere durable, instead of being deleted right
+  after recovery.
+- "Close Gap" now closes the whole gap, not just the part after where you
+  right-clicked.
+- Importing or dragging a clip onto an audio track no longer lets its
+  video show through wherever the video tracks above have a gap; dragging
+  a video-only clip onto an audio track is refused instead of parking a
+  dead clip there.
+- A second running instance's own in-progress autosave is no longer
+  offered (and possibly deleted) by another window's crash-recovery
+  prompt.
+- Save and Render both refuse to write over a file that's already one of
+  the project's own media sources; a render that fails partway through no
+  longer leaves a partial file at the name you asked for.
+- Clicking the volume slider, a track's volume slider, or the preview-scale
+  dropdown no longer swallows the Left/Right/Home/End playhead shortcuts.
+
 ## 0.4.2
 
 - Fixed a still image/watermark stretched past its imported length

@@ -169,9 +169,12 @@ bool InsertClip::apply(Model &model)
     if (!boundless && m_out >= sourceAsset.info.lengthInSequenceFrames)
         return false;
 
-    // Two model mutations for a boundless asset (the clip, then the asset's
-    // recorded length) -- wrap in a batch so EngineSync coalesces them into
-    // one rebuild instead of two, same as CompositeCommand.
+    bool destIsAudio = model.track(m_track).kind == Track::Kind::Audio;
+
+    // Two-to-three model mutations here (the clip, maybe the asset's
+    // recorded length, maybe the video-disable below) -- wrap in a batch so
+    // EngineSync coalesces them into one rebuild instead of several, same
+    // as CompositeCommand.
     model.notify(BatchBegin{});
     m_clipId = model.insertClip(m_track, m_asset, m_pos, m_in, m_out,
                                 m_appliedBefore ? std::optional<ClipId>(m_clipId) : std::nullopt);
@@ -182,6 +185,14 @@ bool InsertClip::apply(Model &model)
     // long enough and the saved project file matches what's on the timeline.
     if (boundless)
         model.extendAssetLength(m_asset, m_out + 1);
+    // Audit A4: a clip lands with videoEnabled=true by default (Clip's own
+    // field default); an audio track showing that video through wherever
+    // the video tracks above it have a gap violates Model::check()'s
+    // invariant 8. Import onto an audio track isn't refused outright (see
+    // MoveClip::apply() for the one case that is) -- it just never shows
+    // its picture there.
+    if (destIsAudio)
+        model.setClipEnabled(m_clipId, /*videoEnabled=*/false, /*audioEnabled=*/true);
     model.notify(BatchEnd{});
     return true;
 }
@@ -231,15 +242,37 @@ bool MoveClip::apply(Model &model)
     if (!model.isRangeFree(m_newTrack, m_newPos, m_newPos + length, m_clip))
         return false;
 
+    // Audit A4: landing on an audio track with videoEnabled still true
+    // violates Model::check()'s invariant 8 (its picture would show
+    // through wherever the video tracks above it have a gap). Unlike
+    // InsertClip, a move onto one is refused outright when the clip would
+    // become entirely inaudible too (no asset audio, or its own audio
+    // already off) -- there'd be nothing left for that track to
+    // contribute, so "snap back to where it was" is the more useful
+    // outcome than silently parking a dead clip there.
+    bool destIsAudio = model.track(m_newTrack).kind == Track::Kind::Audio;
+    if (destIsAudio) {
+        bool hasAudioContent = current.audioEnabled && model.hasAsset(current.asset) &&
+                               model.asset(current.asset).info.hasAudio;
+        if (!hasAudioContent)
+            return false;
+    }
+
     m_oldTrack = current.track;
     m_oldPos = current.position;
+    m_oldVideoEnabled = current.videoEnabled;
     model.moveClip(m_clip, m_newTrack, m_newPos);
+    if (destIsAudio && current.videoEnabled)
+        model.setClipEnabled(m_clip, /*videoEnabled=*/false, current.audioEnabled);
     return true;
 }
 
 void MoveClip::revert(Model &model)
 {
     model.moveClip(m_clip, m_oldTrack, m_oldPos);
+    const Clip &restored = model.clip(m_clip);
+    if (restored.videoEnabled != m_oldVideoEnabled)
+        model.setClipEnabled(m_clip, m_oldVideoEnabled, restored.audioEnabled);
 }
 
 ResizeClip::ResizeClip(ClipId clip, FrameIndex newIn, FrameIndex newOut, FrameIndex newPos)

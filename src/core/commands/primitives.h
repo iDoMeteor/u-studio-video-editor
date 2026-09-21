@@ -193,6 +193,7 @@ class MoveClip : public Command
     FrameIndex m_newPos;
     TrackId m_oldTrack;
     FrameIndex m_oldPos = 0;
+    bool m_oldVideoEnabled = true;
 };
 
 class ResizeClip : public Command

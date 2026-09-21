@@ -139,6 +139,12 @@ class AppWindow
     void updateWindowTitle();
     void showStatus(const std::string &text);
     std::string formatTimecode(int frame) const;
+    // True if `path` names the same file as one of the project's own bin
+    // assets (audit A6) -- Save and Render both refuse to write there
+    // rather than overwrite a user's source media, per CLAUDE.md's data
+    // safety rule. Compares canonicalized paths, not raw strings, so a
+    // relative or symlinked spelling of the same file is still caught.
+    bool pathIsProjectAsset(const std::string &path) const;
 
     // Row index (position in model->sequence().tracks) -> TrackId. Asserts
     // in debug builds if out of range; callers only pass rows the timeline
@@ -273,6 +279,16 @@ class AppWindow
     gint64 m_lastEditMonotonicUsec = 0;
     gint64 m_lastAutosaveMonotonicUsec = 0;
     guint m_autosaveHeartbeatId = 0;
+    // Set after a successful "Recover" (audit A2): this session's own
+    // future autosaves go to a filename keyed on m_autosaveSessionId (a
+    // fresh UUID per launch), never the recovered file's, so nothing else
+    // would ever clean the old one up. Deleted only once a manual Save
+    // actually lands the recovered content somewhere durable -- not right
+    // after recovery, when it would be the only copy of that work again if
+    // the app crashed a second time before the user got to Save. Empty =
+    // nothing pending.
+    std::string m_pendingAutosaveCleanupPath;
+    std::string m_pendingAutosaveCleanupMetaPath;
 
     void onAutosaveHeartbeat();
     void performAutosave();

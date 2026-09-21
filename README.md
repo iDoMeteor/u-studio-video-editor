@@ -349,6 +349,17 @@ profile itself is a plain numeric width/height/fps/etc. (`core::Profile`,
 doc 03), not a fixed MLT stock profile name; its default matches this
 project's working format (1920×1080/30fps).
 
+The render itself is atomic and never overwrites source media (audit A6):
+`AppWindow` refuses a Save or Render path that resolves to one of the
+project's own bin assets, and `renderProject()` encodes to a `<path>.part`
+sibling, renaming it onto the real target only after a successful run.
+That rename is also the actual failure detector for one MLT quirk
+confirmed empirically here: pointing the output at a directory that
+doesn't exist leaves `Mlt::Consumer` reporting itself valid and
+`consumer.run()` returning 0 ("success") even though `avformat` never
+created the file — one more MLT return value CLAUDE.md's own
+empirical-knowledge rule says not to trust at face value.
+
 ### Project files
 
 Save/load uses **MLT XML with `ustudio:`-namespaced properties** (ADR-004),
@@ -378,3 +389,25 @@ on the fully-parsed result before handing it back — a well-formed XML file
 that still violates a model invariant (an out-of-range clip span, an
 overlap, a clip on the wrong track) is refused with a specific reason
 rather than silently loaded.
+
+Recovered content stays marked unsaved (`UndoStack::markDirty()`) rather
+than looking identical to a freshly-saved project, and its autosave file
+is only deleted once a manual Save actually lands the recovered work
+somewhere durable — not the moment recovery finishes, which would leave a
+second crash before that Save with no copy of the work at all. Each
+autosave's `.meta` sidecar also records its writer's pid: a still-running
+instance's own in-progress autosave is never offered (or discarded) by a
+different instance's recovery dialog, since `findRecoverable()` skips any
+entry whose recorded pid is still alive.
+
+Save and Render both refuse a chosen output path that resolves to a file
+already in the project's own media bin — CLAUDE.md's "never overwrite a
+user's source media" rule, enforced rather than just followed by
+convention. `renderProject()` also encodes to a `<path>.part` sibling and
+renames it onto the real target only once the render succeeds, which
+turned out to be the only reliable way to detect one MLT failure mode:
+pointing the output at a directory that doesn't exist leaves
+`Mlt::Consumer` reporting itself valid and `consumer.run()` returning 0
+("success") even though `avformat` never created the file — confirmed
+empirically, and consistent with this project's working assumption that
+MLT return codes aren't trustworthy on their own.

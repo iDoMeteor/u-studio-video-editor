@@ -46,13 +46,32 @@ class UndoStack
     // Dirty-flag tracking (Qt QUndoStack-style depth marker): isClean() is
     // true exactly when the undo stack is back at the depth it was at the
     // last setCleanPoint() call (e.g. the last save).
+    // Emits `changed` too (audit A1): this flips isClean() exactly like an
+    // execute()/undo()/redo() does, so a UI that only listens to `changed`
+    // to refresh its dirty marker (rather than calling back in after every
+    // individual place that can change it) stays correct after a save
+    // without needing its own explicit follow-up call.
     void setCleanPoint()
     {
         m_cleanDepth = m_undo.size();
+        changed.emit();
     }
     bool isClean() const
     {
         return m_undo.size() == m_cleanDepth;
+    }
+    // Forces isClean() to false regardless of the undo stack's current
+    // depth (audit A2). Needed for recovery: clear() alone can't express
+    // "this content is unsaved" when the stack is also empty, since an
+    // empty stack whose clean depth is 0 (clear()'s own reset) is
+    // otherwise indistinguishable from a freshly-saved one -- both compare
+    // m_undo.size() == m_cleanDepth as 0 == 0. No real m_undo.size() can
+    // ever equal the sentinel used here, so this stays dirty until an
+    // explicit, later setCleanPoint() (a real Save) says otherwise.
+    void markDirty()
+    {
+        m_cleanDepth = static_cast<size_t>(-1);
+        changed.emit();
     }
 
     Signal<> changed;

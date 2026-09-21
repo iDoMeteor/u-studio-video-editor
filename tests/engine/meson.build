@@ -53,3 +53,14 @@ test_waveform_cache_exe = executable(
 )
 
 test('engine-waveform-cache', test_waveform_cache_exe)
+
+test_render_exe = executable(
+  'test_render',
+  files('test_render.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+
+# Runs a real libx264/aac avformat encode (short, 5 frames) -- a bit
+# slower than the synthetic-only engine tests, hence its own timeout.
+test('engine-render', test_render_exe, timeout: 30)

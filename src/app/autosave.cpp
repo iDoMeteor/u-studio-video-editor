@@ -2,7 +2,10 @@
 
 #include <glib.h>
 
+#include <signal.h>
+
 #include <cctype>
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -45,6 +48,18 @@ std::string readJsonString(const std::string &json, size_t &pos)
     ++pos;
     return out;
 }
+
+// kill(pid, 0) sends no signal -- it only probes whether `pid` names a
+// process this user could signal (POSIX kill(2)): ESRCH means no such
+// process; EPERM means one exists but is owned by someone else, which
+// still counts as "alive" here. pid <= 0 (0 = unknown/legacy meta,
+// negative = never valid) is never treated as alive.
+bool ownerAlive(int64_t pid)
+{
+    if (pid <= 0)
+        return false;
+    return ::kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM;
+}
 } // namespace
 
 std::string directory()
@@ -74,7 +89,8 @@ std::string baseNameFor(const std::string &originalPath, const std::string &sess
 bool writeMeta(const std::string &metaPath, const Meta &meta)
 {
     std::ostringstream json;
-    json << "{\"path\":\"" << jsonEscape(meta.originalPath) << "\",\"timestamp\":" << meta.timestampUnix << "}";
+    json << "{\"path\":\"" << jsonEscape(meta.originalPath) << "\",\"timestamp\":" << meta.timestampUnix
+         << ",\"pid\":" << meta.ownerPid << "}";
 
     std::string tmpPath = metaPath + ".tmp";
     {
@@ -132,6 +148,26 @@ std::optional<Meta> readMeta(const std::string &metaPath)
         return std::nullopt;
     meta.timestampUnix = std::strtoll(json.substr(numStart, pos - numStart).c_str(), nullptr, 10);
 
+    // Optional, unlike path/timestamp above: a meta file written before
+    // this field existed simply has no "pid" key, and that's fine --
+    // ownerPid stays 0 ("unknown owner"), which findRecoverable() treats
+    // the same permissive way this whole check behaved before A5.
+    size_t pidPos = json.find("\"pid\"");
+    if (pidPos != std::string::npos) {
+        pidPos = json.find(':', pidPos);
+        if (pidPos != std::string::npos) {
+            ++pidPos;
+            while (pidPos < json.size() && json[pidPos] == ' ')
+                ++pidPos;
+            size_t pidNumStart = pidPos;
+            while (pidPos < json.size() &&
+                   (std::isdigit(static_cast<unsigned char>(json[pidPos])) || json[pidPos] == '-'))
+                ++pidPos;
+            if (pidPos > pidNumStart)
+                meta.ownerPid = std::strtoll(json.substr(pidNumStart, pidPos - pidNumStart).c_str(), nullptr, 10);
+        }
+    }
+
     return meta;
 }
 
@@ -166,6 +202,13 @@ std::optional<Recoverable> findRecoverable()
             auto originalTime = fs::last_write_time(meta->originalPath, mtimeEc);
             recoverable = !mtimeEc && autosaveTime > originalTime;
         }
+
+        // Audit A5: a still-running instance's own autosave can otherwise
+        // look identical to an orphaned one from a crashed session --
+        // offering it here risks the owner choosing "discard" and deleting
+        // work the other instance is still actively writing.
+        if (recoverable && ownerAlive(meta->ownerPid))
+            continue;
 
         if (recoverable)
             return Recoverable{autosavePath.string(), entry.path().string(), *meta};

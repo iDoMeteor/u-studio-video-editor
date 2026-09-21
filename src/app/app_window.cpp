@@ -8,11 +8,15 @@
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <memory>
+#include <system_error>
 #include <thread>
 
 namespace ustudio::app {
@@ -77,6 +81,15 @@ AppWindow::AppWindow(GtkApplication *app)
     });
 
     m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
+
+    // Single source of truth for the undo/redo buttons and the title's
+    // dirty mark (audit A1): every place that used to call
+    // updateWindowTitle() by hand after touching the undo stack (import,
+    // split, move, trim, Save, Open, Undo, Redo, Recover, ...) now just
+    // goes through UndoStack::execute()/undo()/redo()/setCleanPoint()/
+    // clear(), all of which emit `changed`, so nothing can forget to
+    // refresh these after an ordinary edit the way manual call sites did.
+    m_undoStack.changed.connect([this] { updateWindowTitle(); });
 
     gchar *sessionUuid = g_uuid_string_random();
     m_autosaveSessionId = sessionUuid;
@@ -225,6 +238,12 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_scale_set_draw_value(m_trackVolumeScale, FALSE);
     gtk_widget_set_hexpand(GTK_WIDGET(m_trackVolumeScale), TRUE);
     gtk_widget_set_size_request(GTK_WIDGET(m_trackVolumeScale), 120, -1);
+    // Not focusable (audit A7): same reasoning as m_seekScale's own comment
+    // further down this function -- GtkRange's own Left/Right/Home/End key
+    // bindings would otherwise compete with the window-level transport
+    // shortcuts once this widget (shown in the track right-click menu) has
+    // focus.
+    gtk_widget_set_focusable(GTK_WIDGET(m_trackVolumeScale), FALSE);
     g_signal_connect(m_trackVolumeScale, "value-changed", G_CALLBACK(&AppWindow::trackVolumeChangedTrampoline), this);
     gtk_box_append(GTK_BOX(volumeRow), GTK_WIDGET(m_trackVolumeScale));
     gtk_box_append(GTK_BOX(contextMenuBox), volumeRow);
@@ -278,6 +297,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_range_set_value(GTK_RANGE(m_volumeScale), 1.0);
     gtk_widget_set_size_request(GTK_WIDGET(m_volumeScale), 90, -1);
     gtk_widget_set_tooltip_text(GTK_WIDGET(m_volumeScale), "Volume");
+    gtk_widget_set_focusable(GTK_WIDGET(m_volumeScale), FALSE); // audit A7 -- see m_seekScale's comment above
     g_signal_connect(m_volumeScale, "value-changed", G_CALLBACK(&AppWindow::volumeChangedTrampoline), this);
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_volumeScale));
 
@@ -285,6 +305,10 @@ void AppWindow::buildUi(GtkApplication *app)
     GtkStringList *previewScaleModel = gtk_string_list_new(previewScaleLabels);
     m_previewScaleDropdown = GTK_DROP_DOWN(gtk_drop_down_new(G_LIST_MODEL(previewScaleModel), nullptr));
     gtk_widget_set_tooltip_text(GTK_WIDGET(m_previewScaleDropdown), "Preview scale");
+    // Audit A7: GtkDropDown handles Left/Right/Home/End itself while
+    // focused (cycling/jumping between its own entries), the same
+    // shortcut-stealing problem as the sliders above.
+    gtk_widget_set_focusable(GTK_WIDGET(m_previewScaleDropdown), FALSE);
     g_signal_connect(m_previewScaleDropdown, "notify::selected", G_CALLBACK(&AppWindow::previewScaleChangedTrampoline),
                      this);
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_previewScaleDropdown));
@@ -462,13 +486,27 @@ void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
 
     char *path = g_file_get_path(file);
     if (path) {
+        if (pathIsProjectAsset(path)) {
+            showStatus(std::string("Refusing to save over a file already in this project's media: ") + path);
+            g_free(path);
+            g_object_unref(file);
+            return;
+        }
         std::string err = core::saveProject(m_model, path);
         if (!err.empty()) {
             showStatus(err);
         } else {
             m_currentProjectPath = path;
-            m_undoStack.setCleanPoint();
-            updateWindowTitle();
+            m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
+            // A successful manual Save is the one point A2 designates safe
+            // to remove a recovered autosave: the recovered content now has
+            // a durable copy of its own at `path`.
+            if (!m_pendingAutosaveCleanupPath.empty()) {
+                std::remove(m_pendingAutosaveCleanupPath.c_str());
+                std::remove(m_pendingAutosaveCleanupMetaPath.c_str());
+                m_pendingAutosaveCleanupPath.clear();
+                m_pendingAutosaveCleanupMetaPath.clear();
+            }
             showStatus(std::string("Saved: ") + path);
         }
         g_free(path);
@@ -504,12 +542,11 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
                                           // reassigning its contents leaves both still pointing at the right object
             m_currentProjectPath = path;
             m_undoStack.clear();
-            m_undoStack.setCleanPoint();
+            m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
             m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
             m_activeTrack = 0;
             m_selectedClip = -1;
             refreshTimeline();
-            updateWindowTitle();
             showStatus(std::string("Opened: ") + path);
         }
         g_free(path);
@@ -542,6 +579,11 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
         return;
     std::string path = pathC;
     g_free(pathC);
+
+    if (pathIsProjectAsset(path)) {
+        showStatus(std::string("Refusing to render over a file already in this project's media: ") + path);
+        return;
+    }
 
     showStatus("Rendering to " + path + " … (this can take a while — the window will stay responsive)");
 
@@ -602,7 +644,6 @@ void AppWindow::onUndo()
     if (m_undoStack.undo()) {
         m_selectedClip = -1;
         refreshTimeline();
-        updateWindowTitle();
         showStatus("Undid: " + m_undoStack.redoLabel());
     }
 }
@@ -612,7 +653,6 @@ void AppWindow::onRedo()
     if (m_undoStack.redo()) {
         m_selectedClip = -1;
         refreshTimeline();
-        updateWindowTitle();
         showStatus("Redid: " + m_undoStack.undoLabel());
     }
 }
@@ -809,14 +849,25 @@ void AppWindow::onTimelineRightClicked(double x, double y)
             // A gap: inside this track's own content range but not covered
             // by any clip (Model doesn't store gaps -- doc 03 -- so this is
             // just "no clip claims this frame, but something after it
-            // does").
+            // does"). The gap's start is the END of whichever clip
+            // immediately precedes it (or 0 if none) -- NOT the clicked
+            // frame (audit A3): right-clicking anywhere inside a gap must
+            // offer to close the WHOLE gap, not just the part after the
+            // click. track.clips is kept sorted by position (Model::
+            // sortTrackClips runs after every mutation), so the first clip
+            // whose position is past `frame` is the one right after the
+            // gap, and whatever ran immediately before it in this loop is
+            // the one right before it.
             core::TrackId trackId = trackIdForRow(row);
             const core::Track &track = m_model.track(trackId);
+            core::FrameIndex gapStart = 0;
             for (core::ClipId clipId : track.clips) {
-                if (m_model.clip(clipId).position > frame) {
-                    m_contextMenuGapStartFrame = frame;
+                const core::Clip &candidate = m_model.clip(clipId);
+                if (candidate.position > frame) {
+                    m_contextMenuGapStartFrame = static_cast<int>(gapStart);
                     break;
                 }
+                gapStart = candidate.end();
             }
         }
     }
@@ -1409,6 +1460,23 @@ void AppWindow::refreshLoopStatusLabel()
     gtk_label_set_text(m_loopStatusLabel, text.c_str());
 }
 
+bool AppWindow::pathIsProjectAsset(const std::string &path) const
+{
+    std::error_code ec;
+    std::filesystem::path candidate = std::filesystem::weakly_canonical(path, ec);
+    if (ec)
+        candidate = path; // weakly_canonical only fails on a genuinely unusable path; compare as given then
+    for (const core::Asset &asset : m_model.project().bin) {
+        std::error_code assetEc;
+        std::filesystem::path assetPath = std::filesystem::weakly_canonical(asset.path, assetEc);
+        if (assetEc)
+            assetPath = asset.path;
+        if (candidate == assetPath)
+            return true;
+    }
+    return false;
+}
+
 void AppWindow::updateWindowTitle()
 {
     std::string title = m_undoStack.isClean() ? "u Studio Video Editor" : "u Studio Video Editor •";
@@ -1456,6 +1524,7 @@ void AppWindow::performAutosave()
     autosave::Meta meta;
     meta.originalPath = m_currentProjectPath;
     meta.timestampUnix = static_cast<int64_t>(std::time(nullptr));
+    meta.ownerPid = static_cast<int64_t>(getpid()); // audit A5: lets a later launch skip a still-live owner
     autosave::writeMeta(metaPath, meta);
 
     m_lastAutosaveMonotonicUsec = g_get_monotonic_time();
@@ -1526,28 +1595,44 @@ void AppWindow::offerRecoveryIfAny()
                     owned->self->m_model = std::move(*loaded);
                     owned->self->m_currentProjectPath = owned->found.meta.originalPath;
                     owned->self->m_undoStack.clear();
-                    // Deliberately no setCleanPoint(): recovered content is
-                    // unsaved relative to m_currentProjectPath (or has no
-                    // target at all) -- the title bar's dirty mark should
-                    // say so.
+                    // markDirty(), not setCleanPoint() (audit A2): recovered
+                    // content is unsaved relative to m_currentProjectPath (or
+                    // has no target at all), but clear() alone already makes
+                    // an empty stack report clean by definition (0 == 0) --
+                    // there's no "depth" to NOT reset back to that would
+                    // otherwise leave it dirty. markDirty() forces isClean()
+                    // false until an explicit, later setCleanPoint() (a real
+                    // Save) says otherwise.
+                    owned->self->m_undoStack.markDirty(); // emits changed -- updateWindowTitle() follows
                     owned->self->m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
                     owned->self->m_activeTrack = 0;
                     owned->self->m_selectedClip = -1;
                     owned->self->refreshTimeline();
-                    owned->self->updateWindowTitle();
                     owned->self->showStatus("Recovered unsaved work.");
+                    // NOT deleted here: this session's own autosaves go to a
+                    // filename keyed on its own (fresh) session id, never
+                    // this recovered file's, so nothing else will ever clean
+                    // it up. Kept as the only durable copy of the recovered
+                    // work until a manual Save succeeds (onSaveFinished()),
+                    // so a second crash before that Save doesn't lose it
+                    // again.
+                    owned->self->m_pendingAutosaveCleanupPath = owned->found.autosavePath;
+                    owned->self->m_pendingAutosaveCleanupMetaPath = owned->found.metaPath;
                 } else {
+                    // Load failed -- leave the autosave files untouched
+                    // entirely rather than destroying what may be the only
+                    // copy of that work; a later launch gets another chance
+                    // to recover them.
                     owned->self->showStatus("Couldn't recover: " + loaded.error());
                 }
             } else {
+                // An affirmative "no" from the owner (doc 09: "discarded
+                // ones are deleted") -- safe to remove immediately, unlike
+                // the recover-success case above.
                 owned->self->showStatus("Discarded the recovered autosave.");
+                std::remove(owned->found.autosavePath.c_str());
+                std::remove(owned->found.metaPath.c_str());
             }
-
-            // Consumed either way: recovering it once is enough, and a
-            // discard means the owner said no (doc 09: "discarded ones are
-            // deleted").
-            std::remove(owned->found.autosavePath.c_str());
-            std::remove(owned->found.metaPath.c_str());
         },
         ctx);
 }
