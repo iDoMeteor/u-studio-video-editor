@@ -271,7 +271,16 @@ milestone M6). Full rationale in
   buffer) and `consumer.set("refresh", 1)` (force exactly one frame
   through) — the pattern kdenlive uses for frame-accurate pause. A plain
   speed-0 with no purge would keep showing whatever was already prefetched
-  ahead of the playhead.
+  ahead of the playhead. **`play()` must explicitly clear `"refresh"` back
+  to 0 before setting speed**, confirmed the hard way: pause() and any
+  seek() taken while paused both leave it set to 1, and MLT's `sdl2_audio`
+  consumer treats a still-set `"refresh"` as staying latched in that
+  single-frame mode even after `set_speed()` asks for continuous playback
+  again — one seek (a single timeline click, or the implicit `pause()`
+  every `setTractor()` call ends with when nothing was already playing,
+  e.g. right after an import) was enough on its own to freeze play() at
+  the seeked position indefinitely in a standalone repro against a real
+  file, fixed by that one line.
 - **Position source of truth**: the position carried by each
   `consumer-frame-show` event while playing, the last explicit seek target
   while paused. Never `tractor->position()` for display — it runs ahead of

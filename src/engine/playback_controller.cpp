@@ -169,6 +169,23 @@ void PlaybackController::play(double speed)
 {
     if (!m_tractor)
         return;
+    // Clears whatever pause()/seek() last left "refresh" set to. Found
+    // empirically (owner reports: "I can still scrub but not play", then
+    // "it doesn't play from the first frame after the first import
+    // either"): pause() and any seek() taken while paused both set
+    // "refresh"=1 to force exactly one frame through (see their own
+    // comments), and MLT's sdl2_audio consumer treats a still-set
+    // "refresh"=1 as staying latched in that single-frame mode -- calling
+    // set_speed() alone afterward is not enough to resume continuous
+    // pulling. Reproduced 100% with a standalone repro against a real
+    // file: a SINGLE seek() (e.g. one click on the timeline -- exactly
+    // what both reports amount to, since setTractor() ends every ordinary
+    // edit, including an import, with an implicit pause() too) followed by
+    // play() froze at the seeked position indefinitely; confirmed fixed by
+    // this line alone. Harmless when nothing was ever paused/scrubbed
+    // (mlt_properties_set_int on a property that's already 0 is a no-op).
+    if (m_consumer)
+        m_consumer->set("refresh", 0);
     m_tractor->set_speed(speed);
     m_speed.store(speed);
     m_playing.store(speed != 0.0);

@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.5.2
+
+- Fixed Play doing nothing after any seek (scrubbing, clicking the
+  timeline, or even just the very first play after importing a clip):
+  the playback engine left an internal "show one frame" flag set from
+  the last pause/seek, which silently blocked continuous playback from
+  ever resuming until the project was reloaded.
+
 ## 0.5.1
 
 - Fixed a severe slowdown importing or editing a long clip (measured 18
