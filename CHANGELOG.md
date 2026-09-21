@@ -4,6 +4,18 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.4.4
+
+- Fixed a crash and "playback stopped working" after the app was
+  launched a second time while already running (a second double-click,
+  a second terminal invocation): re-launching used to silently open a
+  second editing window with its own audio device instead of presenting
+  the one already open, leaving two audio consumers fighting over the
+  same output.
+- Debug-level logging (`USTUDIO_LOG_LEVEL=debug`) now covers every
+  user-facing status message and the playback engine's internal timing,
+  for diagnosing both bugs and slow operations.
+
 ## 0.4.3
 
 - The undo/redo buttons and the title bar's unsaved-changes mark now

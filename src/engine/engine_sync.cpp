@@ -63,6 +63,8 @@ EngineSync::~EngineSync()
 
 void EngineSync::reset()
 {
+    Log::ScopedTimer timer("[engine] reset");
+    Log::debug("[engine] reset: dropping " + std::to_string(m_masterProducers.size()) + " cached master producer(s)");
     m_masterProducers.clear();
 
     // Keep the OLD profile alive across applyProfile()+rebuildAll(), not
@@ -204,7 +206,12 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
 
 void EngineSync::rebuildAll()
 {
+    Log::ScopedTimer timer("[engine] rebuildAll");
     const core::Sequence &seq = m_model.sequence();
+    size_t clipCount = seq.clips.size();
+    size_t trackCount = seq.tracks.size();
+    Log::debug("[engine] rebuildAll: " + std::to_string(trackCount) + " tracks, " + std::to_string(clipCount) +
+               " clips, sequence length " + std::to_string(seq.length()));
 
     auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
     std::vector<std::optional<core::TrackId>> order;
@@ -358,6 +365,7 @@ std::vector<std::string> EngineSync::verify() const
 
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error)
 {
+    Log::ScopedTimer timer("[engine] renderProject total");
     EngineSync renderSync(model); // its own Profile/Tractor, independent of any live one
 
     // Audit A6: render to a "<path>.part" sibling and rename into place

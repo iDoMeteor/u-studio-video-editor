@@ -57,7 +57,15 @@ single-track skeleton.
   `$XDG_STATE_HOME/ustudio/logs/` (falls back to
   `~/.local/state/ustudio/logs/` if `XDG_STATE_HOME` is unset), level
   configurable via `USTUDIO_LOG_LEVEL` (`debug`/`info`/`warn`/`error`/`none`,
-  default `info`).
+  default `info`). Every user-facing status message (`AppWindow::
+  showStatus()`, covering import/save/open/render/split/close-gap/lock/
+  volume outcomes) is logged at debug level automatically, and the
+  playback engine's consumer lifecycle (select/start/stop/restart) and
+  `EngineSync::rebuildAll()`/`reset()`/`renderProject()`/waveform decode
+  jobs log their own timing via `Log::ScopedTimer` (`core/log.h`) — run
+  with `USTUDIO_LOG_LEVEL=debug` to get a full trace of what the app did
+  and how long each step took, for both bug reports and performance
+  outliers.
 - No Qt/KDE anywhere in the *running process*, not just the link line —
   `FactoryPolicy` curates the MLT module directory at startup so Qt6's MLT
   modules never get `dlopen`'d. See "Architecture" below.
@@ -277,6 +285,22 @@ milestone M6). Full rationale in
   close/reopen on every edit is the actual cost of the safe version;
   see `tests/engine/test_playback_controller.cpp`'s regression test for
   the exact scenario.
+- **Exactly one `AppWindow` (and therefore one `PlaybackController`) for
+  the whole process, enforced, not just assumed.** `G_APPLICATION_DEFAULT_
+  FLAGS` makes this app single-instance, so GApplication redelivers the
+  `"activate"` signal to the *already-running* primary instance every time
+  something else tries to launch it again (a second double-click, a
+  second terminal invocation) — confirmed from a real session's log,
+  `main.cpp`'s `onActivate()` used to build a brand new `AppWindow` on
+  every one of those instead of presenting the existing one, silently
+  leaving an earlier `PlaybackController` (and its live `sdl2_audio`
+  consumer) running and orphaned alongside a second one in the same
+  process. Two `sdl2_audio` consumers fighting over the same PipeWire
+  client state in one process is the leading suspect for a real SIGSEGV
+  captured inside MLT's SDL2 audio callback thread, and matches
+  "playback stopped working after relaunching once already running."
+  Fixed by checking for an existing window first and presenting it
+  instead — the standard GtkApplication pattern for a single-window app.
 - **Multi-track audio does not mix by default.** An explicit `"mix"`
   transition is required between tracks, and it needs `start=1` (constant
   full level, not a crossfade) *and* `sum=1` (the default halve-then-add

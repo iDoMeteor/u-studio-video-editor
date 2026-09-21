@@ -112,6 +112,7 @@ AppWindow::AppWindow(GtkApplication *app)
 
 void AppWindow::prepareForShutdown()
 {
+    Log::info("[app] Preparing for shutdown");
     if (m_playback)
         m_playback->shutdown();
 }
@@ -1488,6 +1489,14 @@ void AppWindow::updateWindowTitle()
 void AppWindow::showStatus(const std::string &text)
 {
     gtk_label_set_text(m_statusLabel, text.c_str());
+    // Every user-visible outcome (import result, save/open/render success
+    // or failure, split/delete/close-gap/lock/volume messages, refusals)
+    // goes through this one function -- logging it here, once, instead of
+    // at each of the dozens of call sites is the only way to get a
+    // reliable trail of "what did the user just do" leading up to a crash
+    // without relying on someone remembering to log at every future call
+    // site too.
+    Log::debug("[app] status: " + text);
 }
 
 std::string AppWindow::formatTimecode(int frame) const

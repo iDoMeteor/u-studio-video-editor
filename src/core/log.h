@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <string>
 
 namespace ustudio::core {
@@ -32,6 +33,35 @@ void error(const std::string &message);
 void warn(const std::string &message);
 void info(const std::string &message);
 void debug(const std::string &message);
+
+// RAII wall-clock timer for perf instrumentation: logs "<label> took Xms"
+// at debug level when it goes out of scope. Meant for the handful of
+// operations worth watching for regressions or a slow outlier on a real
+// project (EngineSync::rebuildAll/reset, renderProject, a waveform job) --
+// not for anything called per-frame, since even a debug-level call still
+// costs a mutex lock and a timestamp format in writeLine() (see log.cpp)
+// whether or not the line is actually kept.
+//
+//   void EngineSync::rebuildAll() {
+//       Log::ScopedTimer timer("[engine] rebuildAll");
+//       ...
+//   }
+class ScopedTimer
+{
+  public:
+    explicit ScopedTimer(std::string label) : m_label(std::move(label)), m_start(std::chrono::steady_clock::now()) {}
+    ~ScopedTimer()
+    {
+        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - m_start);
+        debug(m_label + " took " + std::to_string(static_cast<double>(elapsed.count()) / 1000.0) + "ms");
+    }
+    ScopedTimer(const ScopedTimer &) = delete;
+    ScopedTimer &operator=(const ScopedTimer &) = delete;
+
+  private:
+    std::string m_label;
+    std::chrono::steady_clock::time_point m_start;
+};
 
 } // namespace Log
 

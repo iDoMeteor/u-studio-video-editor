@@ -69,6 +69,8 @@ void WaveformCache::workerMain()
         }
 
         std::vector<float> peaks;
+        Log::ScopedTimer timer("[waveform] job " + job.resource + " [" + std::to_string(job.in) + "," +
+                               std::to_string(job.out) + "]");
 
         // Independent Profile/Producer per job — never touches MltEngine's
         // own objects, m_mltMutex, or the live playback/editing state.

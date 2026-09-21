@@ -24,8 +24,12 @@ PlaybackController::~PlaybackController()
 
 void PlaybackController::shutdown()
 {
-    if (m_consumer)
+    if (m_consumer) {
+        Log::debug(std::string("[engine] shutdown(): stopping consumer '") + m_backendName + "'");
         m_consumer->stop(); // joins the consumer's own thread(s) -- doc 05
+    } else {
+        Log::debug("[engine] shutdown(): no consumer to stop");
+    }
     // Fence against a frame-show callback that was already in flight (past
     // the point where stop() could prevent it starting) when the line
     // above returned: handleFrameShow() holds this same mutex for its
@@ -43,6 +47,7 @@ void PlaybackController::shutdown()
 
 bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
 {
+    Log::ScopedTimer timer("[engine] selectAndStartConsumer");
     // Mlt::Service::profile() heap-allocates a fresh wrapper around a
     // *clone* of the service's profile on every call (confirmed
     // empirically alongside the E2 fix: two calls on the same tractor
@@ -52,8 +57,10 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
 
     for (const char *name : kConsumerBackends) {
         auto consumer = std::make_unique<Mlt::Consumer>(*profile, name);
-        if (!consumer->is_valid())
+        if (!consumer->is_valid()) {
+            Log::debug(std::string("[engine] Consumer '") + name + "' not valid on this machine, trying the next backend");
             continue;
+        }
 
         // Consumer configuration (doc 05's table). Properties a given
         // backend doesn't recognize are harmless no-ops in MLT's property
@@ -66,13 +73,19 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
         consumer->set("terminate_on_pause", 0); // stay alive across pause; we pause via speed 0
         consumer->set("volume", m_volume.load());
 
-        if (consumer->connect(tractor) != 0)
-            continue; // shouldn't happen for a freshly-valid consumer, but fall through defensively
+        if (consumer->connect(tractor) != 0) {
+            Log::warn(std::string("[engine] Consumer '") + name +
+                      "' connect() failed unexpectedly for a freshly-valid consumer; trying the next backend");
+            continue;
+        }
 
         std::unique_ptr<Mlt::Event> event(
             consumer->listen("consumer-frame-show", this, &PlaybackController::frameShowTrampoline));
-        if (!event || !event->is_valid())
+        if (!event || !event->is_valid()) {
+            Log::warn(std::string("[engine] Consumer '") + name +
+                      "' could not listen for consumer-frame-show; trying the next backend");
             continue;
+        }
 
         if (consumer->start() != 0) {
             Log::warn(std::string("[engine] Consumer '") + name + "' connected but failed to start; trying the next backend");
@@ -85,7 +98,8 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
         ++m_consumerRestartCount;
         applyResolvedScale();
 
-        Log::info(std::string("[engine] Playback consumer: ") + name);
+        Log::info(std::string("[engine] Playback consumer: ") + name + " (restart #" +
+                  std::to_string(m_consumerRestartCount) + ")");
         return true;
     }
 
@@ -95,7 +109,9 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
 
 void PlaybackController::setTractor(std::shared_ptr<Mlt::Tractor> tractor)
 {
+    Log::ScopedTimer timer("[engine] setTractor");
     if (!tractor) {
+        Log::debug("[engine] setTractor(nullptr): shutting down");
         shutdown();
         return;
     }
@@ -103,6 +119,8 @@ void PlaybackController::setTractor(std::shared_ptr<Mlt::Tractor> tractor)
     int preservedPosition = m_playing.load() ? m_lastKnownFrame.load() : m_pausedPosition.load();
     bool wasPlaying = m_playing.load();
     double previousSpeed = m_speed.load();
+    Log::debug("[engine] setTractor: wasPlaying=" + std::to_string(wasPlaying) +
+               " preservedPosition=" + std::to_string(preservedPosition));
 
     // Always a full stop/reselect/restart -- never Mlt::Consumer::connect()
     // on an already-running consumer. An earlier version of this function

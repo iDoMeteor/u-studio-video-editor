@@ -22,6 +22,31 @@ void applyStyle(GtkApplication *)
 
 void onActivate(GtkApplication *app, gpointer /*userData*/)
 {
+    // "activate" fires more than once per process: G_APPLICATION_DEFAULT_
+    // FLAGS makes this app single-instance, so GApplication re-delivers
+    // "activate" to THIS already-running primary instance every time
+    // something else tries to launch it again (a second double-click, a
+    // second terminal invocation, a launcher re-click) instead of starting
+    // a new process -- confirmed from a real session's log, two
+    // back-to-back "Application activated" lines with no process restart
+    // in between. The previous code unconditionally built a brand new
+    // AppWindow (a whole new Model/EngineSync/PlaybackController) on every
+    // one of those, leaving the earlier window's PlaybackController alive
+    // and orphaned (its pointer overwritten in the "ustudio-window" slot,
+    // never stopped) -- a second live sdl2_audio consumer fighting the
+    // first one over the same PipeWire/audio-device state in the same
+    // process. That's the leading suspect for both a real SIGSEGV inside
+    // MLT's SDL2 audio callback and "play doesn't work any more" after
+    // re-launching once already running: present the existing window
+    // instead, the standard GtkApplication pattern for a single-window
+    // app.
+    if (auto *existing = static_cast<AppWindow *>(g_object_get_data(G_OBJECT(app), "ustudio-window"))) {
+        core::Log::info(
+            "[app] Application re-activated with a window already open -- presenting it, not creating another");
+        gtk_window_present(GTK_WINDOW(existing->widget()));
+        return;
+    }
+
     core::Log::info("[app] Application activated");
     applyStyle(app);
 
@@ -29,7 +54,7 @@ void onActivate(GtkApplication *app, gpointer /*userData*/)
     // lifetime, and GTK owns/destroys the underlying widget tree on quit.
     // Stashed on `app` (not just leaked) so onShutdown below can reach its
     // PlaybackController and stop the Mlt::Consumer before Factory::close()
-    // runs.
+    // runs, and so the re-activation check above can find it.
     auto *window = new AppWindow(app);
     g_object_set_data(G_OBJECT(app), "ustudio-window", window);
     gtk_window_present(GTK_WINDOW(window->widget()));
