@@ -159,12 +159,23 @@ struct Track
     bool operator==(const Track &) const = default;
 };
 
+// A dissolve between two adjacent clips on one track: `a` is the earlier
+// clip, `b` the later one. Creating it grows `a`/`b` using their own
+// existing source-media handle room -- `a.out` extends forward by
+// `extendA`, `b.in`/`b.position` pull back by `extendB` -- so the pair's
+// combined end-to-end span on the track is unchanged and nothing after
+// `b` ever needs to move. `length` (the overlap width AddTransition/
+// RemoveTransition operate on and Model::check() validates against) is
+// always `extendA + extendB`; the split is stored explicitly (not just
+// the total) so RemoveTransition can shrink exactly the side(s) that
+// were actually grown, regardless of which edge was dragged to create it.
 struct Transition
 {
     TransitionId id;
     TrackId track;
     ClipId a, b;
-    FrameIndex length = 0;
+    FrameIndex extendA = 0, extendB = 0;
+    FrameIndex length = 0;        // == extendA + extendB
     std::string service = "luma"; // "luma" (dissolve) in v2.0; "mix" for audio auto
 
     bool operator==(const Transition &) const = default;

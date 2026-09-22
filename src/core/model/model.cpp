@@ -128,6 +128,22 @@ const Track &Model::track(TrackId id) const
     return *it;
 }
 
+bool Model::hasTransition(TransitionId id) const
+{
+    const auto &transitions = activeSequence().transitions;
+    return std::any_of(transitions.begin(), transitions.end(),
+                       [id](const Transition &entry) { return entry.id == id; });
+}
+
+const Transition &Model::transition(TransitionId id) const
+{
+    const auto &transitions = activeSequence().transitions;
+    auto it = std::find_if(transitions.begin(), transitions.end(),
+                           [id](const Transition &entry) { return entry.id == id; });
+    assert(it != transitions.end() && "Model::transition: unknown TransitionId");
+    return *it;
+}
+
 bool Model::isRangeFree(TrackId trackId, FrameIndex start, FrameIndex end, std::optional<ClipId> ignoreClip) const
 {
     const Track &target = track(trackId);
@@ -148,6 +164,7 @@ Track &Model::mutableTrack(TrackId id)
     assert(it != tracks.end() && "Model::mutableTrack: unknown TrackId");
     return *it;
 }
+
 
 void Model::sortTrackClips(Track &trackRef)
 {
@@ -423,6 +440,82 @@ void Model::restoreTrack(Track trackToRestore, size_t index)
     notify(TrackAdded{id});
 }
 
+// --- Transition mutators -----------------------------------------------------
+
+TransitionId Model::addTransition(TrackId trackId, ClipId a, ClipId b, FrameIndex extendA, FrameIndex extendB,
+                                  std::optional<TransitionId> reuseId)
+{
+    TransitionId id = reuseId.value_or(TransitionId{allocateId()});
+    reserveId(id.value);
+
+    notify(BatchBegin{});
+    // `a`'s position never moves (only its tail extends); `b`'s in/position
+    // both pull back by extendB, using its own existing head handle, so it
+    // stays exactly where its now-overlapping content already put it --
+    // see the Transition comment in types.h for why nothing after `b`
+    // needs to move. AddTransition (core/commands) has already validated
+    // handle availability, adjacency, and the resulting overlap width
+    // against std::min(each clip's post-extension length) before calling
+    // this; it asserts, it doesn't refuse.
+    if (extendA > 0) {
+        mutableClip(a).out += extendA;
+        notify(ClipResized{a});
+    }
+    if (extendB > 0) {
+        Clip &clipB = mutableClip(b);
+        clipB.in -= extendB;
+        clipB.position -= extendB;
+        notify(ClipResized{b});
+    }
+    sortTrackClips(mutableTrack(trackId));
+
+    Transition newTransition;
+    newTransition.id = id;
+    newTransition.track = trackId;
+    newTransition.a = a;
+    newTransition.b = b;
+    newTransition.extendA = extendA;
+    newTransition.extendB = extendB;
+    newTransition.length = extendA + extendB;
+    activeSequence().transitions.push_back(newTransition);
+
+    notify(TransitionAdded{id});
+    notify(BatchEnd{});
+    return id;
+}
+
+void Model::removeTransition(TransitionId id)
+{
+    // Copy out (not a reference): mutableClip() below touches
+    // activeSequence().clips, never .transitions, so a reference into the
+    // transitions vector would stay valid too, but copying the handful of
+    // scalars up front makes that not something a future edit here has to
+    // reason about.
+    const Transition captured = transition(id);
+
+    notify(BatchBegin{});
+    // Exact inverse of addTransition's clip mutation above.
+    if (captured.extendA > 0) {
+        mutableClip(captured.a).out -= captured.extendA;
+        notify(ClipResized{captured.a});
+    }
+    if (captured.extendB > 0) {
+        Clip &clipB = mutableClip(captured.b);
+        clipB.in += captured.extendB;
+        clipB.position += captured.extendB;
+        notify(ClipResized{captured.b});
+    }
+    sortTrackClips(mutableTrack(captured.track));
+
+    auto &transitions = activeSequence().transitions;
+    transitions.erase(std::remove_if(transitions.begin(), transitions.end(),
+                                     [id](const Transition &entry) { return entry.id == id; }),
+                      transitions.end());
+
+    notify(TransitionRemoved{id, captured.track});
+    notify(BatchEnd{});
+}
+
 // --- Invariants (doc 03) -----------------------------------------------------
 
 std::vector<std::string> Model::check() const
@@ -440,6 +533,7 @@ std::vector<std::string> Model::check() const
 
     for (const auto &trackEntry : seq.tracks) {
         FrameIndex previousEnd = -1;
+        ClipId previousClipId; // invalid (id 0) until the first clip is seen
         for (ClipId clipId : trackEntry.clips) {
             auto it = seq.clips.find(clipId);
             if (it == seq.clips.end()) {
@@ -454,11 +548,25 @@ std::vector<std::string> Model::check() const
                                    " but is listed under track " + std::to_string(trackEntry.id.value)); // invariant 1
             }
             if (clipEntry.position < previousEnd) {
-                problems.push_back("clip " + std::to_string(clipEntry.id.value) +
-                                   " overlaps the previous clip on track " +
-                                   std::to_string(trackEntry.id.value)); // invariant 2
+                // Overlap is allowed exactly where a Transition covers it
+                // (AddTransition/types.h's Transition comment): the two
+                // clips involved must be this exact adjacent pair, and the
+                // overlap width must match the transition's recorded
+                // length precisely, not just fit within it.
+                FrameIndex overlap = previousEnd - clipEntry.position;
+                bool coveredByTransition =
+                    std::any_of(seq.transitions.begin(), seq.transitions.end(), [&](const Transition &t) {
+                        return t.track == trackEntry.id && t.a == previousClipId && t.b == clipEntry.id &&
+                              t.length == overlap;
+                    });
+                if (!coveredByTransition) {
+                    problems.push_back("clip " + std::to_string(clipEntry.id.value) +
+                                       " overlaps the previous clip on track " +
+                                       std::to_string(trackEntry.id.value)); // invariant 2
+                }
             }
             previousEnd = clipEntry.end();
+            previousClipId = clipEntry.id;
 
             if (clipEntry.position < 0) {
                 problems.push_back("clip " + std::to_string(clipEntry.id.value) +
@@ -520,6 +628,10 @@ std::vector<std::string> Model::check() const
             problems.push_back("transition " + std::to_string(transition.id.value) +
                                " is longer than the shorter clip");
         }
+        if (transition.length != transition.extendA + transition.extendB) {
+            problems.push_back("transition " + std::to_string(transition.id.value) +
+                               " has length != extendA + extendB");
+        }
     }
 
     if (seq.id.value >= m_project.nextId)
@@ -536,6 +648,11 @@ std::vector<std::string> Model::check() const
     for (const auto &binAsset : m_project.bin) {
         if (binAsset.id.value >= m_project.nextId)
             problems.push_back("asset id " + std::to_string(binAsset.id.value) + " is not less than nextId");
+    }
+    for (const auto &transitionEntry : seq.transitions) {
+        if (transitionEntry.id.value >= m_project.nextId)
+            problems.push_back("transition id " + std::to_string(transitionEntry.id.value) +
+                               " is not less than nextId");
     }
 
     return problems;

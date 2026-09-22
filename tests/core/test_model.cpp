@@ -164,6 +164,70 @@ TEST_CASE("Model: check() reports an overlap introduced by bypassing the mutator
     CHECK_FALSE(problems.empty());
 }
 
+TEST_CASE("Model: addTransition extends both clips from their own handles; the pair's combined span is unchanged")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, 300);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);      // [0, 50), source [0, 49]
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);  // [50, 100), source [100, 149]
+    FrameIndex originalBEnd = model.clip(b).end();
+
+    TransitionId t = model.addTransition(track, a, b, 6, 4); // length 10
+
+    CHECK(model.check().empty());
+    CHECK(model.transition(t).length == 10);
+    // a: position fixed, out extends forward by extendA.
+    CHECK(model.clip(a).position == 0);
+    CHECK(model.clip(a).out == 55);
+    // b: in and position both pull back by extendB, out unchanged -- so
+    // b's own end point (and everything that would come after it on this
+    // track) never moves.
+    CHECK(model.clip(b).position == 46);
+    CHECK(model.clip(b).in == 96);
+    CHECK(model.clip(b).out == 149);
+    CHECK(model.clip(b).end() == originalBEnd);
+    // The two clips now overlap by exactly the transition's length.
+    CHECK(model.clip(a).end() - model.clip(b).position == 10);
+}
+
+TEST_CASE("Model: removeTransition is the exact inverse of addTransition")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, 300);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    Clip beforeA = model.clip(a);
+    Clip beforeB = model.clip(b);
+
+    TransitionId t = model.addTransition(track, a, b, 6, 4);
+    model.removeTransition(t);
+
+    CHECK(model.check().empty());
+    CHECK_FALSE(model.hasTransition(t));
+    CHECK(model.clip(a) == beforeA);
+    CHECK(model.clip(b) == beforeB);
+}
+
+TEST_CASE("Model: check() still flags an overlap whose width doesn't match its covering transition")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, 300);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    model.addTransition(track, a, b, 6, 4); // length 10
+
+    // Bypass the mutator (Model::mutableSequence() is the documented
+    // escape hatch) to widen the overlap without updating the
+    // transition's recorded length -- check() must not just trust that a
+    // *some* transition links the pair, the width has to match exactly.
+    model.mutableSequence().clips.at(b).position -= 5;
+
+    CHECK_FALSE(model.check().empty());
+}
+
 TEST_CASE("Model: ids are monotonic and never reused across insert/remove/insert")
 {
     Model model = Model::createEmpty();

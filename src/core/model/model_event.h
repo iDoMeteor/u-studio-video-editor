@@ -63,6 +63,17 @@ struct EffectChanged
 {
     EffectId effect;
 };
+struct TransitionAdded
+{
+    TransitionId transition;
+};
+struct TransitionRemoved
+{
+    TransitionId transition;
+    TrackId track;
+};
+// Reserved for a future in-place edit (e.g. changing length/service without
+// touching either clip's anchors) -- no mutator emits it yet.
 struct TransitionChanged
 {
     TransitionId transition;
@@ -82,7 +93,7 @@ struct BatchEnd
 // consistent (doc 03) -- listeners never observe a half-applied mutation.
 using ModelEvent = std::variant<ClipInserted, ClipRemoved, ClipMoved, ClipResized, ClipFlagsChanged, ClipRenamed,
                                 TrackAdded, TrackRemoved, TrackFlagsChanged, TrackVolumeChanged, TrackRenamed,
-                                TrackReordered, EffectChanged, TransitionChanged, AssetChanged, SequenceProfileChanged,
-                                BatchBegin, BatchEnd>;
+                                TrackReordered, EffectChanged, TransitionAdded, TransitionRemoved, TransitionChanged,
+                                AssetChanged, SequenceProfileChanged, BatchBegin, BatchEnd>;
 
 } // namespace ustudio::core

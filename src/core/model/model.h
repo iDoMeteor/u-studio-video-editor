@@ -57,6 +57,8 @@ class Model
     const Clip &clip(ClipId) const;
     bool hasTrack(TrackId) const;
     const Track &track(TrackId) const;
+    bool hasTransition(TransitionId) const;
+    const Transition &transition(TransitionId) const;
     // Pure query, no mutation: true if [start, end) is free of clips on
     // `trackId`, ignoring `ignoreClip` if given (a clip checking against
     // its own future position). Used by core/commands to validate before
@@ -122,6 +124,22 @@ class Model
     // refused. Not gated by Track::locked, for the same reason as
     // setTrackName above.
     void setClipName(ClipId, std::string name);
+
+    // A dissolve between clips `a` (earlier) and `b` (later), already
+    // adjacent (a.end() == b.position) on `track`. Grows `a.out` forward by
+    // `extendA` and/or pulls `b.in`/`b.position` back by `extendB` (either
+    // may be 0, but not both) using each clip's own existing source-media
+    // handle room -- see the Transition comment in types.h for why this
+    // never moves anything after `b`. The caller (AddTransition) has
+    // already validated handle availability and adjacency; this mutator
+    // asserts, it doesn't refuse.
+    // addTransition/removeTransition are each other's exact inverse (both
+    // derive the clip mutation from extendA/extendB, so a command's
+    // revert() is just calling the other one with the same arguments/id --
+    // see core/commands/primitives.h's AddTransition/RemoveTransition).
+    TransitionId addTransition(TrackId track, ClipId a, ClipId b, FrameIndex extendA, FrameIndex extendB,
+                               std::optional<TransitionId> reuseId = std::nullopt);
+    void removeTransition(TransitionId);
 
     // Verbatim restore, used by Command::revert paths (core/commands) that
     // captured a full Clip/Track at apply time (e.g. RemoveClip, RemoveTrack)
