@@ -8,6 +8,7 @@
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
 
+#include <pango/pangocairo.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -41,6 +42,44 @@ constexpr double kHandleWidth = 22.0;
 constexpr double kEdgeGrabWidth = 8.0;
 constexpr double kDragClickThreshold = 3.0; // below this, a "drag" is really just a click
 constexpr double kWaveformR = 0x9d / 255.0, kWaveformG = 0x4e / 255.0, kWaveformB = 0xff / 255.0; // brand violet
+// window_fg_color (style.css) -- the design system's main light-on-dark
+// text tone, used for every cairo-drawn label below (track names, a
+// clip's track-title corner badge) since none of this canvas's text can
+// be reached by a CSS selector (see the kClipFill* comment above).
+constexpr double kLabelTextR = 0xff / 255.0, kLabelTextG = 0xef / 255.0, kLabelTextB = 0xfb / 255.0;
+// A slim strip at the top of each track row, reserved for that track's
+// name label -- carved out of the existing row height (kTrackRowHeight
+// itself, and therefore every hit-test/drag calculation keyed on it,
+// stays untouched; only where clips draw *within* their row shrinks).
+constexpr double kTrackLabelHeight = 14.0;
+
+// Single-line text, ellipsized to fit `maxWidth`, top-left anchored at
+// (x, y) -- the one place this file draws text directly onto the cairo
+// canvas rather than through a GTK label/CSS (track names, and a clip's
+// track-title corner badge). Pango, not cairo's own "toy" text API
+// (cairo_show_text), for real font shaping/metrics; "Sans"/"Monospace"
+// are generic Pango family aliases always resolvable regardless of which
+// of the design system's actual fonts (Space Grotesk, JetBrains Mono)
+// happen to be installed (CLAUDE.md: "every rule must keep its generic
+// fallback").
+void drawLabel(cairo_t *cr, const std::string &text, double x, double y, double maxWidth, bool monospace = false)
+{
+    if (text.empty() || maxWidth <= 0)
+        return;
+
+    PangoLayout *layout = pango_cairo_create_layout(cr);
+    pango_layout_set_text(layout, text.c_str(), -1);
+    PangoFontDescription *desc = pango_font_description_from_string(monospace ? "Monospace 8" : "Sans 8");
+    pango_layout_set_font_description(layout, desc);
+    pango_font_description_free(desc);
+    pango_layout_set_width(layout, static_cast<int>(maxWidth * PANGO_SCALE));
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+
+    cairo_set_source_rgba(cr, kLabelTextR, kLabelTextG, kLabelTextB, 0.85);
+    cairo_move_to(cr, x, y);
+    pango_cairo_show_layout(cr, layout);
+    g_object_unref(layout);
+}
 
 core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length, bool isStillImage, bool hasAudio)
 {
@@ -217,6 +256,11 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(drag, "drag-end", G_CALLBACK(&AppWindow::trackDragEndTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(drag));
 
+    // query-tooltip (GTK4's per-region-tooltip mechanism for a custom-drawn
+    // widget) -- onTimelineQueryTooltip hit-tests (x, y) against m_clips.
+    gtk_widget_set_has_tooltip(GTK_WIDGET(m_timeline), TRUE);
+    g_signal_connect(m_timeline, "query-tooltip", G_CALLBACK(&AppWindow::timelineQueryTooltipTrampoline), this);
+
     // One popover, three possible actions — onTimelineRightClicked decides
     // which single one is relevant (clip under the cursor -> Delete Clip;
     // gap under the cursor -> Close Gap; otherwise -> Remove Track) and
@@ -269,7 +313,40 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_removeTrackButton, "clicked", G_CALLBACK(&AppWindow::removeTrackClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeTrackButton);
 
+    // Edit Name / Remove (name): shown only when the right-click landed on
+    // a clip (see onTimelineRightClicked); label text on m_editClipNameButton
+    // ("Edit Name" vs "Edit") and the visibility of m_removeClipNameButton
+    // both depend on whether that clip currently has a name.
+    m_editClipNameButton = gtk_button_new_with_label("Edit Name");
+    gtk_widget_add_css_class(m_editClipNameButton, "flat");
+    g_signal_connect(m_editClipNameButton, "clicked", G_CALLBACK(&AppWindow::editClipNameClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_editClipNameButton);
+
+    m_removeClipNameButton = gtk_button_new_with_label("Remove Name");
+    gtk_widget_add_css_class(m_removeClipNameButton, "flat");
+    g_signal_connect(m_removeClipNameButton, "clicked", G_CALLBACK(&AppWindow::removeClipNameClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_removeClipNameButton);
+
     gtk_popover_set_child(m_trackContextMenu, contextMenuBox);
+
+    // Shared inline name-edit popover, reused for both a track's label
+    // strip and a clip (see InlineEditKind / m_inlineEditKind): one entry,
+    // repositioned and refilled per use by showInlineNameEditor. Enter
+    // (the entry's "activate") and clicking away (the popover's "closed",
+    // which "activate" triggers by popping the popover down) both funnel
+    // into onInlineNameEditClosed to commit; Escape sets m_inlineEditCancelled
+    // first so that same "closed" handler discards instead.
+    m_inlineNameEditPopover = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_set_parent(GTK_WIDGET(m_inlineNameEditPopover), GTK_WIDGET(m_timeline));
+    m_inlineNameEditEntry = GTK_ENTRY(gtk_entry_new());
+    gtk_widget_set_size_request(GTK_WIDGET(m_inlineNameEditEntry), 160, -1);
+    g_signal_connect(m_inlineNameEditEntry, "activate", G_CALLBACK(&AppWindow::inlineNameEditActivateTrampoline),
+                      this);
+    GtkEventController *inlineEditKey = gtk_event_controller_key_new();
+    g_signal_connect(inlineEditKey, "key-pressed", G_CALLBACK(&AppWindow::inlineNameEditKeyTrampoline), this);
+    gtk_widget_add_controller(GTK_WIDGET(m_inlineNameEditEntry), inlineEditKey);
+    gtk_popover_set_child(m_inlineNameEditPopover, GTK_WIDGET(m_inlineNameEditEntry));
+    g_signal_connect(m_inlineNameEditPopover, "closed", G_CALLBACK(&AppWindow::inlineNameEditClosedTrampoline), this);
 
     gtk_box_append(GTK_BOX(bottomBox), GTK_WIDGET(m_timeline));
 
@@ -837,7 +914,7 @@ void AppWindow::onSplitClicked()
     showStatus("Nothing to split on track " + std::to_string(m_activeTrack) + " at the current playhead.");
 }
 
-void AppWindow::onTimelineClicked(double x, double y)
+void AppWindow::onTimelineClicked(int nPress, double x, double y)
 {
     int trackCount = static_cast<int>(m_model.sequence().tracks.size());
     if (trackCount <= 0)
@@ -860,6 +937,20 @@ void AppWindow::onTimelineClicked(double x, double y)
             if (clip.trackIndex == m_activeTrack && frame >= clip.startFrame && frame < clip.startFrame + clip.frames) {
                 m_selectedClip = static_cast<int>(i);
                 break;
+            }
+        }
+
+        // Double-click opens the inline name editor instead of the usual
+        // seek/select: on a clip, edit that clip's name; on the label
+        // strip above a track (no clip there), edit the track's name.
+        if (nPress == 2) {
+            if (m_selectedClip >= 0) {
+                beginClipNameEdit(m_clips[static_cast<size_t>(m_selectedClip)]);
+                return;
+            }
+            if (y - row * kTrackRowHeight <= kTrackLabelHeight) {
+                beginTrackNameEdit(m_activeTrack);
+                return;
             }
         }
 
@@ -942,6 +1033,23 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     gtk_widget_set_visible(m_splitAudioButton, showSplitAudio);
 
     gtk_widget_set_visible(m_closeGapButton, m_contextMenuGapStartFrame >= 0);
+
+    // Edit Name / Remove Name: only offered on a clip. Label and the
+    // Remove button's visibility both depend on whether it already has a
+    // custom name (doc request: "if it has a name it should have
+    // edit/remove").
+    bool clipHasName = false;
+    if (m_contextMenuClipStartFrame >= 0) {
+        for (const auto &clip : m_clips) {
+            if (clip.trackIndex == row && clip.startFrame == m_contextMenuClipStartFrame) {
+                clipHasName = !clip.name.empty();
+                break;
+            }
+        }
+    }
+    gtk_widget_set_visible(m_editClipNameButton, m_contextMenuClipStartFrame >= 0);
+    gtk_button_set_label(GTK_BUTTON(m_editClipNameButton), clipHasName ? "Edit Name" : "Add Name");
+    gtk_widget_set_visible(m_removeClipNameButton, clipHasName);
 
     bool onEmptyTrackSpace = m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0;
     gtk_widget_set_visible(m_removeTrackButton, onEmptyTrackSpace);
@@ -1056,6 +1164,39 @@ void AppWindow::onCloseGapClicked()
         showStatus("Couldn't close that gap.");
     }
     m_contextMenuTrack = -1;
+}
+
+void AppWindow::onEditClipNameClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (m_contextMenuClipStartFrame < 0)
+        return;
+
+    for (const auto &clip : m_clips) {
+        if (clip.trackIndex == m_contextMenuTrack && clip.startFrame == m_contextMenuClipStartFrame) {
+            beginClipNameEdit(clip);
+            return;
+        }
+    }
+}
+
+void AppWindow::onRemoveClipNameClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (m_contextMenuClipStartFrame < 0)
+        return;
+
+    for (const auto &clip : m_clips) {
+        if (clip.trackIndex == m_contextMenuTrack && clip.startFrame == m_contextMenuClipStartFrame) {
+            if (m_undoStack.execute(std::make_unique<core::RenameClip>(clip.id, std::string{}))) {
+                refreshTimeline();
+                showStatus("Removed clip name.");
+            } else {
+                showStatus("Couldn't remove that clip's name.");
+            }
+            return;
+        }
+    }
 }
 
 void AppWindow::onRemoveTrackClicked()
@@ -1232,7 +1373,7 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
                mode == TimelineDragMode::TrimClipEnd) {
         if (trivial) {
             // Not really a drag -- treat as the plain click it was.
-            onTimelineClicked(m_dragStartX, m_dragStartY);
+            onTimelineClicked(1, m_dragStartX, m_dragStartY);
         } else if (mode == TimelineDragMode::MoveClip) {
             core::TrackId destTrack = trackIdForRow(m_dragPreviewTrack);
             if (m_undoStack.execute(
@@ -1335,6 +1476,15 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_move_to(cr, kHandleWidth, rowY);
         cairo_line_to(cr, kHandleWidth, rowY + kTrackRowHeight);
         cairo_stroke(cr);
+
+        // Track name label, in the slim strip reserved at the top of the
+        // row (double-click to edit -- onTimelineClicked). Skipped while
+        // this exact row is mid-inline-edit: the popover positioned over
+        // it already shows (and lets you change) the text.
+        const core::Track &modelTrack = m_model.track(trackIdForRow(t));
+        if (!modelTrack.name.empty() && !(m_inlineEditKind == InlineEditKind::Track && m_inlineEditTrackRow == t)) {
+            drawLabel(cr, modelTrack.name, kHandleWidth + 4, rowY + 1, width - kHandleWidth - 8);
+        }
     }
 
     int total = m_playback->totalFrames();
@@ -1345,9 +1495,11 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         double x = kHandleWidth + (static_cast<double>(startFrame) / total) * contentWidth;
         double w = (static_cast<double>(frames) / total) * contentWidth;
         double rowY = trackIndex * kTrackRowHeight;
+        double clipTop = rowY + kTrackLabelHeight + 2.0;
+        double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
 
         cairo_set_source_rgba(cr, kClipFillR, kClipFillG, kClipFillB, ghost ? 0.5 : 1.0);
-        cairo_rectangle(cr, x + 1, rowY + 4, std::max(w - 2, 1.0), kTrackRowHeight - 8.0);
+        cairo_rectangle(cr, x + 1, clipTop, std::max(w - 2, 1.0), clipHeight);
         cairo_fill_preserve(cr);
 
         if (selected)
@@ -1356,6 +1508,17 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
             cairo_set_source_rgba(cr, kClipBorderR, kClipBorderG, kClipBorderB, ghost ? 0.7 : 1.0);
         cairo_set_line_width(cr, selected ? 2.0 : 1.0);
         cairo_stroke(cr);
+
+        // Track-title corner badge: the OWNING track's name, not the
+        // clip's own, drawn in the clip's own top-left corner so which
+        // track a clip belongs to is visible without looking back at the
+        // row label (e.g. once scrolled). Skipped for the drag-preview
+        // ghost outline, where it would just be clutter.
+        if (!ghost) {
+            const core::Track &owningTrack = m_model.track(trackIdForRow(trackIndex));
+            if (!owningTrack.name.empty())
+                drawLabel(cr, owningTrack.name, x + 4, clipTop + 1, std::max(w - 8, 1.0));
+        }
     };
 
     // Waveform: fetches cached peaks (kicking off async computation if not
@@ -1373,8 +1536,10 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
             return;
 
         double rowY = clip.trackIndex * kTrackRowHeight;
-        double midY = rowY + kTrackRowHeight / 2.0;
-        double maxBarHalfHeight = (kTrackRowHeight - 12.0) / 2.0;
+        double clipTop = rowY + kTrackLabelHeight + 2.0;
+        double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
+        double midY = clipTop + clipHeight / 2.0;
+        double maxBarHalfHeight = (clipHeight - 4.0) / 2.0;
         size_t peakCount = peaks->size();
         int pixelWidth = std::max(static_cast<int>(w), 1);
 
@@ -1439,6 +1604,111 @@ void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, i
 void AppWindow::onWaveformReady()
 {
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+}
+
+void AppWindow::beginTrackNameEdit(int row)
+{
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
+    if (row < 0 || row >= trackCount)
+        return;
+
+    m_inlineEditKind = InlineEditKind::Track;
+    m_inlineEditTrackRow = row;
+
+    const core::Track &track = m_model.track(trackIdForRow(row));
+    GdkRectangle anchor{static_cast<int>(kHandleWidth), static_cast<int>(row * kTrackRowHeight), 160,
+                        static_cast<int>(kTrackLabelHeight)};
+    showInlineNameEditor(anchor, track.name);
+}
+
+void AppWindow::beginClipNameEdit(const ClipDisplay &clip)
+{
+    m_inlineEditKind = InlineEditKind::Clip;
+    m_inlineEditClipId = clip.id;
+
+    int total = m_playback->totalFrames();
+    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
+    int anchorX = static_cast<int>(kHandleWidth);
+    int anchorW = 160;
+    if (total > 0 && widgetWidth > kHandleWidth) {
+        double contentWidth = widgetWidth - kHandleWidth;
+        anchorX = static_cast<int>(kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth);
+        anchorW = std::max(static_cast<int>((static_cast<double>(clip.frames) / total) * contentWidth), 40);
+    }
+    double rowY = clip.trackIndex * kTrackRowHeight + kTrackLabelHeight;
+    GdkRectangle anchor{anchorX, static_cast<int>(rowY), anchorW,
+                        static_cast<int>(kTrackRowHeight - kTrackLabelHeight)};
+    showInlineNameEditor(anchor, clip.name);
+}
+
+void AppWindow::showInlineNameEditor(GdkRectangle anchor, const std::string &currentName)
+{
+    m_inlineEditCancelled = false;
+    gtk_editable_set_text(GTK_EDITABLE(m_inlineNameEditEntry), currentName.c_str());
+    gtk_popover_set_pointing_to(m_inlineNameEditPopover, &anchor);
+    gtk_popover_popup(m_inlineNameEditPopover);
+    gtk_widget_grab_focus(GTK_WIDGET(m_inlineNameEditEntry));
+}
+
+void AppWindow::onInlineNameEditClosed()
+{
+    InlineEditKind kind = m_inlineEditKind;
+    m_inlineEditKind = InlineEditKind::None;
+
+    if (kind == InlineEditKind::None || m_inlineEditCancelled) {
+        m_inlineEditCancelled = false;
+        gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+        return;
+    }
+
+    std::string newName = gtk_editable_get_text(GTK_EDITABLE(m_inlineNameEditEntry));
+
+    if (kind == InlineEditKind::Track) {
+        core::TrackId trackId = trackIdForRow(m_inlineEditTrackRow);
+        if (trackId.isValid() && newName != m_model.track(trackId).name)
+            m_undoStack.execute(std::make_unique<core::RenameTrack>(trackId, newName));
+    } else {
+        if (m_model.hasClip(m_inlineEditClipId) && newName != m_model.clip(m_inlineEditClipId).name)
+            m_undoStack.execute(std::make_unique<core::RenameClip>(m_inlineEditClipId, newName));
+    }
+
+    refreshTimeline();
+}
+
+gboolean AppWindow::onInlineNameEditKeyPressed(guint keyval)
+{
+    if (keyval == GDK_KEY_Escape) {
+        m_inlineEditCancelled = true;
+        gtk_popover_popdown(m_inlineNameEditPopover);
+        return GDK_EVENT_STOP;
+    }
+    return GDK_EVENT_PROPAGATE;
+}
+
+gboolean AppWindow::onTimelineQueryTooltip(int x, int y, GtkTooltip *tooltip)
+{
+    for (const auto &clip : m_clips) {
+        double rowY = clip.trackIndex * kTrackRowHeight;
+        int total = m_playback->totalFrames();
+        int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
+        if (total <= 0 || widgetWidth <= kHandleWidth)
+            continue;
+        double contentWidth = widgetWidth - kHandleWidth;
+        double clipX = kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth;
+        double clipW = (static_cast<double>(clip.frames) / total) * contentWidth;
+
+        if (x < clipX || x >= clipX + clipW || y < rowY || y >= rowY + kTrackRowHeight)
+            continue;
+
+        std::string name = clip.name.empty() ? std::string("(unnamed)") : clip.name;
+        std::string text = name + "\n" + formatTimecode(clip.startFrame) + " – " +
+                            formatTimecode(clip.startFrame + clip.frames) + "\nLength: " +
+                            formatTimecode(clip.frames) + " (" + std::to_string(clip.frames) + " frames)\nSource: " +
+                            (clip.resource.empty() ? std::string("(none)") : clip.resource);
+        gtk_tooltip_set_text(tooltip, text.c_str());
+        return TRUE;
+    }
+    return FALSE;
 }
 
 core::TrackId AppWindow::trackIdForRow(int row) const
@@ -1784,9 +2054,9 @@ void AppWindow::timelineDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width,
     static_cast<AppWindow *>(userData)->onTimelineDraw(cr, width, height);
 }
 
-void AppWindow::timelineClickTrampoline(GtkGestureClick *, int, double x, double y, gpointer userData)
+void AppWindow::timelineClickTrampoline(GtkGestureClick *, int nPress, double x, double y, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->onTimelineClicked(x, y);
+    static_cast<AppWindow *>(userData)->onTimelineClicked(nPress, x, y);
 }
 
 void AppWindow::timelineRightClickTrampoline(GtkGestureClick *, int, double x, double y, gpointer userData)
@@ -1817,6 +2087,40 @@ void AppWindow::removeTrackClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::toggleLockClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onToggleLockClicked();
+}
+
+void AppWindow::editClipNameClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onEditClipNameClicked();
+}
+
+void AppWindow::removeClipNameClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRemoveClipNameClicked();
+}
+
+gboolean AppWindow::timelineQueryTooltipTrampoline(GtkWidget *, int x, int y, gboolean, GtkTooltip *tooltip,
+                                                   gpointer userData)
+{
+    return static_cast<AppWindow *>(userData)->onTimelineQueryTooltip(x, y, tooltip);
+}
+
+void AppWindow::inlineNameEditActivateTrampoline(GtkEntry *, gpointer userData)
+{
+    // Pops the popover down; its "closed" signal (inlineNameEditClosedTrampoline)
+    // does the actual commit, so Enter and click-away share one code path.
+    gtk_popover_popdown(static_cast<AppWindow *>(userData)->m_inlineNameEditPopover);
+}
+
+void AppWindow::inlineNameEditClosedTrampoline(GtkPopover *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onInlineNameEditClosed();
+}
+
+gboolean AppWindow::inlineNameEditKeyTrampoline(GtkEventControllerKey *, guint keyval, guint, GdkModifierType,
+                                                gpointer userData)
+{
+    return static_cast<AppWindow *>(userData)->onInlineNameEditKeyPressed(keyval);
 }
 
 void AppWindow::trackVolumeChangedTrampoline(GtkRange *, gpointer userData)

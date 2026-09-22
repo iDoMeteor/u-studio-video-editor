@@ -242,6 +242,13 @@ void Model::setTrackVolume(TrackId id, double volume)
     notify(TrackVolumeChanged{id});
 }
 
+void Model::setTrackName(TrackId id, std::string name)
+{
+    Track &target = mutableTrack(id);
+    target.name = std::move(name);
+    notify(TrackRenamed{id});
+}
+
 void Model::moveTrack(TrackId id, size_t newIndex)
 {
     auto &tracks = activeSequence().tracks;
@@ -380,6 +387,13 @@ void Model::setClipFadeOut(ClipId id, std::optional<FadeSpec> fadeOut)
     Clip &target = mutableClip(id);
     target.fadeOut = fadeOut;
     notify(ClipFlagsChanged{id});
+}
+
+void Model::setClipName(ClipId id, std::string name)
+{
+    Clip &target = mutableClip(id);
+    target.name = std::move(name);
+    notify(ClipRenamed{id});
 }
 
 void Model::restoreClip(Clip clipToRestore)

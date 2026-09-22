@@ -465,6 +465,65 @@ TEST_CASE("SetTrackVolume: does not merge across different tracks")
     CHECK_FALSE(cmd.mergeWith(other));
 }
 
+TEST_CASE("RenameTrack: apply then revert restores an equal model")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Model before = model;
+
+    RenameTrack cmd(track, "Interview");
+    REQUIRE(cmd.apply(model));
+    CHECK(model.track(track).name == "Interview");
+
+    cmd.revert(model);
+    CHECK(model == before);
+}
+
+TEST_CASE("RenameTrack: not blocked by a locked track")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    REQUIRE(SetTrackFlags(track, false, false, true).apply(model)); // lock it
+
+    RenameTrack cmd(track, "B-roll");
+    CHECK(cmd.apply(model));
+    CHECK(model.track(track).name == "B-roll");
+}
+
+TEST_CASE("RenameClip: apply then revert restores an equal model; a shared asset's other clip is untouched")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId clipA = model.insertClip(track, asset, 0, 0, 99);
+    ClipId clipB = model.insertClip(track, asset, 200, 0, 99);
+    std::string originalName = model.clip(clipA).name; // both start as the asset's displayName
+    Model before = model;
+
+    RenameClip cmd(clipA, "Take 2");
+    REQUIRE(cmd.apply(model));
+    CHECK(model.clip(clipA).name == "Take 2");
+    // Different clips from the same source can have different names --
+    // renaming one never touches another clip of the same asset.
+    CHECK(model.clip(clipB).name == originalName);
+
+    cmd.revert(model);
+    CHECK(model == before);
+}
+
+TEST_CASE("RenameClip: not blocked by a locked track")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(track, asset, 0, 0, 99);
+    REQUIRE(SetTrackFlags(track, false, false, true).apply(model)); // lock it
+
+    RenameClip cmd(clip, "Take 2");
+    CHECK(cmd.apply(model));
+    CHECK(model.clip(clip).name == "Take 2");
+}
+
 TEST_CASE("Locked tracks refuse insert/move/resize/split/remove, but not the toggle itself")
 {
     Model model = Model::createEmpty();

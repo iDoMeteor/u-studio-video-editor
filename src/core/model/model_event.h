@@ -30,6 +30,10 @@ struct ClipFlagsChanged
 {
     ClipId clip;
 };
+struct ClipRenamed
+{
+    ClipId clip;
+};
 struct TrackAdded
 {
     TrackId track;
@@ -40,6 +44,10 @@ struct TrackRemoved
     size_t index;
 };
 struct TrackFlagsChanged
+{
+    TrackId track;
+};
+struct TrackRenamed
 {
     TrackId track;
 };
@@ -72,8 +80,9 @@ struct BatchEnd
 
 // Emitted synchronously, on the main thread, AFTER Model's state is
 // consistent (doc 03) -- listeners never observe a half-applied mutation.
-using ModelEvent = std::variant<ClipInserted, ClipRemoved, ClipMoved, ClipResized, ClipFlagsChanged, TrackAdded,
-                                TrackRemoved, TrackFlagsChanged, TrackVolumeChanged, TrackReordered, EffectChanged,
-                                TransitionChanged, AssetChanged, SequenceProfileChanged, BatchBegin, BatchEnd>;
+using ModelEvent = std::variant<ClipInserted, ClipRemoved, ClipMoved, ClipResized, ClipFlagsChanged, ClipRenamed,
+                                TrackAdded, TrackRemoved, TrackFlagsChanged, TrackVolumeChanged, TrackRenamed,
+                                TrackReordered, EffectChanged, TransitionChanged, AssetChanged, SequenceProfileChanged,
+                                BatchBegin, BatchEnd>;
 
 } // namespace ustudio::core

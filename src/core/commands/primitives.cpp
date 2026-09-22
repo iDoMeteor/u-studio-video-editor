@@ -143,6 +143,22 @@ bool SetTrackVolume::mergeWith(const Command &next)
     return true;
 }
 
+RenameTrack::RenameTrack(TrackId track, std::string name) : m_track(track), m_name(std::move(name)) {}
+
+bool RenameTrack::apply(Model &model)
+{
+    if (!model.hasTrack(m_track))
+        return false;
+    m_oldName = model.track(m_track).name;
+    model.setTrackName(m_track, m_name);
+    return true;
+}
+
+void RenameTrack::revert(Model &model)
+{
+    model.setTrackName(m_track, m_oldName);
+}
+
 // --- InsertClip / RemoveClip / MoveClip / ResizeClip / SplitClip -----------
 
 InsertClip::InsertClip(TrackId track, AssetId asset, FrameIndex pos, FrameIndex in, FrameIndex out)
@@ -400,6 +416,22 @@ void SplitAudio::revert(Model &model)
 {
     model.removeClip(m_audioClipId);
     model.setClipEnabled(m_clip, /*videoEnabled=*/true, /*audioEnabled=*/true);
+}
+
+RenameClip::RenameClip(ClipId clip, std::string name) : m_clip(clip), m_name(std::move(name)) {}
+
+bool RenameClip::apply(Model &model)
+{
+    if (!model.hasClip(m_clip))
+        return false;
+    m_oldName = model.clip(m_clip).name;
+    model.setClipName(m_clip, m_name);
+    return true;
+}
+
+void RenameClip::revert(Model &model)
+{
+    model.setClipName(m_clip, m_oldName);
 }
 
 } // namespace ustudio::core

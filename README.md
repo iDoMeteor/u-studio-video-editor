@@ -48,6 +48,14 @@ single-track skeleton.
 - Per-clip audio waveforms, drawn on every clip that has audio (video or
   audio-only), computed on a background thread so the UI never stalls —
   see `src/engine/waveform_cache.{h,cpp}`.
+- Name tracks and clips. Double-click a track's name strip (just above the
+  row) or a clip to edit its name inline (Enter or click away to commit,
+  Escape to cancel); right-click a clip for "Add Name"/"Edit Name" and,
+  once it has one, "Remove Name". Clips cut from the same source can carry
+  different names. A named track's name is drawn in the top-left corner of
+  every clip on it. Hovering a clip shows a tooltip with its name (or
+  "(unnamed)"), start/end timecodes, length (timecode and frame count),
+  and source file.
 - Render the project to an MP4 matching this project's fixed working
   format (H.264 High/yuv420p, 1920×1080, 30fps, AAC 48kHz stereo) via the
   header bar's "Render…" button. Runs on a background thread.

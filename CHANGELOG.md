@@ -4,6 +4,16 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.6.0
+
+- Tracks and clips can now be named. Double-click a track's name strip
+  or a clip to edit its name inline; right-click a clip for "Add
+  Name"/"Edit Name" and, once it has one, "Remove Name". Two clips cut
+  from the same source can carry different names. A named track shows
+  its name in the top-left corner of every clip on it. Hovering a clip
+  shows a tooltip with its name, start/end timecodes, length (timecode
+  and frame count), and source file.
+
 ## 0.5.2
 
 - Fixed Play doing nothing after any seek (scrubbing, clicking the

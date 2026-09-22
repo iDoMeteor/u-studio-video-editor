@@ -88,6 +88,10 @@ class Model
     // to the dB "level" a volume filter takes. Applies to the whole track
     // (doc 03: "audio tracks and the audio part of video tracks").
     void setTrackVolume(TrackId, double volume);
+    // Deliberately NOT gated by Track::locked (matches setTrackVolume's own
+    // comment): a track's name is a label, not content, so it stays
+    // editable the same way toggling the lock itself does.
+    void setTrackName(TrackId, std::string name);
 
     ClipId insertClip(TrackId, AssetId, FrameIndex pos, FrameIndex in, FrameIndex out,
                       std::optional<ClipId> reuseId = std::nullopt);
@@ -111,6 +115,13 @@ class Model
     // yet (doc 13), so this exists to restore a captured value, not to set
     // one from scratch.
     void setClipFadeOut(ClipId, std::optional<FadeSpec> fadeOut);
+    // A clip's own label, independent of its asset's -- defaults to the
+    // asset's displayName at insertClip() time (so two clips cut from the
+    // same source start out looking the same, but can be told apart once
+    // renamed). Empty string is a valid value ("no custom name"), not
+    // refused. Not gated by Track::locked, for the same reason as
+    // setTrackName above.
+    void setClipName(ClipId, std::string name);
 
     // Verbatim restore, used by Command::revert paths (core/commands) that
     // captured a full Clip/Track at apply time (e.g. RemoveClip, RemoveTrack)

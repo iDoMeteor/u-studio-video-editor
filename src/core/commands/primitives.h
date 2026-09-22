@@ -135,6 +135,25 @@ class SetTrackVolume : public Command
     double m_oldVolume = 1.0;
 };
 
+// Also not gated by Track::locked, for the same reason as SetTrackVolume
+// above: a name is a label, not content.
+class RenameTrack : public Command
+{
+  public:
+    RenameTrack(TrackId track, std::string name);
+    std::string label() const override
+    {
+        return "Rename track";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    TrackId m_track;
+    std::string m_name;
+    std::string m_oldName;
+};
+
 class InsertClip : public Command
 {
   public:
@@ -276,6 +295,24 @@ class SplitAudio : public Command
     ClipId m_clip;
     ClipId m_audioClipId;
     bool m_appliedBefore = false;
+};
+
+// Not gated by Track::locked, for the same reason as RenameTrack above.
+class RenameClip : public Command
+{
+  public:
+    RenameClip(ClipId clip, std::string name);
+    std::string label() const override
+    {
+        return "Rename clip";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    ClipId m_clip;
+    std::string m_name;
+    std::string m_oldName;
 };
 
 } // namespace ustudio::core

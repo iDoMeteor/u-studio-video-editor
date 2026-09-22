@@ -29,6 +29,15 @@ enum class TimelineDragMode
     TrimClipEnd,
 };
 
+// What the inline name-edit popover (double-click a track label or a
+// clip) is currently open for, if anything.
+enum class InlineEditKind
+{
+    None,
+    Track,
+    Clip,
+};
+
 // A row/frame-index view of one model clip, rebuilt from Model on every
 // refreshTimeline() call -- what the timeline actually draws and hit-tests
 // against. `trackIndex` is a position in model->sequence().tracks (row 0 =
@@ -123,7 +132,9 @@ class AppWindow
     void onVolumeChanged();
     void onPreviewScaleChanged();
     void onSplitClicked();
-    void onTimelineClicked(double x, double y);
+    // nPress == 2 (double-click) on a track's name-label strip or on a
+    // clip opens the inline name editor instead of the usual seek/select.
+    void onTimelineClicked(int nPress, double x, double y);
     void onTimelineRightClicked(double x, double y);
     void onDeleteClipClicked();
     void onSplitAudioClicked();
@@ -132,6 +143,24 @@ class AppWindow
     void onToggleLockClicked();
     void onTrackVolumeChanged();
     void onWaveformReady();
+    // query-tooltip handler (GTK4's mechanism for a per-region tooltip on
+    // a custom-drawn widget): true + gtk_tooltip_set_* if (x, y) is over a
+    // clip, false to suppress the tooltip anywhere else.
+    gboolean onTimelineQueryTooltip(int x, int y, GtkTooltip *tooltip);
+    void onEditClipNameClicked();
+    void onRemoveClipNameClicked();
+    // Opens the inline name-edit popover anchored over track `row`'s
+    // label strip, or over `clip`, pre-filled with its current name.
+    // Enter or clicking away commits (a no-op Command if the text didn't
+    // actually change -- see onInlineNameEditClosed); Escape cancels.
+    void beginTrackNameEdit(int row);
+    void beginClipNameEdit(const ClipDisplay &clip);
+    void showInlineNameEditor(GdkRectangle anchor, const std::string &currentName);
+    void onInlineNameEditClosed();
+    // Returns TRUE (GDK_EVENT_STOP) only for Escape, so the popover's own
+    // default key handling (which would otherwise treat Escape as "close",
+    // i.e. commit via onInlineNameEditClosed) never runs for it.
+    gboolean onInlineNameEditKeyPressed(guint keyval);
     // Returns true if the press hit something draggable (a track handle or
     // a clip) and the gesture should claim the sequence — denying the
     // competing click gesture on the same widget, which would otherwise
@@ -213,6 +242,14 @@ class AppWindow
     static void clearLoopClickedTrampoline(GtkButton *button, gpointer userData);
     static void volumeChangedTrampoline(GtkRange *range, gpointer userData);
     static void previewScaleChangedTrampoline(GtkDropDown *dropdown, GParamSpec *pspec, gpointer userData);
+    static gboolean timelineQueryTooltipTrampoline(GtkWidget *widget, int x, int y, gboolean keyboardMode,
+                                                   GtkTooltip *tooltip, gpointer userData);
+    static void editClipNameClickedTrampoline(GtkButton *button, gpointer userData);
+    static void removeClipNameClickedTrampoline(GtkButton *button, gpointer userData);
+    static void inlineNameEditActivateTrampoline(GtkEntry *entry, gpointer userData);
+    static void inlineNameEditClosedTrampoline(GtkPopover *popover, gpointer userData);
+    static gboolean inlineNameEditKeyTrampoline(GtkEventControllerKey *controller, guint keyval, guint keycode,
+                                                GdkModifierType state, gpointer userData);
 
     AdwApplicationWindow *m_window = nullptr;
     GtkPicture *m_preview = nullptr;
@@ -232,6 +269,8 @@ class AppWindow
     GtkWidget *m_closeGapButton = nullptr;
     GtkWidget *m_removeTrackButton = nullptr;
     GtkWidget *m_toggleLockButton = nullptr;
+    GtkWidget *m_editClipNameButton = nullptr;
+    GtkWidget *m_removeClipNameButton = nullptr;
     GtkScale *m_trackVolumeScale = nullptr;
     // "value-changed" fires while merely repositioning the slider to the
     // right-clicked track's current volume (see onTimelineRightClicked) --
@@ -258,6 +297,18 @@ class AppWindow
     int m_contextMenuFrame = -1;
     int m_contextMenuClipStartFrame = -1;
     int m_contextMenuGapStartFrame = -1;
+
+    // --- Inline track/clip name editing (double-click, or the context
+    // menu's Edit Name) ---
+    GtkPopover *m_inlineNameEditPopover = nullptr;
+    GtkEntry *m_inlineNameEditEntry = nullptr;
+    InlineEditKind m_inlineEditKind = InlineEditKind::None;
+    int m_inlineEditTrackRow = -1;      // valid when m_inlineEditKind == Track
+    core::ClipId m_inlineEditClipId;    // valid when m_inlineEditKind == Clip
+    // Set by Escape (onInlineNameEditKeyPressed) just before popping the
+    // popover down, so the "closed" signal that follows knows to discard
+    // the entry's text instead of committing it.
+    bool m_inlineEditCancelled = false;
 
     // --- Timeline drag state (track reorder, clip move, clip trim) ---
     TimelineDragMode m_dragMode = TimelineDragMode::None;
