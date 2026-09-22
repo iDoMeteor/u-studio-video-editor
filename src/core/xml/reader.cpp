@@ -22,7 +22,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kFormatVersion = 2; // must match writer.cpp
+constexpr int kFormatVersion = 3; // must match writer.cpp
 
 std::string attr(xmlNodePtr node, const char *name)
 {
@@ -413,14 +413,11 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         track.volume = toDouble(prop(node, "ustudio:volume", "1"));
         size_t visualIndex = static_cast<size_t>(toI64(prop(node, "ustudio:visual_index")));
 
-        FrameIndex cursor = 0;
         for (xmlNodePtr entryNode = node->children; entryNode; entryNode = entryNode->next) {
             if (entryNode->type != XML_ELEMENT_NODE)
                 continue;
-            if (xmlStrcmp(entryNode->name, BAD_CAST "blank") == 0) {
-                cursor += toI64(attr(entryNode, "length"));
-                continue;
-            }
+            if (xmlStrcmp(entryNode->name, BAD_CAST "blank") == 0)
+                continue; // decorative only -- each entry's own ustudio:position is authoritative
             if (xmlStrcmp(entryNode->name, BAD_CAST "entry") != 0)
                 continue;
 
@@ -441,7 +438,7 @@ std::expected<Model, std::string> loadProject(const std::string &path)
             clip.id = ClipId{toU64(prop(entryNode, "ustudio:clip_id"))};
             clip.track = track.id;
             clip.asset = assetIt->second;
-            clip.position = cursor;
+            clip.position = toI64(prop(entryNode, "ustudio:position"));
             clip.in = toI64(attr(entryNode, "in"));
             clip.out = toI64(attr(entryNode, "out"));
             clip.name = prop(entryNode, "ustudio:name");
@@ -453,7 +450,6 @@ std::expected<Model, std::string> loadProject(const std::string &path)
             if (std::optional<std::string> fadeOut = getProperty(entryNode, "ustudio:fade_out"))
                 clip.fadeOut = FadeSpec{toI64(*fadeOut)};
 
-            cursor = clip.position + (clip.out - clip.in + 1);
             track.clips.push_back(clip.id);
             seq.clips.emplace(clip.id, std::move(clip));
         }
@@ -465,6 +461,34 @@ std::expected<Model, std::string> loadProject(const std::string &path)
               [](const ParsedTrack &a, const ParsedTrack &b) { return a.visualIndex < b.visualIndex; });
     for (ParsedTrack &parsed : parsedTracks)
         seq.tracks.push_back(std::move(parsed.track));
+
+    // Dissolve transitions: any <transition> child of <tractor> with an
+    // ustudio:transition_id property. The composite/mix <transition>
+    // elements EngineSync itself regenerates every rebuild (writer.cpp's
+    // saveProject) have no such property, so this filters them out
+    // naturally -- same pattern as the asset-producer filter above.
+    // model.check() below is what actually validates `a`/`b` resolve to
+    // real clips on `track` and that extendA+extendB==length; a
+    // hand-edited or truncated file that gets this wrong fails the load
+    // there rather than here.
+    for (xmlNodePtr node = tractor->children; node; node = node->next) {
+        if (node->type != XML_ELEMENT_NODE || xmlStrcmp(node->name, BAD_CAST "transition") != 0)
+            continue;
+        std::optional<std::string> transitionIdStr = getProperty(node, "ustudio:transition_id");
+        if (!transitionIdStr)
+            continue;
+
+        Transition t;
+        t.id = TransitionId{toU64(*transitionIdStr)};
+        t.track = TrackId{toU64(prop(node, "ustudio:transition_track"))};
+        t.a = ClipId{toU64(prop(node, "ustudio:transition_a"))};
+        t.b = ClipId{toU64(prop(node, "ustudio:transition_b"))};
+        t.extendA = toI64(prop(node, "ustudio:transition_extend_a"));
+        t.extendB = toI64(prop(node, "ustudio:transition_extend_b"));
+        t.length = t.extendA + t.extendB;
+        t.service = prop(node, "ustudio:transition_service", "luma");
+        seq.transitions.push_back(std::move(t));
+    }
 
     // Untrusted input (audit C3): a missing ustudio:next_id defaults to
     // "1" above, and a hand-edited or truncated file could carry a
@@ -482,6 +506,8 @@ std::expected<Model, std::string> loadProject(const std::string &path)
     }
     for (const Asset &a : project.bin)
         maxIdSeen = std::max(maxIdSeen, a.id.value);
+    for (const Transition &t : seq.transitions)
+        maxIdSeen = std::max(maxIdSeen, t.id.value);
     project.nextId = std::max(project.nextId, maxIdSeen + 1);
 
     project.sequences.push_back(std::move(seq));

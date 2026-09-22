@@ -28,7 +28,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kFormatVersion = 2; // doc 09
+constexpr int kFormatVersion = 3; // doc 09; 3 adds ustudio:position (below) and transitions
 
 xmlNodePtr addProperty(xmlNodePtr parent, const std::string &name, const std::string &value)
 {
@@ -171,6 +171,16 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
     xmlNewProp(entry, BAD_CAST "out", BAD_CAST std::to_string(clip.out).c_str());
 
     addProperty(entry, "ustudio:clip_id", std::to_string(clip.id.value));
+    // The track's own position, not derived from this entry's place in
+    // the flat <playlist> (blank/entry cumulative length): a dissolve
+    // transition (AddTransition) legitimately overlaps two clips, which a
+    // flat MLT playlist has no way to represent structurally (entries are
+    // strictly sequential) -- the reader reads this directly instead of
+    // reconstructing position from a running cursor, so an overlapping
+    // pair round-trips correctly even though the raw <playlist> element
+    // itself isn't standalone-melt-CLI-accurate for such a track (see the
+    // README's "Engine sync notes" and writeTrackTransition below).
+    addProperty(entry, "ustudio:position", std::to_string(clip.position));
     addProperty(entry, "ustudio:name", clip.name);
     addProperty(entry, "ustudio:speed", doubleToString(clip.speed));
     addProperty(entry, "ustudio:video_enabled", clip.videoEnabled ? "1" : "0");
@@ -203,13 +213,43 @@ void writeTrackPlaylist(xmlNodePtr mlt, const Model &model, const Track &track, 
     FrameIndex cursor = 0;
     for (ClipId clipId : track.clips) {
         const Clip &clip = model.clip(clipId);
+        // No <blank> when a dissolve transition makes this clip start
+        // before the previous one ends (clip.position <= cursor) -- there
+        // is no gap to fill; each clip's real position round-trips via
+        // its own ustudio:position property regardless (see
+        // writeClipEntry), not from this cumulative cursor.
         if (clip.position > cursor) {
             xmlNodePtr blank = xmlNewChild(playlist, nullptr, BAD_CAST "blank", nullptr);
             xmlNewProp(blank, BAD_CAST "length", BAD_CAST std::to_string(clip.position - cursor).c_str());
         }
         writeClipEntry(playlist, clip, producerIdByAsset.at(clip.asset.value));
-        cursor = clip.end();
+        cursor = std::max(cursor, clip.end());
     }
+}
+
+// One <transition> per core::Transition (dissolve), written as plain
+// ustudio: metadata alongside the composite/mix <transition> elements
+// below -- NOT a literal MLT sub-tractor structure (EngineSync builds
+// that at the Mlt::Tractor level, see engine_sync.cpp's
+// buildTransitionSubTractor); reconstructing it here would mean this
+// hand-rolled libxml2 writer duplicating that same nested-tractor-in-
+// playlist-entry logic with no mlt++ access to verify it against (core/
+// links no MLT headers, ADR-003). This app's own reader/Model round-trip
+// (the tested, actually-used path -- see writeClipEntry's comment) is
+// fully correct; a saved project opened directly with the `melt` CLI
+// (bypassing this app) plays the two clips as a hard cut, not a
+// dissolve, until a future change teaches the writer the nested
+// structure too.
+void writeTrackTransition(xmlNodePtr tractor, const Transition &t)
+{
+    xmlNodePtr node = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
+    addProperty(node, "ustudio:transition_id", std::to_string(t.id.value));
+    addProperty(node, "ustudio:transition_track", std::to_string(t.track.value));
+    addProperty(node, "ustudio:transition_a", std::to_string(t.a.value));
+    addProperty(node, "ustudio:transition_b", std::to_string(t.b.value));
+    addProperty(node, "ustudio:transition_extend_a", std::to_string(t.extendA));
+    addProperty(node, "ustudio:transition_extend_b", std::to_string(t.extendB));
+    addProperty(node, "ustudio:transition_service", t.service);
 }
 
 } // namespace
@@ -316,6 +356,9 @@ std::string saveProject(const Model &model, const std::string &path)
         addProperty(mix, "sum", "1");
         addProperty(mix, "always_active", "1");
     }
+
+    for (const Transition &t : seq.transitions)
+        writeTrackTransition(tractor, t);
 
     std::string tmpPath = path + ".tmp";
     int written = xmlSaveFormatFileEnc(tmpPath.c_str(), doc, "UTF-8", 1);

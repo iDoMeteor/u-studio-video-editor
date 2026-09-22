@@ -108,6 +108,31 @@ TEST_CASE("XML round-trip: tracks, clips, and a still-image-style asset")
     CHECK(*loaded == model);
 }
 
+TEST_CASE("XML round-trip: a dissolve transition's overlapping clips survive exactly")
+{
+    TempProjectFile file("transition");
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, "/home/user/videos/clip.mp4");
+
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 10, 59); // 10 frames of head handle
+    model.addTransition(track, a, b, 6, 4);                // a and b now overlap by 10
+
+    std::string error = saveProject(model, file.path.string());
+    REQUIRE(error.empty());
+
+    auto loaded = loadProject(file.path.string());
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->check().empty());
+    CHECK(*loaded == model);
+    // Not just ==: confirm the overlap itself round-tripped, not just
+    // happened to compare equal on some other field.
+    CHECK(loaded->clip(a).out == model.clip(a).out);
+    CHECK(loaded->clip(b).position == model.clip(b).position);
+    CHECK(loaded->clip(a).end() > loaded->clip(b).position);
+}
+
 TEST_CASE("XML round-trip: relative asset path under the project directory")
 {
     TempProjectFile file("relpath");
