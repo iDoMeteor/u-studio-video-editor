@@ -524,6 +524,115 @@ TEST_CASE("RenameClip: not blocked by a locked track")
     CHECK(model.clip(clip).name == "Take 2");
 }
 
+TEST_CASE("AddTransition: apply then revert restores an equal model")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);     // [0, 50), source [0, 49]
+    ClipId b = model.insertClip(track, asset, 50, 100, 149); // [50, 100), source [100, 149]
+    Model before = model;
+
+    AddTransition cmd(track, a, b, 6, 4);
+    REQUIRE(cmd.apply(model));
+    CHECK(model.hasTransition(cmd.transitionId()));
+    CHECK(model.transition(cmd.transitionId()).length == 10);
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(equalIgnoringIdAllocator(model, before));
+}
+
+TEST_CASE("AddTransition refuses a zero-length request")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+
+    CHECK_FALSE(AddTransition(track, a, b, 0, 0).apply(model));
+}
+
+TEST_CASE("AddTransition refuses clips that aren't exactly adjacent")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 60, 100, 149); // a 10-frame gap, not touching
+    Model before = model;
+
+    CHECK_FALSE(AddTransition(track, a, b, 6, 4).apply(model));
+    CHECK(model == before);
+}
+
+TEST_CASE("AddTransition refuses when clip a lacks tail handle for the requested extension")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, 56); // source is exactly [0, 55]
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);    // 6 frames of tail handle left (50..55)
+    ClipId b = model.insertClip(track, asset, 50, 0, 49);   // a second clip from the same asset
+    Model before = model;
+
+    CHECK_FALSE(AddTransition(track, a, b, 7, 0).apply(model)); // only 6 frames available
+    CHECK(model == before);
+    CHECK(AddTransition(track, a, b, 6, 0).apply(model)); // exactly the available handle
+}
+
+TEST_CASE("AddTransition refuses when clip b lacks head handle for the requested extension")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 0, 49); // in == 0, no head handle at all
+    Model before = model;
+
+    CHECK_FALSE(AddTransition(track, a, b, 0, 1).apply(model));
+    CHECK(model == before);
+}
+
+TEST_CASE("RemoveTransition: apply then revert restores an equal model, regardless of the original split")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    TransitionId t = model.addTransition(track, a, b, 6, 4); // built directly, not via the command under test
+    Model before = model;
+
+    RemoveTransition cmd(t);
+    REQUIRE(cmd.apply(model));
+    CHECK_FALSE(model.hasTransition(t));
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    // Not plain ==: reuseId.value_or(TransitionId{allocateId()}) (like
+    // every other reuseId-taking mutator in this codebase) evaluates its
+    // fallback eagerly, so revert() burns one id slot even though it ends
+    // up reusing `t` -- the same reason InsertClip/SplitClip's own
+    // apply-then-revert tests use this helper instead of ==.
+    CHECK(equalIgnoringIdAllocator(model, before));
+}
+
+TEST_CASE("RemoveTransition refuses on a locked track")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+
+    REQUIRE(SetTrackFlags(track, false, false, true).apply(model)); // lock it after creating the transition
+
+    CHECK_FALSE(RemoveTransition(addCmd.transitionId()).apply(model));
+}
+
 TEST_CASE("Locked tracks refuse insert/move/resize/split/remove, but not the toggle itself")
 {
     Model model = Model::createEmpty();
@@ -540,6 +649,8 @@ TEST_CASE("Locked tracks refuse insert/move/resize/split/remove, but not the tog
     CHECK_FALSE(ResizeClip(clip, 0, 49, 0).apply(model));
     CHECK_FALSE(SplitClip(clip, 50).apply(model));
     CHECK_FALSE(SplitAudio(clip).apply(model));
+    ClipId clip2 = model.insertClip(locked, asset, 100, 0, 99); // adjacent to `clip`
+    CHECK_FALSE(AddTransition(locked, clip, clip2, 5, 0).apply(model));
     // Both directions: moving a clip onto a locked track, and moving the
     // locked track's own clip elsewhere, must each refuse.
     ClipId otherClip = model.insertClip(other, asset, 300, 0, 99);

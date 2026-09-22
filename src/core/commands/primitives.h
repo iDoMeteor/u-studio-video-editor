@@ -315,4 +315,56 @@ class RenameClip : public Command
     std::string m_oldName;
 };
 
+// Creates a dissolve between two clips already adjacent on `track`
+// (a.end() == b.position), by extending `a`'s out forward by `extendA`
+// and/or pulling `b`'s in/position back by `extendB` -- see the
+// Transition comment in types.h for why this never moves anything after
+// `b`. Refuses if the clips aren't exactly adjacent, either side lacks
+// the source-media handle it's asked to use, or the requested combined
+// length would exceed either clip's own resulting length (the same bound
+// Model::check() enforces on the result).
+class AddTransition : public Command
+{
+  public:
+    AddTransition(TrackId track, ClipId a, ClipId b, FrameIndex extendA, FrameIndex extendB);
+    std::string label() const override
+    {
+        return "Add transition";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+    TransitionId transitionId() const
+    {
+        return m_transitionId;
+    }
+
+  private:
+    TrackId m_track;
+    ClipId m_a, m_b;
+    FrameIndex m_extendA, m_extendB;
+    TransitionId m_transitionId;
+    bool m_appliedBefore = false;
+};
+
+// Removes a dissolve, shrinking the two clips it linked back by exactly
+// the handle each contributed at creation (Model::removeTransition is
+// addTransition's exact inverse) -- correct regardless of how long ago,
+// or through what other edits, the transition was created, since the
+// split is read from the Transition record itself, not re-derived.
+class RemoveTransition : public Command
+{
+  public:
+    explicit RemoveTransition(TransitionId transition);
+    std::string label() const override
+    {
+        return "Remove transition";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    TransitionId m_transition;
+    Transition m_captured;
+};
+
 } // namespace ustudio::core

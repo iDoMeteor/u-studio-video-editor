@@ -434,4 +434,74 @@ void RenameClip::revert(Model &model)
     model.setClipName(m_clip, m_oldName);
 }
 
+AddTransition::AddTransition(TrackId track, ClipId a, ClipId b, FrameIndex extendA, FrameIndex extendB)
+    : m_track(track), m_a(a), m_b(b), m_extendA(extendA), m_extendB(extendB)
+{}
+
+bool AddTransition::apply(Model &model)
+{
+    if (!model.hasClip(m_a) || !model.hasClip(m_b))
+        return false;
+    if (!model.hasTrack(m_track) || model.track(m_track).locked)
+        return false;
+    if (m_extendA < 0 || m_extendB < 0 || (m_extendA == 0 && m_extendB == 0))
+        return false;
+
+    const Clip &clipA = model.clip(m_a);
+    const Clip &clipB = model.clip(m_b);
+    if (clipA.track != m_track || clipB.track != m_track)
+        return false;
+    // a must be immediately before b -- exactly touching, no gap and no
+    // existing overlap (doc 08: "a ends where b starts").
+    if (clipA.end() != clipB.position)
+        return false;
+
+    if (m_extendA > 0) {
+        if (!model.hasAsset(clipA.asset))
+            return false;
+        const Asset &assetA = model.asset(clipA.asset);
+        if (!assetA.info.isBoundless() && clipA.out + m_extendA >= assetA.info.lengthInSequenceFrames)
+            return false;
+    }
+    if (m_extendB > 0 && clipB.in - m_extendB < 0)
+        return false;
+
+    // Same bound Model::check() enforces on the result; checking it here
+    // too, before mutating, also keeps b's new position from crossing
+    // before a's start (and vice versa) -- see the class comment.
+    FrameIndex newLengthA = clipA.length() + m_extendA;
+    FrameIndex newLengthB = clipB.length() + m_extendB;
+    if (m_extendA + m_extendB > std::min(newLengthA, newLengthB))
+        return false;
+
+    m_transitionId = model.addTransition(m_track, m_a, m_b, m_extendA, m_extendB,
+                                         m_appliedBefore ? std::optional<TransitionId>(m_transitionId) : std::nullopt);
+    m_appliedBefore = true;
+    return true;
+}
+
+void AddTransition::revert(Model &model)
+{
+    model.removeTransition(m_transitionId);
+}
+
+RemoveTransition::RemoveTransition(TransitionId transition) : m_transition(transition) {}
+
+bool RemoveTransition::apply(Model &model)
+{
+    if (!model.hasTransition(m_transition))
+        return false;
+    m_captured = model.transition(m_transition);
+    if (model.track(m_captured.track).locked)
+        return false;
+    model.removeTransition(m_transition);
+    return true;
+}
+
+void RemoveTransition::revert(Model &model)
+{
+    model.addTransition(m_captured.track, m_captured.a, m_captured.b, m_captured.extendA, m_captured.extendB,
+                        m_captured.id);
+}
+
 } // namespace ustudio::core
