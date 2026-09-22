@@ -327,6 +327,16 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_removeClipNameButton, "clicked", G_CALLBACK(&AppWindow::removeClipNameClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeClipNameButton);
 
+    // Shown when the right-click landed inside a dissolve transition's
+    // overlap region (see onTimelineRightClicked) -- alongside whatever
+    // clip buttons above also matched, since the overlap sits inside a
+    // clip's own rectangle too.
+    m_removeTransitionButton = gtk_button_new_with_label("Remove Transition");
+    gtk_widget_add_css_class(m_removeTransitionButton, "flat");
+    g_signal_connect(m_removeTransitionButton, "clicked", G_CALLBACK(&AppWindow::removeTransitionClickedTrampoline),
+                      this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_removeTransitionButton);
+
     gtk_popover_set_child(m_trackContextMenu, contextMenuBox);
 
     // Shared inline name-edit popover, reused for both a track's label
@@ -970,6 +980,7 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     m_contextMenuTrack = row;
     m_contextMenuClipStartFrame = -1;
     m_contextMenuGapStartFrame = -1;
+    m_contextMenuTransitionId = core::TransitionId{};
 
     int total = m_playback->totalFrames();
     int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
@@ -1012,7 +1023,26 @@ void AppWindow::onTimelineRightClicked(double x, double y)
                 gapStart = candidate.end();
             }
         }
+
+        // A dissolve transition's overlap region: both the clip check
+        // above and this one can match the same click (the overlap sits
+        // inside BOTH clips' own rectangles) -- Remove Transition is
+        // offered alongside whatever the clip check already found, not
+        // instead of it.
+        core::TrackId trackId = trackIdForRow(row);
+        for (const core::Transition &t : m_model.sequence().transitions) {
+            if (t.track != trackId)
+                continue;
+            const core::Clip &clipA = m_model.clip(t.a);
+            const core::Clip &clipB = m_model.clip(t.b);
+            if (frame >= clipB.position && frame < clipA.end()) {
+                m_contextMenuTransitionId = t.id;
+                break;
+            }
+        }
     }
+
+    gtk_widget_set_visible(m_removeTransitionButton, m_contextMenuTransitionId.isValid());
 
     gtk_widget_set_visible(m_deleteClipButton, m_contextMenuClipStartFrame >= 0);
 
@@ -1196,6 +1226,20 @@ void AppWindow::onRemoveClipNameClicked()
             }
             return;
         }
+    }
+}
+
+void AppWindow::onRemoveTransitionClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (!m_contextMenuTransitionId.isValid())
+        return;
+
+    if (m_undoStack.execute(std::make_unique<core::RemoveTransition>(m_contextMenuTransitionId))) {
+        refreshTimeline();
+        showStatus("Removed dissolve.");
+    } else {
+        showStatus("Couldn't remove that transition.");
     }
 }
 
@@ -1388,7 +1432,24 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             core::FrameIndex newIn = clip.in + delta;
             if (!m_undoStack.execute(
                     std::make_unique<core::ResizeClip>(m_dragClipId, newIn, clip.out, m_dragPreviewStartFrame))) {
-                showStatus("Can't trim the clip that far — space is occupied or the source has no more frames.");
+                // Dragging left past the START of the clip immediately
+                // before this one (on the same track, exactly touching --
+                // AddTransition's own precondition) creates a dissolve
+                // there instead of just refusing: the overlap the user
+                // just dragged into becomes the transition's length,
+                // pulled entirely from this clip's own head handle.
+                bool handled = false;
+                if (delta < 0) {
+                    for (const auto &other : m_clips) {
+                        if (other.trackIndex == m_dragClipTrack &&
+                            other.startFrame + other.frames == m_dragClipStartFrame) {
+                            handled = onDragCreatedTransition(other.id, m_dragClipId, 0, -delta);
+                            break;
+                        }
+                    }
+                }
+                if (!handled)
+                    showStatus("Can't trim the clip that far — space is occupied or the source has no more frames.");
             }
         } else if (mode == TimelineDragMode::TrimClipEnd) {
             const core::Clip &clip = m_model.clip(m_dragClipId);
@@ -1396,11 +1457,26 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             // No ripple: a following clip immediately after this one
             // refuses the trim rather than shifting out of the way (doc
             // 04's RippleTrim, a composite command, isn't built yet --
-            // M3/timeline territory). Move the following clip first.
+            // M3/timeline territory) UNLESS it's exactly touching, in
+            // which case the overlap becomes a dissolve instead (see
+            // onDragCreatedTransition) -- move the following clip first
+            // to just trim past a gap.
             if (!m_undoStack.execute(
                     std::make_unique<core::ResizeClip>(m_dragClipId, clip.in, newOut, clip.position))) {
-                showStatus("Can't trim the clip that far — move the next clip out of the way first, or the "
-                           "source has no more frames.");
+                bool handled = false;
+                if (newOut > clip.out) {
+                    for (const auto &other : m_clips) {
+                        if (other.trackIndex == m_dragClipTrack &&
+                            other.startFrame == m_dragClipStartFrame + m_dragClipFrames) {
+                            handled = onDragCreatedTransition(m_dragClipId, other.id, newOut - clip.out, 0);
+                            break;
+                        }
+                    }
+                }
+                if (!handled) {
+                    showStatus("Can't trim the clip that far — move the next clip out of the way first, or the "
+                               "source has no more frames.");
+                }
             }
         }
     }
@@ -1411,6 +1487,16 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
     m_dragClipTrack = -1;
     m_dragClipStartFrame = -1;
     refreshTimeline();
+}
+
+bool AppWindow::onDragCreatedTransition(core::ClipId a, core::ClipId b, core::FrameIndex extendA,
+                                        core::FrameIndex extendB)
+{
+    core::TrackId trackId = trackIdForRow(m_dragClipTrack);
+    if (!m_undoStack.execute(std::make_unique<core::AddTransition>(trackId, a, b, extendA, extendB)))
+        return false;
+    showStatus("Created a " + std::to_string(extendA + extendB) + "-frame dissolve.");
+    return true;
 }
 
 void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
@@ -1586,6 +1672,51 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
 
     if (m_dragMode == TimelineDragMode::MoveClip)
         drawClipRect(m_dragPreviewTrack, m_dragPreviewStartFrame, m_dragPreviewFrames, true, true);
+
+    // Dissolve transitions: a diagonal-hatch overlay on the overlap
+    // region between the two clips a transition links -- geometry keyed
+    // off the CURRENT (already-extended) clip state, same source as
+    // drawClipRect/drawWaveform above, not the transition's own
+    // extendA/extendB (those only matter to AddTransition/
+    // RemoveTransition, not drawing). Skipped mid-drag: a transition
+    // doesn't exist until AddTransition actually runs at drag-end, so
+    // there's nothing to draw yet -- the live resize ghost already shows
+    // the overlap forming.
+    for (const core::Transition &t : m_model.sequence().transitions) {
+        if (!m_model.hasClip(t.a) || !m_model.hasClip(t.b))
+            continue; // mid-undo-step transient state; refreshTimeline() will catch up
+        const core::Track &owningTrack = m_model.track(t.track);
+        int row = -1;
+        for (int r = 0; r < trackCount; ++r) {
+            if (trackIdForRow(r) == owningTrack.id) {
+                row = r;
+                break;
+            }
+        }
+        if (row < 0)
+            continue;
+
+        const core::Clip &clipA = m_model.clip(t.a);
+        const core::Clip &clipB = m_model.clip(t.b);
+        double overlapX = kHandleWidth + (static_cast<double>(clipB.position) / total) * contentWidth;
+        double overlapEndX = kHandleWidth + (static_cast<double>(clipA.end()) / total) * contentWidth;
+        double rowY = row * kTrackRowHeight;
+        double clipTop = rowY + kTrackLabelHeight + 2.0;
+        double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
+
+        cairo_save(cr);
+        cairo_rectangle(cr, overlapX, clipTop, std::max(overlapEndX - overlapX, 1.0), clipHeight);
+        cairo_clip(cr);
+        cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.6);
+        cairo_set_line_width(cr, 1.5);
+        constexpr double kHatchSpacing = 7.0;
+        for (double sx = overlapX - clipHeight; sx < overlapEndX; sx += kHatchSpacing) {
+            cairo_move_to(cr, sx, clipTop + clipHeight);
+            cairo_line_to(cr, sx + clipHeight, clipTop);
+        }
+        cairo_stroke(cr);
+        cairo_restore(cr);
+    }
 }
 
 void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber)
@@ -2097,6 +2228,11 @@ void AppWindow::editClipNameClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::removeClipNameClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onRemoveClipNameClicked();
+}
+
+void AppWindow::removeTransitionClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRemoveTransitionClicked();
 }
 
 gboolean AppWindow::timelineQueryTooltipTrampoline(GtkWidget *, int x, int y, gboolean, GtkTooltip *tooltip,

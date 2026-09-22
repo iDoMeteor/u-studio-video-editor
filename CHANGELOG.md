@@ -4,6 +4,17 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.7.0
+
+- Dissolve transitions between two adjacent clips on the same track.
+  Drag a clip's edge past its exactly-touching neighbor (the same
+  trim-drag gesture used for ordinary trims) to create a dissolve,
+  shown as a diagonal-hatch overlay on the overlap; right-click the
+  overlap for "Remove Transition". Creating one grows each clip using
+  its own existing source-media handle, so nothing else on the track
+  ever needs to move. Undoable, and saved/loaded with the project
+  (project file format bumped to v3 for this — see the README).
+
 ## 0.6.0
 
 - Tracks and clips can now be named. Double-click a track's name strip

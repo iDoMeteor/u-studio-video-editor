@@ -149,6 +149,7 @@ class AppWindow
     gboolean onTimelineQueryTooltip(int x, int y, GtkTooltip *tooltip);
     void onEditClipNameClicked();
     void onRemoveClipNameClicked();
+    void onRemoveTransitionClicked();
     // Opens the inline name-edit popover anchored over track `row`'s
     // label strip, or over `clip`, pre-filled with its current name.
     // Enter or clicking away commits (a no-op Command if the text didn't
@@ -169,6 +170,14 @@ class AppWindow
     bool onTrackDragBegin(double x, double y);
     void onTrackDragUpdate(double offsetX, double offsetY);
     void onTrackDragEnd(double offsetX, double offsetY);
+    // Executes AddTransition(trackIdForRow(m_dragClipTrack), a, b,
+    // extendA, extendB) via the undo stack and reports the result --
+    // shared by TrimClipStart/TrimClipEnd's onTrackDragEnd handling, the
+    // two places dragging a clip's edge past an exactly-touching
+    // neighbour turns what would otherwise be a refused trim into a new
+    // dissolve. Returns false (and shows no status) on failure, so the
+    // caller falls back to its own "can't trim that far" message.
+    bool onDragCreatedTransition(core::ClipId a, core::ClipId b, core::FrameIndex extendA, core::FrameIndex extendB);
     void onTimelineDraw(cairo_t *cr, int width, int height);
     void onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber);
 
@@ -246,6 +255,7 @@ class AppWindow
                                                    GtkTooltip *tooltip, gpointer userData);
     static void editClipNameClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeClipNameClickedTrampoline(GtkButton *button, gpointer userData);
+    static void removeTransitionClickedTrampoline(GtkButton *button, gpointer userData);
     static void inlineNameEditActivateTrampoline(GtkEntry *entry, gpointer userData);
     static void inlineNameEditClosedTrampoline(GtkPopover *popover, gpointer userData);
     static gboolean inlineNameEditKeyTrampoline(GtkEventControllerKey *controller, guint keyval, guint keycode,
@@ -271,6 +281,7 @@ class AppWindow
     GtkWidget *m_toggleLockButton = nullptr;
     GtkWidget *m_editClipNameButton = nullptr;
     GtkWidget *m_removeClipNameButton = nullptr;
+    GtkWidget *m_removeTransitionButton = nullptr;
     GtkScale *m_trackVolumeScale = nullptr;
     // "value-changed" fires while merely repositioning the slider to the
     // right-clicked track's current volume (see onTimelineRightClicked) --
@@ -297,6 +308,9 @@ class AppWindow
     int m_contextMenuFrame = -1;
     int m_contextMenuClipStartFrame = -1;
     int m_contextMenuGapStartFrame = -1;
+    // Set alongside the above when the right-click landed inside a
+    // dissolve transition's overlap region (invalid/default otherwise).
+    core::TransitionId m_contextMenuTransitionId;
 
     // --- Inline track/clip name editing (double-click, or the context
     // menu's Edit Name) ---

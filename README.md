@@ -48,6 +48,15 @@ single-track skeleton.
 - Per-clip audio waveforms, drawn on every clip that has audio (video or
   audio-only), computed on a background thread so the UI never stalls —
   see `src/engine/waveform_cache.{h,cpp}`.
+- Dissolve transitions between two adjacent clips on the same track. Drag
+  a clip's edge past its exactly-touching neighbor (the same trim-drag
+  gesture as an ordinary trim) to create one — the overlap becomes a
+  diagonal-hatch region on the timeline; right-click it for "Remove
+  Transition". Creating a transition grows each clip using its own
+  existing source-media handle, so the pair's combined span on the track
+  never changes and nothing else needs to move. Undoable like any other
+  edit, and played back as a real cross-fade (not just a model concept) —
+  see "Engine sync notes" below.
 - Name tracks and clips. Double-click a track's name strip (just above the
   row) or a clip to edit its name inline (Enter or click away to commit,
   Escape to cancel); right-click a clip for "Add Name"/"Edit Name" and,
