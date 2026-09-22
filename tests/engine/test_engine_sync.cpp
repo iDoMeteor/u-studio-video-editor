@@ -104,6 +104,83 @@ TEST_CASE("EngineSync: a clip with video/audio disabled gets video_index/audio_i
     CHECK(audioCut->get_int("audio_index") != -1);
 }
 
+TEST_CASE("EngineSync: a dissolve transition actually cross-fades, and the pair's total span is unchanged")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId assetA = addGeneratorAsset(model, "color:red");
+    AssetId assetB = addGeneratorAsset(model, "color:blue");
+    ClipId a = model.insertClip(track, assetA, 0, 0, 9);   // [0, 10), source [0, 9]
+    ClipId b = model.insertClip(track, assetB, 10, 3, 12); // [10, 20), source [3, 12] -- 3 frames of head handle
+    model.addTransition(track, a, b, 3, 3);                // length 6
+
+    EngineSync sync(model);
+    CHECK(sync.verify().empty());
+
+    // The pair's combined span is unchanged (Model layer already proves
+    // this in isolation -- see test_model.cpp): both clips grew using
+    // their own handles, so the track's total length is still exactly
+    // A's original 10 + B's original 10, not shorter.
+    Mlt::Playlist playlist(*sync.tractor().track(1)); // 0 = black, 1 = video
+    CHECK(playlist.get_length() == 20);
+
+    // Sample the actual composited frame through the tractor (so the
+    // black-track composite is included, matching real playback) at three
+    // points: solidly in A's exclusive span, solidly in B's, and
+    // mid-dissolve -- confirms the sub-tractor built in
+    // buildTransitionSubTractor() plays back correctly end-to-end through
+    // EngineSync, not just in the isolated repro it was first verified
+    // against (scratchpad/dissolve_repro.cpp).
+    int width = sync.profile().width(), height = sync.profile().height();
+    auto sampleRedBlue = [&](int frameIndex, int &outR, int &outB) {
+        sync.tractor().seek(frameIndex); // get_frame() auto-advances; seek first
+        std::unique_ptr<Mlt::Frame> frame(sync.tractor().get_frame());
+        mlt_image_format format = mlt_image_rgb;
+        uint8_t *image = frame->get_image(format, width, height);
+        outR = image[0];
+        outB = image[2];
+    };
+
+    int r = 0, bch = 0;
+    sampleRedBlue(0, r, bch);
+    CHECK(r > 200);
+    CHECK(bch < 50);
+
+    sampleRedBlue(19, r, bch);
+    CHECK(bch > 200);
+    CHECK(r < 50);
+
+    int firstOverlapR, firstOverlapB, lastOverlapR, lastOverlapB;
+    sampleRedBlue(7, firstOverlapR, firstOverlapB);   // overlap region is [7, 13)
+    sampleRedBlue(12, lastOverlapR, lastOverlapB);
+    CHECK(firstOverlapR > lastOverlapR);
+    CHECK(firstOverlapB < lastOverlapB);
+}
+
+TEST_CASE("EngineSync: a clip entirely consumed by its own outgoing transition gets no exclusive segment")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId assetA = addGeneratorAsset(model, "color:red");
+    AssetId assetB = addGeneratorAsset(model, "color:blue");
+    ClipId a = model.insertClip(track, assetA, 0, 0, 9);    // [0, 10), source [0, 9]
+    ClipId b = model.insertClip(track, assetB, 10, 10, 19); // [10, 20), source [10, 19]
+    // extendB == a's whole length: b pulls its head all the way back to
+    // where a starts, leaving a with no exclusive (pre-overlap) span at
+    // all -- planTrackSegments must skip a's Clip segment entirely rather
+    // than emit a zero/negative-length one.
+    model.addTransition(track, a, b, 0, 10);
+
+    EngineSync sync(model);
+    CHECK(sync.verify().empty());
+
+    Mlt::Playlist playlist(*sync.tractor().track(1));
+    CHECK(playlist.get_length() == 20); // unchanged, same invariant as the test above
+    CHECK(playlist.count() == 2);       // the transition sub-tractor, then b's exclusive tail -- no leading blank/clip
+}
+
 TEST_CASE("EngineSync: a still image's master producer grows again after a second extension past a cached length "
           "(audit E3)")
 {

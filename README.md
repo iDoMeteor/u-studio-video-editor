@@ -357,6 +357,30 @@ formula; confirmed with a standalone repro that -20dB measures a 0.1x
 peak-amplitude ratio, exactly as expected, and again against the real
 engine pipeline in `tests/engine/test_engine_sync.cpp`.
 
+A dissolve transition between two adjacent same-track clips
+(`core::Transition`, `AddTransition`/`RemoveTransition`) is built as a
+small 2-track `Mlt::Tractor` (clip `a`'s tail on track 0, clip `b`'s head
+on track 1, connected by `luma` + `mix`) nested as one entry inside the
+track's own playlist — `EngineSync::planTrackSegments()` is the single
+source of truth both `rebuildTrackPlaylist()` and `verify()` build/check
+against, so they can't drift. Both the `luma` and `mix` transitions
+**must** have their own `in`/`out` set explicitly to the sub-tractor's
+local `[0, length)` range — confirmed empirically (2026-09-22) that
+leaving them unset corrupts the video dissolve into flat garbage colour
+for the last couple of overlap frames, but *only* once track 0's cut
+producer has the non-zero absolute `in` a real clip's tail always has (a
+toy zero-based repro is not enough to catch this). `mix` additionally
+needs `start=-1` ("automatic linear crossfade", per its own YAML) rather
+than the `sum=1, always_active=1` config used for the permanent
+cross-track audio blend above — the YAML documents `sum` as incompatible
+with `start < 0`, confirming the two uses need different settings; the
+crossfade's audio correctness rests on that documented semantics plus the
+same explicit-in/out fix, not an independent sample-level measurement (an
+RMS probe on two `tone:` generators wasn't discriminating enough either
+way). See `EngineSync::buildTransitionSubTractor()`'s comment and
+`tests/engine/test_engine_sync.cpp`'s dissolve test (pixel-samples the
+actual composited output) for the full finding.
+
 ### Waveform cache notes
 
 `WaveformCache` opens its own throwaway `Mlt::Profile`/`Producer` per clip

@@ -152,6 +152,53 @@ class EngineSync
     void onModelEvent(const core::ModelEvent &event);
     Mlt::Producer &masterProducerFor(core::AssetId);
     void rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playlist &playlist);
+
+    // One playlist entry rebuildTrackPlaylist() builds for a track, in
+    // order -- and the same description verify() checks the resulting
+    // playlist against, so the two can't independently drift out of sync
+    // on what a track's MLT playlist is supposed to look like. A
+    // transition between clips `a` and `b` replaces what would otherwise
+    // be two whole-clip Clip segments with up to three: `a`'s own
+    // exclusive (pre-overlap) span, the Transition sub-tractor, and `b`'s
+    // exclusive (post-overlap) span -- either exclusive span is omitted
+    // entirely if a clip's whole length is consumed by the transition(s)
+    // touching it.
+    struct TrackSegment
+    {
+        enum class Kind
+        {
+            Clip,
+            Transition,
+        } kind;
+
+        core::FrameIndex start;  // position on the track
+        core::FrameIndex length; // frame count, always > 0
+
+        // Kind::Clip: `in`/`out` are this segment's own source range --
+        // narrower than the model clip's full in/out when a transition
+        // has trimmed the head and/or tail off it.
+        core::ClipId clip;
+        core::FrameIndex in = 0, out = 0;
+
+        // Kind::Transition
+        core::TransitionId transition;
+        core::ClipId a, b;
+    };
+    std::vector<TrackSegment> planTrackSegments(const core::Track &modelTrack) const;
+    // Builds the 2-track sub-tractor for one Transition segment: `a`'s
+    // tail on track 0, `b`'s head on track 1, connected by a plain `luma`
+    // dissolve (no `resource` -> dissolve per the module's own YAML) and a
+    // `mix` for audio crossfade (start=-1). Both transitions have their
+    // own in/out explicitly set to the sub-tractor's local [0, length)
+    // range in the .cpp -- REQUIRED, not optional: a standalone repro
+    // (2026-09-22, scratchpad/dissolve_repro*.cpp) first seemed to show a
+    // plain unconfigured luma dissolving correctly when nested in an
+    // outer playlist, but that repro's cuts both happened to start at
+    // source frame 0; once track 0's cut has the non-zero absolute `in` a
+    // real clip's tail always has, the same construction corrupted the
+    // last couple of overlap frames into flat garbage colour until in/out
+    // were set explicitly. See the .cpp for the fuller finding.
+    std::unique_ptr<Mlt::Tractor> buildTransitionSubTractor(const TrackSegment &segment);
 };
 
 // Renders `model` to outputPath as H.264 (High, yuv420p, matching the
