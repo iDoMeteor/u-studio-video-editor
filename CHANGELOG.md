@@ -4,6 +4,18 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.8.0
+
+- Dissolve transitions: drag either edge of an existing dissolve to grow
+  or shrink it; right-click near where two touching clips meet for "Add
+  Transition" (a default ~half-second dissolve) as an alternative to
+  dragging one in. Fixed: double-clicking a track's name label could
+  instead open the clip name editor if a clip happened to sit under it;
+  a clip's own name now takes priority over its track's name in the
+  corner badge once set (previously the track's name always won).
+  Context menu: added "Edit Track Name"; renamed "Edit/Add/Remove Name"
+  to "…Clip Name" to disambiguate from the new track one.
+
 ## 0.7.0
 
 - Dissolve transitions between two adjacent clips on the same track.

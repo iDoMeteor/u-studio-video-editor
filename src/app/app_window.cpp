@@ -313,16 +313,22 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_removeTrackButton, "clicked", G_CALLBACK(&AppWindow::removeTrackClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeTrackButton);
 
-    // Edit Name / Remove (name): shown only when the right-click landed on
-    // a clip (see onTimelineRightClicked); label text on m_editClipNameButton
-    // ("Edit Name" vs "Edit") and the visibility of m_removeClipNameButton
-    // both depend on whether that clip currently has a name.
-    m_editClipNameButton = gtk_button_new_with_label("Edit Name");
+    m_editTrackNameButton = gtk_button_new_with_label("Edit Track Name");
+    gtk_widget_add_css_class(m_editTrackNameButton, "flat");
+    g_signal_connect(m_editTrackNameButton, "clicked", G_CALLBACK(&AppWindow::editTrackNameClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_editTrackNameButton);
+
+    // Edit/Remove Clip Name: shown only when the right-click landed on a
+    // clip (see onTimelineRightClicked); label text on
+    // m_editClipNameButton ("Edit Clip Name" vs "Add Clip Name") and the
+    // visibility of m_removeClipNameButton both depend on whether that
+    // clip currently has a name.
+    m_editClipNameButton = gtk_button_new_with_label("Edit Clip Name");
     gtk_widget_add_css_class(m_editClipNameButton, "flat");
     g_signal_connect(m_editClipNameButton, "clicked", G_CALLBACK(&AppWindow::editClipNameClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_editClipNameButton);
 
-    m_removeClipNameButton = gtk_button_new_with_label("Remove Name");
+    m_removeClipNameButton = gtk_button_new_with_label("Remove Clip Name");
     gtk_widget_add_css_class(m_removeClipNameButton, "flat");
     g_signal_connect(m_removeClipNameButton, "clicked", G_CALLBACK(&AppWindow::removeClipNameClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeClipNameButton);
@@ -336,6 +342,14 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_removeTransitionButton, "clicked", G_CALLBACK(&AppWindow::removeTransitionClickedTrampoline),
                       this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeTransitionButton);
+
+    // Shown when the right-click landed near the boundary between two
+    // touching, not-yet-linked clips (see onTimelineRightClicked) -- an
+    // alternative to dragging a clip's edge past its neighbour.
+    m_addTransitionButton = gtk_button_new_with_label("Add Transition");
+    gtk_widget_add_css_class(m_addTransitionButton, "flat");
+    g_signal_connect(m_addTransitionButton, "clicked", G_CALLBACK(&AppWindow::addTransitionClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_addTransitionButton);
 
     gtk_popover_set_child(m_trackContextMenu, contextMenuBox);
 
@@ -951,15 +965,18 @@ void AppWindow::onTimelineClicked(int nPress, double x, double y)
         }
 
         // Double-click opens the inline name editor instead of the usual
-        // seek/select: on a clip, edit that clip's name; on the label
-        // strip above a track (no clip there), edit the track's name.
+        // seek/select: on the label strip above a track, edit the
+        // track's name; otherwise, on a clip, edit that clip's name. The
+        // label-strip check must run FIRST: the clip hit-test above only
+        // checks the frame/x range, not y, so it still matches a clip
+        // sitting directly under the label strip in the same row.
         if (nPress == 2) {
-            if (m_selectedClip >= 0) {
-                beginClipNameEdit(m_clips[static_cast<size_t>(m_selectedClip)]);
-                return;
-            }
             if (y - row * kTrackRowHeight <= kTrackLabelHeight) {
                 beginTrackNameEdit(m_activeTrack);
+                return;
+            }
+            if (m_selectedClip >= 0) {
+                beginClipNameEdit(m_clips[static_cast<size_t>(m_selectedClip)]);
                 return;
             }
         }
@@ -981,6 +998,8 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     m_contextMenuClipStartFrame = -1;
     m_contextMenuGapStartFrame = -1;
     m_contextMenuTransitionId = core::TransitionId{};
+    m_contextMenuAddTransitionA = core::ClipId{};
+    m_contextMenuAddTransitionB = core::ClipId{};
 
     int total = m_playback->totalFrames();
     int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
@@ -1040,9 +1059,36 @@ void AppWindow::onTimelineRightClicked(double x, double y)
                 break;
             }
         }
+
+        // "Add Transition": near the exact pixel boundary between two
+        // touching, not-yet-linked clips (same proximity width as the
+        // drag-trim edge grab) -- offered independent of whatever the
+        // clip/gap checks above found, since a boundary sits exactly on
+        // the edge of both neighbouring clips' own rectangles.
+        double contentWidth = widgetWidth - kHandleWidth;
+        const core::Track &track = m_model.track(trackId);
+        for (size_t i = 0; i + 1 < track.clips.size(); ++i) {
+            const core::Clip &clipA = m_model.clip(track.clips[i]);
+            const core::Clip &clipB = m_model.clip(track.clips[i + 1]);
+            if (clipA.end() != clipB.position)
+                continue; // a gap, not a touching boundary
+            bool alreadyLinked =
+                std::any_of(m_model.sequence().transitions.begin(), m_model.sequence().transitions.end(),
+                           [&](const core::Transition &t2) { return t2.a == clipA.id && t2.b == clipB.id; });
+            if (alreadyLinked)
+                continue;
+            double boundaryX = kHandleWidth + (static_cast<double>(clipA.end()) / total) * contentWidth;
+            double distance = x > boundaryX ? x - boundaryX : boundaryX - x;
+            if (distance <= kEdgeGrabWidth) {
+                m_contextMenuAddTransitionA = clipA.id;
+                m_contextMenuAddTransitionB = clipB.id;
+                break;
+            }
+        }
     }
 
     gtk_widget_set_visible(m_removeTransitionButton, m_contextMenuTransitionId.isValid());
+    gtk_widget_set_visible(m_addTransitionButton, m_contextMenuAddTransitionA.isValid());
 
     gtk_widget_set_visible(m_deleteClipButton, m_contextMenuClipStartFrame >= 0);
 
@@ -1078,12 +1124,13 @@ void AppWindow::onTimelineRightClicked(double x, double y)
         }
     }
     gtk_widget_set_visible(m_editClipNameButton, m_contextMenuClipStartFrame >= 0);
-    gtk_button_set_label(GTK_BUTTON(m_editClipNameButton), clipHasName ? "Edit Name" : "Add Name");
+    gtk_button_set_label(GTK_BUTTON(m_editClipNameButton), clipHasName ? "Edit Clip Name" : "Add Clip Name");
     gtk_widget_set_visible(m_removeClipNameButton, clipHasName);
 
     bool onEmptyTrackSpace = m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0;
     gtk_widget_set_visible(m_removeTrackButton, onEmptyTrackSpace);
     gtk_widget_set_visible(m_toggleLockButton, onEmptyTrackSpace);
+    gtk_widget_set_visible(m_editTrackNameButton, onEmptyTrackSpace);
     gtk_widget_set_visible(gtk_widget_get_parent(GTK_WIDGET(m_trackVolumeScale)), onEmptyTrackSpace);
     if (onEmptyTrackSpace) {
         const core::Track &track = m_model.track(trackIdForRow(row));
@@ -1243,6 +1290,52 @@ void AppWindow::onRemoveTransitionClicked()
     }
 }
 
+void AppWindow::onAddTransitionClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (!m_contextMenuAddTransitionA.isValid() || !m_contextMenuAddTransitionB.isValid())
+        return;
+
+    core::TrackId trackId = trackIdForRow(m_contextMenuTrack);
+    const core::Clip &clipA = m_model.clip(m_contextMenuAddTransitionA);
+    const core::Clip &clipB = m_model.clip(m_contextMenuAddTransitionB);
+
+    // Default length: about half a second, split between both clips' own
+    // handles -- unlike a drag-created transition (which attributes the
+    // whole length to whichever edge was actually dragged), there's no
+    // single side to prefer here, so try half from each, and hand
+    // whatever one side can't use to the other (clamped again there).
+    core::FrameIndex targetLength =
+        std::max<core::FrameIndex>(1, static_cast<core::FrameIndex>(m_playback->fps() * 0.5 + 0.5));
+    core::FrameIndex handleA = 0;
+    if (m_model.hasAsset(clipA.asset)) {
+        const core::Asset &asset = m_model.asset(clipA.asset);
+        handleA = asset.info.isBoundless()
+                    ? targetLength
+                    : std::max<core::FrameIndex>(0, asset.info.lengthInSequenceFrames - 1 - clipA.out);
+    }
+    core::FrameIndex handleB = clipB.in; // source starts at 0, so `in` itself is the available head room
+
+    core::FrameIndex extendA = std::min(targetLength / 2, handleA);
+    core::FrameIndex remaining = targetLength - extendA;
+    core::FrameIndex extendB = std::min(remaining, handleB);
+    core::FrameIndex shortfall = remaining - extendB;
+    if (shortfall > 0)
+        extendA = std::min(handleA, extendA + shortfall);
+
+    if (extendA + extendB <= 0) {
+        showStatus("Couldn't add a transition there — neither clip has spare source frames.");
+        return;
+    }
+
+    if (m_undoStack.execute(std::make_unique<core::AddTransition>(trackId, clipA.id, clipB.id, extendA, extendB))) {
+        refreshTimeline();
+        showStatus("Created a " + std::to_string(extendA + extendB) + "-frame dissolve.");
+    } else {
+        showStatus("Couldn't add a transition there.");
+    }
+}
+
 void AppWindow::onRemoveTrackClicked()
 {
     gtk_popover_popdown(m_trackContextMenu);
@@ -1279,6 +1372,14 @@ void AppWindow::onToggleLockClicked()
         showStatus("Couldn't change that track's lock.");
     }
     m_contextMenuTrack = -1;
+}
+
+void AppWindow::onEditTrackNameClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    if (m_contextMenuTrack < 0)
+        return;
+    beginTrackNameEdit(m_contextMenuTrack);
 }
 
 void AppWindow::onTrackVolumeChanged()
@@ -1319,6 +1420,35 @@ bool AppWindow::onTrackDragBegin(double x, double y)
     double contentWidth = widgetWidth - kHandleWidth;
     int row = static_cast<int>(y / kTrackRowHeight);
     int frameAtX = static_cast<int>(((x - kHandleWidth) / contentWidth) * total);
+
+    // An existing transition's own edges sit exactly on the drawn edges
+    // of the two clips it links (clipA's right edge == clipB's left edge
+    // == the overlap boundary), so this must run BEFORE the plain clip
+    // edge-detection below: dragging there should resize the transition,
+    // not attempt (and always fail) an ordinary trim into occupied space.
+    core::TrackId rowTrackId = trackIdForRow(row);
+    for (const core::Transition &t : m_model.sequence().transitions) {
+        if (t.track != rowTrackId)
+            continue;
+        const core::Clip &clipA = m_model.clip(t.a);
+        const core::Clip &clipB = m_model.clip(t.b);
+        double leftX = kHandleWidth + (static_cast<double>(clipB.position) / total) * contentWidth;
+        double rightX = kHandleWidth + (static_cast<double>(clipA.end()) / total) * contentWidth;
+
+        bool nearLeft = x - leftX < kEdgeGrabWidth && leftX - x < kEdgeGrabWidth;
+        bool nearRight = x - rightX < kEdgeGrabWidth && rightX - x < kEdgeGrabWidth;
+        if (!nearLeft && !nearRight)
+            continue;
+
+        m_dragTransitionId = t.id;
+        m_dragTransitionRow = row;
+        m_dragTransitionPreviewLeftFrame = static_cast<int>(clipB.position);
+        m_dragTransitionPreviewRightFrame = static_cast<int>(clipA.end());
+        m_activeTrack = row;
+        m_dragMode = nearLeft ? TimelineDragMode::TransitionResizeLeft : TimelineDragMode::TransitionResizeRight;
+        gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+        return true;
+    }
 
     for (size_t i = 0; i < m_clips.size(); ++i) {
         const auto &clip = m_clips[i];
@@ -1391,6 +1521,23 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
         m_dragPreviewTrack = m_dragClipTrack;
         m_dragPreviewStartFrame = m_dragClipStartFrame;
         m_dragPreviewFrames = newEnd - m_dragClipStartFrame;
+    } else if (m_dragMode == TimelineDragMode::TransitionResizeLeft) {
+        // The right edge stays put; clamp so the left edge can't cross it
+        // (and can't go negative) -- final handle-availability validation
+        // happens at drag-end (AddTransition), this is just the preview.
+        if (m_model.hasTransition(m_dragTransitionId)) {
+            const core::Transition &t = m_model.transition(m_dragTransitionId);
+            int rightEdge = static_cast<int>(m_model.clip(t.a).end());
+            m_dragTransitionPreviewLeftFrame =
+                std::clamp(static_cast<int>(m_model.clip(t.b).position) + deltaFrames, 0, rightEdge - 1);
+        }
+    } else if (m_dragMode == TimelineDragMode::TransitionResizeRight) {
+        if (m_model.hasTransition(m_dragTransitionId)) {
+            const core::Transition &t = m_model.transition(m_dragTransitionId);
+            int leftEdge = static_cast<int>(m_model.clip(t.b).position);
+            m_dragTransitionPreviewRightFrame =
+                std::max(leftEdge + 1, static_cast<int>(m_model.clip(t.a).end()) + deltaFrames);
+        }
     }
 
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
@@ -1479,6 +1626,49 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
                 }
             }
         }
+    } else if (mode == TimelineDragMode::TransitionResizeLeft || mode == TimelineDragMode::TransitionResizeRight) {
+        if (trivial) {
+            // Not really a drag -- treat as the plain click it was.
+            onTimelineClicked(1, m_dragStartX, m_dragStartY);
+        } else if (m_model.hasTransition(m_dragTransitionId)) {
+            const core::Transition &current = m_model.transition(m_dragTransitionId);
+            core::TrackId trackId = current.track;
+            core::ClipId aId = current.a, bId = current.b;
+            core::FrameIndex extendA = current.extendA;
+            core::FrameIndex extendB = current.extendB;
+
+            // Only the edge actually being dragged moves; the other stays
+            // at its current position -- re-derive the fixed touch point
+            // (where the two clips would meet with no transition at all)
+            // from whichever side ISN'T moving, then compute the new
+            // extend* for the side that is.
+            if (mode == TimelineDragMode::TransitionResizeLeft) {
+                core::FrameIndex touchPoint = m_model.clip(bId).position + extendB;
+                extendB = std::max<core::FrameIndex>(0, touchPoint - m_dragTransitionPreviewLeftFrame);
+            } else {
+                core::FrameIndex touchPoint = m_model.clip(aId).end() - extendA;
+                extendA = std::max<core::FrameIndex>(0, m_dragTransitionPreviewRightFrame - touchPoint);
+            }
+
+            bool ok;
+            if (extendA + extendB > 0) {
+                std::vector<std::unique_ptr<core::Command>> steps;
+                steps.push_back(std::make_unique<core::RemoveTransition>(m_dragTransitionId));
+                steps.push_back(std::make_unique<core::AddTransition>(trackId, aId, bId, extendA, extendB));
+                ok = m_undoStack.execute(
+                    std::make_unique<core::CompositeCommand>("Resize transition", std::move(steps)));
+            } else {
+                // Dragged all the way to nothing -- just remove it.
+                ok = m_undoStack.execute(std::make_unique<core::RemoveTransition>(m_dragTransitionId));
+            }
+            if (ok) {
+                showStatus(extendA + extendB > 0
+                              ? "Resized dissolve to " + std::to_string(extendA + extendB) + " frames."
+                              : "Removed dissolve.");
+            } else {
+                showStatus("Couldn't resize that transition — not enough source frames.");
+            }
+        }
     }
 
     m_dragMode = TimelineDragMode::None;
@@ -1486,6 +1676,8 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
     m_dragHoverRow = -1;
     m_dragClipTrack = -1;
     m_dragClipStartFrame = -1;
+    m_dragTransitionId = core::TransitionId{};
+    m_dragTransitionRow = -1;
     refreshTimeline();
 }
 
@@ -1577,7 +1769,8 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     if (total <= 0)
         return;
 
-    auto drawClipRect = [&](int trackIndex, int startFrame, int frames, bool selected, bool ghost) {
+    auto drawClipRect = [&](int trackIndex, int startFrame, int frames, const std::string &clipName, bool selected,
+                            bool ghost) {
         double x = kHandleWidth + (static_cast<double>(startFrame) / total) * contentWidth;
         double w = (static_cast<double>(frames) / total) * contentWidth;
         double rowY = trackIndex * kTrackRowHeight;
@@ -1595,15 +1788,17 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_set_line_width(cr, selected ? 2.0 : 1.0);
         cairo_stroke(cr);
 
-        // Track-title corner badge: the OWNING track's name, not the
-        // clip's own, drawn in the clip's own top-left corner so which
-        // track a clip belongs to is visible without looking back at the
-        // row label (e.g. once scrolled). Skipped for the drag-preview
-        // ghost outline, where it would just be clutter.
+        // Corner badge: the clip's own name if it has one (the more
+        // specific identifier once set), else the owning track's name, so
+        // which track a clip belongs to is still visible without looking
+        // back at the row label (e.g. once scrolled) when the clip has no
+        // name of its own. Skipped for the drag-preview ghost outline,
+        // where it would just be clutter.
         if (!ghost) {
             const core::Track &owningTrack = m_model.track(trackIdForRow(trackIndex));
-            if (!owningTrack.name.empty())
-                drawLabel(cr, owningTrack.name, x + 4, clipTop + 1, std::max(w - 8, 1.0));
+            const std::string &label = !clipName.empty() ? clipName : owningTrack.name;
+            if (!label.empty())
+                drawLabel(cr, label, x + 4, clipTop + 1, std::max(w - 8, 1.0));
         }
     };
 
@@ -1661,7 +1856,7 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         int drawTrack = isDragged ? m_dragPreviewTrack : clip.trackIndex;
         int drawStart = isDragged ? m_dragPreviewStartFrame : clip.startFrame;
         int drawFrames = isDragged ? m_dragPreviewFrames : clip.frames;
-        drawClipRect(drawTrack, drawStart, drawFrames, selected, false);
+        drawClipRect(drawTrack, drawStart, drawFrames, clip.name, selected, false);
 
         if (!isDragged) {
             double x = kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth;
@@ -1671,17 +1866,20 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     }
 
     if (m_dragMode == TimelineDragMode::MoveClip)
-        drawClipRect(m_dragPreviewTrack, m_dragPreviewStartFrame, m_dragPreviewFrames, true, true);
+        drawClipRect(m_dragPreviewTrack, m_dragPreviewStartFrame, m_dragPreviewFrames, std::string{}, true, true);
 
     // Dissolve transitions: a diagonal-hatch overlay on the overlap
     // region between the two clips a transition links -- geometry keyed
     // off the CURRENT (already-extended) clip state, same source as
     // drawClipRect/drawWaveform above, not the transition's own
     // extendA/extendB (those only matter to AddTransition/
-    // RemoveTransition, not drawing). Skipped mid-drag: a transition
-    // doesn't exist until AddTransition actually runs at drag-end, so
-    // there's nothing to draw yet -- the live resize ghost already shows
-    // the overlap forming.
+    // RemoveTransition, not drawing). A transition being CREATED by a
+    // drag (TrimClipStart/End overlapping a neighbour) isn't drawn here
+    // -- it doesn't exist until AddTransition runs at drag-end, and the
+    // live resize ghost already shows the overlap forming. A transition
+    // being RESIZED (TransitionResizeLeft/Right) DOES already exist, so
+    // its hatch is drawn live at the drag preview position instead of
+    // its last-committed one.
     for (const core::Transition &t : m_model.sequence().transitions) {
         if (!m_model.hasClip(t.a) || !m_model.hasClip(t.b))
             continue; // mid-undo-step transient state; refreshTimeline() will catch up
@@ -1698,8 +1896,12 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
 
         const core::Clip &clipA = m_model.clip(t.a);
         const core::Clip &clipB = m_model.clip(t.b);
-        double overlapX = kHandleWidth + (static_cast<double>(clipB.position) / total) * contentWidth;
-        double overlapEndX = kHandleWidth + (static_cast<double>(clipA.end()) / total) * contentWidth;
+        bool isBeingResized = t.id == m_dragTransitionId && (m_dragMode == TimelineDragMode::TransitionResizeLeft ||
+                                                             m_dragMode == TimelineDragMode::TransitionResizeRight);
+        core::FrameIndex overlapStartFrame = isBeingResized ? m_dragTransitionPreviewLeftFrame : clipB.position;
+        core::FrameIndex overlapEndFrame = isBeingResized ? m_dragTransitionPreviewRightFrame : clipA.end();
+        double overlapX = kHandleWidth + (static_cast<double>(overlapStartFrame) / total) * contentWidth;
+        double overlapEndX = kHandleWidth + (static_cast<double>(overlapEndFrame) / total) * contentWidth;
         double rowY = row * kTrackRowHeight;
         double clipTop = rowY + kTrackLabelHeight + 2.0;
         double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
@@ -2220,6 +2422,11 @@ void AppWindow::toggleLockClickedTrampoline(GtkButton *, gpointer userData)
     static_cast<AppWindow *>(userData)->onToggleLockClicked();
 }
 
+void AppWindow::editTrackNameClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onEditTrackNameClicked();
+}
+
 void AppWindow::editClipNameClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onEditClipNameClicked();
@@ -2233,6 +2440,11 @@ void AppWindow::removeClipNameClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::removeTransitionClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onRemoveTransitionClicked();
+}
+
+void AppWindow::addTransitionClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onAddTransitionClicked();
 }
 
 gboolean AppWindow::timelineQueryTooltipTrampoline(GtkWidget *, int x, int y, gboolean, GtkTooltip *tooltip,

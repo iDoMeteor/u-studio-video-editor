@@ -27,6 +27,14 @@ enum class TimelineDragMode
     MoveClip,
     TrimClipStart,
     TrimClipEnd,
+    // Dragging one edge of an EXISTING dissolve transition's hatch region
+    // to grow/shrink it (Left = the edge at the earlier clip's position,
+    // Right = the edge at the later clip's end) -- the other edge stays
+    // fixed. Distinct from TrimClipStart/End: those touch a clip's own
+    // in/out directly and refuse on overlap; these touch the transition's
+    // extendA/extendB split via RemoveTransition+AddTransition.
+    TransitionResizeLeft,
+    TransitionResizeRight,
 };
 
 // What the inline name-edit popover (double-click a track label or a
@@ -141,6 +149,7 @@ class AppWindow
     void onCloseGapClicked();
     void onRemoveTrackClicked();
     void onToggleLockClicked();
+    void onEditTrackNameClicked();
     void onTrackVolumeChanged();
     void onWaveformReady();
     // query-tooltip handler (GTK4's mechanism for a per-region tooltip on
@@ -150,6 +159,7 @@ class AppWindow
     void onEditClipNameClicked();
     void onRemoveClipNameClicked();
     void onRemoveTransitionClicked();
+    void onAddTransitionClicked();
     // Opens the inline name-edit popover anchored over track `row`'s
     // label strip, or over `clip`, pre-filled with its current name.
     // Enter or clicking away commits (a no-op Command if the text didn't
@@ -233,6 +243,7 @@ class AppWindow
     static void closeGapClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTrackClickedTrampoline(GtkButton *button, gpointer userData);
     static void toggleLockClickedTrampoline(GtkButton *button, gpointer userData);
+    static void editTrackNameClickedTrampoline(GtkButton *button, gpointer userData);
     static void trackVolumeChangedTrampoline(GtkRange *range, gpointer userData);
     static void trackDragBeginTrampoline(GtkGestureDrag *gesture, double x, double y, gpointer userData);
     static void trackDragUpdateTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
@@ -256,6 +267,7 @@ class AppWindow
     static void editClipNameClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeClipNameClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTransitionClickedTrampoline(GtkButton *button, gpointer userData);
+    static void addTransitionClickedTrampoline(GtkButton *button, gpointer userData);
     static void inlineNameEditActivateTrampoline(GtkEntry *entry, gpointer userData);
     static void inlineNameEditClosedTrampoline(GtkPopover *popover, gpointer userData);
     static gboolean inlineNameEditKeyTrampoline(GtkEventControllerKey *controller, guint keyval, guint keycode,
@@ -279,9 +291,11 @@ class AppWindow
     GtkWidget *m_closeGapButton = nullptr;
     GtkWidget *m_removeTrackButton = nullptr;
     GtkWidget *m_toggleLockButton = nullptr;
+    GtkWidget *m_editTrackNameButton = nullptr;
     GtkWidget *m_editClipNameButton = nullptr;
     GtkWidget *m_removeClipNameButton = nullptr;
     GtkWidget *m_removeTransitionButton = nullptr;
+    GtkWidget *m_addTransitionButton = nullptr;
     GtkScale *m_trackVolumeScale = nullptr;
     // "value-changed" fires while merely repositioning the slider to the
     // right-clicked track's current volume (see onTimelineRightClicked) --
@@ -311,6 +325,10 @@ class AppWindow
     // Set alongside the above when the right-click landed inside a
     // dissolve transition's overlap region (invalid/default otherwise).
     core::TransitionId m_contextMenuTransitionId;
+    // Set alongside the above when the right-click landed near the exact
+    // boundary between two touching, not-yet-linked clips (invalid/
+    // default otherwise) -- offers "Add Transition" there.
+    core::ClipId m_contextMenuAddTransitionA, m_contextMenuAddTransitionB;
 
     // --- Inline track/clip name editing (double-click, or the context
     // menu's Edit Name) ---
@@ -343,6 +361,14 @@ class AppWindow
     int m_dragPreviewTrack = -1;
     int m_dragPreviewStartFrame = -1;
     int m_dragPreviewFrames = 0;
+
+    // TransitionResizeLeft/Right: which transition, its row, and the live
+    // preview position of the edge actually being dragged (the other edge
+    // stays at the transition's current, unchanged position throughout).
+    core::TransitionId m_dragTransitionId;
+    int m_dragTransitionRow = -1;
+    int m_dragTransitionPreviewLeftFrame = 0;
+    int m_dragTransitionPreviewRightFrame = 0;
 
     bool m_suppressSeekSignal = false;
 
