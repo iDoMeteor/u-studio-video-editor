@@ -32,10 +32,13 @@ this project is a different, smaller architecture.
 **No Qt, no KDE Frameworks, anywhere in the process.** This is a runtime
 property, not a link-line property: `Mlt::Factory::init()` with no directory
 argument dlopens MLT's Qt6 modules (measured: 32 Qt libraries mapped).
-`ldd | grep -i qt` passing proves nothing. The v2 fix is a curated module
-directory (ADR-007); until it lands, do not add anything that depends on a
-`qt6` MLT service (`qtblend`, `qtext`, `qimage`, `glaxnimate`), and never
-add Qt to `meson.build`.
+`ldd | grep -i qt` passing proves nothing. The fix is a curated module
+directory (ADR-007), implemented in `src/engine/factory_policy.cpp` and
+checked by `tests/engine/test_factory_policy`. Never add anything that
+depends on a `qt6` MLT service (`qtblend`, `qtext`, `qimage`,
+`glaxnimate`); watch for Qt-free services that *default* to one (e.g.
+`mask_apply`'s `transition` defaults to `qtblend`, doc 15). Never add Qt
+to `meson.build`.
 
 Platform: Fedora (owner's machine, Wayland, PipeWire) first; any modern
 GNOME desktop second; Flatpak is the reference shipped artifact from M7.
@@ -50,62 +53,62 @@ truth (see "Design system" below).
 
 ## Repository layout
 
-Today (v1, single executable):
+The v2 layered layout (M0 landed; see `docs/plans/v2/02-architecture.md`):
 
 ```
-meson.build               Project definition, dependencies (GTK4, libadwaita, MLT, GLib)
-src/main.cpp              AdwApplication entry point; loads CSS; creates the window
+meson.build               Project definition, version, dependencies
+src/core/                 Pure C++23 + libxml2. No GTK, no GLib, no MLT
+  model/                  Project/Sequence/Track/Clip/Asset types, Model mutators, check()
+  commands/               Command, primitives, CompositeCommand, Transaction, UndoStack
+  xml/                    .ustudio project reader/writer (ADR-004)
+  log.{h,cpp}             Thread-safe logger → stderr + $XDG_STATE_HOME/ustudio/logs/
 src/engine/               The ONLY code that includes <mlt++/Mlt.h>
-  mlt_engine.{h,cpp}      Profile, per-track playlists in a Tractor, pull-loop playback,
-                          edit primitives (move/trim/split/lift/close-gap), save/load, render
-  waveform_cache.{h,cpp}  Background audio-peak extraction with its own throwaway producers
-src/ui/                   GTK4/libadwaita shell, built imperatively (no .ui files)
-  app_window.{h,cpp}      Header bar, preview, multi-row timeline, transport, context menus
-  style_css.h             Unicorn Tears tokens mapped onto libadwaita named colours
-src/util/log.{h,cpp}      Thread-safe logger → stderr + logs/<app>-<timestamp>.log
+  factory_policy.*        Curated MLT module directory, Factory::init/close (ADR-007)
+  engine_sync.*           Model → Mlt::Tractor projection, verifier, media probe, render
+  playback_controller.*   Playback over an MLT consumer (ADR-002, doc 05)
+  dispatcher.*            MainThreadDispatcher: consumer thread → GLib main thread
+  waveform_cache.*, thumbnail_cache.*   Workers with their own throwaway producers
+src/app/                  GTK4/libadwaita shell, built imperatively (no .ui files)
+  app_window.*            Header bar, preview, timeline, transport, media browser, dialogs
+  autosave.*              Autosave and crash recovery (doc 09)
+  style/style.css         Unicorn Tears tokens on libadwaita named colours (GResource)
+src/render/               u-studio-render headless CLI (placeholder until M6)
+tests/                    doctest suites: core/, engine/, app/
+data/                     Desktop file, metainfo, icons, GResource manifest
 docs/plans/v2/            v2 architecture, model, roadmap, ADRs (see top of this file)
 builddir/                 meson build output — gitignored, per-worktree
-logs/                     runtime logs — gitignored
 ```
-
-Planned (v2, from milestone M0 — see `docs/plans/v2/02-architecture.md`):
-`src/core/` (pure C++ model + commands, no GTK/MLT), `src/engine/` (MLT
-only), `src/app/` (GTK only), `src/render/` (headless CLI), `tests/`,
-`data/`. Until M0 lands, keep working in the current layout; M0 is one
-announced, mechanical PR that moves files without changing logic.
 
 ---
 
 ## Language & build standards
 
-- **C++23** is the decided standard (doc 13, Q1); `meson.build` still says
-  `cpp_std=c++17` and is bumped in M0. Until then, write code that compiles
-  under both (no `std::expected`, no `std::print` yet).
+- **C++23** (doc 13, Q1), set in `meson.build`; `std::expected` is in use
+  (`core/xml/reader.h`).
 - Toolchain: GCC 16 on the dev machine; keep it buildable with GCC ≥ 13.
   `ccache` is on the PATH — rebuilds are cheap, don't skip them.
-- `warning_level=2` today, `3` plus `-Wshadow -Wconversion -Wold-style-cast
-  -Wnon-virtual-dtor` and `werror` in CI from M0. New code must be
-  warning-clean at the current level.
+- `warning_level=3` plus `-Wshadow -Wconversion -Wold-style-cast
+  -Wnon-virtual-dtor` (`meson.build`); `-Dwerror=true` is the CI setting.
+  New code must be warning-clean.
 - Build, run, verify:
 
   ```sh
   meson setup builddir                       # once per worktree
   meson compile -C builddir
-  USTUDIO_LOG_LEVEL=debug ./builddir/src/u-studio-video-editor
+  USTUDIO_LOG_LEVEL=debug ./builddir/src/app/u-studio-video-editor
   ```
 
-  When `tests/` exists (M0): `meson test -C builddir --print-errorlogs`
-  before every commit.
+  Run `meson test -C builddir --print-errorlogs` before every commit.
 - Dependencies are: GTK4 ≥ 4.10, libadwaita, GLib/GIO/GObject, MLT 7
-  (`mlt-framework-7`, `mlt++-7`), and today `libpulse-simple` (removed in
-  M2). v2 adds `libxml2` (already an MLT transitive dep) and a vendored
-  doctest header. **Anything else needs an ADR** and the owner's sign-off.
+  (`mlt-framework-7`, `mlt++-7`), `libxml2`, and doctest for tests
+  (ADR-010); at runtime, `frei0r-plugins` (ADR-011). **Anything else needs
+  an ADR** and the owner's sign-off.
 
 ---
 
 ## Code style
 
-Match the existing files; a `.clang-format` arrives in M0 and becomes the
+Match the existing files; `.clang-format` at the repo root is the
 authority.
 
 - 4-space indent, braces on their own line for functions/classes, same line
@@ -113,16 +116,16 @@ authority.
 - `PascalCase` types, `camelCase` functions and variables, `m_` members,
   `k` constants (`kAudioRate`), `snake_case.{h,cpp}` files, `#pragma once`.
 - Namespaces: anonymous namespace for file-local helpers; `ustudio::core/
-  engine/app/render` from M0. No `using namespace` in headers.
+  engine/app/render`. No `using namespace` in headers.
 - Ownership: `std::unique_ptr` by default; `std::shared_ptr` only for
   producers shared between cuts and for lifetime tokens; raw pointers are
-  non-owning and never outlive the current main-loop iteration (GObject
-  pointers held via an RAII wrapper from M0).
+  non-owning and never outlive the current main-loop iteration (an RAII
+  wrapper for GObject pointers is planned, doc 14).
 - No exceptions across GTK callback boundaries. Trampolines (`static`
   callbacks forwarding to a member function) are the only place that casts
   `gpointer`; keep them grouped at the bottom of the file under the banner
   comment, as now.
-- Logging goes through `Log::{debug,info,warn,error}` (`src/util/log.h`).
+- Logging goes through `Log::{debug,info,warn,error}` (`src/core/log.h`).
   No `printf`/`std::cout`/`g_print` for diagnostics. Prefix messages with a
   bracketed subsystem (`"[engine] …"`, `"[timeline] …"`) so logs grep by
   layer.
@@ -131,33 +134,36 @@ authority.
 
 ---
 
-## Architecture boundaries (enforced by review now, by meson from M0)
+## Architecture boundaries
+
+`src/app/`'s ban on MLT headers is enforced by meson (`app-boundary-check`);
+the rest by review.
 
 | Layer | May include | May not include |
 |---|---|---|
-| `src/engine/` | `mlt++`, GLib (dispatch only) | GTK, libadwaita |
-| `src/ui/` (→ `src/app/`) | GTK, libadwaita, GIO, engine headers | any `<mlt…>` header, `<pulse/…>` |
-| `src/util/` (→ `src/core/`) | std only | GTK, GLib, MLT |
+| `src/core/` | std, libxml2 | GTK, GLib, MLT |
+| `src/engine/` | core, `mlt++`, GLib (dispatch only) | GTK, libadwaita |
+| `src/app/` | core, engine headers, GTK, libadwaita, GIO | any `<mlt…>` header |
+| `src/render/` | core, engine | GTK |
 
-- **Model → engine → screen, never backwards.** In v1 the timeline still
-  reads clip state from `MltEngine::clips()`; that is the known debt v2's M1
-  removes (ADR-003). Do not add *new* code paths that derive UI state from
-  MLT objects — route new state through plain C++ structs the UI owns.
-- **Every user-visible edit will be a Command** (doc 04). Until M1, keep
-  edit primitives in `MltEngine` small, single-purpose, and validated before
-  mutation (as `moveClip`/`trimClipStart` do: check the whole destination
-  span, then touch the playlist).
+- **Model → engine → screen, never backwards** (ADR-003). UI state comes
+  from `core::Model`, never from MLT objects.
+- **Every user-visible edit is a `core::Command`** run through `UndoStack`
+  (doc 04). `apply()` validates everything before mutating and leaves the
+  model untouched when it returns false.
 
 ### Threading rules
 
 - GTK widgets are touched from the main thread only. Cross from a worker via
-  `g_idle_add`/`g_main_context_invoke` (v1) or the `MainThreadDispatcher`
-  (M2). If you are holding a `GtkWidget*` on a worker thread, that is the bug.
-- `MltEngine::m_mltMutex` guards the live tractor. Hold it for one operation,
-  never across a blocking call you don't control, never from the main thread
-  for anything that can wait on a decode. Things that must not contend with
-  it (waveforms, render) open their own throwaway `Mlt::Profile`/`Producer`
-  — keep that pattern.
+  `MainThreadDispatcher` (or `g_idle_add` in the worker caches). If you are
+  holding a `GtkWidget*` on a worker thread, that is the bug.
+- There is no project-wide MLT mutex. The live tractor is built and replaced
+  on the main thread (`EngineSync::rebuildAll()` → `PlaybackController::
+  setTractor()`, which stops the consumer before dropping the old tractor).
+  The consumer's thread enters our code only in `handleFrameShow()`, which
+  copies the frame and posts to the main thread. Work that must not contend
+  with playback (waveforms, thumbnails, probing, render) opens its own
+  throwaway `Mlt::Profile`/`Producer` — keep that pattern.
 - MLT producers are not shared across threads. A worker owns its own
   producer; the live tractor belongs to the engine thread + main thread
   under the mutex.
@@ -194,7 +200,7 @@ team's practice is the rule:
 
 ## Design system
 
-`src/ui/style_css.h` maps the Unicorn Tears tokens (ink scale, magenta /
+`src/app/style/style.css` (compiled into the GResource) maps the Unicorn Tears tokens (ink scale, magenta /
 cyan / violet, semantic colours) onto libadwaita named colours so the whole
 shell reskins from one place.
 
@@ -215,16 +221,14 @@ shell reskins from one place.
 
 ## Testing discipline
 
-There is no test suite yet; M0 adds doctest (`tests/core`, `tests/engine`).
-The rules apply from the moment it exists, and the verification habit
-applies now:
+Tests are doctest suites under `tests/` (`core/`, `engine/`, `app/`), run
+with `meson test`.
 
 - Before claiming a change works, **build it and exercise it**: run the app
   for UI changes, or a standalone repro for engine changes (the render and
   playlist primitives were each validated that way before wiring in). Report
   what you ran and what you saw.
-- Behaviour changes ship with a test (or, pre-M0, with a written repro in
-  the commit body) in the same change when practical.
+- Behaviour changes ship with a test in the same change when practical.
 - If any test fails, report the exact test names and output and stop
   claiming success until it is resolved or the owner explicitly defers it.
 - **Never implement production code solely to make a pre-existing failing
@@ -325,8 +329,8 @@ main context window, a build/test run the session doesn't need to block on.
 
 ### Git hook discipline
 
-No hooks are configured yet (M0 adds `clang-format` and the tests to CI; a
-pre-commit hook may follow). When hooks exist: warnings and errors are
+No hooks are configured yet (CI runs `clang-format` and the tests, but is
+parked on manual dispatch; a pre-commit hook may follow). When hooks exist: warnings and errors are
 immediate action items — fix, rerun, then push. Run hooks only inside your
 own worktree.
 
@@ -383,12 +387,11 @@ Permission **is required** before:
 ## What the agent should NOT do
 
 - Don't refactor working code unless the task asks for it; targeted,
-  minimal diffs. In particular, don't "modernise" the pull-loop playback,
-  the `GKeyFile` project format, or the fixed `atsc_1080p_30` profile
-  ad hoc — each is replaced by a planned milestone (M2, M1/ADR-004, M1)
-  with its own design; a partial rewrite in between costs more than it saves.
-- Don't add `.ui`/GResource files for the shell yet; imperative construction
-  is deliberate for v1. (v2 allows `.ui` for static dialogs only.)
+  minimal diffs. Larger reworks belong to a planned milestone with its own
+  design (doc 12); a partial rewrite in between costs more than it saves.
+- Don't add `.ui` files for the shell; imperative construction is
+  deliberate (v2 allows `.ui` for static dialogs only). GResource carries
+  the stylesheet.
 - Don't add error handling for situations that cannot occur, and don't
   wrap MLT calls in try/catch — `mlt++` does not throw.
 - Don't introduce new dependencies, third-party headers, or build systems
@@ -398,9 +401,11 @@ Permission **is required** before:
 - Don't guess MLT property names, profile names, codec strings, or GTK4 API
   shapes from memory — verify against installed metadata/headers, and say
   when you couldn't.
-- Don't add sleeps or timers to "fix" A/V timing; playback pacing is a
-  known problem with a designed solution (ADR-002). Document the symptom
-  and reference the plan instead.
+- Don't add sleeps or timers to "fix" A/V timing: pacing belongs to the
+  MLT consumer (ADR-002, implemented in `PlaybackController`). That does
+  not freeze `PlaybackController`: seek, pause and loop accuracy bugs in it
+  are ordinary bugs, fixed there against doc 05 and M2's acceptance
+  criteria.
 - Don't leave debug logging at `info` level; use `debug`.
 - Don't run or edit anything in the sibling `*-stable` or `*.bak-*`
   repositories under `~/Repos`.
@@ -421,14 +426,14 @@ Permission **is required** before:
 
 | Purpose | Library | Notes |
 |---|---|---|
-| UI toolkit | GTK 4.22 + libadwaita 1.9 | C API from C++; RAII wrapper for refs from M0 |
+| UI toolkit | GTK 4.22 + libadwaita 1.9 | C API from C++; RAII wrapper for refs planned (doc 14) |
 | Media engine | MLT 7.40 via `mlt++` | The only media engine. Only `src/engine/` includes it |
-| Main loop / IO / settings | GLib, GIO, GSettings | `g_idle_add` today, `MainThreadDispatcher` from M2 |
-| Drawing | GSK snapshot (v2), cairo (v1 timeline) | Custom widgets, not a widget per clip (ADR-008) |
-| Project files | `GKeyFile` (v1) → MLT XML + libxml2 (v2, ADR-004) | |
-| Audio output | `libpulse-simple` (v1) → MLT `sdl2_audio` consumer (M2, ADR-002) | |
+| Main loop / IO / settings | GLib, GIO, GSettings | `MainThreadDispatcher` for consumer-thread hops |
+| Drawing | GSK snapshot (v2), cairo (current timeline) | Custom widgets, not a widget per clip (ADR-008) |
+| Project files | MLT XML + libxml2 (ADR-004) | |
+| Audio output | MLT `sdl2_audio` consumer, `rtaudio`/`null` fallbacks (ADR-002) | |
 | Tests | doctest, vendored (ADR-010) | |
-| Formatting | clang-format (M0) | |
+| Formatting | clang-format (`.clang-format`) | |
 
 Do **not** use: Qt, KDE Frameworks, GStreamer/GES, gtkmm (the codebase uses
 the C API deliberately), Boost, CMake, or any GUI framework other than GTK4.
@@ -444,5 +449,5 @@ the C API deliberately), Boost, CMake, or any GUI framework other than GTK4.
   shell-interpolate anything read from a project file or media metadata.
 - Never overwrite a user's source media. Renders and proxies are written to
   an explicitly chosen output path, atomically (temp file + rename).
-- Logs go to `logs/` (later `$XDG_STATE_HOME`); never log full file
+- Logs go to `$XDG_STATE_HOME/ustudio/logs/`; never log full file
   contents or environment dumps.
