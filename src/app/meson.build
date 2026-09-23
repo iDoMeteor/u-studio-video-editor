@@ -29,7 +29,25 @@ app_autosave_dep = declare_dependency(
   dependencies: [glib_dep],
 )
 
+# Same rationale as app_autosave_lib above: settings.cpp only needs GIO
+# (GSettings), not GTK4/libadwaita, so tests/app/ can exercise its
+# schema-found/schema-missing degrade behaviour (settings.cpp's own
+# comment) without linking the whole GTK app.
+app_settings_lib = static_library(
+  'ustudio_app_settings',
+  files('settings.cpp'),
+  dependencies: [gio_dep, glib_dep, libustudio_core_dep],
+  include_directories: src_inc,
+  install: false,
+)
+app_settings_dep = declare_dependency(
+  link_with: app_settings_lib,
+  include_directories: src_inc,
+  dependencies: [gio_dep, glib_dep, libustudio_core_dep],
+)
+
 app_sources = files(
+  'action_registry.cpp',
   'app_window.cpp',
   'main.cpp',
 )
@@ -59,6 +77,7 @@ executable(
   'u-studio-video-editor',
   app_sources,
   app_resources,
-  dependencies: [libustudio_engine_dep, app_autosave_dep, gtk4_dep, adwaita_dep, gio_dep],
+  dependencies: [libustudio_engine_dep, app_autosave_dep, app_settings_dep, gtk4_dep, adwaita_dep, gio_dep],
   install: true,
+  cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
 )

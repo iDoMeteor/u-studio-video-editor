@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.15.0
+
+- Added a Help dialog (header bar `?` button) with Keyboard Shortcuts and
+  About tabs, and a Settings dialog (gear button) with General and
+  Playback tabs — autosave delay, recent-projects list size, default
+  preview scale, and maximum shuttle speed are now user-configurable and
+  persisted via GSettings, instead of hardcoded.
+
 ## 0.14.6
 
 - A timecode ruler now runs along the top of the timeline, with ticks

@@ -4,19 +4,20 @@
 #include <gtk/gtk.h>
 
 #include <functional>
-#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "action_registry.h"
 #include "core/commands/undo_stack.h"
 #include "core/model/model.h"
 #include "engine/engine_sync.h"
 #include "engine/playback_controller.h"
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
+#include "settings.h"
 
 namespace ustudio::app {
 
@@ -88,6 +89,12 @@ struct ClipDisplay
 // tractor -- no call site here needs to remember to do either.
 class AppWindow
 {
+    // action_registry.cpp's table stores pointers to the private static
+    // trampolines below (playPauseActivated and friends) -- see
+    // action_registry.h's own comment for why they live in one shared
+    // table instead of two separately-maintained lists.
+    friend const std::vector<ActionSpec> &actionSpecs();
+
   public:
     explicit AppWindow(GtkApplication *app);
 
@@ -431,10 +438,28 @@ class AppWindow
     // Creates a stateless GSimpleAction named `name`, wires `activated` as
     // its "activate" handler with `this` as user data, adds it to the
     // window's action map, and binds `accels` to "win.<name>" -- the
-    // boilerplate every one of installActions()'s calls below shares.
-    void addAction(GtkApplication *app, const char *name,
-                   void (*activated)(GSimpleAction *, GVariant *, gpointer),
-                   std::initializer_list<const char *> accels);
+    // boilerplate installActions()'s loop over action_registry.h's table
+    // shares for every entry except undo/redo (see setAccelsForAction).
+    void addAction(GtkApplication *app, const char *name, void (*activated)(GSimpleAction *, GVariant *, gpointer),
+                   const std::vector<const char *> &accels);
+    // Just the "win.<name>" -> accels half of addAction(), factored out so
+    // installActions() can set undo/redo's default accelerators from the
+    // same action_registry.h table as every other action, without also
+    // creating a second GSimpleAction for them (they're constructed
+    // separately -- see installActions()'s own comment).
+    void setAccelsForAction(GtkApplication *app, const char *name, const std::vector<const char *> &accels);
+
+    // Multi-tab Help dialog (Keyboard Shortcuts, built from
+    // action_registry.h's table grouped by category; About, static text
+    // matching data/com.ustudio.VideoEditor.metainfo.xml) and Settings
+    // dialog (General + Playback tabs bound to Settings/GSettings, plus a
+    // placeholder Keyboard Shortcuts tab for the future rebinding
+    // feature). Both build a fresh AdwDialog per call, same pattern as
+    // every other AdwAlertDialog in this file -- no persistent member.
+    void showHelpDialog();
+    void showSettingsDialog();
+    GtkWidget *buildShortcutsPage() const;
+    GtkWidget *buildAboutPage() const;
 
     // Audit A1: the transport actions installActions() binds to bare
     // letters and Left/Right/Home/End (+ Ctrl/Alt variants) are global
@@ -479,6 +504,16 @@ class AppWindow
                                                     gpointer userData);
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
+    static void helpClickedTrampoline(GtkButton *button, gpointer userData);
+    static void settingsClickedTrampoline(GtkButton *button, gpointer userData);
+    // Settings dialog rows: each reads its new value straight off the row
+    // passed in (the "notify::..." signal's own object), not a stored
+    // AppWindow member -- these rows only live for the dialog's lifetime,
+    // unlike the transport bar's m_previewScaleDropdown.
+    static void settingsAutosaveDelayChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
+    static void settingsRecentProjectsMaxChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
+    static void settingsShuttleMaxSpeedChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
+    static void settingsPreviewScaleChangedTrampoline(AdwComboRow *row, GParamSpec *pspec, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);
     static void undoClickedTrampoline(GtkButton *button, gpointer userData);
     static void redoClickedTrampoline(GtkButton *button, gpointer userData);
@@ -612,6 +647,12 @@ class AppWindow
     // this suppresses turning that into a spurious SetTrackVolume command,
     // matching m_suppressSeekSignal's existing role for the seek scale.
     bool m_suppressTrackVolumeSignal = false;
+
+    // Constructed first (before buildUi()): buildUi() reads
+    // defaultPreviewScale() for the transport dropdown's initial
+    // selection, and onShuttleForward/onAutosaveHeartbeat/
+    // refreshRecentProjectsMenu all read from it too.
+    std::unique_ptr<Settings> m_settings;
 
     core::Model m_model = core::Model::createEmpty();
     core::UndoStack m_undoStack{m_model};

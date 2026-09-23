@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixed (non-relocatable) path, matching the app id -- settings.cpp opens
+  this schema with g_settings_new_full(schema, nullptr, nullptr), which
+  requires the schema to declare its own path rather than being handed one
+  at construction time.
+
+  Keys here back the Settings dialog's General/Playback tabs (app_window.cpp's
+  showSettingsDialog()) and the four call sites that used to hardcode these
+  values (onAutosaveHeartbeat, onShuttleForward/onShuttleReverse,
+  refreshRecentProjectsMenu, buildUi's preview-scale dropdown default). A
+  future hotkey-rebinding feature is expected to add a
+  "action-accelerator-overrides" key (a{sas}) here alongside these.
+-->
+<schemalist>
+  <schema id="com.ustudio.VideoEditor" path="/com/ustudio/VideoEditor/">
+    <key name="autosave-delay-minutes" type="i">
+      <range min="1" max="30"/>
+      <default>2</default>
+      <summary>Autosave delay</summary>
+      <description>Minutes of inactivity after the last edit before an autosave is written (doc 09).</description>
+    </key>
+    <key name="default-preview-scale" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="full"/>
+        <choice value="half"/>
+        <choice value="quarter"/>
+      </choices>
+      <default>"auto"</default>
+      <summary>Default preview scale</summary>
+      <description>Preview render scale selected when the app starts; the transport bar's own dropdown can still be changed per-session without affecting this default.</description>
+    </key>
+    <key name="shuttle-max-speed" type="d">
+      <range min="2.0" max="32.0"/>
+      <default>8.0</default>
+      <summary>Maximum shuttle speed</summary>
+      <description>Upper bound (in multiples of normal speed) the J/K/L shuttle ramps up to.</description>
+    </key>
+    <key name="recent-projects-max" type="i">
+      <range min="1" max="50"/>
+      <default>10</default>
+      <summary>Recent projects list size</summary>
+      <description>Maximum number of entries shown in the header bar's recent-projects popover.</description>
+    </key>
+  </schema>
+</schemalist>

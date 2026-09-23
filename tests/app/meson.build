@@ -15,3 +15,41 @@ test(
   test_autosave_exe,
   env: {'XDG_STATE_HOME': meson.current_build_dir() / 'autosave-test-state'},
 )
+
+test_settings_exe = executable(
+  'test_settings',
+  files('test_settings.cpp'),
+  dependencies: [doctest_dep, app_settings_dep],
+  install: false,
+)
+
+# depends: orders this after data/'s gschemas.compiled actually exists on
+# disk (build-graph ordering, not just meson-configure-time variable
+# visibility) -- GSETTINGS_BACKEND=memory keeps every read/write isolated
+# from the real system dconf database (see test_settings.cpp's own
+# comment).
+test(
+  'app-settings',
+  test_settings_exe,
+  env: {
+    'GSETTINGS_SCHEMA_DIR': meson.project_build_root() / 'data',
+    'GSETTINGS_BACKEND': 'memory',
+  },
+  depends: ustudio_gschemas_compiled,
+)
+
+test_settings_missing_schema_exe = executable(
+  'test_settings_missing_schema',
+  files('test_settings_missing_schema.cpp'),
+  dependencies: [doctest_dep, app_settings_dep],
+  install: false,
+)
+
+test(
+  'app-settings-missing-schema',
+  test_settings_missing_schema_exe,
+  env: {
+    'GSETTINGS_SCHEMA_DIR': meson.current_build_dir() / 'no-such-schema-dir',
+    'XDG_DATA_DIRS': meson.current_build_dir() / 'empty-xdg-data-dir',
+  },
+)

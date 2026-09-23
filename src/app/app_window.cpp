@@ -1,5 +1,6 @@
 #include "app_window.h"
 
+#include "action_registry.h"
 #include "autosave.h"
 #include "core/commands/composite_command.h"
 #include "core/commands/primitives.h"
@@ -162,6 +163,10 @@ core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length,
 
 AppWindow::AppWindow(GtkApplication *app)
 {
+    // Before buildUi(): its transport-bar preview-scale dropdown reads
+    // defaultPreviewScale() for its initial selection.
+    m_settings = std::make_unique<Settings>();
+
     // One starting track, matching v1's "track 0 always exists" default --
     // not through the UndoStack, since this is the pristine starting
     // state, not a user edit to undo back out of.
@@ -311,6 +316,16 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_tooltip_text(renderButton, "Render the project to an MP4 file");
     g_signal_connect(renderButton, "clicked", G_CALLBACK(&AppWindow::renderClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), renderButton);
+
+    GtkWidget *helpButton = gtk_button_new_from_icon_name("system-help-symbolic");
+    gtk_widget_set_tooltip_text(helpButton, "Help");
+    g_signal_connect(helpButton, "clicked", G_CALLBACK(&AppWindow::helpClickedTrampoline), this);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), helpButton);
+
+    GtkWidget *settingsButton = gtk_button_new_from_icon_name("preferences-system-symbolic");
+    gtk_widget_set_tooltip_text(settingsButton, "Settings");
+    g_signal_connect(settingsButton, "clicked", G_CALLBACK(&AppWindow::settingsClickedTrampoline), this);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), settingsButton);
 
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbarView), headerBar);
 
@@ -626,6 +641,19 @@ void AppWindow::buildUi(GtkApplication *app)
     const char *previewScaleLabels[] = {"Auto", "Full", "Half", "Quarter", nullptr};
     GtkStringList *previewScaleModel = gtk_string_list_new(previewScaleLabels);
     m_previewScaleDropdown = GTK_DROP_DOWN(gtk_drop_down_new(G_LIST_MODEL(previewScaleModel), nullptr));
+    // Settings dialog's "Default preview scale" (General tab) only sets
+    // this starting selection -- changing the dropdown itself afterwards
+    // is a per-session choice, same as before Settings existed, and does
+    // not write back to it (see Settings::defaultPreviewScale's comment).
+    const std::string defaultScale = m_settings->defaultPreviewScale();
+    guint defaultScaleIndex = 0;
+    if (defaultScale == "full")
+        defaultScaleIndex = 1;
+    else if (defaultScale == "half")
+        defaultScaleIndex = 2;
+    else if (defaultScale == "quarter")
+        defaultScaleIndex = 3;
+    gtk_drop_down_set_selected(m_previewScaleDropdown, defaultScaleIndex);
     gtk_widget_set_tooltip_text(GTK_WIDGET(m_previewScaleDropdown), "Preview scale");
     // Audit A7: GtkDropDown handles Left/Right/Home/End itself while
     // focused (cycling/jumping between its own entries), the same
@@ -669,71 +697,258 @@ void AppWindow::installActions(GtkApplication *app)
     g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(redoAction));
     g_object_unref(redoAction);
 
-    const char *undoAccels[] = {"<Control>z", nullptr};
-    gtk_application_set_accels_for_action(app, "win.undo", undoAccels);
-    const char *redoAccels[] = {"<Control><Shift>z", nullptr};
-    gtk_application_set_accels_for_action(app, "win.redo", redoAccels);
-
-    // Enhancement #1: Space toggles play/pause, same as every other video
-    // editor. L above already covers "start playing forward" too, but
-    // Space is the one everyone reaches for first.
-    addAction(app, "play-pause", &AppWindow::playPauseActivated, {"space"});
-    // J/K/L shuttle, frame step, home/end, loop in/out (doc 05's M2
-    // transport deliverables).
-    addAction(app, "shuttle-forward", &AppWindow::shuttleForwardActivated, {"l"});
-    addAction(app, "shuttle-reverse", &AppWindow::shuttleReverseActivated, {"j"});
-    addAction(app, "shuttle-stop", &AppWindow::shuttleStopActivated, {"k"});
-    addAction(app, "step-forward", &AppWindow::stepForwardActivated, {"Right"});
-    addAction(app, "step-backward", &AppWindow::stepBackwardActivated, {"Left"});
-    addAction(app, "seek-home", &AppWindow::seekHomeActivated, {"Home"});
-    addAction(app, "seek-end", &AppWindow::seekEndActivated, {"End"});
-    addAction(app, "loop-set-in", &AppWindow::loopSetInActivated, {"i"});
-    addAction(app, "loop-set-out", &AppWindow::loopSetOutActivated, {"o"});
-    // A/F: previous/next cut on the active track. S/D: active track
-    // up/down -- the row edits/imports land on, same as clicking a row.
-    addAction(app, "seek-previous-cut", &AppWindow::seekPreviousCutActivated, {"a"});
-    addAction(app, "seek-next-cut", &AppWindow::seekNextCutActivated, {"f"});
-    addAction(app, "active-track-up", &AppWindow::activeTrackUpActivated, {"s"});
-    addAction(app, "active-track-down", &AppWindow::activeTrackDownActivated, {"d"});
-    // Ctrl+Left/Right: jump 10 frames. Alt+Left/Right: jump 1 minute,
-    // clamped to the timeline's start/end -- both reuse stepFrame(), whose
-    // seek() already clamps to [0, totalFrames()-1], so "not a full minute
-    // left in that direction" falls out for free rather than needing its
-    // own clamping logic here.
-    addAction(app, "step-forward-10", &AppWindow::stepForward10Activated, {"<Control>Right"});
-    addAction(app, "step-backward-10", &AppWindow::stepBackward10Activated, {"<Control>Left"});
-    addAction(app, "step-forward-minute", &AppWindow::stepForwardMinuteActivated, {"<Alt>Right"});
-    addAction(app, "step-backward-minute", &AppWindow::stepBackwardMinuteActivated, {"<Alt>Left"});
-
-    // Enhancement #2: Ctrl+S saves in place (m_currentProjectPath, no
-    // dialog) when there is one, falling back to the Save As dialog for
-    // an untitled project -- see saveInPlaceOrPrompt(). Ctrl+Shift+S
-    // always opens the dialog. Ctrl+O/N/I mirror the header-bar buttons;
-    // Open and New already confirm unsaved changes first (audits A2/A4).
-    addAction(app, "save", &AppWindow::saveActionActivated, {"<Control>s"});
-    addAction(app, "save-as", &AppWindow::saveAsActivated, {"<Control><Shift>s"});
-    addAction(app, "open-project", &AppWindow::openProjectActionActivated, {"<Control>o"});
-    addAction(app, "new-project", &AppWindow::newProjectActionActivated, {"<Control>n"});
-    addAction(app, "import", &AppWindow::importActionActivated, {"<Control>i"});
-
-    // Enhancement #3: Delete removes the clip last clicked (m_selectedClip),
-    // the same target double-click-to-rename and the "corner badge" label
-    // use -- see onDeleteSelectedClip().
-    addAction(app, "delete-selected-clip", &AppWindow::deleteSelectedClipActivated, {"Delete"});
+    // Every action's name/accels/handler (undo/redo included, for their
+    // default accelerators) comes from the shared action_registry.h table
+    // now, so it and the Help dialog's Keyboard Shortcuts tab
+    // (buildShortcutsPage()) can never drift apart -- see the table's own
+    // comment. undo/redo are the only entries with activated == nullptr:
+    // their GSimpleActions are already created above (enabled/disabled
+    // state tracks UndoStack::canUndo/canRedo via m_undoButton/
+    // m_redoButton's sensitivity, not a GAction property), so only their
+    // accelerators still need setting.
+    for (const ActionSpec &spec : actionSpecs()) {
+        if (spec.activated != nullptr)
+            addAction(app, spec.name, spec.activated, spec.accels);
+        else
+            setAccelsForAction(app, spec.name, spec.accels);
+    }
 }
 
 void AppWindow::addAction(GtkApplication *app, const char *name,
                           void (*activated)(GSimpleAction *, GVariant *, gpointer),
-                          std::initializer_list<const char *> accels)
+                          const std::vector<const char *> &accels)
 {
     GSimpleAction *action = g_simple_action_new(name, nullptr);
     g_signal_connect(action, "activate", G_CALLBACK(activated), this);
     g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(action));
     g_object_unref(action);
+    setAccelsForAction(app, name, accels);
+}
 
+void AppWindow::setAccelsForAction(GtkApplication *app, const char *name, const std::vector<const char *> &accels)
+{
     std::vector<const char *> accelsWithNull(accels.begin(), accels.end());
     accelsWithNull.push_back(nullptr);
     gtk_application_set_accels_for_action(app, ("win." + std::string(name)).c_str(), accelsWithNull.data());
+}
+
+GtkWidget *AppWindow::buildShortcutsPage() const
+{
+    GtkWidget *page = adw_preferences_page_new();
+
+    // One AdwPreferencesGroup per ActionSpec::category, created the first
+    // time that category is seen -- action_registry.h's table is already
+    // grouped by category (Playback, Editing, Project), so this walks it
+    // once, in that same order, rather than sorting or pre-declaring the
+    // category list separately.
+    std::vector<std::pair<std::string, AdwPreferencesGroup *>> groups;
+
+    for (const ActionSpec &spec : actionSpecs()) {
+        AdwPreferencesGroup *group = nullptr;
+        for (auto &entry : groups) {
+            if (entry.first == spec.category) {
+                group = entry.second;
+                break;
+            }
+        }
+        if (group == nullptr) {
+            group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+            adw_preferences_group_set_title(group, spec.category);
+            adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), group);
+            groups.emplace_back(spec.category, group);
+        }
+
+        // gtk_accelerator_get_label() turns a parsed accelerator back into
+        // its human display form ("<Control>s" -> "Ctrl+S") -- the same
+        // labels GTK itself would show in a menu, not a hand-formatted
+        // guess (CLAUDE.md: don't guess GTK4 API shapes/behaviour).
+        std::string accelLabel;
+        for (const char *accel : spec.accels) {
+            guint key = 0;
+            GdkModifierType mods{};
+            if (!gtk_accelerator_parse(accel, &key, &mods))
+                continue;
+            char *label = gtk_accelerator_get_label(key, mods);
+            if (label != nullptr) {
+                if (!accelLabel.empty())
+                    accelLabel += ", ";
+                accelLabel += label;
+                g_free(label);
+            }
+        }
+
+        GtkWidget *row = adw_action_row_new();
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), spec.label);
+        if (!accelLabel.empty())
+            adw_action_row_set_subtitle(ADW_ACTION_ROW(row), accelLabel.c_str());
+        adw_preferences_group_add(group, row);
+    }
+
+    return page;
+}
+
+GtkWidget *AppWindow::buildAboutPage() const
+{
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+    gtk_widget_set_vexpand(box, TRUE);
+    gtk_widget_set_margin_top(box, 24);
+    gtk_widget_set_margin_bottom(box, 24);
+    gtk_widget_set_margin_start(box, 24);
+    gtk_widget_set_margin_end(box, 24);
+
+    GtkWidget *title = gtk_label_new("u Studio Video Editor");
+    gtk_widget_add_css_class(title, "title-1");
+    gtk_box_append(GTK_BOX(box), title);
+
+    GtkWidget *version = gtk_label_new("Version " USTUDIO_VERSION);
+    gtk_widget_add_css_class(version, "dim-label");
+    gtk_box_append(GTK_BOX(box), version);
+
+    // Verbatim from data/com.ustudio.VideoEditor.metainfo.xml's <summary>
+    // -- one source of truth for the app's own self-description.
+    GtkWidget *summary = gtk_label_new("Non-linear video editor built on GTK4, libadwaita and MLT");
+    gtk_label_set_wrap(GTK_LABEL(summary), TRUE);
+    gtk_label_set_justify(GTK_LABEL(summary), GTK_JUSTIFY_CENTER);
+    gtk_widget_set_margin_top(summary, 12);
+    gtk_box_append(GTK_BOX(box), summary);
+
+    GtkWidget *license = gtk_label_new("GPL-3.0-or-later");
+    gtk_widget_add_css_class(license, "dim-label");
+    gtk_widget_set_margin_top(license, 12);
+    gtk_box_append(GTK_BOX(box), license);
+
+    return box;
+}
+
+void AppWindow::showHelpDialog()
+{
+    AdwDialog *dialog = ADW_DIALOG(adw_dialog_new());
+    adw_dialog_set_title(dialog, "Help");
+    adw_dialog_set_content_width(dialog, 640);
+    adw_dialog_set_content_height(dialog, 560);
+
+    AdwViewStack *stack = ADW_VIEW_STACK(adw_view_stack_new());
+    adw_view_stack_add_titled_with_icon(stack, buildShortcutsPage(), "shortcuts", "Keyboard Shortcuts",
+                                        "preferences-desktop-keyboard-shortcuts-symbolic");
+    adw_view_stack_add_titled_with_icon(stack, buildAboutPage(), "about", "About", "help-about-symbolic");
+
+    GtkWidget *switcher = adw_view_switcher_new();
+    adw_view_switcher_set_stack(ADW_VIEW_SWITCHER(switcher), stack);
+    adw_view_switcher_set_policy(ADW_VIEW_SWITCHER(switcher), ADW_VIEW_SWITCHER_POLICY_WIDE);
+
+    GtkWidget *headerBar = adw_header_bar_new();
+    adw_header_bar_set_title_widget(ADW_HEADER_BAR(headerBar), switcher);
+
+    GtkWidget *toolbarView = adw_toolbar_view_new();
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbarView), headerBar);
+    adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbarView), GTK_WIDGET(stack));
+
+    adw_dialog_set_child(dialog, toolbarView);
+    adw_dialog_present(dialog, GTK_WIDGET(m_window));
+}
+
+void AppWindow::showSettingsDialog()
+{
+    AdwDialog *dialog = ADW_DIALOG(adw_preferences_dialog_new());
+    adw_dialog_set_content_width(dialog, 560);
+    adw_dialog_set_content_height(dialog, 520);
+
+    // --- General ---
+    AdwPreferencesPage *generalPage = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
+    adw_preferences_page_set_title(generalPage, "General");
+    adw_preferences_page_set_icon_name(generalPage, "preferences-system-symbolic");
+
+    AdwPreferencesGroup *projectGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    adw_preferences_group_set_title(projectGroup, "Project");
+    adw_preferences_page_add(generalPage, projectGroup);
+
+    AdwSpinRow *autosaveRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(1.0, 30.0, 1.0));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(autosaveRow), "Autosave delay (minutes)");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(autosaveRow),
+                                "Minutes of inactivity after the last edit before an autosave is written");
+    adw_spin_row_set_digits(autosaveRow, 0);
+    adw_spin_row_set_value(autosaveRow, static_cast<double>(m_settings->autosaveDelayMinutes()));
+    g_signal_connect(autosaveRow, "notify::value", G_CALLBACK(&AppWindow::settingsAutosaveDelayChangedTrampoline),
+                     this);
+    adw_preferences_group_add(projectGroup, GTK_WIDGET(autosaveRow));
+
+    AdwSpinRow *recentRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(1.0, 50.0, 1.0));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(recentRow), "Recent projects list size");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(recentRow), "Entries shown in the header bar's recent-projects popover");
+    adw_spin_row_set_digits(recentRow, 0);
+    adw_spin_row_set_value(recentRow, static_cast<double>(m_settings->recentProjectsMax()));
+    g_signal_connect(recentRow, "notify::value", G_CALLBACK(&AppWindow::settingsRecentProjectsMaxChangedTrampoline),
+                     this);
+    adw_preferences_group_add(projectGroup, GTK_WIDGET(recentRow));
+
+    adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog), generalPage);
+
+    // --- Playback ---
+    AdwPreferencesPage *playbackPage = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
+    adw_preferences_page_set_title(playbackPage, "Playback");
+    adw_preferences_page_set_icon_name(playbackPage, "media-playback-start-symbolic");
+
+    AdwPreferencesGroup *previewGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    adw_preferences_group_set_title(previewGroup, "Preview");
+    adw_preferences_page_add(playbackPage, previewGroup);
+
+    const char *scaleLabels[] = {"Auto", "Full", "Half", "Quarter", nullptr};
+    GtkStringList *scaleModel = gtk_string_list_new(scaleLabels);
+    AdwComboRow *scaleRow = ADW_COMBO_ROW(adw_combo_row_new());
+    adw_combo_row_set_model(scaleRow, G_LIST_MODEL(scaleModel));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(scaleRow), "Default preview scale");
+    adw_action_row_set_subtitle(
+        ADW_ACTION_ROW(scaleRow),
+        "Used when the app starts -- the transport bar's own dropdown can still be changed per-session "
+        "without affecting this");
+    const std::string currentScale = m_settings->defaultPreviewScale();
+    guint scaleIndex = 0;
+    if (currentScale == "full")
+        scaleIndex = 1;
+    else if (currentScale == "half")
+        scaleIndex = 2;
+    else if (currentScale == "quarter")
+        scaleIndex = 3;
+    adw_combo_row_set_selected(scaleRow, scaleIndex);
+    g_signal_connect(scaleRow, "notify::selected", G_CALLBACK(&AppWindow::settingsPreviewScaleChangedTrampoline), this);
+    adw_preferences_group_add(previewGroup, GTK_WIDGET(scaleRow));
+
+    AdwPreferencesGroup *shuttleGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    adw_preferences_group_set_title(shuttleGroup, "Shuttle");
+    adw_preferences_page_add(playbackPage, shuttleGroup);
+
+    AdwSpinRow *shuttleRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(2.0, 32.0, 1.0));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(shuttleRow), "Maximum shuttle speed");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(shuttleRow),
+                                "Upper bound (x normal speed) the J/K/L shuttle ramps up to");
+    adw_spin_row_set_digits(shuttleRow, 0);
+    adw_spin_row_set_value(shuttleRow, m_settings->shuttleMaxSpeed());
+    g_signal_connect(shuttleRow, "notify::value", G_CALLBACK(&AppWindow::settingsShuttleMaxSpeedChangedTrampoline),
+                     this);
+    adw_preferences_group_add(shuttleGroup, GTK_WIDGET(shuttleRow));
+
+    adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog), playbackPage);
+
+    // --- Keyboard Shortcuts (placeholder -- see action_registry.h's own
+    // comment on the intended shape of the real rebinding UI later) ---
+    AdwPreferencesPage *shortcutsPage = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
+    adw_preferences_page_set_title(shortcutsPage, "Keyboard Shortcuts");
+    adw_preferences_page_set_icon_name(shortcutsPage, "preferences-desktop-keyboard-shortcuts-symbolic");
+    AdwPreferencesGroup *comingSoonGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    adw_preferences_group_set_title(comingSoonGroup, "Coming Soon");
+    adw_preferences_group_set_description(
+        comingSoonGroup, "Rebinding actions to custom keys isn't implemented yet. See the Help dialog's "
+                         "Keyboard Shortcuts tab for the bindings available today.");
+    adw_preferences_page_add(shortcutsPage, comingSoonGroup);
+    adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog), shortcutsPage);
+
+    if (!m_settings->isPersistent())
+        adw_preferences_dialog_add_toast(
+            ADW_PREFERENCES_DIALOG(dialog),
+            adw_toast_new("Changes aren't being saved this session (GSettings schema not found)"));
+
+    adw_dialog_present(dialog, GTK_WIDGET(m_window));
 }
 
 void AppWindow::setTransportActionsEnabled(bool enabled)
@@ -1264,7 +1479,7 @@ void AppWindow::onSeekChanged()
 void AppWindow::onShuttleForward()
 {
     double current = m_playback->speed();
-    double next = (current <= 0.0) ? 1.0 : std::min(current * 2.0, 8.0);
+    double next = (current <= 0.0) ? 1.0 : std::min(current * 2.0, m_settings->shuttleMaxSpeed());
     m_playback->play(next);
     refreshPlayButtonIcon();
 }
@@ -1272,7 +1487,7 @@ void AppWindow::onShuttleForward()
 void AppWindow::onShuttleReverse()
 {
     double current = m_playback->speed();
-    double next = (current >= 0.0) ? -1.0 : std::max(current * 2.0, -8.0);
+    double next = (current >= 0.0) ? -1.0 : std::max(current * 2.0, -m_settings->shuttleMaxSpeed());
     m_playback->play(next);
     refreshPlayButtonIcon();
 }
@@ -2777,8 +2992,9 @@ void AppWindow::refreshRecentProjectsMenu()
              [](const auto &a, const auto &b) { return a.first > b.first; });
 
     int shown = 0;
+    const int maxShown = m_settings->recentProjectsMax();
     for (const auto &entry : entries) {
-        if (shown >= 10)
+        if (shown >= maxShown)
             break;
         GtkRecentInfo *info = entry.second;
         char *path = g_filename_from_uri(gtk_recent_info_get_uri(info), nullptr, nullptr);
@@ -3475,8 +3691,9 @@ void AppWindow::onAutosaveHeartbeat()
     if (m_lastAutosaveMonotonicUsec >= m_lastEditMonotonicUsec)
         return;
 
-    constexpr gint64 kAutosaveDelayUsec = 120 * G_USEC_PER_SEC; // doc 09: 2 minutes since the last command
-    if (g_get_monotonic_time() - m_lastEditMonotonicUsec >= kAutosaveDelayUsec)
+    // doc 09: N minutes since the last command, N from Settings (default 2).
+    const gint64 autosaveDelayUsec = static_cast<gint64>(m_settings->autosaveDelayMinutes()) * 60 * G_USEC_PER_SEC;
+    if (g_get_monotonic_time() - m_lastEditMonotonicUsec >= autosaveDelayUsec)
         performAutosave();
 }
 
@@ -3789,6 +4006,41 @@ void AppWindow::renderClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onRenderFinished(sourceObject, result);
+}
+
+void AppWindow::helpClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->showHelpDialog();
+}
+
+void AppWindow::settingsClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->showSettingsDialog();
+}
+
+void AppWindow::settingsAutosaveDelayChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->m_settings->setAutosaveDelayMinutes(
+        static_cast<int>(adw_spin_row_get_value(row)));
+}
+
+void AppWindow::settingsRecentProjectsMaxChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->m_settings->setRecentProjectsMax(static_cast<int>(adw_spin_row_get_value(row)));
+}
+
+void AppWindow::settingsShuttleMaxSpeedChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->m_settings->setShuttleMaxSpeed(adw_spin_row_get_value(row));
+}
+
+void AppWindow::settingsPreviewScaleChangedTrampoline(AdwComboRow *row, GParamSpec *, gpointer userData)
+{
+    static const char *kScales[] = {"auto", "full", "half", "quarter"};
+    guint selected = adw_combo_row_get_selected(row);
+    if (selected >= G_N_ELEMENTS(kScales))
+        return;
+    static_cast<AppWindow *>(userData)->m_settings->setDefaultPreviewScale(kScales[selected]);
 }
 
 void AppWindow::addTrackClickedTrampoline(GtkButton *, gpointer userData)
