@@ -48,6 +48,9 @@ single-track skeleton.
   it, click a row to make it the active track (where imports/splits land).
   Higher tracks composite over lower ones for video (full-frame, top wins);
   all tracks mix together for audio, including tracks that are audio-only.
+  A timecode ruler runs along the top, ticking every 1/2/5/10/15/30
+  seconds or whole minutes/hours — whichever keeps ticks at least ~60px
+  apart at the current zoom (enhancement #12, 2026-09-23).
 - **Undo/redo** for every edit (header-bar buttons, `Ctrl+Z`/`Ctrl+Shift+Z`),
   backed by a real command/undo-stack model — see "Architecture" below.
 - Playback via an MLT consumer (`sdl2_audio`, falling back to `rtaudio`,
@@ -606,6 +609,23 @@ unchanged. Confirmed via gdb breakpoints on both draw functions that a
 means the overlay's last-drawn playhead position stays correctly
 composited on top even on a frame where only `m_timeline` redrew, so
 nothing needed to force both together.
+
+The timecode ruler (`onRulerDraw()`, enhancement #12, 2026-09-23) is its
+own fixed-height widget stacked ABOVE `m_timeline` in the layout, not
+overlapping it -- unlike the playhead overlay, it doesn't need to sit on
+top of anything, so it's simplest as a separate widget rather than
+another `GtkOverlay` child, and it never has to touch any of the row/
+y-coordinate math `onTimelineClicked()`/`onTrackDragBegin()`/
+`onTrackDragUpdate()`/`onTimelineRightClicked()` already do. One finding
+worth recording: `gtk_widget_set_size_request()`'s height and the
+widget's actual allocated height aren't always equal -- confirmed live
+via gdb that a `kRulerHeight` of 20 requested came out as 18 actually
+allocated (CSS padding from the shared `"timeline-area"` class both this
+and `m_timeline` use). Anchoring the tick marks to the *requested*
+constant instead of the real `height` parameter `onRulerDraw()` receives
+would have drawn them a couple of pixels past the widget's real bottom
+edge -- fixed by using `height` for the drawing math, keeping the
+constant only for the original size request.
 
 Fixing T1 surfaced a second, unrelated crash: `RemoveClip`/`MoveClip`/
 `RemoveAsset` (and, before this fix, the un-batched T1 strip-then-edit

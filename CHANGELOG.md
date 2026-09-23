@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.14.6
+
+- A timecode ruler now runs along the top of the timeline, with ticks
+  that adapt to the current zoom level.
+
 ## 0.14.5
 
 - Click and drag on empty timeline space to scrub, following the pointer

@@ -400,6 +400,13 @@ class AppWindow
     // stacked on top of m_timeline in a GtkOverlay, so the per-frame
     // redraw touches only this -- geometry math and a single cairo_stroke.
     void onPlayheadOverlayDraw(cairo_t *cr, int width, int height);
+    // Enhancement #12: a timecode tick every "nice" interval (1/2/5/10/…
+    // seconds up to whole minutes/hours, whichever is the smallest that
+    // keeps ticks at least kRulerMinTickSpacing pixels apart at the
+    // current zoom) along m_rulerArea, using the same total-frames/
+    // contentWidth mapping onTimelineDraw() itself uses so ticks line up
+    // exactly with the clips underneath.
+    void onRulerDraw(cairo_t *cr, int width, int height);
     void onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber);
 
     void refreshTimeline();
@@ -481,6 +488,7 @@ class AppWindow
     static void timelineDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer userData);
     static void playheadOverlayDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height,
                                               gpointer userData);
+    static void rulerDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer userData);
     static void timelineClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
     static void timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
                                              gpointer userData);
@@ -564,6 +572,13 @@ class AppWindow
     // pointer events, so every click/drag/drop/tooltip controller stays
     // exactly where it already was, on m_timeline itself.
     GtkDrawingArea *m_playheadOverlay = nullptr;
+    // Enhancement #12: a separate, fixed-height widget stacked ABOVE
+    // m_timeline in the layout (buildUi()), not overlapping it -- avoids
+    // touching any of the row/y-coordinate math onTimelineClicked()/
+    // onTrackDragBegin()/onTrackDragUpdate()/onTimelineRightClicked()
+    // already do, since the ruler occupies its own vertical space rather
+    // than the top of the track grid.
+    GtkDrawingArea *m_rulerArea = nullptr;
     GtkScale *m_seekScale = nullptr;
     GtkButton *m_playButton = nullptr;
     // Enhancement #4: the header bar's own title widget (what's actually

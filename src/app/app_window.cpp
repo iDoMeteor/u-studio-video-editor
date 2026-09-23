@@ -58,6 +58,8 @@ constexpr double kLabelTextR = 0xff / 255.0, kLabelTextG = 0xef / 255.0, kLabelT
 // itself, and therefore every hit-test/drag calculation keyed on it,
 // stays untouched; only where clips draw *within* their row shrinks).
 constexpr double kTrackLabelHeight = 14.0;
+constexpr double kRulerHeight = 20.0;
+constexpr double kRulerMinTickSpacing = 60.0; // pixels -- below this, ticks get too cramped to read
 
 // Single-line text, ellipsized to fit `maxWidth`, top-left anchored at
 // (x, y) -- the one place this file draws text directly onto the cairo
@@ -551,6 +553,19 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_add_controller(GTK_WIDGET(m_inlineNameEditEntry), inlineEditKey);
     gtk_popover_set_child(m_inlineNameEditPopover, GTK_WIDGET(m_inlineNameEditEntry));
     g_signal_connect(m_inlineNameEditPopover, "closed", G_CALLBACK(&AppWindow::inlineNameEditClosedTrampoline), this);
+
+    // Enhancement #12: a fixed-height row ABOVE the track grid, not
+    // overlapping it -- unlike the playhead overlay below, this doesn't
+    // need to sit on top of m_timeline, so it's simplest as its own
+    // widget in the layout rather than another GtkOverlay child. Keeps
+    // it out of every row/y-coordinate calculation onTimelineClicked()/
+    // onTrackDragBegin()/onTrackDragUpdate()/onTimelineRightClicked()
+    // already do (see onRulerDraw()'s own comment).
+    m_rulerArea = GTK_DRAWING_AREA(gtk_drawing_area_new());
+    gtk_widget_set_size_request(GTK_WIDGET(m_rulerArea), -1, static_cast<int>(kRulerHeight));
+    gtk_widget_add_css_class(GTK_WIDGET(m_rulerArea), "timeline-area");
+    gtk_drawing_area_set_draw_func(m_rulerArea, &AppWindow::rulerDrawTrampoline, this, nullptr);
+    gtk_box_append(GTK_BOX(bottomBox), GTK_WIDGET(m_rulerArea));
 
     // Audit A5: the playhead line is drawn on its own overlay, stacked on
     // top of m_timeline, so redrawing it on every displayed frame during
@@ -2618,6 +2633,55 @@ void AppWindow::onPlayheadOverlayDraw(cairo_t *cr, int width, int height)
     cairo_stroke(cr);
 }
 
+void AppWindow::onRulerDraw(cairo_t *cr, int width, int height)
+{
+    int total = m_playback->totalFrames();
+    if (total <= 0)
+        return;
+
+    double contentWidth = std::max(width - kHandleWidth, 1.0);
+    double fps = m_playback->fps();
+    if (fps <= 0.0)
+        fps = 25.0; // matches formatTimecode()'s own fallback
+
+    double pixelsPerSecond = contentWidth / total * fps;
+    if (pixelsPerSecond <= 0.0)
+        return;
+
+    // Whole seconds up through whole hours -- the smallest of these that
+    // keeps ticks at least kRulerMinTickSpacing pixels apart at the
+    // current zoom, so a short, zoomed-in project gets per-second ticks
+    // and a long one falls back to whole minutes (or more) instead of an
+    // unreadable, overlapping label every frame's worth of pixels.
+    static const double kNiceIntervalsSeconds[] = {1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600};
+    constexpr size_t kNumIntervals = sizeof(kNiceIntervalsSeconds) / sizeof(kNiceIntervalsSeconds[0]);
+    double intervalSeconds = kNiceIntervalsSeconds[kNumIntervals - 1];
+    for (double candidate : kNiceIntervalsSeconds) {
+        if (candidate * pixelsPerSecond >= kRulerMinTickSpacing) {
+            intervalSeconds = candidate;
+            break;
+        }
+    }
+    int intervalFrames = std::max(1, static_cast<int>(intervalSeconds * fps));
+    double tickSpacingPixels = intervalSeconds * pixelsPerSecond;
+
+    // The actual allocated height, not the kRulerHeight request passed to
+    // gtk_widget_set_size_request() -- found live that the two aren't
+    // exactly equal (CSS padding from the shared "timeline-area" class),
+    // so ticks anchored to the constant instead of the real height came
+    // out a couple of pixels short of the widget's actual bottom edge.
+    double tickBottom = std::max(static_cast<double>(height), 1.0);
+    cairo_set_source_rgb(cr, kClipBorderR, kClipBorderG, kClipBorderB);
+    cairo_set_line_width(cr, 1.0);
+    for (int frame = 0; frame <= total; frame += intervalFrames) {
+        double x = kHandleWidth + (static_cast<double>(frame) / total) * contentWidth;
+        cairo_move_to(cr, x, tickBottom - 6.0);
+        cairo_line_to(cr, x, tickBottom);
+        cairo_stroke(cr);
+        drawLabel(cr, formatTimecode(frame), x + 2.0, 2.0, std::max(tickSpacingPixels - 4.0, 1.0), true);
+    }
+}
+
 void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber)
 {
     if (!rgba.empty() && width > 0 && height > 0) {
@@ -3267,6 +3331,11 @@ void AppWindow::refreshTimeline()
     m_suppressSeekSignal = false;
 
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+    // Enhancement #12: the ruler's ticks depend on the same total-frames
+    // mapping the timeline itself does, so it needs redrawing on every
+    // edit that could change sequence length too -- refreshTimeline() is
+    // the one place already called after all of them.
+    gtk_widget_queue_draw(GTK_WIDGET(m_rulerArea));
 }
 
 void AppWindow::refreshTransport(int frameNumber)
@@ -3760,6 +3829,11 @@ void AppWindow::timelineDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width,
 void AppWindow::playheadOverlayDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width, int height, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onPlayheadOverlayDraw(cr, width, height);
+}
+
+void AppWindow::rulerDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width, int height, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRulerDraw(cr, width, height);
 }
 
 void AppWindow::timelineClickTrampoline(GtkGestureClick *, int nPress, double x, double y, gpointer userData)
