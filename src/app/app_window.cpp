@@ -1330,7 +1330,12 @@ void AppWindow::onSeekEnd()
 // definition can't drift apart.
 std::vector<int> AppWindow::cutBoundariesOnActiveTrack() const
 {
-    const core::Track &track = m_model.track(trackIdForRow(m_activeTrack));
+    return cutBoundariesForTrack(m_activeTrack);
+}
+
+std::vector<int> AppWindow::cutBoundariesForTrack(int row) const
+{
+    const core::Track &track = m_model.track(trackIdForRow(row));
     // The LAST actually reachable frame, not the exclusive totalFrames()
     // itself: PlaybackController::seek() clamps to [0, totalFrames()-1],
     // so using the raw total here would make "next cut" silently re-seek
@@ -1354,6 +1359,21 @@ std::vector<int> AppWindow::cutBoundariesOnActiveTrack() const
     std::sort(boundaries.begin(), boundaries.end());
     boundaries.erase(std::unique(boundaries.begin(), boundaries.end()), boundaries.end());
     return boundaries;
+}
+
+std::optional<int> AppWindow::nearestBoundaryDelta(int position, const std::vector<int> &boundaries,
+                                                    double pixelsPerFrame) const
+{
+    std::optional<int> best;
+    double bestDistancePixels = kEdgeGrabWidth; // strictly closer than this to count as a snap at all
+    for (int boundary : boundaries) {
+        double distancePixels = std::abs(boundary - position) * pixelsPerFrame;
+        if (distancePixels < bestDistancePixels) {
+            bestDistancePixels = distancePixels;
+            best = boundary - position;
+        }
+    }
+    return best;
 }
 
 void AppWindow::onSeekPreviousCut()
@@ -2072,19 +2092,57 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
         return;
     int deltaFrames = static_cast<int>(offsetX / contentWidth * total);
 
+    // Enhancement #10: snap to clip edges (on the row the drag is
+    // actually over -- see cutBoundariesForTrack()'s own comment) and
+    // the playhead, within kEdgeGrabWidth pixels, same threshold the
+    // clip-edge grab zones already use.
+    double pixelsPerFrame = contentWidth / total;
+
     if (m_dragMode == TimelineDragMode::MoveClip) {
         m_dragPreviewTrack =
             std::clamp(static_cast<int>((m_dragStartY + offsetY) / kTrackRowHeight), 0, std::max(trackCount - 1, 0));
-        m_dragPreviewStartFrame = std::max(0, m_dragClipStartFrame + deltaFrames);
+        int previewStart = std::max(0, m_dragClipStartFrame + deltaFrames);
+        int previewEnd = previewStart + m_dragClipFrames;
+
+        std::vector<int> boundaries = cutBoundariesForTrack(m_dragPreviewTrack);
+        boundaries.push_back(m_playback->currentFrame());
+        // Both edges of the DRAGGED clip are candidates -- snapping
+        // whichever one is closer to its own nearest boundary, then
+        // shifting the whole clip by that one delta, covers "align my
+        // start with that cut" and "align my end with that cut" both,
+        // without the two edges fighting each other for different deltas.
+        std::optional<int> startDelta = nearestBoundaryDelta(previewStart, boundaries, pixelsPerFrame);
+        std::optional<int> endDelta = nearestBoundaryDelta(previewEnd, boundaries, pixelsPerFrame);
+        std::optional<int> chosenDelta;
+        if (startDelta && endDelta)
+            chosenDelta = std::abs(*startDelta) <= std::abs(*endDelta) ? startDelta : endDelta;
+        else
+            chosenDelta = startDelta ? startDelta : endDelta;
+        if (chosenDelta)
+            previewStart += *chosenDelta;
+
+        m_dragPreviewStartFrame = std::max(0, previewStart);
         m_dragPreviewFrames = m_dragClipFrames;
     } else if (m_dragMode == TimelineDragMode::TrimClipStart) {
         int fixedEnd = m_dragClipStartFrame + m_dragClipFrames;
         int newStart = std::clamp(m_dragClipStartFrame + deltaFrames, 0, fixedEnd - 1);
+
+        std::vector<int> boundaries = cutBoundariesForTrack(m_dragClipTrack);
+        boundaries.push_back(m_playback->currentFrame());
+        if (std::optional<int> delta = nearestBoundaryDelta(newStart, boundaries, pixelsPerFrame))
+            newStart = std::clamp(newStart + *delta, 0, fixedEnd - 1);
+
         m_dragPreviewTrack = m_dragClipTrack;
         m_dragPreviewStartFrame = newStart;
         m_dragPreviewFrames = fixedEnd - newStart;
     } else if (m_dragMode == TimelineDragMode::TrimClipEnd) {
         int newEnd = std::max(m_dragClipStartFrame + 1, m_dragClipStartFrame + m_dragClipFrames + deltaFrames);
+
+        std::vector<int> boundaries = cutBoundariesForTrack(m_dragClipTrack);
+        boundaries.push_back(m_playback->currentFrame());
+        if (std::optional<int> delta = nearestBoundaryDelta(newEnd, boundaries, pixelsPerFrame))
+            newEnd = std::max(m_dragClipStartFrame + 1, newEnd + *delta);
+
         m_dragPreviewTrack = m_dragClipTrack;
         m_dragPreviewStartFrame = m_dragClipStartFrame;
         m_dragPreviewFrames = newEnd - m_dragClipStartFrame;

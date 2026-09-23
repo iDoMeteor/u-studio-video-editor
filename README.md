@@ -69,6 +69,9 @@ single-track skeleton.
 - Split a clip at the playhead.
 - Drag a clip's body to move it — within a track or to a different one.
   Drag near a clip's left/right edge (~8px) to trim it shorter or longer.
+  Both snap to nearby clip edges (on whichever row the drag is currently
+  over) and the playhead, within that same ~8px, on whichever edge of the
+  dragged clip is closer (enhancement #10, 2026-09-23).
   Right-click a clip, or click to select it then press `Delete`, to
   delete it (leaves a gap — "lift", nothing else moves); right-click a
   clip that has audio and isn't already audio-only

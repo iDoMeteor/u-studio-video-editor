@@ -237,8 +237,23 @@ class AppWindow
     void onSeekPreviousCut();
     void onSeekNextCut();
     // Every clip boundary on the active track, plus 0 and totalFrames(),
-    // sorted and deduplicated -- shared by the two methods above.
+    // sorted and deduplicated -- shared by the two methods above, and (as
+    // cutBoundariesForTrack(m_activeTrack)) the active-track case of the
+    // snap targets below.
     std::vector<int> cutBoundariesOnActiveTrack() const;
+    // Same as above but for an arbitrary row, not just the active track
+    // -- enhancement #10's snap needs the row a drag is CURRENTLY over
+    // (m_dragPreviewTrack while dragging a clip between rows), which
+    // isn't always m_activeTrack (that only updates to match once the
+    // drag actually completes).
+    std::vector<int> cutBoundariesForTrack(int row) const;
+    // Enhancement #10: the closest boundary to `position` among
+    // `boundaries`, as a delta (boundary - position), if any boundary is
+    // within kEdgeGrabWidth pixels -- nullopt otherwise (nothing to snap
+    // to). `pixelsPerFrame` converts the pixel threshold to a frame
+    // distance for the comparison.
+    std::optional<int> nearestBoundaryDelta(int position, const std::vector<int> &boundaries,
+                                            double pixelsPerFrame) const;
     // Moves which track row is "active" (where imports/splits/single-key
     // edits land) up or down by one, clamped to the track list -- the
     // same target onTimelineClicked's plain click already sets, just
