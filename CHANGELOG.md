@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.13.3
+
+- Closing the window with unsaved changes now asks first (Save, Discard,
+  or Cancel) instead of quitting immediately and losing them. Choosing
+  Discard (or any other path to quitting while still dirty) still leaves
+  a final autosave behind as a recovery point.
+
 ## 0.13.2
 
 - Renaming a track or clip inline no longer triggers transport shortcuts

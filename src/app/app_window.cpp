@@ -204,6 +204,7 @@ AppWindow::AppWindow(GtkApplication *app)
     buildUi(app);
     installActions(app);
     g_signal_connect(m_window, "notify::is-active", G_CALLBACK(&AppWindow::windowActiveChangedTrampoline), this);
+    g_signal_connect(m_window, "close-request", G_CALLBACK(&AppWindow::closeRequestTrampoline), this);
     // Heartbeat, not a one-shot timer reset on every edit (doc 09: "2
     // minutes after the last command while dirty"): simpler to reason
     // about than adding/removing a GSource on every keystroke-equivalent,
@@ -219,6 +220,14 @@ AppWindow::AppWindow(GtkApplication *app)
 void AppWindow::prepareForShutdown()
 {
     Log::info("[app] Preparing for shutdown");
+    // Audit A2: a last-resort safety net. onCloseRequest() prompts before
+    // a normal window close, but this fires unconditionally whenever the
+    // GApplication actually quits -- including after that prompt's own
+    // "Discard" (the autosave doesn't touch m_currentProjectPath, so
+    // discarding still leaves a recovery point behind) and any path that
+    // reaches shutdown without going through onCloseRequest at all.
+    if (!m_undoStack.isClean())
+        performAutosave();
     if (m_playback)
         m_playback->shutdown();
 }
@@ -748,6 +757,14 @@ void AppWindow::onSaveClicked()
 
 void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
 {
+    // Audit A2: consumed unconditionally, regardless of how this save
+    // turns out -- a cancelled or refused save must NOT close the window
+    // (the user is left in the editor to sort it out), and clearing it up
+    // front means a later, unrelated save can never inherit a stale
+    // "close when done" from this one.
+    bool closeAfterSave = m_closeAfterSave;
+    m_closeAfterSave = false;
+
     GError *error = nullptr;
     GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(sourceObject), result, &error);
     if (!file) {
@@ -796,6 +813,8 @@ void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
                 m_pendingAutosaveCleanupMetaPath.clear();
             }
             showStatus(std::string("Saved: ") + path);
+            if (closeAfterSave)
+                gtk_window_destroy(GTK_WINDOW(m_window));
         }
         g_free(path);
     }
@@ -2888,6 +2907,46 @@ void AppWindow::confirmDiscardIfDirty(std::function<void()> onConfirmed)
         ctx);
 }
 
+gboolean AppWindow::onCloseRequest()
+{
+    if (m_undoStack.isClean())
+        return GDK_EVENT_PROPAGATE;
+
+    AdwDialog *dialog = adw_alert_dialog_new(
+        "Save changes before closing?", "This project has unsaved changes that will be lost if you don't save them.");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "discard", "Discard");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "save", "Save");
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "discard", ADW_RESPONSE_DESTRUCTIVE);
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "save", ADW_RESPONSE_SUGGESTED);
+    adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "save");
+    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
+
+    adw_alert_dialog_choose(
+        ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            auto *self = static_cast<AppWindow *>(userData);
+            const char *response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+            if (!response)
+                return;
+            std::string chosen = response;
+            if (chosen == "discard") {
+                // Bypasses close-request entirely -- calling
+                // gtk_window_close() again here would just re-enter this
+                // same prompt.
+                gtk_window_destroy(GTK_WINDOW(self->m_window));
+            } else if (chosen == "save") {
+                self->m_closeAfterSave = true;
+                self->onSaveClicked();
+            }
+            // "cancel": nothing to do -- the close is already vetoed by
+            // onCloseRequest()'s GDK_EVENT_STOP.
+        },
+        this);
+
+    return GDK_EVENT_STOP;
+}
+
 void AppWindow::offerRecoveryIfAny()
 {
     // Excludes every candidate already offered (and answered) THIS
@@ -3336,6 +3395,11 @@ gboolean AppWindow::autosaveHeartbeatTrampoline(gpointer userData)
 void AppWindow::windowActiveChangedTrampoline(GObject *, GParamSpec *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onWindowActiveChanged();
+}
+
+gboolean AppWindow::closeRequestTrampoline(GtkWindow *, gpointer userData)
+{
+    return static_cast<AppWindow *>(userData)->onCloseRequest();
 }
 
 } // namespace ustudio::app

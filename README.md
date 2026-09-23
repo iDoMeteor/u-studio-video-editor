@@ -101,7 +101,14 @@ single-track skeleton.
   what Reload reads. Both confirm first ("Discard unsaved changes?") if
   there are any — unlike Open, which already goes through a file-picker
   dialog the owner actively navigates, these are one click next to Save
-  with nothing else in the way (audit A2).
+  with nothing else in the way (audit A2). Closing the window itself
+  confirms too, with a third option: "Save changes before closing?"
+  offers Save/Discard/Cancel, and Cancel leaves the window open exactly
+  as it was (audit A2, 2026-09-23) — previously the window closed
+  immediately with no prompt at all. Discarding, or any other path that
+  reaches the app's own shutdown while still dirty, still leaves a final
+  autosave behind as a recovery point, the same as any other still-dirty
+  exit.
 - Timestamped debug/info/warn/error logging to
   `$XDG_STATE_HOME/ustudio/logs/` (falls back to
   `~/.local/state/ustudio/logs/` if `XDG_STATE_HOME` is unset), level

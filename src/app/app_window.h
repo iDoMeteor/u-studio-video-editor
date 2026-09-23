@@ -129,6 +129,20 @@ class AppWindow
     // alert (matching offerRecoveryIfAny's own dialog conventions) and
     // runs `onConfirmed` only if the owner picks "Discard".
     void confirmDiscardIfDirty(std::function<void()> onConfirmed);
+    // Audit A2: closing the window used to quit immediately with no
+    // unsaved-changes prompt and no final autosave. GTK's "close-request"
+    // signal lets a handler veto the close by returning GDK_EVENT_STOP;
+    // this one does that whenever the project is dirty and shows a
+    // Save/Discard/Cancel alert (confirmDiscardIfDirty's Discard/Cancel
+    // pair doesn't fit here -- unlike Reload/New Project, closing loses
+    // the work for good, so it needs a way to keep it too). The dialog is
+    // async, so the confirmed paths destroy the window explicitly:
+    // Discard calls gtk_window_destroy() directly (bypassing
+    // close-request, so it can't loop back into this same prompt);
+    // Save sets m_closeAfterSave and re-enters the normal Save flow,
+    // which destroys the window itself once onSaveFinished() sees a
+    // successful save with that flag set.
+    gboolean onCloseRequest();
     void onRenderClicked();
     void onRenderFinished(GObject *sourceObject, GAsyncResult *result);
     void onAddTrackClicked();
@@ -546,6 +560,11 @@ class AppWindow
     // return first, so an older one with real content never goes silently
     // unmentioned just because a newer, emptier one also exists.
     std::set<std::string> m_offeredAutosaveMetaPaths;
+    // Set by onCloseRequest()'s "Save" response, consumed by the very next
+    // onSaveFinished() (success or not -- see that method's own comment)
+    // so a save the user triggers manually in between never accidentally
+    // closes the window.
+    bool m_closeAfterSave = false;
 
     void onAutosaveHeartbeat();
     void performAutosave();
@@ -553,6 +572,7 @@ class AppWindow
     void onWindowActiveChanged();
     static gboolean autosaveHeartbeatTrampoline(gpointer userData);
     static void windowActiveChangedTrampoline(GObject *object, GParamSpec *pspec, gpointer userData);
+    static gboolean closeRequestTrampoline(GtkWindow *window, gpointer userData);
 };
 
 } // namespace ustudio::app
