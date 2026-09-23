@@ -404,6 +404,16 @@ Permission **is required** before:
 - Don't leave debug logging at `info` level; use `debug`.
 - Don't run or edit anything in the sibling `*-stable` or `*.bak-*`
   repositories under `~/Repos`.
+- **GitHub Actions CI (`.github/workflows/ci.yml`) is parked, manual
+  dispatch only** — every run since it was introduced failed on
+  CI-environment gaps (no real audio device in the container, further
+  codec/signal-handling differences from a local build), not real
+  regressions, confirmed by the same commits building and testing clean
+  locally every time (2026-09-23). Don't add `push`/`pull_request` (or
+  any other automatic) triggers back, don't add new workflows, and don't
+  otherwise make anything in this repo depend on CI running automatically
+  — until the owner has fixed the environment gap and explicitly says to
+  re-enable it.
 
 ---
 
