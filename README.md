@@ -538,6 +538,24 @@ their zero default there. The asset's recorded "format" (its container)
 is read from the filename extension, not any MLT property — `meta.media.*`
 has no reliable container/format string to read.
 
+`probeMedia()` also reads whether the asset actually has audio, rather
+than guessing "true whenever it isn't a still image" as it used to
+(audit E3, 2026-09-22 — the old guess meant a video-only file got
+waveform-decode jobs for a silent track and a "Split Audio" menu item
+that produced an empty clip). Verified against the avformat producer's
+own YAML metadata (`producer_avformat.yml`'s `audio_index`: "Choose the
+absolute stream index of audio stream to use (-1 is off)") and a
+standalone repro rendering two real MP4s, one muxed with an AAC track
+and one without: `audio_index` is auto-detected and set at *open* time
+(no frame decode needed first, unlike `meta.media.*` above), -1 exactly
+when the container has no audio stream. A `property_exists()` guard
+matters too — a non-avformat producer (a generator like `color:`) has
+no `audio_index` property at all, and `get_int()` on a missing property
+returns `0`, indistinguishable from "stream 0" if read unguarded
+(confirmed with the same repro); `tests/engine/test_probe_media.cpp`
+covers all three cases (real video with audio, real video without,
+generator).
+
 ### Render implementation notes
 
 `renderProject()` uses MLT's `avformat` consumer, with properties confirmed

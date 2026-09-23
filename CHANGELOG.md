@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.5
+
+- Fixed a video with no audio track getting a waveform decode job and a
+  "Split Audio" menu item that produced an empty, silent clip; whether
+  media actually has audio is now checked instead of guessed.
+
 ## 0.12.4
 
 - Fixed undo of importing or resizing a still image/logo overlay leaving

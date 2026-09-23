@@ -123,6 +123,91 @@ TEST_CASE("EngineSync::probeMedia reads real fps/width/height from an actual med
     CHECK(probed.height == model.sequence().profile.height);
 }
 
+TEST_CASE("EngineSync::probeMedia reports hasAudio=false for a real video with no audio stream (2026-09-22 "
+         "audit E3)")
+{
+    sharedFactoryPolicy();
+    std::random_device rd;
+    std::filesystem::path path = std::filesystem::temp_directory_path() /
+                                 ("ustudio-probe-media-no-audio-test-" + std::to_string(rd()) + ".mp4");
+    RemoveOnExit cleanup{path};
+
+    // Previously guessed as "not a still image" -- wrong for exactly
+    // this case (a real, non-still video with a video-only container).
+    {
+        Model renderModel = Model::createEmpty();
+        EngineSync renderSync(renderModel);
+        Mlt::Producer producer(renderSync.profile(), "color:red");
+        producer.set_in_and_out(0, 4);
+        std::unique_ptr<Mlt::Profile> consumerProfile(producer.profile());
+        Mlt::Consumer consumer(*consumerProfile, "avformat", path.string().c_str());
+        consumer.set("vcodec", "libx264");
+        consumer.set("an", 1); // no audio track in the muxed output
+        consumer.connect(producer);
+        consumer.run();
+    }
+
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+    EngineSync::ProbedMedia probed = sync.probeMedia(path.string());
+    REQUIRE(probed.length > 0);
+    CHECK_FALSE(probed.isStillImage);
+    CHECK_FALSE(probed.hasAudio);
+}
+
+TEST_CASE("EngineSync::probeMedia reports hasAudio=true for a real video with an audio stream (2026-09-22 "
+         "audit E3)")
+{
+    sharedFactoryPolicy();
+    std::random_device rd;
+    std::filesystem::path path = std::filesystem::temp_directory_path() /
+                                 ("ustudio-probe-media-with-audio-test-" + std::to_string(rd()) + ".mp4");
+    RemoveOnExit cleanup{path};
+
+    {
+        Model renderModel = Model::createEmpty();
+        EngineSync renderSync(renderModel);
+        Mlt::Profile &profile = renderSync.profile();
+
+        Mlt::Producer videoProducer(profile, "color:red");
+        videoProducer.set_in_and_out(0, 4);
+        Mlt::Producer audioProducer(profile, "tone:440");
+        audioProducer.set_in_and_out(0, 4);
+
+        Mlt::Tractor tractor(profile);
+        tractor.set_track(videoProducer, 0);
+        tractor.set_track(audioProducer, 1);
+        tractor.set_in_and_out(0, 4);
+
+        std::unique_ptr<Mlt::Profile> consumerProfile(tractor.profile());
+        Mlt::Consumer consumer(*consumerProfile, "avformat", path.string().c_str());
+        consumer.set("vcodec", "libx264");
+        consumer.set("acodec", "aac");
+        consumer.connect(tractor);
+        consumer.run();
+    }
+
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+    EngineSync::ProbedMedia probed = sync.probeMedia(path.string());
+    REQUIRE(probed.length > 0);
+    CHECK_FALSE(probed.isStillImage);
+    CHECK(probed.hasAudio);
+}
+
+TEST_CASE("EngineSync::probeMedia reports hasAudio=false for a generator producer (2026-09-22 audit E3)")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+
+    // color: has no audio_index property at all (not an avformat
+    // producer) -- get_int() on a missing property returns 0, which
+    // must not be misread as "audio stream 0".
+    EngineSync::ProbedMedia probed = sync.probeMedia("color:red");
+    CHECK_FALSE(probed.hasAudio);
+}
+
 TEST_CASE("EngineSync::probeMedia reports 0 length for a path nothing can open")
 {
     sharedFactoryPolicy();

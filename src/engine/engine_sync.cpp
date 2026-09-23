@@ -138,9 +138,24 @@ EngineSync::ProbedMedia EngineSync::probeMedia(const std::string &path)
     result.length = producer.get_length();
     const char *service = producer.get("mlt_service");
     result.isStillImage = service && (std::string(service) == "pixbuf" || std::string(service) == "qimage");
-    result.hasAudio = !result.isStillImage;
 
     if (!result.isStillImage) {
+        // audit E3: previously guessed as "not a still image" -- verified
+        // against the avformat producer's own YAML metadata
+        // (producer_avformat.yml: "audio_index ... Choose the absolute
+        // stream index of audio stream to use (-1 is off)") and a
+        // standalone repro (two rendered MP4s, one muxed with an AAC
+        // track and one without): the avformat producer auto-detects and
+        // sets audio_index to the real stream index at OPEN time, -1 if
+        // the container has no audio stream at all -- no frame decode
+        // needed first, unlike meta.media.width/height below. The
+        // property_exists() guard matters: a non-avformat producer (a
+        // generator like color:, reachable here since this whole branch
+        // is keyed on "not a still image", not "is avformat") has no
+        // audio_index property at all, and get_int() on a missing
+        // property returns 0 -- indistinguishable from "stream 0" -- not
+        // -1, also confirmed with a standalone repro.
+        result.hasAudio = producer.property_exists("audio_index") && producer.get_int("audio_index") >= 0;
         // meta.media.* is populated lazily by the avformat producer on its
         // first decoded frame, not at open time (empirically confirmed) --
         // this throwaway producer is discarded right after, so the decode
