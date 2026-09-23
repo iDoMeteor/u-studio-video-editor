@@ -58,7 +58,10 @@ single-track skeleton.
   `Alt+Right` for a minute, both clamped to the timeline's start/end),
   jump to start/end (`Home`/`End`), loop in/out (`I`/`O` at the playhead),
   volume, preview-scale preference (Auto/Full/Half/Quarter), scrub by
-  dragging the seek bar (including mid-playback). A vertical cyan line on
+  dragging the seek bar (including mid-playback) or by clicking and
+  dragging directly on empty timeline space, which follows the pointer
+  continuously rather than only seeking once on release (enhancement
+  #11, 2026-09-23). A vertical cyan line on
   the timeline itself marks the current frame across every track, live
   during playback, not just the seek bar below the preview -- drawn on
   its own overlay layer so updating it 30 times a second doesn't also

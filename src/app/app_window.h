@@ -38,6 +38,11 @@ enum class TimelineDragMode
     // extendA/extendB split via RemoveTransition+AddTransition.
     TransitionResizeLeft,
     TransitionResizeRight,
+    // Enhancement #11: a press on empty timeline space (past the handle
+    // strip, no clip/transition edge under it) scrubs the playhead
+    // continuously as the pointer moves, instead of only seeking once on
+    // release the way a plain click already does.
+    Scrub,
 };
 
 // What the inline name-edit popover (double-click a track label or a

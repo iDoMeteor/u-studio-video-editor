@@ -2068,7 +2068,19 @@ bool AppWindow::onTrackDragBegin(double x, double y)
         return true;
     }
 
-    return false; // empty space -- let the plain click gesture seek there
+    // Enhancement #11: empty space (past the handle strip, no clip or
+    // transition edge under it) starts a scrub instead of falling
+    // through to the plain click gesture -- seeks once immediately (same
+    // frame a plain click would land on) so a trivial press-release
+    // still behaves exactly like today's click-to-seek (onTrackDragEnd's
+    // own trivial-drag fallback also re-invokes onTimelineClicked, same
+    // as every other drag mode here, so double-click-to-rename on an
+    // otherwise-empty track's label strip keeps working too).
+    m_playback->seek(std::clamp(frameAtX, 0, total - 1));
+    m_activeTrack = std::clamp(row, 0, trackCount - 1);
+    m_dragMode = TimelineDragMode::Scrub;
+    gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+    return true;
 }
 
 void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
@@ -2082,6 +2094,22 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
         double currentY = m_dragStartY + offsetY;
         m_dragHoverRow = std::clamp(static_cast<int>(currentY / kTrackRowHeight), 0, std::max(trackCount - 1, 0));
         gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+        return;
+    }
+
+    if (m_dragMode == TimelineDragMode::Scrub) {
+        // Absolute position from the current pointer x, not a delta off
+        // a clip's own start the way every other mode below computes one
+        // -- there's no clip anchoring this, just the playhead following
+        // the pointer directly, the same math onTimelineClicked() uses
+        // for a plain click.
+        int total = m_playback->totalFrames();
+        int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
+        if (total > 0 && widgetWidth > kHandleWidth) {
+            double contentWidth = widgetWidth - kHandleWidth;
+            double fraction = std::clamp((m_dragStartX + offsetX - kHandleWidth) / contentWidth, 0.0, 1.0);
+            m_playback->seek(static_cast<int>(fraction * total));
+        }
         return;
     }
 
@@ -2185,6 +2213,17 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
                 showStatus("Moved track " + std::to_string(m_draggingTrack) + " to " + std::to_string(targetRow) + ".");
             }
         }
+    } else if (mode == TimelineDragMode::Scrub) {
+        if (trivial) {
+            // Not really a drag -- treat as the plain click it was (same
+            // fallback every other mode below uses), so double-click-to-
+            // rename on an otherwise-empty track's label strip still
+            // works: the real click gesture never fires on its own once
+            // the drag gesture has claimed the sequence.
+            onTimelineClicked(1, m_dragStartX, m_dragStartY);
+        }
+        // A genuine scrub already moved the playhead live, once per
+        // onTrackDragUpdate() call -- nothing left to do on release.
     } else if (mode == TimelineDragMode::MoveClip || mode == TimelineDragMode::TrimClipStart ||
                mode == TimelineDragMode::TrimClipEnd) {
         if (trivial) {

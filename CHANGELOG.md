@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.14.5
+
+- Click and drag on empty timeline space to scrub, following the pointer
+  continuously instead of only seeking once you release.
+
 ## 0.14.4
 
 - Moving or trimming a clip now snaps to nearby clip edges and the
