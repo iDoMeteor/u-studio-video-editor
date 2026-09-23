@@ -3,6 +3,7 @@
 #include <adwaita.h>
 #include <gtk/gtk.h>
 
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -108,13 +109,26 @@ class AppWindow
     // a quick way to pick up a fix or re-attempt opening the same file
     // without going through the file-picker dialog again. A no-op (with a
     // status message) if the project has never been saved/opened, since
-    // there's nothing on disk yet to reload from.
+    // there's nothing on disk yet to reload from. Confirms first if there
+    // are unsaved changes (audit A2) -- unlike Open, which already goes
+    // through a file-picker dialog the user actively navigates (its own
+    // implicit "are you sure"), Reload and New Project replace the model
+    // with a single click next to Save, with nothing else in the way.
     void onReloadProjectClicked();
+    void performReload();
     // Resets to a brand new, empty, untitled project -- same effect as
     // Open Project loading a fresh Model::createEmpty(), just without a
     // file dialog. Does not touch whatever's on disk at
-    // m_currentProjectPath.
+    // m_currentProjectPath. Confirms first if there are unsaved changes
+    // -- see onReloadProjectClicked's own comment.
     void onNewProjectClicked();
+    void performNewProject();
+    // Shared by onReloadProjectClicked/onNewProjectClicked (audit A2): a
+    // no-op (running `onConfirmed` immediately) if the project has no
+    // unsaved changes; otherwise shows a "Discard unsaved changes?"
+    // alert (matching offerRecoveryIfAny's own dialog conventions) and
+    // runs `onConfirmed` only if the owner picks "Discard".
+    void confirmDiscardIfDirty(std::function<void()> onConfirmed);
     void onRenderClicked();
     void onRenderFinished(GObject *sourceObject, GAsyncResult *result);
     void onAddTrackClicked();

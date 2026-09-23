@@ -840,7 +840,11 @@ void AppWindow::onReloadProjectClicked()
         showStatus("Nothing to reload -- this project hasn't been saved or opened yet.");
         return;
     }
+    confirmDiscardIfDirty([this] { performReload(); });
+}
 
+void AppWindow::performReload()
+{
     auto loaded = core::loadProject(m_currentProjectPath);
     if (!loaded.has_value()) {
         showStatus(loaded.error());
@@ -862,6 +866,11 @@ void AppWindow::onReloadProjectClicked()
 }
 
 void AppWindow::onNewProjectClicked()
+{
+    confirmDiscardIfDirty([this] { performNewProject(); });
+}
+
+void AppWindow::performNewProject()
 {
     m_model = core::Model::createEmpty();
     // Pristine starting state, matching the constructor's own initial
@@ -2778,6 +2787,38 @@ void AppWindow::onWindowActiveChanged()
     // doc 09: autosave "on focus loss" too, not just the 2-minute timer.
     if (!gtk_window_is_active(GTK_WINDOW(m_window)) && !m_undoStack.isClean())
         performAutosave();
+}
+
+void AppWindow::confirmDiscardIfDirty(std::function<void()> onConfirmed)
+{
+    if (m_undoStack.isClean()) {
+        onConfirmed();
+        return;
+    }
+
+    AdwDialog *dialog =
+        adw_alert_dialog_new("Discard unsaved changes?", "This project has unsaved changes that will be lost.");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "discard", "Discard");
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "discard", ADW_RESPONSE_DESTRUCTIVE);
+    adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "cancel");
+    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
+
+    struct DiscardConfirmContext
+    {
+        std::function<void()> onConfirmed;
+    };
+    auto *ctx = new DiscardConfirmContext{std::move(onConfirmed)};
+
+    adw_alert_dialog_choose(
+        ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            std::unique_ptr<DiscardConfirmContext> owned(static_cast<DiscardConfirmContext *>(userData));
+            const char *response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+            if (response && std::string(response) == "discard")
+                owned->onConfirmed();
+        },
+        ctx);
 }
 
 void AppWindow::offerRecoveryIfAny()

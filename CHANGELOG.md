@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.6
+
+- Reload and New Project now confirm ("Discard unsaved changes?") before
+  replacing the current project if it has unsaved edits, matching Save's
+  own guard elsewhere -- both used to replace the model on a single
+  click with no way back.
+
 ## 0.12.5
 
 - Fixed a video with no audio track getting a waveform decode job and a

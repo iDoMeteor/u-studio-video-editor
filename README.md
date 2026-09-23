@@ -96,7 +96,10 @@ single-track skeleton.
   button (refresh icon) re-opens the current project's file from disk
   without a file-picker round trip; a New Project button resets to a
   fresh, empty, untitled project. Neither touches what's on disk beyond
-  what Reload reads.
+  what Reload reads. Both confirm first ("Discard unsaved changes?") if
+  there are any — unlike Open, which already goes through a file-picker
+  dialog the owner actively navigates, these are one click next to Save
+  with nothing else in the way (audit A2).
 - Timestamped debug/info/warn/error logging to
   `$XDG_STATE_HOME/ustudio/logs/` (falls back to
   `~/.local/state/ustudio/logs/` if `XDG_STATE_HOME` is unset), level
