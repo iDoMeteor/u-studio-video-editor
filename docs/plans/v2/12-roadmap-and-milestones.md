@@ -168,3 +168,25 @@ Acceptance:
 Speed ramps (`timewarp`), stabilisation, nested sequences in UI, wipes,
 audio mixer panel with meters, `frei0r` effect exposure, GL/dmabuf preview
 upload, drop-frame timecode, OpenTimelineIO export.
+
+Real-time capture, as a new source alongside file import (owner request,
+2026-09-23): desktop audio + video capture, and separately, microphone
+narration capture. Undesigned — this is a materially different subsystem
+from anything v2 currently scopes, not a media-bin extension:
+- A live MLT producer pulling frames continuously, not a file opened once
+  (the whole engine today assumes a `Producer` with a known, fixed
+  length — `Sequence::length()`, `Asset::info.lengthInSequenceFrames`,
+  every clip's `in`/`out` bound checks). Whether captured video/audio
+  lands as a normal `Asset` once recording stops, or needs its own model
+  concept, is open.
+- Needs its own ADR (CLAUDE.md: any new dependency or runtime capability
+  needs one) once scoped: which MLT/PipeWire producer service actually
+  captures a desktop video source and a "monitor" (loopback) audio
+  source on this stack — verified against installed module metadata,
+  never guessed — plus how a live capture interacts with the
+  single-consumer-thread playback model (doc 05) and the "one thread
+  owns each thing" principle (doc 01) while a capture and a preview
+  might need to run at once.
+- Two distinct capture inputs (desktop audio+video vs. mic-only
+  narration) likely means two different service/pipeline shapes, not
+  one flag.
