@@ -308,6 +308,17 @@ class AppWindow
                    void (*activated)(GSimpleAction *, GVariant *, gpointer),
                    std::initializer_list<const char *> accels);
 
+    // Audit A1: the transport actions installActions() binds to bare
+    // letters and Left/Right/Home/End (+ Ctrl/Alt variants) are global
+    // window accelerators, so they fire even while the inline track/clip
+    // name GtkEntry has focus -- typing "a" there seeks to the previous
+    // cut instead of inserting the letter. showInlineNameEditor() disables
+    // them for the popover's lifetime; onInlineNameEditClosed() re-enables
+    // them. Undo/redo (Ctrl+Z/Ctrl+Shift+Z) are deliberately not in this
+    // set: they're modifier combos, not bare keys a text entry would ever
+    // want to consume itself.
+    void setTransportActionsEnabled(bool enabled);
+
     static void importClickedTrampoline(GtkButton *button, gpointer userData);
     static void fileOpenedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void saveClickedTrampoline(GtkButton *button, gpointer userData);

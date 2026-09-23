@@ -467,6 +467,31 @@ same batch as the removal, so deleting an asset no longer leaves a
 dangling transition on a clip about to disappear or on a surviving clip
 it was linked to.
 
+The inline track/clip name editor (`showInlineNameEditor()`, a `GtkPopover`
+holding a `GtkText`) had the same problem an earlier audit found in the
+preview-scale dropdown and the volume/seek sliders (audit A7, see their
+`focusable=FALSE` comments in `app_window.cpp`): the transport actions
+`installActions()` binds to bare letters and Left/Right/Home/End
+(+Ctrl/Alt variants) are `win.*` accelerators installed via
+`gtk_application_set_accels_for_action`, which fire as global window
+shortcuts regardless of which widget has keyboard focus — typing "a" to
+rename a track sought to the previous cut instead of inserting the letter
+(audit A1, 2026-09-23). `GtkDropDown`/`GtkRange` could opt out by setting
+`focusable=FALSE` (A7); a text entry can't, since it needs focus to accept
+input at all. Fix: `showInlineNameEditor()` disables every one of those
+`GSimpleAction`s (`g_simple_action_set_enabled`, looked up by name via
+`g_action_map_lookup_action`) for the popover's lifetime, and
+`onInlineNameEditClosed()` — wired to the popover's own `"closed"` signal,
+which fires on every dismissal path (Escape, Enter, or clicking away) —
+re-enables them unconditionally as its first statement. `GSimpleAction`
+ignores `activate()` entirely while disabled (confirmed via a live gdb
+session: `g_action_get_enabled()` read 0 for the duration the popover was
+open, and a `win.step-forward` activation over D-Bus during that window had
+no effect), so this holds even though this app doesn't control the order
+GTK's shortcut controller and the entry's own key handling see the event.
+Undo/redo (`Ctrl+Z`/`Ctrl+Shift+Z`) are deliberately left enabled: they're
+modifier combos a text entry never needs to consume for itself.
+
 Fixing T1 surfaced a second, unrelated crash: `RemoveClip`/`MoveClip`/
 `RemoveAsset` (and, before this fix, the un-batched T1 strip-then-edit
 sequence) each performed two or more separate `Model` mutations with no

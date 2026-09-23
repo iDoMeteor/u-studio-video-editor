@@ -647,6 +647,21 @@ void AppWindow::addAction(GtkApplication *app, const char *name,
     gtk_application_set_accels_for_action(app, ("win." + std::string(name)).c_str(), accelsWithNull.data());
 }
 
+void AppWindow::setTransportActionsEnabled(bool enabled)
+{
+    static const char *kTransportActions[] = {
+        "shuttle-forward", "shuttle-reverse",     "shuttle-stop",         "step-forward",
+        "step-backward",   "seek-home",           "seek-end",             "loop-set-in",
+        "loop-set-out",    "seek-previous-cut",   "seek-next-cut",        "active-track-up",
+        "active-track-down", "step-forward-10",   "step-backward-10",    "step-forward-minute",
+        "step-backward-minute",
+    };
+    for (const char *name : kTransportActions) {
+        GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
+        g_simple_action_set_enabled(G_SIMPLE_ACTION(action), enabled);
+    }
+}
+
 void AppWindow::onImportClicked()
 {
     GtkFileDialog *dialog = gtk_file_dialog_new();
@@ -2591,6 +2606,7 @@ void AppWindow::beginClipNameEdit(const ClipDisplay &clip)
 void AppWindow::showInlineNameEditor(GdkRectangle anchor, const std::string &currentName)
 {
     m_inlineEditCancelled = false;
+    setTransportActionsEnabled(false);
     gtk_editable_set_text(GTK_EDITABLE(m_inlineNameEditEntry), currentName.c_str());
     gtk_popover_set_pointing_to(m_inlineNameEditPopover, &anchor);
     gtk_popover_popup(m_inlineNameEditPopover);
@@ -2599,6 +2615,8 @@ void AppWindow::showInlineNameEditor(GdkRectangle anchor, const std::string &cur
 
 void AppWindow::onInlineNameEditClosed()
 {
+    setTransportActionsEnabled(true);
+
     InlineEditKind kind = m_inlineEditKind;
     m_inlineEditKind = InlineEditKind::None;
 

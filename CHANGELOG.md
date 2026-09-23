@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.13.2
+
+- Renaming a track or clip inline no longer triggers transport shortcuts
+  (previous/next cut, shuttle, step, loop in/out…) while you're typing —
+  bare letters and arrow keys used to be swallowed by those instead of
+  going into the name field.
+
 ## 0.13.1
 
 - Trimming, moving, or splitting a clip that has a dissolve transition on
