@@ -183,8 +183,12 @@ team's practice is the rule:
   comment where it applies, so the next agent doesn't rediscover it.
 - Only `sdl2_audio`, `rtaudio`, `null`, `avformat`, `xml`, and the core
   transitions (`composite`, `affine`, `luma`, `mix`) are assumed present
-  (verified on this machine, doc 00). `frei0r` is **not** installed; treat it
-  as optional at runtime, never required.
+  (verified on this machine, doc 00). `frei0r` is **required** as of
+  ADR-011 (2026-09-23), but `frei0r-plugins` is not yet installed on every
+  machine: code must still detect it at runtime and degrade (hide frei0r
+  effects, fall back to `composite`) rather than crash, until packaging
+  makes it structural. Effects and titles plans: `docs/plans/v2/15-*`,
+  `16-*`.
 
 ---
 

@@ -28,6 +28,8 @@ either accepted or amended it; see "How to use this set" below.
 | 12 | [Roadmap and milestones](12-roadmap-and-milestones.md) | need to know what ships in what order and how "done" is judged. |
 | 13 | [Risks and open questions](13-risks-and-open-questions.md) | are deciding anything the docs leave open. |
 | 14 | [Conventions](14-conventions.md) | are writing C++ or GTK code in this repo. |
+| 15 | [Effects and transitions](15-effects-and-transitions.md) | are working on effects, keyframes, transitions or the plugin families (frei0r, libavfilter, LADSPA, OpenFX). Supersedes most of 08. |
+| 16 | [Titles tool](16-titles-tool.md) | are working on the separate text design and animation app or its MLT producer. |
 | — | [ADRs](adr/) | want the short rationale behind each load-bearing decision. |
 
 ## How to use this set

@@ -1,5 +1,13 @@
 # 08 — Effects, keyframes, compositing, transitions
 
+> **Superseded in large part (2026-09-23)** by
+> [doc 15](15-effects-and-transitions.md) and
+> [ADR-011](adr/011-frei0r-required-and-effect-families.md): frei0r is now
+> required, the curated-only catalogue becomes a generated registry with
+> curated overlays, and the effect panel becomes the Effect Rack and
+> Browser. Doc 15's first table lists which sections below still hold.
+> Titles moved to [doc 16](16-titles-tool.md).
+
 ## Vocabulary
 
 - **Effect**: an MLT *filter* attached to one clip cut or one track playlist

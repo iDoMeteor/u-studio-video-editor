@@ -14,6 +14,11 @@
 | R8 | **Team velocity hit from M0 restructure** while feature work is in flight. | Medium | Merge pain | One announced window, one PR, mechanical moves only, no logic changes; `git mv` to preserve history. |
 | R9 | **libxml2 API churn** (2.13+ deprecations). | Low | Build warnings | Wrap in one `core/xml/xml_util.h`; only use the tree API. |
 | R10 | **Fonts not bundled on bare-metal builds** so the brand look differs from Flatpak. | Certain | Cosmetic | CSS fallbacks already exist; document `dnf` packages; Flatpak is the reference artifact. |
+| R11 | **A native effect plugin (frei0r, LADSPA, VST2, OpenFX) crashes or hangs in-process** on real footage or unusual parameters (ADR-011). | Medium | Crash / data loss | Out-of-process health probe before any plugin is offered; curated `FREI0R_PATH`; MLT's `blacklist.txt` and `not_thread_safe.txt`; autosave; quarantine list the user can edit. |
+| R12 | **frei0r packaging drift**: plugin renames and parameter changes between frei0r releases break saved projects; a subpackage (e.g. `-opencv`) pulls Qt. | Medium | Broken effects / Qt in process | Respect MLT's `aliases.yaml` and `param_name_map.yaml`; store the plugin version in the project; `ldd` check and factory-policy test over every plugin. |
+| R13 | **Pango threading inside an MLT producer** (doc 16): shared font maps across consumer/render threads. | Medium | Crash in titles | One `PangoCairoFontMap` per producer; T0 stress test under the render CLI. |
+| R14 | **Every parameter change rebuilds the tractor and restarts audio** (ADR-005 plus hot-swap removal), making sliders unusable. | Certain without the fix | Unusable effect UI | Doc 15's in-place parameter path is an FX1 acceptance criterion. |
+| R15 | **Three tracks at once** (M3, FX, titles) split a small team. | High | Slippage | FX0 and T0 are short spikes; each track has its own gate; M3 is not blocked by either. |
 
 ## Open questions (decide by M1 start)
 
@@ -40,7 +45,9 @@ Resolved 2026-09-17 (team decision, questions reviewed one by one):
    pattern from the current v1 `AppWindow`.
 6. **Effect panel placement**: right sidebar (docs) vs. below the preview.
    **Still open — deferred to M5 with a mockup**, as the doc originally
-   specified. Not decided now.
+   specified. Not decided now. Doc 15 (2026-09-23) recommends a
+   collapsible right sidebar (the Effect Rack) and lists it under
+   "Decisions needed from the owner".
 7. **Timecode**: NDF only in v2.0. ✅ **Decided: NDF only, DF explicitly out
    of scope** for v2.0.
 8. **Proxy default**: auto-generate for sources > 1080p? ✅ **Decided: ask
