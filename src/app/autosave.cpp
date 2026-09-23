@@ -53,14 +53,57 @@ std::string readJsonString(const std::string &json, size_t &pos)
 // process this user could signal (POSIX kill(2)): ESRCH means no such
 // process; EPERM means one exists but is owned by someone else, which
 // still counts as "alive" here. pid <= 0 (0 = unknown/legacy meta,
-// negative = never valid) is never treated as alive.
-bool ownerAlive(int64_t pid)
+// negative = never valid) is never treated as alive. recordedStartTime
+// cross-checks that the CURRENT process at that pid (if any) is the
+// SAME one that wrote the autosave, not a coincidental reuse of the pid
+// by an unrelated process (audit A3) -- 0 (a meta file from before this
+// field existed) is permissive, matching readMeta's own "pid 0 =
+// unknown owner" convention, rather than refusing every pre-A3 autosave.
+bool ownerAlive(int64_t pid, int64_t recordedStartTime)
 {
     if (pid <= 0)
         return false;
-    return ::kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM;
+    if (::kill(static_cast<pid_t>(pid), 0) != 0 && errno != EPERM)
+        return false;
+    if (recordedStartTime == 0)
+        return true;
+    // processStartTime() returning 0 here (process exited in the
+    // window between the kill() probe above and this read) compares
+    // unequal to any real recordedStartTime, so it falls through to
+    // "not alive" -- the safe default, and consistent with the process
+    // genuinely being gone.
+    return processStartTime(pid) == recordedStartTime;
 }
 } // namespace
+
+int64_t processStartTime(int64_t pid)
+{
+    if (pid <= 0)
+        return 0;
+    std::ifstream in("/proc/" + std::to_string(pid) + "/stat");
+    if (!in)
+        return 0;
+    std::string line;
+    if (!std::getline(in, line))
+        return 0;
+
+    // comm (field 2) is "(...)"; and can itself contain spaces or even
+    // parentheses, so the only robust split point is the LAST ')' on the
+    // line, not the first space -- verified against /proc/self/stat's
+    // own real field layout (2026-09-23).
+    size_t closeParen = line.rfind(')');
+    if (closeParen == std::string::npos || closeParen + 1 >= line.size())
+        return 0;
+
+    std::istringstream rest(line.substr(closeParen + 1));
+    std::string token;
+    int tokenIndex = 0; // field 3 (state) is rest's 1st token, so field 22 is its 20th
+    while (rest >> token) {
+        if (++tokenIndex == 20)
+            return std::strtoll(token.c_str(), nullptr, 10);
+    }
+    return 0;
+}
 
 std::string directory()
 {
@@ -90,7 +133,7 @@ bool writeMeta(const std::string &metaPath, const Meta &meta)
 {
     std::ostringstream json;
     json << "{\"path\":\"" << jsonEscape(meta.originalPath) << "\",\"timestamp\":" << meta.timestampUnix
-         << ",\"pid\":" << meta.ownerPid << "}";
+         << ",\"pid\":" << meta.ownerPid << ",\"pid_start\":" << meta.ownerStartTime << "}";
 
     std::string tmpPath = metaPath + ".tmp";
     {
@@ -168,6 +211,26 @@ std::optional<Meta> readMeta(const std::string &metaPath)
         }
     }
 
+    // Optional, same reasoning as "pid" above -- a meta file written
+    // before audit A3 has no "pid_start" key; ownerStartTime stays 0
+    // ("unknown"), which ownerAlive() treats permissively.
+    size_t startPos = json.find("\"pid_start\"");
+    if (startPos != std::string::npos) {
+        startPos = json.find(':', startPos);
+        if (startPos != std::string::npos) {
+            ++startPos;
+            while (startPos < json.size() && json[startPos] == ' ')
+                ++startPos;
+            size_t startNumStart = startPos;
+            while (startPos < json.size() &&
+                   (std::isdigit(static_cast<unsigned char>(json[startPos])) || json[startPos] == '-'))
+                ++startPos;
+            if (startPos > startNumStart)
+                meta.ownerStartTime =
+                    std::strtoll(json.substr(startNumStart, startPos - startNumStart).c_str(), nullptr, 10);
+        }
+    }
+
     return meta;
 }
 
@@ -210,7 +273,7 @@ std::optional<Recoverable> findRecoverable(const std::set<std::string> &excludeM
         // look identical to an orphaned one from a crashed session --
         // offering it here risks the owner choosing "discard" and deleting
         // work the other instance is still actively writing.
-        if (recoverable && ownerAlive(meta->ownerPid))
+        if (recoverable && ownerAlive(meta->ownerPid, meta->ownerStartTime))
             continue;
         if (!recoverable)
             continue;

@@ -645,6 +645,18 @@ instance's own in-progress autosave is never offered (or discarded) by a
 different instance's recovery dialog, since `findRecoverable()` skips any
 entry whose recorded pid is still alive.
 
+"Still alive" cross-checks the recorded pid's own process *start time*
+(`/proc/<pid>/stat` field 22, field 2's parenthesized `comm` handled by
+finding the last `)` on the line, not the first space, since it can
+itself contain spaces or parens), not just whether some process
+currently holds that pid (audit A3, 2026-09-22): a pid alone can be
+reused by an unrelated process well within an orphaned autosave's
+realistic lifetime, which would otherwise make the old owner look
+permanently "still alive" and hide that autosave forever. A meta file
+written before this field existed has `ownerStartTime == 0`, treated
+permissively (same convention as `ownerPid == 0`) rather than refusing
+every pre-A3 autosave.
+
 That deferred-cleanup path is only safe as long as it's forgotten the
 moment `m_model` is replaced by anything OTHER than the Recover it was
 set up for. Before an audit fix (A1, 2026-09-22), New Project/Open/

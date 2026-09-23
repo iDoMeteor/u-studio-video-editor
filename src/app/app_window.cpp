@@ -2762,6 +2762,10 @@ void AppWindow::performAutosave()
     meta.originalPath = m_currentProjectPath;
     meta.timestampUnix = static_cast<int64_t>(std::time(nullptr));
     meta.ownerPid = static_cast<int64_t>(getpid()); // audit A5: lets a later launch skip a still-live owner
+    // audit A3: cross-checked against ownerPid in ownerAlive() so a
+    // later, unrelated process reusing this same pid isn't mistaken for
+    // this instance still being alive.
+    meta.ownerStartTime = autosave::processStartTime(meta.ownerPid);
     autosave::writeMeta(metaPath, meta);
 
     m_lastAutosaveMonotonicUsec = g_get_monotonic_time();

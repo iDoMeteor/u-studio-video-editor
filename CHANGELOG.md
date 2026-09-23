@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.7
+
+- Fixed autosave recovery being able to treat a crashed session's owner
+  as "still alive" (and so never offer its autosave) if an unrelated
+  process later reused the same pid -- the process's own start time is
+  now cross-checked too, not just the pid.
+
 ## 0.12.6
 
 - Reload and New Project now confirm ("Discard unsaved changes?") before

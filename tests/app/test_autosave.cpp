@@ -201,6 +201,111 @@ TEST_CASE("autosave: findRecoverable still offers an entry owned by a process th
     CHECK(found->autosavePath == autosavePath);
 }
 
+TEST_CASE("autosave: processStartTime returns a positive value for the current process (audit A3)")
+{
+    CHECK(processStartTime(static_cast<int64_t>(getpid())) > 0);
+}
+
+TEST_CASE("autosave: processStartTime returns 0 for a pid that no longer exists (audit A3)")
+{
+    pid_t child = fork();
+    REQUIRE(child >= 0);
+    if (child == 0)
+        _exit(0);
+    int status = 0;
+    waitpid(child, &status, 0);
+    CHECK(processStartTime(static_cast<int64_t>(child)) == 0);
+}
+
+TEST_CASE("autosave: processStartTime returns 0 for pid <= 0 (audit A3)")
+{
+    CHECK(processStartTime(0) == 0);
+    CHECK(processStartTime(-1) == 0);
+}
+
+TEST_CASE("autosave: meta round-trips ownerStartTime (audit A3)")
+{
+    std::string metaPath = directory() + "/doctest-meta-pid-start.meta";
+    Guard guard{{metaPath}};
+    removeIfExists(metaPath);
+
+    Meta meta;
+    meta.originalPath = "/home/user/project.ustudio";
+    meta.timestampUnix = 555;
+    meta.ownerPid = 424242;
+    meta.ownerStartTime = 999999;
+
+    REQUIRE(writeMeta(metaPath, meta));
+    auto loaded = readMeta(metaPath);
+    REQUIRE(loaded.has_value());
+    CHECK(*loaded == meta);
+}
+
+TEST_CASE("autosave: readMeta defaults ownerStartTime to 0 for a meta file written before the field existed "
+         "(audit A3)")
+{
+    std::string metaPath = directory() + "/doctest-meta-legacy-pid-start.meta";
+    Guard guard{{metaPath}};
+    removeIfExists(metaPath);
+    {
+        std::ofstream out(metaPath);
+        out << "{\"path\":\"\",\"timestamp\":10,\"pid\":123}"; // no "pid_start" key, matching a pre-A3 file
+    }
+    auto loaded = readMeta(metaPath);
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->ownerPid == 123);
+    CHECK(loaded->ownerStartTime == 0);
+}
+
+TEST_CASE("autosave: findRecoverable skips an entry whose pid is alive with a matching start time (audit A3)")
+{
+    std::string base = baseNameFor("", "doctest-matching-start-session");
+    std::string autosavePath = directory() + "/" + base + ".ustudio";
+    std::string metaPath = directory() + "/" + base + ".meta";
+    Guard guard{{autosavePath, metaPath}};
+    removeIfExists(autosavePath);
+    removeIfExists(metaPath);
+    { std::ofstream(autosavePath) << "<mlt/>"; }
+
+    Meta meta;
+    meta.originalPath.clear();
+    meta.timestampUnix = 100;
+    meta.ownerPid = static_cast<int64_t>(getpid());
+    meta.ownerStartTime = processStartTime(static_cast<int64_t>(getpid())); // what performAutosave() itself writes
+    REQUIRE(writeMeta(metaPath, meta));
+
+    CHECK_FALSE(findRecoverable().has_value());
+}
+
+TEST_CASE("autosave: findRecoverable still offers an entry whose pid is alive but under a DIFFERENT process "
+         "(reused pid, audit A3)")
+{
+    std::string base = baseNameFor("", "doctest-reused-pid-session");
+    std::string autosavePath = directory() + "/" + base + ".ustudio";
+    std::string metaPath = directory() + "/" + base + ".meta";
+    Guard guard{{autosavePath, metaPath}};
+    removeIfExists(autosavePath);
+    removeIfExists(metaPath);
+    { std::ofstream(autosavePath) << "<mlt/>"; }
+
+    Meta meta;
+    meta.originalPath.clear();
+    meta.timestampUnix = 100;
+    meta.ownerPid = static_cast<int64_t>(getpid()); // this test process -- genuinely alive
+    // A start time that does not match this process's real one (this
+    // suite runs well after boot, so a real starttime is never exactly
+    // 1 tick) -- simulates an unrelated process having since reused
+    // this same pid, the exact scenario audit A3 flagged: the OLD
+    // pid-only check would have wrongly treated this as "owner still
+    // alive" and hidden the autosave forever.
+    meta.ownerStartTime = 1;
+    REQUIRE(writeMeta(metaPath, meta));
+
+    auto found = findRecoverable();
+    REQUIRE(found.has_value());
+    CHECK(found->autosavePath == autosavePath);
+}
+
 TEST_CASE("autosave: findRecoverable finds an untitled autosave with no target file")
 {
     std::string base = baseNameFor("", "doctest-untitled-session");

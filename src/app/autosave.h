@@ -16,9 +16,25 @@ struct Meta
     // (AppWindow::performAutosave) is responsible for filling this in --
     // this module only serializes whatever it's given.
     int64_t ownerPid = 0;
+    // That pid's own start time (processStartTime() below) at the moment
+    // it wrote this autosave; 0 = unknown (a meta file from before this
+    // field existed, audit A3). ownerPid alone can be reused by an
+    // unrelated process well within an orphaned autosave's lifetime --
+    // findRecoverable() cross-checks this against the CURRENT process at
+    // that pid, if any, so a coincidental reuse doesn't read as "the
+    // original owner is still alive" and hide the autosave forever.
+    int64_t ownerStartTime = 0;
 
     bool operator==(const Meta &) const = default;
 };
+
+// Field 22 (starttime, in clock ticks since boot) of /proc/<pid>/stat --
+// 0 if unavailable (no such process, /proc unsupported, or pid <= 0).
+// comm (field 2) is parenthesized and can itself contain spaces or
+// parentheses, so this finds the LAST ')' on the line and counts fields
+// after it, rather than naively splitting on spaces (verified against
+// /proc/self/stat's own real field layout).
+int64_t processStartTime(int64_t pid);
 
 // $XDG_STATE_HOME/ustudio/autosave, created if missing. Empty on failure.
 std::string directory();
@@ -46,7 +62,12 @@ struct Recoverable
 // recovery"), AND whose recorded ownerPid (if any) does not name a
 // currently-running process (audit A5) -- otherwise a second instance
 // could offer, and the owner could choose to discard, another still-live
-// instance's own in-progress autosave. `excludeMetaPaths` skips specific
+// instance's own in-progress autosave. That "still running" check also
+// cross-checks ownerStartTime, not just ownerPid (audit A3): a pid alone
+// can be reused by an unrelated process well within an orphaned
+// autosave's realistic lifetime, which would otherwise make
+// findRecoverable() treat a long-dead owner as still alive and never
+// offer its autosave at all. `excludeMetaPaths` skips specific
 // candidates by their .meta path -- how AppWindow's recovery loop moves
 // on to the next one after the caller has already offered (and the owner
 // has answered for) one, without re-offering it forever: recovering
