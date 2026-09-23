@@ -4,6 +4,22 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.1
+
+- Fixed crashes and corrupted saved projects from editing a clip linked
+  by a dissolve transition: deleting, moving, resizing, or splitting a
+  linked clip now cleanly removes the dissolve first instead of leaving
+  a dangling or mis-sized transition record. Also fixed a crash triggered
+  by this fix during testing: some edits restarted the real audio device
+  twice in immediate succession, which can segfault deep in the system
+  audio stack; those edits are now batched into a single restart.
+- Fixed a project being able to save with a corrupted transition that
+  would then fail to reopen at all: Save now refuses (with a status
+  message) if the project fails its own internal consistency check.
+- Fixed adding a dissolve transition that combines with an existing one
+  on the same clip to exceed the clip's own length, which laid out the
+  rest of the track incorrectly.
+
 ## 0.12.0
 
 - Media browser: right-click a row for "Remove from Project" (drops the

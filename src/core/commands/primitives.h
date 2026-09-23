@@ -13,6 +13,37 @@ namespace ustudio::core {
 // these inside a Transaction; none are needed until the multi-clip
 // timeline UI (M3), so they're not implemented yet.
 
+// Audit T1 (2026-09-22 follow-up): a dissolve Transition assumes its two
+// clips keep the exact geometry AddTransition gave them -- removing,
+// moving, resizing, or splitting either one without telling the
+// transition leaves it dangling or pointing at the wrong span, which
+// crashes the next right-click/drag on that row and makes the saved
+// project fail to reload (Model::check() invariant 6/the overlap rule).
+// RemoveClip, MoveClip, ResizeClip, SplitClip, and RemoveTrack below each
+// strip any transition touching the clip(s) they're about to change
+// FIRST (via Model::removeTransition, which un-extends both linked clips
+// back to their pre-dissolve geometry) and restore it on revert (via
+// Model::addTransition, which re-extends them) -- exactly the pairing
+// RemoveTransition::apply/revert already uses, so a moved/resized/split/
+// removed clip that had a dissolve simply loses it, the same outcome a
+// manual "Remove Transition" then the edit would have produced, instead
+// of corrupting the model. SplitAudio is deliberately NOT included: it
+// never touches a clip's position/in/out (only its video/audio-enabled
+// flags, plus inserting a new clip elsewhere for the extracted audio),
+// so a transition on the original clip stays geometrically valid
+// through it.
+//
+// The capture-order rule every one of these follows: `stripTransitions
+// InvolvingClip` must run BEFORE capturing whatever "old geometry"
+// revert() will restore. A linked clip's on-model geometry already
+// includes the transition's extension; capturing it before stripping
+// would save the EXTENDED values, and revert()'s later addTransition
+// call would then extend them a second time. Capturing after stripping
+// saves the base (un-extended) geometry, so restoreClip/resizeClip (base)
+// followed by addTransition (re-extends once) reproduces the original
+// state exactly -- the same reasoning RemoveTransition::revert already
+// relies on for its own single clip pair.
+
 class AddAsset : public Command
 {
   public:
@@ -81,8 +112,12 @@ class AddTrack : public Command
     bool m_appliedBefore = false;
 };
 
-// Captures the removed track (minus its clip list, restored separately)
-// and every clip that lived on it, so revert() reconstructs both exactly.
+// Captures the removed track (minus its clip list, restored separately),
+// every clip that lived on it, and every transition on it (T1: a
+// transition's clips are always on the transition's own track, so
+// removing a track can never leave a transition referencing a clip on a
+// DIFFERENT, still-live track), so revert() reconstructs all three
+// exactly.
 class RemoveTrack : public Command
 {
   public:
@@ -99,6 +134,7 @@ class RemoveTrack : public Command
     Track m_capturedTrack;
     size_t m_capturedIndex = 0;
     std::vector<Clip> m_capturedClips;
+    std::vector<Transition> m_capturedTransitions;
 };
 
 class MoveTrack : public Command
@@ -202,7 +238,9 @@ class InsertClip : public Command
 };
 
 // Captures the full Clip at apply time so revert() restores every field,
-// not just the ones InsertClip's forward path sets (doc 04).
+// not just the ones InsertClip's forward path sets (doc 04). T1: also
+// strips (and, on revert, restores) any transition touching the clip --
+// see this file's own top-of-file comment.
 class RemoveClip : public Command
 {
   public:
@@ -217,8 +255,11 @@ class RemoveClip : public Command
   private:
     ClipId m_clip;
     Clip m_captured;
+    std::vector<Transition> m_capturedTransitions;
 };
 
+// T1: strips (and, on revert, restores) any transition touching the clip
+// -- see this file's own top-of-file comment.
 class MoveClip : public Command
 {
   public:
@@ -237,8 +278,11 @@ class MoveClip : public Command
     TrackId m_oldTrack;
     FrameIndex m_oldPos = 0;
     bool m_oldVideoEnabled = true;
+    std::vector<Transition> m_capturedTransitions;
 };
 
+// T1: strips (and, on revert, restores) any transition touching the clip
+// -- see this file's own top-of-file comment.
 class ResizeClip : public Command
 {
   public:
@@ -254,11 +298,17 @@ class ResizeClip : public Command
     ClipId m_clip;
     FrameIndex m_newIn, m_newOut, m_newPos;
     FrameIndex m_oldIn = 0, m_oldOut = 0, m_oldPos = 0;
+    std::vector<Transition> m_capturedTransitions;
 };
 
 // Implemented as doc 04 describes: apply splits into left (this clip,
 // resized) + right (a new InsertClip-equivalent); revert removes the
-// right half and restores the left's original `out`.
+// right half and restores the left's original `out`. T1: strips (and,
+// on revert, restores) any transition touching the clip first -- see
+// this file's own top-of-file comment; the split point is re-validated
+// against the clip's un-extended span afterward, since stripping can
+// move it enough that a point valid before no longer strictly falls
+// inside the clip.
 class SplitClip : public Command
 {
   public:
@@ -281,6 +331,7 @@ class SplitClip : public Command
     std::optional<FadeSpec> m_oldFadeOut;
     ClipId m_rightId;
     bool m_appliedBefore = false;
+    std::vector<Transition> m_capturedTransitions;
 };
 
 // Pulls a clip's audio out to a new, independent clip on an audio track

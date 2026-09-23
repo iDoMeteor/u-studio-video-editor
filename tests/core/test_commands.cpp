@@ -694,6 +694,202 @@ TEST_CASE("RemoveTransition refuses on a locked track")
     CHECK_FALSE(RemoveTransition(addCmd.transitionId()).apply(model));
 }
 
+// --- T1 (2026-09-22 audit): commands that touch a transition-linked clip ---
+
+TEST_CASE("RemoveClip strips an existing transition first and restores it on revert (audit T1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);     // [0, 50), source [0, 49]
+    ClipId b = model.insertClip(track, asset, 50, 100, 149); // [50, 100), source [100, 149]
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+    Model linked = model;
+
+    RemoveClip cmd(b);
+    REQUIRE(cmd.apply(model));
+    CHECK_FALSE(model.hasClip(b));
+    CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(a).out == 49); // a's tail handle shrank back too
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(equalIgnoringIdAllocator(model, linked));
+}
+
+TEST_CASE("MoveClip strips an existing transition first and restores it on revert (audit T1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+    Model linked = model;
+
+    MoveClip cmd(b, track, 200);
+    REQUIRE(cmd.apply(model));
+    CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(a).out == 49);
+    CHECK(model.clip(b).position == 200);
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(equalIgnoringIdAllocator(model, linked));
+}
+
+TEST_CASE("ResizeClip strips an existing transition first and restores it on revert (audit T1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+    Model linked = model;
+
+    // Shrink b to 20 frames, moved clear of a's still-extended tail (a
+    // ends at 55 at this point -- the strip that shrinks it back to 49
+    // hasn't happened yet when this range is validated).
+    ResizeClip cmd(b, 100, 119, 60);
+    REQUIRE(cmd.apply(model));
+    CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(a).out == 49);
+    CHECK(model.clip(b).in == 100);
+    CHECK(model.clip(b).out == 119);
+    CHECK(model.clip(b).position == 60);
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(equalIgnoringIdAllocator(model, linked));
+}
+
+TEST_CASE("SplitClip strips an existing transition first and restores it on revert (audit T1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+    Model linked = model;
+
+    SplitClip cmd(b, 70); // well inside both the extended [46,100) and base [50,100) spans
+    REQUIRE(cmd.apply(model));
+    CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(a).out == 49);
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(equalIgnoringIdAllocator(model, linked));
+}
+
+TEST_CASE("SplitClip refuses and restores the transition when the point only falls inside the extended span "
+         "(audit T1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4); // b's position pulls back from 50 to 46
+    REQUIRE(addCmd.apply(model));
+    Model linked = model;
+
+    // 48 is inside the transition-extended span [46,100) but not the
+    // clip's own base span [50,100) -- must refuse cleanly, not assert
+    // inside Model::splitClip on an out-of-range point.
+    CHECK_FALSE(SplitClip(b, 48).apply(model));
+    CHECK(equalIgnoringIdAllocator(model, linked)); // fully unwound, transition intact
+}
+
+TEST_CASE("RemoveTrack strips its own transitions first and restores everything on revert (audit T1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    TrackId other = model.addTrack(Track::Kind::Video, 1, "V2"); // keep >1 track so removal isn't refused
+    (void)other;
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+    Model linked = model;
+
+    RemoveTrack cmd(track);
+    REQUIRE(cmd.apply(model));
+    CHECK_FALSE(model.hasTrack(track));
+    CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(equalIgnoringIdAllocator(model, linked));
+}
+
+// --- T2 (2026-09-22 audit): a clip linked on both sides at once ------------
+
+TEST_CASE("AddTransition refuses a combined overlap that would exceed a shared clip's own length (audit T2)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 99);     // [0,100), length 100
+    ClipId b = model.insertClip(track, asset, 100, 0, 19);   // [100,120), length 20 -- the shared middle clip
+    ClipId c = model.insertClip(track, asset, 120, 50, 149); // [120,220), length 100, head handle to spare
+
+    // First dissolve absorbs its whole 15-frame overlap from a's tail
+    // handle (extendA=15, extendB=0) -- b's own geometry stays untouched
+    // (base length still 20).
+    REQUIRE(AddTransition(track, a, b, 15, 0).apply(model));
+    Model afterFirst = model;
+
+    // Second dissolve tries to absorb its whole 15-frame overlap from
+    // c's head handle (extendA=0, extendB=15) -- on its own this also
+    // passes the single-transition check (b's still-20-frame length
+    // comfortably covers a 15-frame bite), but combined with the first
+    // transition's own 15-frame bite out of the SAME clip b, the two
+    // overlaps would together consume 30 frames of a clip that's only 20
+    // long -- exactly the audit's repro (each passes in isolation, the
+    // combination corrupts EngineSync::planTrackSegments's layout).
+    CHECK_FALSE(AddTransition(track, b, c, 0, 15).apply(model));
+    CHECK(equalIgnoringIdAllocator(model, afterFirst)); // the refused attempt left no trace
+
+    // A second dissolve that fits within b's remaining budget (15 already
+    // spent by the first + 5 here == its 20-frame length, exactly) is
+    // still allowed.
+    REQUIRE(AddTransition(track, b, c, 0, 5).apply(model));
+    CHECK(model.check().empty());
+}
+
+TEST_CASE("Model::check() flags a clip with combined transition overlap longer than its own length (audit T2)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 99);
+    ClipId b = model.insertClip(track, asset, 100, 0, 19); // length 20
+    ClipId c = model.insertClip(track, asset, 120, 0, 99);
+
+    // Built directly against Model, bypassing AddTransition's own new
+    // refusal (doc 04: "Model doesn't refuse, it asserts on programmer
+    // error" -- callers are expected to validate), to test check()'s new
+    // invariant in isolation from the command-level fix above.
+    model.addTransition(track, a, b, 15, 0);
+    model.addTransition(track, b, c, 0, 15);
+
+    std::vector<std::string> problems = model.check();
+    bool found = false;
+    for (const auto &p : problems) {
+        if (p.find("combined transition overlap") != std::string::npos)
+            found = true;
+    }
+    CHECK(found);
+}
+
 TEST_CASE("Locked tracks refuse insert/move/resize/split/remove, but not the toggle itself")
 {
     Model model = Model::createEmpty();

@@ -634,6 +634,25 @@ std::vector<std::string> Model::check() const
         }
     }
 
+    // T2 (2026-09-22 audit): a clip can be linked on both sides at once
+    // (the middle of an A-dissolve-B-dissolve-C chain) -- their combined
+    // length must still fit within the clip's own resulting length, or
+    // EngineSync::planTrackSegments's segStart (position + incoming
+    // transition's length) can land past segEnd (end() - outgoing
+    // transition's length), and the track lays out wrong (a later entry
+    // silently shifts) instead of just losing a dissolve.
+    for (const auto &[clipId, clipEntry] : seq.clips) {
+        FrameIndex linkedLength = 0;
+        for (const auto &transition : seq.transitions) {
+            if (transition.a == clipId || transition.b == clipId)
+                linkedLength += transition.length;
+        }
+        if (linkedLength > clipEntry.length()) {
+            problems.push_back("clip " + std::to_string(clipId.value) +
+                               " has combined transition overlap longer than its own length");
+        }
+    }
+
     if (seq.id.value >= m_project.nextId)
         problems.push_back("sequence id " + std::to_string(seq.id.value) + " is not less than nextId"); // invariant 9
     for (const auto &trackEntry : seq.tracks) {

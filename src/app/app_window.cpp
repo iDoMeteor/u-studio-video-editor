@@ -744,6 +744,22 @@ void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
             g_object_unref(file);
             return;
         }
+        // Audit T1 stop-gap: saveProject() doesn't run check() itself, and
+        // loadProject() now refuses any file that fails it -- writing an
+        // invalid model out would produce a file that looks saved but
+        // can never be reopened. Checked here rather than inside
+        // saveProject() (used by autosave and render too, where refusing
+        // outright would be worse than writing best-effort) so this is
+        // the one place a human actually sees and can act on the message.
+        std::vector<std::string> problems = m_model.check();
+        if (!problems.empty()) {
+            Log::error("[app] refusing to save an invalid model: " + problems.front());
+            showStatus("Can't save: the project has an internal inconsistency (" + problems.front() +
+                      "). This is a bug -- please report it.");
+            g_free(path);
+            g_object_unref(file);
+            return;
+        }
         std::string err = core::saveProject(m_model, path);
         if (!err.empty()) {
             showStatus(err);
@@ -1311,6 +1327,14 @@ void AppWindow::onTimelineRightClicked(double x, double y)
         for (const core::Transition &t : m_model.sequence().transitions) {
             if (t.track != trackId)
                 continue;
+            // Audit T1 stop-gap: the core-level fix (RemoveClip/MoveClip/
+            // ResizeClip/SplitClip/RemoveTrack now strip a clip's own
+            // transitions before touching it) should make a dangling
+            // transition impossible going forward, but this guard is
+            // cheap insurance against a project saved before that fix
+            // landed, or a future command that forgets to.
+            if (!m_model.hasClip(t.a) || !m_model.hasClip(t.b))
+                continue;
             const core::Clip &clipA = m_model.clip(t.a);
             const core::Clip &clipB = m_model.clip(t.b);
             if (frame >= clipB.position && frame < clipA.end()) {
@@ -1688,6 +1712,9 @@ bool AppWindow::onTrackDragBegin(double x, double y)
     core::TrackId rowTrackId = trackIdForRow(row);
     for (const core::Transition &t : m_model.sequence().transitions) {
         if (t.track != rowTrackId)
+            continue;
+        // Audit T1 stop-gap -- see onTimelineRightClicked's own comment.
+        if (!m_model.hasClip(t.a) || !m_model.hasClip(t.b))
             continue;
         const core::Clip &clipA = m_model.clip(t.a);
         const core::Clip &clipB = m_model.clip(t.b);

@@ -413,6 +413,45 @@ way). See `EngineSync::buildTransitionSubTractor()`'s comment and
 `tests/engine/test_engine_sync.cpp`'s dissolve test (pixel-samples the
 actual composited output) for the full finding.
 
+A `core::Transition` assumes its two clips keep exactly the geometry
+`AddTransition` gave them; nothing else used to know it existed. A
+2026-09-22 audit found that removing, moving, resizing, or splitting
+either linked clip left the transition dangling or pointing at the wrong
+span — a crash on the next right-click/drag on that row (an unguarded
+`m_model.clip(t.a)`/`clip(t.b)` in the timeline's right-click and
+drag-begin handlers), and a saved project that fails `loadProject()`'s
+own `check()` refusal on reopen. `RemoveClip`, `MoveClip`, `ResizeClip`,
+`SplitClip`, and `RemoveTrack` now each strip any transition touching the
+clip(s) they're about to change first (`Model::removeTransition`, which
+un-extends both linked clips back to pre-dissolve geometry) and restore
+it on revert (`Model::addTransition`) — the clip simply loses its
+dissolve, the same outcome a manual "Remove Transition" then the edit
+would have produced. `SplitAudio` is deliberately untouched: it only
+toggles a clip's video/audio-enabled flags, never its position/in/out, so
+a transition on it stays geometrically valid throughout. The same audit
+found a second, narrower bug (a clip linked on both sides at once — the
+middle of an A-dissolve-B-dissolve-C chain — can have combined overlap
+longer than its own length, which `AddTransition`'s single-transition
+check doesn't catch but corrupts `planTrackSegments`'s layout); both
+`AddTransition` and `Model::check()` now enforce it.
+
+Fixing T1 surfaced a second, unrelated crash: `RemoveClip`/`MoveClip`/
+`RemoveAsset` (and, before this fix, the un-batched T1 strip-then-edit
+sequence) each performed two or more separate `Model` mutations with no
+`BatchBegin`/`BatchEnd` around them, so `EngineSync` ran a full consumer
+stop/reselect/restart *per mutation* instead of once. Confirmed via
+`coredumpctl` + `gdb` (2026-09-23, a real crash hit live testing this
+exact fix): two such restarts back to back segfaults deep inside
+PipeWire/SDL3's own stream teardown (`pw_stream_destroy` →
+`unref_plugin` → `dlclose`), unrelated to anything this app controls —
+purely a consequence of tearing the real audio device down and rebuilding
+it twice in immediate succession. Every multi-mutation command in
+`core/commands/primitives.cpp` now wraps its whole apply()/revert() in
+one `BatchBegin`/`BatchEnd` pair (matching the pattern `InsertClip`/
+`ResizeClip`/`CompositeCommand` already used), so `EngineSync` always
+coalesces to exactly one rebuild per command, however many `Model` calls
+it makes internally.
+
 `masterProducerFor()` checks `Mlt::Producer::is_valid()` right after
 opening an asset's file and, on failure, substitutes a `color:black`
 placeholder (sized to the asset's own recorded length) instead of caching

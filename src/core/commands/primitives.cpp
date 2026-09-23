@@ -4,6 +4,52 @@
 
 namespace ustudio::core {
 
+namespace {
+
+// Non-mutating: how much a transition (if any) is currently adding to
+// `clip`'s on-model length, without actually touching anything -- used
+// to validate a move/resize against the clip's post-strip length before
+// committing to stripping it (T1: a command must not partially mutate
+// the model and then refuse).
+FrameIndex transitionExtensionOf(const Model &model, ClipId clip)
+{
+    FrameIndex extension = 0;
+    for (const Transition &t : model.sequence().transitions) {
+        if (t.a == clip)
+            extension += t.extendA;
+        if (t.b == clip)
+            extension += t.extendB;
+    }
+    return extension;
+}
+
+// Removes (via Model::removeTransition, which un-extends both linked
+// clips first) every transition where `clip` is either `a` or `b`,
+// returning the removed records so the caller's revert() can restore
+// them via restoreTransitions() below -- the same apply/revert pairing
+// RemoveTransition itself already relies on for a single pair. A clip
+// can be linked on both sides at once (the middle clip of an A-dissolve-
+// B-dissolve-C chain), so this can return up to two entries.
+std::vector<Transition> stripTransitionsInvolvingClip(Model &model, ClipId clip)
+{
+    std::vector<Transition> removed;
+    for (const Transition &t : model.sequence().transitions) {
+        if (t.a == clip || t.b == clip)
+            removed.push_back(t);
+    }
+    for (const Transition &t : removed)
+        model.removeTransition(t.id);
+    return removed;
+}
+
+void restoreTransitions(Model &model, const std::vector<Transition> &transitions)
+{
+    for (const Transition &t : transitions)
+        model.addTransition(t.track, t.a, t.b, t.extendA, t.extendB, t.id);
+}
+
+} // namespace
+
 // --- AddAsset ---------------------------------------------------------------
 
 AddAsset::AddAsset(Asset asset) : m_asset(std::move(asset)) {}
@@ -40,17 +86,27 @@ bool RemoveAsset::apply(Model &model)
     }
 
     m_capturedAsset = model.asset(m_asset);
+    // Batched: each removeClip below and the final removeAsset would
+    // otherwise each trigger their own EngineSync rebuild/consumer
+    // restart -- an asset used by several clips could restart the real
+    // audio device many times in a row, which a T1 investigation
+    // (2026-09-23) confirmed crashes deep in PipeWire/SDL3's own
+    // teardown when done rapidly and unbatched.
+    model.notify(BatchBegin{});
     for (const Clip &clip : m_capturedClips)
         model.removeClip(clip.id);
     model.removeAsset(m_asset);
+    model.notify(BatchEnd{});
     return true;
 }
 
 void RemoveAsset::revert(Model &model)
 {
+    model.notify(BatchBegin{});
     model.addAsset(m_capturedAsset, m_asset);
     for (const Clip &clip : m_capturedClips)
         model.restoreClip(clip);
+    model.notify(BatchEnd{});
 }
 
 // --- AddTrack / RemoveTrack / SetTrackFlags ---------------------------------
@@ -92,6 +148,26 @@ bool RemoveTrack::apply(Model &model)
     auto it = std::find_if(tracks.begin(), tracks.end(), [this](const Track &t) { return t.id == m_track; });
     m_capturedIndex = static_cast<size_t>(std::distance(tracks.begin(), it));
 
+    // T1: strip this track's own transitions BEFORE capturing its clips,
+    // so the captured geometry is the un-extended base (restoreClip +
+    // addTransition on revert, not restoreClip-already-extended +
+    // addTransition-extends-again -- see primitives.h's own comment). A
+    // transition's clips are always on the transition's own track
+    // (AddTransition::apply enforces it), so this can never touch a clip
+    // on a different, still-live track. Batched (every removeTransition
+    // here, plus the removeTrack below) so a track carrying several
+    // dissolves doesn't restart the real audio consumer once per
+    // transition -- confirmed via coredumpctl that rapid, unbatched
+    // restarts crash deep in PipeWire/SDL3, 2026-09-23.
+    model.notify(BatchBegin{});
+    m_capturedTransitions.clear();
+    for (const Transition &t : seq.transitions) {
+        if (t.track == m_track)
+            m_capturedTransitions.push_back(t);
+    }
+    for (const Transition &t : m_capturedTransitions)
+        model.removeTransition(t.id);
+
     m_capturedClips.clear();
     for (ClipId clipId : it->clips)
         m_capturedClips.push_back(model.clip(clipId));
@@ -100,14 +176,18 @@ bool RemoveTrack::apply(Model &model)
     m_capturedTrack.clips.clear(); // restoreClip() repopulates this on revert
 
     model.removeTrack(m_track);
+    model.notify(BatchEnd{});
     return true;
 }
 
 void RemoveTrack::revert(Model &model)
 {
+    model.notify(BatchBegin{});
     model.restoreTrack(m_capturedTrack, m_capturedIndex);
     for (const Clip &clip : m_capturedClips)
         model.restoreClip(clip);
+    restoreTransitions(model, m_capturedTransitions);
+    model.notify(BatchEnd{});
 }
 
 MoveTrack::MoveTrack(TrackId track, size_t newIndex) : m_track(track), m_newIndex(newIndex) {}
@@ -257,16 +337,32 @@ bool RemoveClip::apply(Model &model)
 {
     if (!model.hasClip(m_clip))
         return false;
-    m_captured = model.clip(m_clip);
-    if (model.track(m_captured.track).locked)
+    if (model.track(model.clip(m_clip).track).locked)
         return false;
+    // T1: strip before capturing (see primitives.h's own comment) --
+    // m_captured must hold the un-extended base geometry, not whatever a
+    // transition had extended this clip to. Batched (like InsertClip/
+    // ResizeClip) so EngineSync coalesces the strip's own removeTransition
+    // notify and this removeClip's into one rebuild/consumer-restart
+    // instead of two back to back -- two rapid restarts of the real audio
+    // device were confirmed (coredumpctl + gdb, 2026-09-23) to crash deep
+    // in PipeWire/SDL3's own teardown, unrelated to anything this
+    // command controls, so avoiding the double restart isn't optional
+    // polish here.
+    model.notify(BatchBegin{});
+    m_capturedTransitions = stripTransitionsInvolvingClip(model, m_clip);
+    m_captured = model.clip(m_clip);
     model.removeClip(m_clip);
+    model.notify(BatchEnd{});
     return true;
 }
 
 void RemoveClip::revert(Model &model)
 {
+    model.notify(BatchBegin{});
     model.restoreClip(m_captured);
+    restoreTransitions(model, m_capturedTransitions);
+    model.notify(BatchEnd{});
 }
 
 MoveClip::MoveClip(ClipId clip, TrackId newTrack, FrameIndex newPos)
@@ -287,7 +383,16 @@ bool MoveClip::apply(Model &model)
     // its own clips would be.
     if (model.track(current.track).locked || model.track(m_newTrack).locked)
         return false;
-    FrameIndex length = current.length();
+    // T1: the move is about to break whatever adjacency a transition on
+    // this clip depends on, so it will be stripped below -- validate
+    // against the length it will actually have afterward (its on-model
+    // length minus whatever a transition is currently extending it by),
+    // not a possibly-larger extended one. transitionExtensionOf() is
+    // non-mutating specifically so every check below can run, and this
+    // whole apply() can still cleanly refuse, before anything is
+    // stripped (a command must not partially mutate the model and then
+    // return false).
+    FrameIndex length = current.length() - transitionExtensionOf(model, m_clip);
     if (!model.isRangeFree(m_newTrack, m_newPos, m_newPos + length, m_clip))
         return false;
 
@@ -307,21 +412,32 @@ bool MoveClip::apply(Model &model)
             return false;
     }
 
-    m_oldTrack = current.track;
-    m_oldPos = current.position;
-    m_oldVideoEnabled = current.videoEnabled;
+    // All checks passed -- now safe to actually strip (T1: capture the
+    // un-extended base geometry AFTER stripping, same reasoning as
+    // RemoveClip::apply). Batched for the same reason RemoveClip's own
+    // apply() is -- see its comment.
+    model.notify(BatchBegin{});
+    m_capturedTransitions = stripTransitionsInvolvingClip(model, m_clip);
+    const Clip &shrunk = model.clip(m_clip);
+    m_oldTrack = shrunk.track;
+    m_oldPos = shrunk.position;
+    m_oldVideoEnabled = shrunk.videoEnabled;
     model.moveClip(m_clip, m_newTrack, m_newPos);
-    if (destIsAudio && current.videoEnabled)
-        model.setClipEnabled(m_clip, /*videoEnabled=*/false, current.audioEnabled);
+    if (destIsAudio && shrunk.videoEnabled)
+        model.setClipEnabled(m_clip, /*videoEnabled=*/false, shrunk.audioEnabled);
+    model.notify(BatchEnd{});
     return true;
 }
 
 void MoveClip::revert(Model &model)
 {
+    model.notify(BatchBegin{});
     model.moveClip(m_clip, m_oldTrack, m_oldPos);
     const Clip &restored = model.clip(m_clip);
     if (restored.videoEnabled != m_oldVideoEnabled)
         model.setClipEnabled(m_clip, m_oldVideoEnabled, restored.audioEnabled);
+    restoreTransitions(model, m_capturedTransitions);
+    model.notify(BatchEnd{});
 }
 
 ResizeClip::ResizeClip(ClipId clip, FrameIndex newIn, FrameIndex newOut, FrameIndex newPos)
@@ -351,12 +467,22 @@ bool ResizeClip::apply(Model &model)
             return false;
     }
 
-    m_oldIn = current.in;
-    m_oldOut = current.out;
-    m_oldPos = current.position;
+    // T1: a resize on a transition-linked clip invalidates the dissolve
+    // (its overlap assumed specific handles on both sides -- doc 08), so
+    // strip it first. m_old{In,Out,Pos} are captured AFTER stripping (see
+    // primitives.h's own comment) so they hold the un-extended base
+    // geometry, not whatever a transition had extended this clip to --
+    // isRangeFree/the boundless check above use m_newOut/m_newPos (the
+    // caller's requested values, not current.length()), so they don't
+    // need the strip to have already happened to be correct.
+    model.notify(BatchBegin{});
+    m_capturedTransitions = stripTransitionsInvolvingClip(model, m_clip);
+    const Clip &shrunk = model.clip(m_clip);
+    m_oldIn = shrunk.in;
+    m_oldOut = shrunk.out;
+    m_oldPos = shrunk.position;
     // See InsertClip::apply for why this is batched and why boundless assets
     // get their recorded length extended alongside the resize.
-    model.notify(BatchBegin{});
     model.resizeClip(m_clip, m_newIn, m_newOut, m_newPos);
     if (boundless)
         model.extendAssetLength(current.asset, m_newOut + 1);
@@ -366,7 +492,10 @@ bool ResizeClip::apply(Model &model)
 
 void ResizeClip::revert(Model &model)
 {
+    model.notify(BatchBegin{});
     model.resizeClip(m_clip, m_oldIn, m_oldOut, m_oldPos);
+    restoreTransitions(model, m_capturedTransitions);
+    model.notify(BatchEnd{});
 }
 
 SplitClip::SplitClip(ClipId clip, FrameIndex at) : m_clip(clip), m_at(at) {}
@@ -381,15 +510,40 @@ bool SplitClip::apply(Model &model)
     if (!(m_at > current.position && m_at < current.end()))
         return false;
 
-    m_oldOut = current.out;
-    m_oldFadeOut = current.fadeOut;
+    // T1: splitting a transition-linked clip leaves an ambiguous link (is
+    // the dissolve now on the left half, the right half, both, or
+    // neither? -- see primitives.h's own comment for the failure modes
+    // this used to produce), so strip it first, same as RemoveClip/
+    // MoveClip/ResizeClip. Stripping can move the clip's position/end()
+    // enough that a split point valid against the transition-extended
+    // span above is no longer strictly inside the un-extended one, so
+    // re-check and cleanly unwind (restore the transition, refuse) rather
+    // than let Model::splitClip assert on an out-of-range `at`. Batched
+    // (both the strip-and-split success path and the strip-then-restore
+    // refusal path) for the same reason RemoveClip::apply's own comment
+    // gives -- two rapid, unbatched consumer restarts crash deep in
+    // PipeWire/SDL3, confirmed via coredumpctl, 2026-09-23.
+    model.notify(BatchBegin{});
+    m_capturedTransitions = stripTransitionsInvolvingClip(model, m_clip);
+    const Clip &shrunk = model.clip(m_clip);
+    if (!(m_at > shrunk.position && m_at < shrunk.end())) {
+        restoreTransitions(model, m_capturedTransitions);
+        m_capturedTransitions.clear();
+        model.notify(BatchEnd{});
+        return false;
+    }
+
+    m_oldOut = shrunk.out;
+    m_oldFadeOut = shrunk.fadeOut;
     m_rightId = model.splitClip(m_clip, m_at, m_appliedBefore ? std::optional<ClipId>(m_rightId) : std::nullopt);
     m_appliedBefore = true;
+    model.notify(BatchEnd{});
     return true;
 }
 
 void SplitClip::revert(Model &model)
 {
+    model.notify(BatchBegin{});
     model.removeClip(m_rightId);
     const Clip &left = model.clip(m_clip);
     model.resizeClip(m_clip, left.in, m_oldOut, left.position);
@@ -398,6 +552,8 @@ void SplitClip::revert(Model &model)
     // doesn't know about fades, so put back whatever was captured at apply()
     // time explicitly (audit C5).
     model.setClipFadeOut(m_clip, m_oldFadeOut);
+    restoreTransitions(model, m_capturedTransitions);
+    model.notify(BatchEnd{});
 }
 
 // --- SplitAudio --------------------------------------------------------
@@ -506,6 +662,26 @@ bool AddTransition::apply(Model &model)
     FrameIndex newLengthB = clipB.length() + m_extendB;
     if (m_extendA + m_extendB > std::min(newLengthA, newLengthB))
         return false;
+
+    // T2 (2026-09-22 audit): the check above only looks at THIS
+    // transition against each clip's own length -- it says nothing about
+    // a clip that's already linked on its OTHER side (the middle of an
+    // A-dissolve-B-dissolve-C chain). Two dissolves that each pass in
+    // isolation can still combine to exceed the shared middle clip's own
+    // length, which pushes EngineSync::planTrackSegments's segStart past
+    // segEnd for that clip and lays the rest of the track out wrong
+    // (Model::check()'s own mirror of this rule, added alongside this).
+    // `a` matters here for its INCOMING side (some other transition where
+    // `a` is `b`); `b` matters for its OUTGOING side (some other
+    // transition where `b` is `a`) -- the new transition itself is
+    // `a`'s outgoing / `b`'s incoming, so it can't be the same record.
+    FrameIndex newLength = m_extendA + m_extendB;
+    for (const Transition &existing : model.sequence().transitions) {
+        if (existing.b == m_a && existing.length + newLength > newLengthA)
+            return false;
+        if (existing.a == m_b && existing.length + newLength > newLengthB)
+            return false;
+    }
 
     m_transitionId = model.addTransition(m_track, m_a, m_b, m_extendA, m_extendB,
                                          m_appliedBefore ? std::optional<TransitionId>(m_transitionId) : std::nullopt);
