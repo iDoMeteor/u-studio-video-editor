@@ -6,6 +6,8 @@
 
 #include <filesystem>
 #include <string>
+#include <utility>
+#include <vector>
 
 using namespace ustudio::core;
 using namespace ustudio::engine;
@@ -90,4 +92,45 @@ TEST_CASE("renderProject: an unopenable output path leaves no output or .part fi
     CHECK_FALSE(error.empty());
     CHECK_FALSE(fs::exists(outputPath));
     CHECK_FALSE(fs::exists(outputPath.string() + ".part"));
+}
+
+TEST_CASE("renderProject: onProgress fires with the tractor's real total length (enhancement #13)")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset asset;
+    asset.path = "color:red"; // generator, no file (doc 11: no binary media in tests)
+    asset.displayName = "color:red";
+    asset.info.hasVideo = true;
+    asset.info.lengthInSequenceFrames = 100'000;
+    AssetId assetId = model.addAsset(asset);
+    // A longer clip than makeShortProject()'s 5 frames -- still a trivial
+    // generator, fast to encode, but long enough that a real render
+    // touches more than a single frame, unlike the 5-frame clips above.
+    model.insertClip(track, assetId, 0, 0, 59); // 60 frames
+
+    fs::path outputPath = fs::temp_directory_path() / "ustudio-render-test-progress.mp4";
+    RemoveOnExit guard{outputPath};
+    std::error_code ec;
+    fs::remove(outputPath, ec);
+    fs::remove(outputPath.string() + ".part", ec);
+
+    std::vector<std::pair<int, int>> calls; // (currentFrame, totalFrames)
+    std::string error;
+    bool ok = renderProject(model, outputPath.string(), error,
+                            [&calls](int currentFrame, int totalFrames) { calls.emplace_back(currentFrame, totalFrames); });
+    REQUIRE(ok);
+    CHECK(error.empty());
+
+    // The 500ms throttle (engine_sync.cpp's own comment) means a render
+    // this short and simple isn't guaranteed to produce more than one
+    // callback -- the FIRST frame-show always passes it (lastCall starts
+    // at time_point::min()), so at least one is the real guarantee.
+    REQUIRE(calls.size() >= 1);
+    for (const auto &[currentFrame, totalFrames] : calls) {
+        CHECK(totalFrames == 60);
+        CHECK(currentFrame >= 0);
+        CHECK(currentFrame < totalFrames);
+    }
 }

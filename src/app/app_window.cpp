@@ -1154,7 +1154,29 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
     // here, but this closes the actual data race.
     std::thread([this, path, snapshot = m_model]() mutable {
         std::string err;
-        bool ok = engine::renderProject(snapshot, path, err);
+        // Enhancement #13: renderProject() calls this from the SAME
+        // thread its own consumer.run() blocks on (this detached
+        // std::thread, not the GTK main thread) -- see its own comment.
+        // Marshals to the main thread the same way the final result
+        // below already does, via g_idle_add and a heap-allocated
+        // struct the idle callback takes ownership of.
+        bool ok = engine::renderProject(snapshot, path, err, [this](int currentFrame, int totalFrames) {
+            struct Progress
+            {
+                AppWindow *self;
+                int currentFrame;
+                int totalFrames;
+            };
+            auto *progress = new Progress{this, currentFrame, totalFrames};
+            g_idle_add(
+                [](gpointer data) -> gboolean {
+                    std::unique_ptr<Progress> p(static_cast<Progress *>(data));
+                    int percent = p->totalFrames > 0 ? (p->currentFrame * 100) / p->totalFrames : 0;
+                    p->self->showStatus("Rendering… " + std::to_string(std::clamp(percent, 0, 100)) + "%");
+                    return G_SOURCE_REMOVE;
+                },
+                progress);
+        });
 
         struct Result
         {

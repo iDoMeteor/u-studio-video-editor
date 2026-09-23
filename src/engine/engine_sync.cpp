@@ -4,6 +4,7 @@
 #include "core/model/mlt_order.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <system_error>
@@ -579,7 +580,59 @@ std::vector<std::string> EngineSync::verify() const
     return problems;
 }
 
-bool renderProject(core::Model &model, const std::string &outputPath, std::string &error)
+namespace {
+// Bridges MLT's C-style "consumer-frame-render" event (a plain function
+// pointer, no captures) to the caller's std::function. NOT the
+// "consumer-frame-show" PlaybackController::handleFrameShow listens for
+// (live playback's sdl2_audio consumer) -- verified via
+// mlt_consumer.h's own doc comment that "consumer-frame-show" is fired
+// by SUBCLASS implementations only (sdl2_audio fires it when it
+// actually shows/plays a frame), while "consumer-frame-render" is fired
+// by the BASE CLASS before rendering every frame, for every consumer
+// type. Confirmed empirically: a real render with "consumer-frame-show"
+// wired up here got zero callbacks (avformat never shows anything, so
+// never fires it); switching to "consumer-frame-render" fixed it. Same
+// event-data shape either way (a frame, per the same header). Throttled
+// to roughly once every half a second of wall-clock render time so a
+// long render doesn't call back on every single frame (108,000 of them
+// for a 30fps hour-long project) for what's ultimately a status label.
+//
+// lastCall is an optional, not a bare time_point defaulted to min(): the
+// obvious "now - min() is huge, so the first call always passes" reads
+// right but isn't -- found live that steady_clock's duration overflows
+// computing that difference (min() is near the representation's most
+// negative value; subtracting it from a normal "now" overflows the
+// underlying signed rep), wrapping around to a garbage, usually-negative
+// result. That silently failed the throttle check on *every* call, not
+// just skipped some -- the render completed correctly and the listener
+// fired every time (confirmed via temporary logging), but onProgress()
+// itself was never reached. An empty optional has no such arithmetic to
+// go wrong.
+struct RenderProgressContext
+{
+    const std::function<void(int, int)> &onProgress;
+    int totalFrames;
+    std::optional<std::chrono::steady_clock::time_point> lastCall;
+};
+
+void renderProgressTrampoline(mlt_properties /*owner*/, void *self, mlt_event_data data)
+{
+    auto *context = static_cast<RenderProgressContext *>(self);
+    Mlt::Frame frame(Mlt::EventData(data).to_frame());
+    if (!frame.is_valid())
+        return;
+
+    auto now = std::chrono::steady_clock::now();
+    if (context->lastCall && now - *context->lastCall < std::chrono::milliseconds(500))
+        return;
+    context->lastCall = now;
+
+    context->onProgress(frame.get_position(), context->totalFrames);
+}
+} // namespace
+
+bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
+                   std::function<void(int, int)> onProgress)
 {
     Log::ScopedTimer timer("[engine] renderProject total");
     EngineSync renderSync(model); // its own Profile/Tractor, independent of any live one
@@ -615,6 +668,16 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     consumer.set("pix_fmt", "yuv420p");
     consumer.set("real_time", -1); // render every frame; don't drop frames to keep up with a clock
     consumer.connect(renderSync.tractor());
+
+    // Registered before run() (which blocks until the render finishes),
+    // so every "consumer-frame-render" the encode fires reaches
+    // renderProgressTrampoline for however long that call runs; the
+    // returned Event must stay alive for the same span, hence the local
+    // (not immediately discarded) unique_ptr.
+    RenderProgressContext progressContext{onProgress, renderSync.tractor().get_length(), std::nullopt};
+    std::unique_ptr<Mlt::Event> progressEvent;
+    if (onProgress)
+        progressEvent.reset(consumer.listen("consumer-frame-render", &progressContext, renderProgressTrampoline));
 
     Log::info("[engine] Rendering project to " + outputPath + " (via " + partPath + ") ...");
     int result = consumer.run();

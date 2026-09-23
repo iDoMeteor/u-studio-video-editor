@@ -107,7 +107,9 @@ single-track skeleton.
   and source file.
 - Render the project to an MP4 matching this project's fixed working
   format (H.264 High/yuv420p, 1920×1080, 30fps, AAC 48kHz stereo) via the
-  header bar's "Render…" button. Runs on a background thread.
+  header bar's "Render…" button. Runs on a background thread, with a live
+  percentage in the status bar while it runs (enhancement #13,
+  2026-09-23).
 - Save/load a project as MLT XML with `ustudio:` namespaced properties
   (see "Project files" below), plus autosave and crash recovery.
   `Ctrl+S` saves straight back to the project's own file with no dialog
@@ -762,6 +764,36 @@ doesn't exist leaves `Mlt::Consumer` reporting itself valid and
 `consumer.run()` returning 0 ("success") even though `avformat` never
 created the file — one more MLT return value CLAUDE.md's own
 empirical-knowledge rule says not to trust at face value.
+
+`renderProject()`'s optional `onProgress` callback (enhancement #13,
+2026-09-23) hit two findings worth recording. First, which MLT consumer
+event to use: `PlaybackController::handleFrameShow` (live playback)
+listens for `"consumer-frame-show"`, and reaching for that same event
+here seemed obvious — it got zero callbacks against a real render.
+`mlt_consumer.h`'s own doc comment explains why: `"consumer-frame-show"`
+is fired by *subclass* implementations only, on actually showing a
+frame, and `avformat` never shows anything, it just encodes. The event
+that IS fired by the *base class*, for every consumer type, before
+rendering each frame, is `"consumer-frame-render"` — switching to that
+fixed it, confirmed via a standalone repro (`consumer.listen()` on both
+event names against a real `avformat` render: 0 "show" callbacks, 90
+"render" callbacks for a 90-frame clip) before relying on it here.
+Second, and much less obvious: the throttle guarding how often
+`onProgress` actually fires used `std::chrono::steady_clock::time_point`
+defaulted to `::min()` as a "never called yet" sentinel, reasoning that
+`now - min()` would always be a huge, safely-passes-the-throttle
+duration. It isn't — `min()` is near the underlying representation's
+most negative value, so subtracting it from a normal "now" overflows the
+duration's signed integer rep, wrapping around to a garbage (in practice,
+strongly negative) result that *failed* the throttle check on every
+single call. The render completed correctly and the event listener fired
+every time (confirmed via temporary logging inside the trampoline before
+finding this), but the callback the whole feature depends on was never
+actually reached — a real doctest run against this exact code (not just
+a standalone repro) is what caught it, since the repro above used
+`fprintf`, not the throttle logic itself. Fixed by making the sentinel an
+`std::optional<time_point>` instead: no arithmetic against a
+near-out-of-range value, no overflow to go wrong.
 
 ### Project files
 

@@ -6,6 +6,7 @@
 
 #include <mlt++/Mlt.h>
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -241,6 +242,21 @@ class EngineSync
 // producers) from the model rather than rendering through a live,
 // currently-playing EngineSync, so editing/playback aren't blocked or
 // disturbed for however long the render takes.
-bool renderProject(core::Model &model, const std::string &outputPath, std::string &error);
+//
+// `onProgress`, if set, is called with (currentFrame, totalFrames) from
+// an MLT "consumer-frame-render" event listener (fired by the base
+// consumer class before rendering every frame, for every consumer type)
+// -- i.e. on the SAME thread blocked inside this call, not the
+// subclass-fired "consumer-frame-show" PlaybackController::handleFrameShow
+// listens for (only fired on actually showing a frame; avformat never
+// shows anything, confirmed empirically to never fire it -- see the
+// .cpp's own comment). It is the caller's job to marshal that onto the
+// GTK main thread if it touches any widget -- nothing here does.
+// Throttled to roughly once every half-second of render time (not every
+// frame -- a 30fps hour-long render is 108,000
+// frames, and every one of those hitting the caller's own dispatch would
+// be pointless churn for a status label).
+bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
+                   std::function<void(int currentFrame, int totalFrames)> onProgress = {});
 
 } // namespace ustudio::engine

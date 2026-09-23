@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.14.3
+
+- Rendering now shows a live percentage in the status bar instead of
+  only a start and finish message.
+
 ## 0.14.2
 
 - Import (Ctrl+I) supports selecting multiple files at once.
