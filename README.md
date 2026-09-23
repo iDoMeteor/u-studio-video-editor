@@ -560,6 +560,21 @@ instance's own in-progress autosave is never offered (or discarded) by a
 different instance's recovery dialog, since `findRecoverable()` skips any
 entry whose recorded pid is still alive.
 
+When several autosaves independently qualify for recovery at once (an
+agent, or the owner, bouncing the app through many untitled test launches
+without ever doing a Save leaves one behind per launch), `findRecoverable()`
+returns the most recently written candidate rather than whichever one a
+`directory_iterator`'s unspecified order happened to yield first — the
+latter was confirmed to reproduce a real report of "recovered project only
+had one track and no edits" when a richer autosave existed alongside older,
+thinner ones. `AppWindow::offerRecoveryIfAny()` also now loops: recovering
+(or discarding) one candidate immediately checks for another, so every
+independently orphaned autosave gets its own dialog in the same launch
+instead of older ones going silently unmentioned once a newer one has been
+handled. Recovering never deletes the file it read (see above), so the
+exclusion is by an in-memory set of already-offered `.meta` paths, not by
+removing anything from disk.
+
 Save and Render both refuse a chosen output path that resolves to a file
 already in the project's own media bin — CLAUDE.md's "never overwrite a
 user's source media" rule, enforced rather than just followed by

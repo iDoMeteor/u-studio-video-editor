@@ -171,15 +171,18 @@ std::optional<Meta> readMeta(const std::string &metaPath)
     return meta;
 }
 
-std::optional<Recoverable> findRecoverable()
+std::optional<Recoverable> findRecoverable(const std::set<std::string> &excludeMetaPaths)
 {
     std::string dir = directory();
     if (dir.empty())
         return std::nullopt;
 
+    std::optional<Recoverable> best;
     std::error_code ec;
     for (const auto &entry : fs::directory_iterator(dir, ec)) {
         if (ec || entry.path().extension() != ".meta")
+            continue;
+        if (excludeMetaPaths.contains(entry.path().string()))
             continue;
 
         auto meta = readMeta(entry.path().string());
@@ -209,12 +212,18 @@ std::optional<Recoverable> findRecoverable()
         // work the other instance is still actively writing.
         if (recoverable && ownerAlive(meta->ownerPid))
             continue;
+        if (!recoverable)
+            continue;
 
-        if (recoverable)
-            return Recoverable{autosavePath.string(), entry.path().string(), *meta};
+        // Most recently written wins when several qualify -- see this
+        // function's own doc comment for why more than one legitimately
+        // can, and why "first the directory happened to return" was the
+        // actual bug, not just theoretically imprecise.
+        if (!best || meta->timestampUnix > best->meta.timestampUnix)
+            best = Recoverable{autosavePath.string(), entry.path().string(), *meta};
     }
 
-    return std::nullopt;
+    return best;
 }
 
 } // namespace ustudio::app::autosave

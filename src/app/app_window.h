@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -436,6 +437,14 @@ class AppWindow
     // nothing pending.
     std::string m_pendingAutosaveCleanupPath;
     std::string m_pendingAutosaveCleanupMetaPath;
+    // Every .meta path offerRecoveryIfAny() has already asked about this
+    // launch (recovering doesn't remove the file -- see the comment
+    // above -- so without this the same one would just be found again).
+    // Lets it loop through EVERY independently-orphaned autosave instead
+    // of only ever surfacing whichever one findRecoverable() happens to
+    // return first, so an older one with real content never goes silently
+    // unmentioned just because a newer, emptier one also exists.
+    std::set<std::string> m_offeredAutosaveMetaPaths;
 
     void onAutosaveHeartbeat();
     void performAutosave();

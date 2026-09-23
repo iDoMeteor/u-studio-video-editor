@@ -263,3 +263,82 @@ TEST_CASE("autosave: findRecoverable offers an autosave newer than its target, n
     CHECK(found->autosavePath == autosavePath);
     CHECK(found->meta.originalPath == targetPath);
 }
+
+TEST_CASE("autosave: findRecoverable picks the most recently written of several qualifying candidates")
+{
+    // Reproduces a real report (2026-09-23): several independent untitled
+    // sessions -- each left behind by "recover, edit further, quit
+    // without ever doing an explicit Save" (cleanup is deliberately
+    // deferred to a Save that may never come) -- can coexist in the
+    // directory at once. Before this fix, findRecoverable() returned
+    // whichever one a directory_iterator's UNSPECIFIED order happened to
+    // yield first, not the one actually worth recovering.
+    std::string baseOld = baseNameFor("", "doctest-multi-old-session");
+    std::string baseNew = baseNameFor("", "doctest-multi-new-session");
+    std::string oldAutosave = directory() + "/" + baseOld + ".ustudio";
+    std::string oldMeta = directory() + "/" + baseOld + ".meta";
+    std::string newAutosave = directory() + "/" + baseNew + ".ustudio";
+    std::string newMeta = directory() + "/" + baseNew + ".meta";
+    Guard guard{{oldAutosave, oldMeta, newAutosave, newMeta}};
+    for (const auto &path : guard.paths)
+        removeIfExists(path);
+
+    { std::ofstream(oldAutosave) << "<mlt/>"; }
+    Meta oldMetaData;
+    oldMetaData.originalPath.clear();
+    oldMetaData.timestampUnix = 100;
+    REQUIRE(writeMeta(oldMeta, oldMetaData));
+
+    { std::ofstream(newAutosave) << "<mlt/>"; }
+    Meta newMetaData;
+    newMetaData.originalPath.clear();
+    newMetaData.timestampUnix = 200;
+    REQUIRE(writeMeta(newMeta, newMetaData));
+
+    auto found = findRecoverable();
+    REQUIRE(found.has_value());
+    CHECK(found->autosavePath == newAutosave);
+    CHECK(found->meta.timestampUnix == 200);
+}
+
+TEST_CASE("autosave: findRecoverable's exclude set skips a candidate to surface the next one")
+{
+    // How AppWindow's recovery loop moves on to another orphaned autosave
+    // after the owner has already been asked about (and answered for) the
+    // most recent one -- recovering/discarding doesn't remove it from a
+    // single findRecoverable() call's perspective (discard does delete
+    // the file, but only after the caller has decided to move on), so the
+    // caller excludes it explicitly instead.
+    std::string baseA = baseNameFor("", "doctest-exclude-a-session");
+    std::string baseB = baseNameFor("", "doctest-exclude-b-session");
+    std::string autosaveA = directory() + "/" + baseA + ".ustudio";
+    std::string metaA = directory() + "/" + baseA + ".meta";
+    std::string autosaveB = directory() + "/" + baseB + ".ustudio";
+    std::string metaB = directory() + "/" + baseB + ".meta";
+    Guard guard{{autosaveA, metaA, autosaveB, metaB}};
+    for (const auto &path : guard.paths)
+        removeIfExists(path);
+
+    { std::ofstream(autosaveA) << "<mlt/>"; }
+    Meta metaDataA;
+    metaDataA.originalPath.clear();
+    metaDataA.timestampUnix = 100;
+    REQUIRE(writeMeta(metaA, metaDataA));
+
+    { std::ofstream(autosaveB) << "<mlt/>"; }
+    Meta metaDataB;
+    metaDataB.originalPath.clear();
+    metaDataB.timestampUnix = 200; // more recent -- found first
+    REQUIRE(writeMeta(metaB, metaDataB));
+
+    auto first = findRecoverable();
+    REQUIRE(first.has_value());
+    CHECK(first->autosavePath == autosaveB);
+
+    auto second = findRecoverable({first->metaPath});
+    REQUIRE(second.has_value());
+    CHECK(second->autosavePath == autosaveA);
+
+    // Excluding both leaves nothing.
+    CHECK_FALSE(findRecoverable({first->metaPath, second->metaPath}).has_value());
+}

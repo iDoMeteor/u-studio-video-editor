@@ -2477,9 +2477,18 @@ void AppWindow::onWindowActiveChanged()
 
 void AppWindow::offerRecoveryIfAny()
 {
-    auto found = autosave::findRecoverable();
+    // Excludes every candidate already offered (and answered) THIS
+    // launch -- recovering doesn't delete the file (see
+    // m_pendingAutosaveCleanupPath's own comment), so without this the
+    // very next call below would just find the same one again, forever,
+    // and any OTHER independently-orphaned autosave would never surface
+    // at all (2026-09-23: exactly how a real, richer autosave went
+    // unmentioned and unrecovered alongside newer, emptier ones).
+    auto found = autosave::findRecoverable(m_offeredAutosaveMetaPaths);
     if (!found)
         return;
+    bool isFirstOfferThisLaunch = m_offeredAutosaveMetaPaths.empty();
+    m_offeredAutosaveMetaPaths.insert(found->metaPath);
 
     auto timestamp = static_cast<std::time_t>(found->meta.timestampUnix);
     char timeBuf[64] = {};
@@ -2487,10 +2496,13 @@ void AppWindow::offerRecoveryIfAny()
     localtime_r(&timestamp, &tmBuf);
     std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M", &tmBuf);
 
-    std::string body =
-        found->meta.originalPath.empty()
-            ? std::string("An unsaved, untitled project from ") + timeBuf + " was found."
-            : std::string("An unsaved version of “") + found->meta.originalPath + "” from " + timeBuf + " was found.";
+    std::string article = isFirstOfferThisLaunch ? "An" : "Another";
+    std::string body = found->meta.originalPath.empty()
+                          ? article + " unsaved, untitled project from " + timeBuf + " was found."
+                          : article + " unsaved version of “" + found->meta.originalPath + "” from " + timeBuf +
+                                " was found.";
+    if (!isFirstOfferThisLaunch)
+        body += " Recovering it will replace what you just recovered.";
 
     AdwDialog *dialog = adw_alert_dialog_new("Recover unsaved work?", body.c_str());
     adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "discard", "Discard");
@@ -2557,6 +2569,14 @@ void AppWindow::offerRecoveryIfAny()
                 std::remove(owned->found.autosavePath.c_str());
                 std::remove(owned->found.metaPath.c_str());
             }
+
+            // Check again: m_offeredAutosaveMetaPaths now excludes the one
+            // just handled, so this surfaces any OTHER independently-
+            // orphaned autosave instead of leaving it to be silently
+            // outranked by whichever one this call happened to find
+            // first. A no-op the overwhelming majority of the time (one
+            // recoverable file is the normal case).
+            owned->self->offerRecoveryIfAny();
         },
         ctx);
 }

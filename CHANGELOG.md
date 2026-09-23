@@ -4,6 +4,15 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.10.1
+
+- Fixed project recovery on launch picking an arbitrary orphaned autosave
+  instead of the most recent one when several qualified at once, which
+  could silently surface an older, thinner autosave over a richer one
+  from the same crashed/unsaved session. The recovery dialog now also
+  loops through every independently orphaned autosave in one launch
+  instead of stopping after the first.
+
 ## 0.10.0
 
 - Keyboard shortcuts: `A`/`F` jump the playhead to the previous/next cut
