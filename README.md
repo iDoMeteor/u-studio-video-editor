@@ -36,9 +36,11 @@ single-track skeleton.
 - Playback via an MLT consumer (`sdl2_audio`, falling back to `rtaudio`,
   then `null` — see "Playback engine notes"): play/pause, `J`/`K`/`L`
   shuttle (repeated `J`/`L` ramps speed 1x→2x→4x→8x), frame step
-  (`Left`/`Right`), jump to start/end (`Home`/`End`), loop in/out (`I`/`O`
-  at the playhead), volume, preview-scale preference (Auto/Full/Half/
-  Quarter), scrub by dragging the seek bar (including mid-playback).
+  (`Left`/`Right`; `Ctrl+Left`/`Ctrl+Right` for 10 frames, `Alt+Left`/
+  `Alt+Right` for a minute, both clamped to the timeline's start/end),
+  jump to start/end (`Home`/`End`), loop in/out (`I`/`O` at the playhead),
+  volume, preview-scale preference (Auto/Full/Half/Quarter), scrub by
+  dragging the seek bar (including mid-playback).
   `A`/`F` jump the playhead to the previous/next cut (a clip's start or
   end, or the timeline's own start/end) on the active track; `S`/`D` move
   which track is active up/down, the same target a plain click sets.

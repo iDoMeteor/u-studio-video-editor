@@ -130,6 +130,18 @@ class AppWindow
     void onShuttleStop();
     void onStepForward();
     void onStepBackward();
+    // Ctrl+Left/Right (10 frames) and Alt+Left/Right (1 minute) -- both
+    // just call stepFrame() with a bigger delta; its seek() already clamps
+    // to [0, totalFrames()-1], so "not a full minute left in that
+    // direction" (the user's own spec) falls out for free.
+    void onStepForward10();
+    void onStepBackward10();
+    void onStepForwardMinute();
+    void onStepBackwardMinute();
+    // fps() rounded to the nearest whole frame, times 60; falls back to
+    // 25fps (matching the timecode label's own fallback) for the brief
+    // window before any project/tractor exists.
+    int oneMinuteInFrames() const;
     void onSeekHome();
     void onSeekEnd();
     // Jumps the playhead to the nearest clip boundary (a clip's start or
@@ -284,6 +296,10 @@ class AppWindow
     static void shuttleStopActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void stepForwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void stepBackwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void stepForward10Activated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void stepBackward10Activated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void stepForwardMinuteActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void stepBackwardMinuteActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void seekHomeActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void seekEndActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void loopSetInActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);

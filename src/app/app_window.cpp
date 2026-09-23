@@ -581,6 +581,15 @@ void AppWindow::installActions(GtkApplication *app)
     addAction(app, "seek-next-cut", &AppWindow::seekNextCutActivated, {"f"});
     addAction(app, "active-track-up", &AppWindow::activeTrackUpActivated, {"s"});
     addAction(app, "active-track-down", &AppWindow::activeTrackDownActivated, {"d"});
+    // Ctrl+Left/Right: jump 10 frames. Alt+Left/Right: jump 1 minute,
+    // clamped to the timeline's start/end -- both reuse stepFrame(), whose
+    // seek() already clamps to [0, totalFrames()-1], so "not a full minute
+    // left in that direction" falls out for free rather than needing its
+    // own clamping logic here.
+    addAction(app, "step-forward-10", &AppWindow::stepForward10Activated, {"<Control>Right"});
+    addAction(app, "step-backward-10", &AppWindow::stepBackward10Activated, {"<Control>Left"});
+    addAction(app, "step-forward-minute", &AppWindow::stepForwardMinuteActivated, {"<Alt>Right"});
+    addAction(app, "step-backward-minute", &AppWindow::stepBackwardMinuteActivated, {"<Alt>Left"});
 }
 
 void AppWindow::addAction(GtkApplication *app, const char *name,
@@ -962,6 +971,40 @@ void AppWindow::onStepForward()
 void AppWindow::onStepBackward()
 {
     m_playback->stepFrame(-1);
+    refreshPlayButtonIcon();
+}
+
+void AppWindow::onStepForward10()
+{
+    m_playback->stepFrame(10);
+    refreshPlayButtonIcon();
+}
+
+void AppWindow::onStepBackward10()
+{
+    m_playback->stepFrame(-10);
+    refreshPlayButtonIcon();
+}
+
+// fps() is a profile property (always > 0 for a loaded project -- doc 09's
+// loadProject() refuses a zero/negative frame rate outright), but this
+// still falls back the same way the timecode label does (line ~2418) for
+// the brief window before any project/tractor exists.
+int AppWindow::oneMinuteInFrames() const
+{
+    double fps = m_playback->fps();
+    return fps > 0.0 ? static_cast<int>(fps * 60.0 + 0.5) : 25 * 60;
+}
+
+void AppWindow::onStepForwardMinute()
+{
+    m_playback->stepFrame(oneMinuteInFrames());
+    refreshPlayButtonIcon();
+}
+
+void AppWindow::onStepBackwardMinute()
+{
+    m_playback->stepFrame(-oneMinuteInFrames());
     refreshPlayButtonIcon();
 }
 
@@ -2852,6 +2895,26 @@ void AppWindow::activeTrackUpActivated(GSimpleAction *, GVariant *, gpointer use
 void AppWindow::activeTrackDownActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onActiveTrackDown();
+}
+
+void AppWindow::stepForward10Activated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onStepForward10();
+}
+
+void AppWindow::stepBackward10Activated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onStepBackward10();
+}
+
+void AppWindow::stepForwardMinuteActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onStepForwardMinute();
+}
+
+void AppWindow::stepBackwardMinuteActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onStepBackwardMinute();
 }
 
 void AppWindow::clearLoopClickedTrampoline(GtkButton *, gpointer userData)

@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.11.0
+
+- Keyboard shortcuts: `Ctrl+Left`/`Ctrl+Right` jump the playhead 10
+  frames; `Alt+Left`/`Alt+Right` jump a minute, clamping to the
+  timeline's start/end when less than a full minute remains in that
+  direction.
+
 ## 0.10.1
 
 - Fixed project recovery on launch picking an arbitrary orphaned autosave
