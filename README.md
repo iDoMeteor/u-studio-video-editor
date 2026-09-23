@@ -36,6 +36,14 @@ single-track skeleton.
   normal way). Drag a row onto the timeline to insert a full-
   length clip at the exact track/frame the drop lands on — refused, like
   any other insert, if that space isn't free or the track is locked.
+  Double-click a row to insert it at the playhead on the active track
+  instead. Drag files in from outside the app (the file manager, most
+  likely) onto the timeline to import and place them one after another
+  starting at the drop point, or onto the media browser to just add them
+  to the bin with no clip placed. Import (`Ctrl+I`) supports selecting
+  several files at once, each landing after the previous one on the
+  active track, and both Import and Open Project filter their file
+  pickers to media files and `.ustudio` projects respectively.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).
   Higher tracks composite over lower ones for video (full-frame, top wins);
@@ -536,6 +544,17 @@ connecting `refreshRecentProjectsMenu()` to the manager's own
 `"changed"` signal instead of calling it directly after `add_item()` —
 the correct source of truth regardless of that timing, confirmed live
 (the same save-then-check sequence then showed the entry correctly).
+A third finding in the same area: sorting the recent-projects list with
+`g_list_sort()` and a comparator that calls back into
+`gtk_recent_info_get_modified()`/`g_date_time_compare()` on every
+comparison crashed deep inside GLib's own `g_date_time_compare`
+(`g_time_zone_get_offset`) against a large, real `recently-used.xbel`
+history — reproduced twice against the owner's actual recent-files list,
+never against this session's own small synthetic test histories. Fixed
+by extracting each entry's modified time to a plain `gint64` once, up
+front, and sorting a `std::vector<std::pair<gint64, GtkRecentInfo*>>`
+with `std::sort` instead — no further GLib calls happen during the
+comparison itself.
 
 "Move File to Trash…" (`onDeleteAssetFileClicked()`) used to permanently
 unlink the file with `std::filesystem::remove` despite the confirmation

@@ -99,8 +99,24 @@ class AppWindow
   private:
     void buildUi(GtkApplication *app);
     void installActions(GtkApplication *app);
+    // Enhancement #5: gtk_file_dialog_open_multiple() -- onFileOpened()
+    // imports every selected file, one after another, each appended
+    // after the previous one on the active track (recomputing the
+    // insert position fresh per file, since importFileToTrack() below
+    // changes the track's own clip list on every success).
     void onImportClicked();
     void onFileOpened(GObject *sourceObject, GAsyncResult *result);
+    // Shared by onFileOpened() (appends after the active track's last
+    // clip) and onTimelineFileDrop() (enhancement #7, a specific
+    // track/position from where the drop landed): probes `path`, computes
+    // its insert length, refuses if the target range isn't free (audit-
+    // C2-style dynamic overlap check, same as onTimelineDrop() below),
+    // and inserts an AddAsset+InsertClip CompositeCommand.
+    bool importFileToTrack(const std::string &path, core::TrackId trackId, core::FrameIndex position);
+    // Enhancement #7 (media-browser half): adds `path` to the project
+    // bin only -- no clip, no track needed. Also reachable nowhere else
+    // yet; Import always inserts a clip today (unchanged).
+    bool importAssetOnly(const std::string &path);
     // Always opens the "Save Project" dialog (Save As), regardless of
     // m_currentProjectPath -- bound to Ctrl+Shift+S and the "Save
     // project…" button. See saveInPlaceOrPrompt() for Ctrl+S's "save in
@@ -291,6 +307,23 @@ class AppWindow
     // landed on; refuses (with a status message) if that space isn't
     // free or the target track is locked, same as any other insert.
     gboolean onTimelineDrop(const GValue *value, double x, double y);
+    // Enhancement #7: a second drop target on m_timeline, accepting
+    // GDK_TYPE_FILE_LIST (files dragged in from the file manager, not
+    // this app's own asset-row drag above). Each file is imported via
+    // importFileToTrack() at the row/frame the drop landed on, placed
+    // one after another starting there (same "append after the previous
+    // one" rule onFileOpened() uses for multi-select Import).
+    gboolean onTimelineFileDrop(GdkFileList *files, double x, double y);
+    // Enhancement #7 (media-browser half): a GDK_TYPE_FILE_LIST drop
+    // target on m_mediaBrowserPanel -- each file is added to the bin via
+    // importAssetOnly(), no clip/track involved.
+    gboolean onMediaBrowserFileDrop(GdkFileList *files);
+    // Enhancement #8: double-click a media-browser row to insert its
+    // asset's full length at the playhead on the active track -- reuses
+    // the same overlap/lock refusal importFileToTrack()/onTimelineDrop()
+    // already have, via insertAssetAtPosition().
+    bool insertAssetAtPosition(core::AssetId assetId, core::TrackId trackId, core::FrameIndex position);
+    void onMediaBrowserRowActivated(core::AssetId assetId);
     // Shared by import (a freshly probed asset not yet in the bin --
     // EngineSync::ProbedMedia, not yet a core::MediaInfo) and dragging an
     // existing bin asset onto the timeline (core::MediaInfo::isBoundless
@@ -411,6 +444,12 @@ class AppWindow
     static void deleteAssetFileClickedTrampoline(GtkButton *button, gpointer userData);
     static gboolean timelineDropTrampoline(GtkDropTarget *target, const GValue *value, double x, double y,
                                            gpointer userData);
+    static gboolean timelineFileDropTrampoline(GtkDropTarget *target, const GValue *value, double x, double y,
+                                               gpointer userData);
+    static gboolean mediaBrowserFileDropTrampoline(GtkDropTarget *target, const GValue *value, double x, double y,
+                                                   gpointer userData);
+    static void mediaBrowserRowActivatedTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
+                                                    gpointer userData);
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);

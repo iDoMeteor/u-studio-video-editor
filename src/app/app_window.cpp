@@ -337,6 +337,15 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(mediaBrowserScroller), GTK_WIDGET(m_mediaBrowserList));
     m_mediaBrowserPanel = mediaBrowserScroller;
     gtk_widget_set_visible(m_mediaBrowserPanel, FALSE); // starts collapsed
+
+    // Enhancement #7 (media-browser half): files dragged in from outside
+    // the app land in the bin only (importAssetOnly()) -- no track/
+    // position to insert a clip at here, unlike the timeline's own file
+    // drop target above.
+    GtkDropTarget *mediaBrowserFileDropTarget = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
+    g_signal_connect(mediaBrowserFileDropTarget, "drop", G_CALLBACK(&AppWindow::mediaBrowserFileDropTrampoline),
+                     this);
+    gtk_widget_add_controller(m_mediaBrowserPanel, GTK_EVENT_CONTROLLER(mediaBrowserFileDropTarget));
     gtk_box_append(GTK_BOX(previewRow), m_mediaBrowserPanel);
 
     // Right-click menu for a media browser row. Parented once to
@@ -421,6 +430,16 @@ void AppWindow::buildUi(GtkApplication *app)
     GtkDropTarget *dropTarget = gtk_drop_target_new(G_TYPE_INT64, GDK_ACTION_COPY);
     g_signal_connect(dropTarget, "drop", G_CALLBACK(&AppWindow::timelineDropTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(dropTarget));
+
+    // Enhancement #7: a second, independent drop target for files dragged
+    // in from outside the app (the file manager, most likely) -- a
+    // different GType (GDK_TYPE_FILE_LIST) from the asset-row drag
+    // above, so both controllers coexist on the same widget without
+    // conflicting; GTK dispatches whichever one's type the actual drag
+    // content matches.
+    GtkDropTarget *fileDropTarget = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
+    g_signal_connect(fileDropTarget, "drop", G_CALLBACK(&AppWindow::timelineFileDropTrampoline), this);
+    gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(fileDropTarget));
 
     // One popover, three possible actions — onTimelineRightClicked decides
     // which single one is relevant (clip under the cursor -> Delete Clip;
@@ -724,19 +743,52 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
     }
 }
 
+namespace {
+// Enhancement #6: video/audio/image, matching what makeImportedAsset()
+// above and probeMedia() actually handle -- "*" wildcards are supported
+// by gtk_file_filter_add_mime_type() per its own documentation ("could
+// be a pattern with '*'"), so this is three patterns, not an exhaustive
+// per-codec MIME list. An "All Files" fallback keeps anything with an
+// unrecognised/missing MIME type (some still-image formats on certain
+// systems) reachable rather than hidden.
+GtkFileFilter *newMediaFilter()
+{
+    GtkFileFilter *filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "Media (video, audio, images)");
+    gtk_file_filter_add_mime_type(filter, "video/*");
+    gtk_file_filter_add_mime_type(filter, "audio/*");
+    gtk_file_filter_add_mime_type(filter, "image/*");
+    return filter;
+}
+} // namespace
+
 void AppWindow::onImportClicked()
 {
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Import Media");
-    gtk_file_dialog_open(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::fileOpenedTrampoline, this);
+
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    GtkFileFilter *mediaFilter = newMediaFilter();
+    g_list_store_append(filters, mediaFilter);
+    g_object_unref(mediaFilter);
+    GtkFileFilter *allFilter = gtk_file_filter_new();
+    gtk_file_filter_set_name(allFilter, "All Files");
+    gtk_file_filter_add_pattern(allFilter, "*");
+    g_list_store_append(filters, allFilter);
+    g_object_unref(allFilter);
+    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+    g_object_unref(filters);
+
+    // Enhancement #5: multi-select.
+    gtk_file_dialog_open_multiple(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::fileOpenedTrampoline, this);
     g_object_unref(dialog);
 }
 
 void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
 {
     GError *error = nullptr;
-    GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(sourceObject), result, &error);
-    if (!file) {
+    GListModel *files = gtk_file_dialog_open_multiple_finish(GTK_FILE_DIALOG(sourceObject), result, &error);
+    if (!files) {
         if (error) {
             Log::debug(std::string("[app] Import file dialog closed without a selection: ") + error->message);
             g_error_free(error);
@@ -744,59 +796,95 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
         return;
     }
 
-    char *path = g_file_get_path(file);
-    if (path) {
-        if (m_model.sequence().tracks.empty()) {
-            showStatus("Add a track first.");
-        } else {
-            engine::EngineSync::ProbedMedia probed = m_engineSync->probeMedia(path);
-            if (probed.length <= 0) {
-                showStatus(std::string("Could not open media file: ") + path);
-            } else {
-                core::TrackId trackId = trackIdForRow(m_activeTrack);
-                const core::Track &track = m_model.track(trackId);
-                core::FrameIndex insertPos = track.clips.empty() ? 0 : m_model.clip(track.clips.back()).end();
-
-                // A still image is boundless (MediaInfo::isBoundless()) --
-                // MLT's own default (15000 frames via pixbuf, verified
-                // empirically) has nothing to do with how long a clip cut
-                // from it should be. Default to spanning the rest of the
-                // *current* project length from the insert point, so
-                // dropping a logo/watermark PNG onto an otherwise-empty top
-                // track immediately covers the whole timeline, matching
-                // what a still image is for -- no manual trim-to-fit
-                // needed. Falls back to a modest 10s default when there's
-                // nothing yet to cover (an empty project, or inserting
-                // past the current end).
-                core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probed.length, insertPos);
-
-                // AddAsset applies first (below) and, with no reuseId,
-                // allocates exactly model.project().nextId as read here --
-                // nothing else can allocate an id between this read and
-                // that apply(), so InsertClip can be built against it
-                // up front even though AddAsset hasn't run yet.
-                core::AssetId predictedAssetId{m_model.project().nextId};
-
-                std::vector<std::unique_ptr<core::Command>> steps;
-                steps.push_back(std::make_unique<core::AddAsset>(
-                    makeImportedAsset(path, length, probed, m_model.sequence().profile.fps)));
-                steps.push_back(
-                    std::make_unique<core::InsertClip>(trackId, predictedAssetId, insertPos, 0, length - 1));
-
-                auto composite = std::make_unique<core::CompositeCommand>("Import clip", std::move(steps));
-
-                if (m_undoStack.execute(std::move(composite))) {
-                    refreshTimeline();
-                    refreshMediaBrowser();
-                    showStatus(std::string("Imported to track ") + std::to_string(m_activeTrack) + ": " + path);
-                } else {
-                    showStatus(std::string("Could not import: ") + path);
-                }
-            }
-        }
-        g_free(path);
+    if (m_model.sequence().tracks.empty()) {
+        showStatus("Add a track first.");
+        g_object_unref(files);
+        return;
     }
-    g_object_unref(file);
+
+    core::TrackId trackId = trackIdForRow(m_activeTrack);
+    guint n = g_list_model_get_n_items(files);
+    for (guint i = 0; i < n; ++i) {
+        auto *file = static_cast<GFile *>(g_list_model_get_item(files, i));
+        char *path = g_file_get_path(file);
+        if (path) {
+            // Recomputed per file: importFileToTrack() on success appends
+            // a new clip to this track, so the next file (if any) needs
+            // to land after THAT one, not stack at the same position.
+            const core::Track &track = m_model.track(trackId);
+            core::FrameIndex insertPos = track.clips.empty() ? 0 : m_model.clip(track.clips.back()).end();
+            importFileToTrack(path, trackId, insertPos);
+            g_free(path);
+        }
+        g_object_unref(file);
+    }
+    g_object_unref(files);
+}
+
+bool AppWindow::importFileToTrack(const std::string &path, core::TrackId trackId, core::FrameIndex position)
+{
+    engine::EngineSync::ProbedMedia probed = m_engineSync->probeMedia(path);
+    if (probed.length <= 0) {
+        showStatus("Could not open media file: " + path);
+        return false;
+    }
+
+    // A still image is boundless (MediaInfo::isBoundless()) -- MLT's own
+    // default (15000 frames via pixbuf, verified empirically) has
+    // nothing to do with how long a clip cut from it should be. Default
+    // to spanning the rest of the *current* project length from the
+    // insert point, so dropping a logo/watermark PNG onto an otherwise-
+    // empty top track immediately covers the whole timeline, matching
+    // what a still image is for -- no manual trim-to-fit needed. Falls
+    // back to a modest 10s default when there's nothing yet to cover (an
+    // empty project, or inserting past the current end).
+    core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probed.length, position);
+
+    if (!m_model.isRangeFree(trackId, position, position + length)) {
+        showStatus("Can't import " + path + " there: it would overlap another clip.");
+        return false;
+    }
+
+    // AddAsset applies first (below) and, with no reuseId, allocates
+    // exactly model.project().nextId as read here -- nothing else can
+    // allocate an id between this read and that apply(), so InsertClip
+    // can be built against it up front even though AddAsset hasn't run
+    // yet.
+    core::AssetId predictedAssetId{m_model.project().nextId};
+
+    std::vector<std::unique_ptr<core::Command>> steps;
+    steps.push_back(
+        std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, m_model.sequence().profile.fps)));
+    steps.push_back(std::make_unique<core::InsertClip>(trackId, predictedAssetId, position, 0, length - 1));
+
+    auto composite = std::make_unique<core::CompositeCommand>("Import clip", std::move(steps));
+
+    if (m_undoStack.execute(std::move(composite))) {
+        refreshTimeline();
+        refreshMediaBrowser();
+        showStatus("Imported: " + path);
+        return true;
+    }
+    showStatus("Could not import: " + path);
+    return false;
+}
+
+bool AppWindow::importAssetOnly(const std::string &path)
+{
+    engine::EngineSync::ProbedMedia probed = m_engineSync->probeMedia(path);
+    if (probed.length <= 0) {
+        showStatus("Could not open media file: " + path);
+        return false;
+    }
+    core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probed.length, 0);
+    if (m_undoStack.execute(std::make_unique<core::AddAsset>(
+            makeImportedAsset(path, length, probed, m_model.sequence().profile.fps)))) {
+        refreshMediaBrowser();
+        showStatus("Imported: " + path);
+        return true;
+    }
+    showStatus("Could not import: " + path);
+    return false;
 }
 
 void AppWindow::onSaveClicked()
@@ -892,6 +980,17 @@ void AppWindow::onOpenProjectClicked()
     confirmDiscardIfDirty([this] {
         GtkFileDialog *dialog = gtk_file_dialog_new();
         gtk_file_dialog_set_title(dialog, "Open Project");
+
+        // Enhancement #6.
+        GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+        GtkFileFilter *projectFilter = gtk_file_filter_new();
+        gtk_file_filter_set_name(projectFilter, "u Studio Projects (*.ustudio)");
+        gtk_file_filter_add_suffix(projectFilter, "ustudio");
+        g_list_store_append(filters, projectFilter);
+        g_object_unref(projectFilter);
+        gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+        g_object_unref(filters);
+
         gtk_file_dialog_open(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::openProjectFinishedTrampoline, this);
         g_object_unref(dialog);
     });
@@ -2462,17 +2561,20 @@ void AppWindow::refreshRecentProjectsMenu()
     gtk_widget_set_size_request(box, 260, -1);
 
     GList *items = gtk_recent_manager_get_items(gtk_recent_manager_get_default());
-    // Newest first, capped at 10 -- a menu, not a full history browser.
-    items = g_list_sort(items, [](gconstpointer a, gconstpointer b) -> gint {
-        GDateTime *ta = gtk_recent_info_get_modified(static_cast<GtkRecentInfo *>(const_cast<gpointer>(a)));
-        GDateTime *tb = gtk_recent_info_get_modified(static_cast<GtkRecentInfo *>(const_cast<gpointer>(b)));
-        gint cmp = g_date_time_compare(tb, ta); // descending
-        g_date_time_unref(ta);
-        g_date_time_unref(tb);
-        return cmp;
-    });
 
-    int shown = 0;
+    // Newest first, capped at 10 -- a menu, not a full history browser.
+    // Extracts a plain int64 timestamp for each entry FIRST and sorts
+    // that with std::sort, rather than g_list_sort() with a comparator
+    // that calls back into gtk_recent_info_get_modified()/
+    // g_date_time_compare() on every comparison: found live that this
+    // crashes deep inside GLib's own g_date_time_compare
+    // (g_time_zone_get_offset) against a large, real recently-used.xbel
+    // history (g_list_sort's merge-sort recursion visible in the
+    // backtrace) -- never reproduced against this session's own small,
+    // synthetic test histories, only the owner's real one. A pre-
+    // extracted int64 needs no further GLib calls during the comparison
+    // itself.
+    std::vector<std::pair<gint64, GtkRecentInfo *>> entries;
     for (GList *l = items; l != nullptr; l = l->next) {
         auto *info = static_cast<GtkRecentInfo *>(l->data);
         const char *uri = gtk_recent_info_get_uri(info);
@@ -2482,13 +2584,23 @@ void AppWindow::refreshRecentProjectsMenu()
         // register a custom MIME type to filter on instead.
         if (!uri || !g_str_has_suffix(uri, ".ustudio"))
             continue;
-        char *path = g_filename_from_uri(uri, nullptr, nullptr);
+        GDateTime *modified = gtk_recent_info_get_modified(info);
+        gint64 timestamp = modified ? g_date_time_to_unix(modified) : 0;
+        if (modified)
+            g_date_time_unref(modified);
+        entries.emplace_back(timestamp, info);
+    }
+    std::sort(entries.begin(), entries.end(),
+             [](const auto &a, const auto &b) { return a.first > b.first; });
+
+    int shown = 0;
+    for (const auto &entry : entries) {
+        if (shown >= 10)
+            break;
+        GtkRecentInfo *info = entry.second;
+        char *path = g_filename_from_uri(gtk_recent_info_get_uri(info), nullptr, nullptr);
         if (!path)
             continue;
-        if (shown >= 10) {
-            g_free(path);
-            break;
-        }
 
         GtkWidget *button = gtk_button_new_with_label(gtk_recent_info_get_display_name(info));
         gtk_widget_add_css_class(button, "flat");
@@ -2596,6 +2708,12 @@ void AppWindow::refreshMediaBrowser()
         g_signal_connect(rowRightClick, "pressed", G_CALLBACK(&AppWindow::mediaBrowserRowRightClickTrampoline),
                          this);
         gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(rowRightClick));
+
+        // Enhancement #8: double-click inserts at the playhead on the
+        // active track -- default GDK_BUTTON_PRIMARY, so left-click only.
+        GtkGesture *rowActivate = gtk_gesture_click_new();
+        g_signal_connect(rowActivate, "pressed", G_CALLBACK(&AppWindow::mediaBrowserRowActivatedTrampoline), this);
+        gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(rowActivate));
 
         // Drag-to-timeline: content is just the AssetId's value (a
         // G_TYPE_INT64), which onTimelineDrop looks back up against
@@ -2769,6 +2887,102 @@ gboolean AppWindow::onTimelineDrop(const GValue *value, double x, double y)
         return TRUE;
     }
     return FALSE;
+}
+
+gboolean AppWindow::onTimelineFileDrop(GdkFileList *files, double x, double y)
+{
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
+    if (trackCount <= 0 || !files)
+        return FALSE;
+
+    int row = std::clamp(static_cast<int>(y / kTrackRowHeight), 0, trackCount - 1);
+    core::TrackId trackId = trackIdForRow(row);
+    if (m_model.track(trackId).locked) {
+        showStatus("Can't drop onto a locked track.");
+        return FALSE;
+    }
+
+    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
+    if (widgetWidth <= kHandleWidth || x < kHandleWidth)
+        return FALSE;
+
+    int total = m_playback->totalFrames();
+    double contentWidth = widgetWidth - kHandleWidth;
+    core::FrameIndex position =
+        total > 0 ? static_cast<core::FrameIndex>(((x - kHandleWidth) / contentWidth) * total) : 0;
+
+    GSList *list = gdk_file_list_get_files(files);
+    bool anySucceeded = false;
+    for (GSList *l = list; l != nullptr; l = l->next) {
+        auto *file = static_cast<GFile *>(l->data);
+        char *path = g_file_get_path(file);
+        if (!path)
+            continue;
+        if (importFileToTrack(path, trackId, position)) {
+            anySucceeded = true;
+            // Each subsequent file (if several were dropped at once)
+            // lands right after the one just placed, same "append" rule
+            // onFileOpened() uses for a multi-select Import.
+            const core::Track &track = m_model.track(trackId);
+            position = track.clips.empty() ? position : m_model.clip(track.clips.back()).end();
+        }
+        g_free(path);
+    }
+    return anySucceeded ? TRUE : FALSE;
+}
+
+gboolean AppWindow::onMediaBrowserFileDrop(GdkFileList *files)
+{
+    if (!files)
+        return FALSE;
+    GSList *list = gdk_file_list_get_files(files);
+    bool anySucceeded = false;
+    for (GSList *l = list; l != nullptr; l = l->next) {
+        auto *file = static_cast<GFile *>(l->data);
+        char *path = g_file_get_path(file);
+        if (!path)
+            continue;
+        if (importAssetOnly(path))
+            anySucceeded = true;
+        g_free(path);
+    }
+    return anySucceeded ? TRUE : FALSE;
+}
+
+bool AppWindow::insertAssetAtPosition(core::AssetId assetId, core::TrackId trackId, core::FrameIndex position)
+{
+    if (!m_model.hasAsset(assetId))
+        return false;
+    const core::Asset &asset = m_model.asset(assetId);
+    if (m_model.track(trackId).locked) {
+        showStatus("Can't insert onto a locked track.");
+        return false;
+    }
+
+    core::FrameIndex length = effectiveInsertLength(asset.info.isBoundless(), asset.info.lengthInSequenceFrames, position);
+    if (!m_model.isRangeFree(trackId, position, position + length)) {
+        showStatus("Can't insert " + asset.displayName + " there: it would overlap another clip.");
+        return false;
+    }
+
+    if (m_undoStack.execute(std::make_unique<core::InsertClip>(trackId, assetId, position, 0, length - 1))) {
+        refreshTimeline();
+        showStatus("Added " + asset.displayName + " at the playhead.");
+        return true;
+    }
+    return false;
+}
+
+void AppWindow::onMediaBrowserRowActivated(core::AssetId assetId)
+{
+    // Enhancement #8: the active track, at the playhead -- the same
+    // target a plain click on a timeline row already sets as "where
+    // things land" (onActiveTrackUp/Down's own comment).
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
+    if (trackCount <= 0)
+        return;
+    core::TrackId trackId = trackIdForRow(m_activeTrack);
+    insertAssetAtPosition(assetId, trackId, m_playback->currentFrame());
 }
 
 core::FrameIndex AppWindow::effectiveInsertLength(bool isBoundless, core::FrameIndex knownLength,
@@ -3348,6 +3562,35 @@ gboolean AppWindow::timelineDropTrampoline(GtkDropTarget *, const GValue *value,
                                            gpointer userData)
 {
     return static_cast<AppWindow *>(userData)->onTimelineDrop(value, x, y);
+}
+
+gboolean AppWindow::timelineFileDropTrampoline(GtkDropTarget *, const GValue *value, double x, double y,
+                                               gpointer userData)
+{
+    if (!G_VALUE_HOLDS(value, GDK_TYPE_FILE_LIST))
+        return FALSE;
+    return static_cast<AppWindow *>(userData)->onTimelineFileDrop(
+        static_cast<GdkFileList *>(g_value_get_boxed(value)), x, y);
+}
+
+gboolean AppWindow::mediaBrowserFileDropTrampoline(GtkDropTarget *, const GValue *value, double, double,
+                                                   gpointer userData)
+{
+    if (!G_VALUE_HOLDS(value, GDK_TYPE_FILE_LIST))
+        return FALSE;
+    return static_cast<AppWindow *>(userData)->onMediaBrowserFileDrop(
+        static_cast<GdkFileList *>(g_value_get_boxed(value)));
+}
+
+void AppWindow::mediaBrowserRowActivatedTrampoline(GtkGestureClick *gesture, int nPress, double, double,
+                                                    gpointer userData)
+{
+    if (nPress != 2)
+        return;
+    GtkWidget *row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+    auto assetIdValue =
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(g_object_get_data(G_OBJECT(row), "ustudio-asset-id")));
+    static_cast<AppWindow *>(userData)->onMediaBrowserRowActivated(core::AssetId{assetIdValue});
 }
 
 void AppWindow::renderClickedTrampoline(GtkButton *, gpointer userData)

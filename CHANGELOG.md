@@ -4,6 +4,16 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.14.2
+
+- Import (Ctrl+I) supports selecting multiple files at once.
+- Import and Open Project file pickers now filter to media files and
+  `.ustudio` projects respectively, instead of showing every file.
+- Drag files in from the file manager onto the timeline to import and
+  place them, or onto the media browser to just add them to the project.
+- Double-click a media browser row to insert it at the playhead on the
+  active track.
+
 ## 0.14.1
 
 - The window title now shows the current project's name (or "Untitled
