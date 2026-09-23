@@ -2253,6 +2253,15 @@ void AppWindow::onWaveformReady()
 
 void AppWindow::onThumbnailReady()
 {
+    // Audit A4: a thumbnail finishing while the panel is hidden has
+    // nothing on screen to update -- rebuilding it anyway means N full
+    // rebuilds (destroying and recreating every row) for N assets
+    // imported at once, none of them visible. onToggleMediaBrowserClicked
+    // already runs its own refreshMediaBrowser() when the panel goes
+    // from hidden to visible, which picks up everything that finished
+    // in the meantime in a single rebuild.
+    if (!gtk_widget_get_visible(m_mediaBrowserPanel))
+        return;
     refreshMediaBrowser();
 }
 

@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.8
+
+- Importing several media files at once no longer rebuilds the entire
+  (usually hidden) media browser panel once per finished thumbnail; it
+  now catches up in one rebuild whenever the panel is next opened.
+
 ## 0.12.7
 
 - Fixed autosave recovery being able to treat a crashed session's owner

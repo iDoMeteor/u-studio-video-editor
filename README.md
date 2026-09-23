@@ -530,6 +530,15 @@ test_thumbnail_cache.cpp`'s own E2 test renders a real 1920x1080 clip
 and checks the thumbnail comes out 120x67, matching the source's real
 16:9 shape, not 120x96, dv_pal's).
 
+`AppWindow::onThumbnailReady()` skips its `refreshMediaBrowser()` call
+(destroys and recreates every row) when the panel is hidden (audit A4)
+— importing N assets at once used to trigger N full rebuilds regardless
+of whether the panel was even visible, and it starts collapsed by
+default. `onToggleMediaBrowserClicked()` already runs its own
+`refreshMediaBrowser()` when the panel goes from hidden to visible, so
+opening it afterward still shows everything that finished in the
+meantime, just in one rebuild instead of N.
+
 Import also reads an asset's fps and pixel dimensions off the producer's
 own `meta.media.frame_rate_num`/`_den`/`width`/`height` properties
 (`EngineSync::probeMedia()`) — confirmed empirically (a standalone repro
