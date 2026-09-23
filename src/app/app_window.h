@@ -296,6 +296,16 @@ class AppWindow
     // caller falls back to its own "can't trim that far" message.
     bool onDragCreatedTransition(core::ClipId a, core::ClipId b, core::FrameIndex extendA, core::FrameIndex extendB);
     void onTimelineDraw(cairo_t *cr, int width, int height);
+    // Audit A5: the playhead line used to be the last few lines of
+    // onTimelineDraw() itself, so refreshTransport() -- which runs once
+    // per displayed frame, ~30/sec during playback -- had to queue a
+    // full timeline redraw (every track's Pango label layout, every
+    // clip's cached waveform lookup) just to move one line. Drawn here
+    // instead, on its own transparent, non-interactive GtkDrawingArea
+    // (m_playheadOverlay, click-through via gtk_widget_set_can_target)
+    // stacked on top of m_timeline in a GtkOverlay, so the per-frame
+    // redraw touches only this -- geometry math and a single cairo_stroke.
+    void onPlayheadOverlayDraw(cairo_t *cr, int width, int height);
     void onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber);
 
     void refreshTimeline();
@@ -360,6 +370,8 @@ class AppWindow
     static void seekChangedTrampoline(GtkRange *range, gpointer userData);
     static void splitClickedTrampoline(GtkButton *button, gpointer userData);
     static void timelineDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer userData);
+    static void playheadOverlayDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height,
+                                              gpointer userData);
     static void timelineClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
     static void timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
                                              gpointer userData);
@@ -431,6 +443,11 @@ class AppWindow
     GtkWidget *m_deleteAssetFileButton = nullptr;
     core::AssetId m_contextMenuAssetId;
     GtkDrawingArea *m_timeline = nullptr;
+    // Audit A5: see onPlayheadOverlayDraw()'s own comment. Stacked on top
+    // of m_timeline inside a GtkOverlay (buildUi()); not a target for
+    // pointer events, so every click/drag/drop/tooltip controller stays
+    // exactly where it already was, on m_timeline itself.
+    GtkDrawingArea *m_playheadOverlay = nullptr;
     GtkScale *m_seekScale = nullptr;
     GtkButton *m_playButton = nullptr;
     GtkButton *m_undoButton = nullptr;

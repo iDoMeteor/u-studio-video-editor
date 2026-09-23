@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.13.6
+
+- The timeline playhead now updates on its own lightweight overlay
+  instead of redrawing every clip, label, and waveform on the timeline
+  30 times a second during playback.
+
 ## 0.13.5
 
 - Opening a different project now asks first if the current one has

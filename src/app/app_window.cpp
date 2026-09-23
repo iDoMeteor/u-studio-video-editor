@@ -520,7 +520,22 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_popover_set_child(m_inlineNameEditPopover, GTK_WIDGET(m_inlineNameEditEntry));
     g_signal_connect(m_inlineNameEditPopover, "closed", G_CALLBACK(&AppWindow::inlineNameEditClosedTrampoline), this);
 
-    gtk_box_append(GTK_BOX(bottomBox), GTK_WIDGET(m_timeline));
+    // Audit A5: the playhead line is drawn on its own overlay, stacked on
+    // top of m_timeline, so redrawing it on every displayed frame during
+    // playback doesn't also redraw every clip/waveform/label underneath
+    // -- see onPlayheadOverlayDraw()'s declaration comment. Not a target
+    // for pointer events, so m_timeline (below it in the overlay, still
+    // the widget every gesture/drop-target/tooltip controller above is
+    // attached to) keeps handling clicks/drags exactly as before.
+    GtkWidget *timelineOverlay = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(timelineOverlay), GTK_WIDGET(m_timeline));
+
+    m_playheadOverlay = GTK_DRAWING_AREA(gtk_drawing_area_new());
+    gtk_widget_set_can_target(GTK_WIDGET(m_playheadOverlay), FALSE);
+    gtk_drawing_area_set_draw_func(m_playheadOverlay, &AppWindow::playheadOverlayDrawTrampoline, this, nullptr);
+    gtk_overlay_add_overlay(GTK_OVERLAY(timelineOverlay), GTK_WIDGET(m_playheadOverlay));
+
+    gtk_box_append(GTK_BOX(bottomBox), timelineOverlay);
 
     GtkWidget *transport = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 
@@ -2283,13 +2298,21 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_stroke(cr);
         cairo_restore(cr);
     }
+}
 
-    // Playhead: a vertical line at the current frame, spanning every
-    // track row, drawn last so it sits on top of clips/waveforms/hatch
-    // overlays -- the only at-a-glance answer to "where are we" on a
-    // multi-track timeline (previously only the seek bar below the
-    // preview showed this). refreshTransport() queues the redraw that
-    // keeps this in sync with playback, not just with edits.
+void AppWindow::onPlayheadOverlayDraw(cairo_t *cr, int width, int height)
+{
+    (void)height;
+    // Same geometry onTimelineDraw() itself uses -- kept in sync by
+    // construction, not by sharing state, since both are cheap to
+    // recompute and this one runs far more often (audit A5: this is the
+    // whole point of splitting it out -- see this method's declaration).
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
+    int total = m_playback->totalFrames();
+    if (trackCount <= 0 || total <= 0)
+        return;
+
+    double contentWidth = std::max(width - kHandleWidth, 1.0);
     int currentFrame = m_playback->currentFrame();
     double playheadX = kHandleWidth + (static_cast<double>(currentFrame) / total) * contentWidth;
     cairo_set_source_rgb(cr, kPlayheadR, kPlayheadG, kPlayheadB);
@@ -2762,7 +2785,9 @@ void AppWindow::refreshTransport(int frameNumber)
     // own comment), both while playing and after a seek (seek() purges
     // and requests a fresh frame, which comes back through the same
     // callback), so nothing else needs to separately queue this redraw.
-    gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+    // Audit A5: queues only the playhead's own overlay, not the full
+    // m_timeline -- see onPlayheadOverlayDraw()'s declaration comment.
+    gtk_widget_queue_draw(GTK_WIDGET(m_playheadOverlay));
 }
 
 void AppWindow::refreshPlayButtonIcon()
@@ -3180,6 +3205,11 @@ void AppWindow::splitClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::timelineDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width, int height, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onTimelineDraw(cr, width, height);
+}
+
+void AppWindow::playheadOverlayDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width, int height, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onPlayheadOverlayDraw(cr, width, height);
 }
 
 void AppWindow::timelineClickTrampoline(GtkGestureClick *, int nPress, double x, double y, gpointer userData)

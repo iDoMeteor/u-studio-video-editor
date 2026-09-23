@@ -51,7 +51,9 @@ single-track skeleton.
   volume, preview-scale preference (Auto/Full/Half/Quarter), scrub by
   dragging the seek bar (including mid-playback). A vertical cyan line on
   the timeline itself marks the current frame across every track, live
-  during playback, not just the seek bar below the preview.
+  during playback, not just the seek bar below the preview -- drawn on
+  its own overlay layer so updating it 30 times a second doesn't also
+  redraw every clip/waveform/label underneath (audit A5, 2026-09-23).
   `A`/`F` jump the playhead to the previous/next cut (a clip's start or
   end, or the timeline's own start/end) on the active track; `S`/`D` move
   which track is active up/down, the same target a plain click sets.
@@ -525,6 +527,27 @@ to the owner rather than silently doing nothing, but a source asset that
 somehow ends up on `/tmp` or a removable/network mount too small to hold
 a Trash copy will report a failure here where the previous
 `std::filesystem::remove` implementation would have just deleted it.
+
+The timeline's playhead line used to be drawn as the last few lines of
+`onTimelineDraw()` itself (`AppWindow::onTimelineDraw()`), so every
+displayed frame during playback -- `refreshTransport()`, called once per
+frame via `onFrameReady()` -- queued a full redraw of the whole timeline:
+every track's Pango label layout, every clip's waveform-cache lookup
+(mutex + key-string build), all ~30 times a second (audit A5,
+2026-09-23). Fixed by splitting the playhead onto its own
+`GtkDrawingArea` (`m_playheadOverlay`), stacked on top of `m_timeline`
+inside a `GtkOverlay`, `gtk_widget_set_can_target(..., FALSE)` so it
+never intercepts the clicks/drags/drops/tooltips every existing
+controller is still attached to `m_timeline` for.
+`refreshTransport()` now queues only that overlay; everything that
+queues a full `m_timeline` redraw for an actual content change is
+unchanged. Confirmed via gdb breakpoints on both draw functions that a
+`step-forward` action now hits `onPlayheadOverlayDraw()` and *not*
+`onTimelineDraw()`, while a real edit (adding a track) still hits
+`onTimelineDraw()` as before -- GTK4's per-widget `GskRenderNode` caching
+means the overlay's last-drawn playhead position stays correctly
+composited on top even on a frame where only `m_timeline` redrew, so
+nothing needed to force both together.
 
 Fixing T1 surfaced a second, unrelated crash: `RemoveClip`/`MoveClip`/
 `RemoveAsset` (and, before this fix, the un-batched T1 strip-then-edit
