@@ -28,9 +28,12 @@ single-track skeleton.
   the same architecture as the waveform cache below) so importing a large
   file never blocks the UI. Right-click a row for "Remove from Project"
   (drops the asset and every clip cut from it, undoable — the file on
-  disk is untouched) or "Delete File…" (confirms, since this one isn't
-  undoable, then does both: removes it from the project and deletes the
-  actual file from disk). Drag a row onto the timeline to insert a full-
+  disk is untouched) or "Move File to Trash…" (confirms, since removing
+  it from the project isn't chained onto the file move by the undo stack,
+  then does both: removes it from the project and moves the actual file
+  to the desktop's Trash via `g_file_trash()` rather than permanently
+  unlinking it — audit A3, 2026-09-23 — so it's still recoverable the
+  normal way). Drag a row onto the timeline to insert a full-
   length clip at the exact track/frame the drop lands on — refused, like
   any other insert, if that space isn't free or the track is locked.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
@@ -498,6 +501,28 @@ no effect), so this holds even though this app doesn't control the order
 GTK's shortcut controller and the entry's own key handling see the event.
 Undo/redo (`Ctrl+Z`/`Ctrl+Shift+Z`) are deliberately left enabled: they're
 modifier combos a text entry never needs to consume for itself.
+
+"Move File to Trash…" (`onDeleteAssetFileClicked()`) used to permanently
+unlink the file with `std::filesystem::remove` despite the confirmation
+dialog only asking about removing it from the *project* (audit A3,
+2026-09-23) — fixed by moving it to the desktop's Trash with GIO's
+`g_file_trash()` instead. Confirmed empirically (a standalone repro
+calling the same GLib function directly) that this only succeeds for a
+file on the same filesystem as `$XDG_DATA_HOME/Trash`: a file under
+`/tmp` fails outright with `G_IO_ERROR_NOT_SUPPORTED` ("Trashing on
+system internal mounts is not supported" — GIO treats tmpfs/internal
+mounts as ineligible for trashing regardless of `$XDG_DATA_HOME`), and a
+file on a genuinely different *device* from `$XDG_DATA_HOME/Trash` fails
+with the same error code but "across filesystem boundaries" instead. A
+real media file living under the user's home directory (this feature's
+actual use case) hits neither case — confirmed by trashing a real file
+there and finding it land at `$XDG_DATA_HOME/Trash/files/`, matching the
+XDG trash spec. `onDeleteAssetFileClicked()`'s existing error path
+(`showStatus()` with the failure message) already surfaces either error
+to the owner rather than silently doing nothing, but a source asset that
+somehow ends up on `/tmp` or a removable/network mount too small to hold
+a Trash copy will report a failure here where the previous
+`std::filesystem::remove` implementation would have just deleted it.
 
 Fixing T1 surfaced a second, unrelated crash: `RemoveClip`/`MoveClip`/
 `RemoveAsset` (and, before this fix, the un-batched T1 strip-then-edit

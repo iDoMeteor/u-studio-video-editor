@@ -350,7 +350,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_add_css_class(m_removeAssetButton, "flat");
     g_signal_connect(m_removeAssetButton, "clicked", G_CALLBACK(&AppWindow::removeAssetClickedTrampoline), this);
     gtk_box_append(GTK_BOX(mediaContextBox), m_removeAssetButton);
-    m_deleteAssetFileButton = gtk_button_new_with_label("Delete File…");
+    m_deleteAssetFileButton = gtk_button_new_with_label("Move File to Trash…");
     gtk_widget_add_css_class(m_deleteAssetFileButton, "flat");
     g_signal_connect(m_deleteAssetFileButton, "clicked", G_CALLBACK(&AppWindow::deleteAssetFileClickedTrampoline),
                       this);
@@ -2467,14 +2467,14 @@ void AppWindow::onDeleteAssetFileClicked()
         if (clip.asset == m_contextMenuAssetId)
             ++clipCount;
 
-    std::string body = "Permanently delete \"" + asset.displayName + "\" from disk? This cannot be undone.";
+    std::string body = "Move \"" + asset.displayName + "\" to Trash?";
     if (clipCount > 0)
         body += " It's used by " + std::to_string(clipCount) + (clipCount == 1 ? " clip" : " clips") +
                 " in this project -- those will be removed too.";
 
-    AdwDialog *dialog = adw_alert_dialog_new("Delete file?", body.c_str());
+    AdwDialog *dialog = adw_alert_dialog_new("Move file to Trash?", body.c_str());
     adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel");
-    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "delete", "Delete File");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "delete", "Move to Trash");
     adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "delete", ADW_RESPONSE_DESTRUCTIVE);
     adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "cancel");
     adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
@@ -2510,23 +2510,32 @@ void AppWindow::onDeleteAssetFileClicked()
             self->refreshMediaBrowser();
 
             // The project no longer references it either way (RemoveAsset
-            // above already succeeded); a failed filesystem delete just
-            // leaves the now-orphaned file on disk -- CLAUDE.md's "never
-            // execute/shell-interpolate a project-file-derived path" rule
-            // is why this is std::filesystem::remove, not system("rm").
+            // above already succeeded); a failed trash just leaves the
+            // now-orphaned file on disk. Audit A3: this used to be
+            // std::filesystem::remove -- a permanent unlink with no
+            // recovery path -- despite the dialog only asking about
+            // removing it from the *project*. g_file_trash() (GIO,
+            // already a dependency; CLAUDE.md's "never execute/shell-
+            // interpolate a project-file-derived path" rule is why this
+            // isn't system("gio trash ...")) moves it to the desktop's
+            // Trash instead, so it's still recoverable the normal way a
+            // GNOME user expects.
             std::error_code ec;
             if (!std::filesystem::exists(owned->path, ec)) {
                 self->showStatus("Removed " + owned->displayName + " (file was already gone).");
                 return;
             }
-            std::filesystem::remove(owned->path, ec);
-            if (ec) {
-                Log::error("[app] could not delete " + owned->path + ": " + ec.message());
+            GFile *file = g_file_new_for_path(owned->path.c_str());
+            GError *error = nullptr;
+            if (!g_file_trash(file, nullptr, &error)) {
+                Log::error("[app] could not move " + owned->path + " to Trash: " + error->message);
                 self->showStatus("Removed " + owned->displayName +
-                                 " from the project, but could not delete the file: " + ec.message());
+                                 " from the project, but could not move the file to Trash: " + error->message);
+                g_error_free(error);
             } else {
-                self->showStatus("Deleted " + owned->displayName + ".");
+                self->showStatus("Moved " + owned->displayName + " to Trash.");
             }
+            g_object_unref(file);
         },
         ctx);
 }

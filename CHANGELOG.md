@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.13.4
+
+- "Delete File…" in the media browser is now "Move File to Trash…" — it
+  moves the file to your desktop's Trash instead of permanently deleting
+  it, so it's still recoverable afterward.
+
 ## 0.13.3
 
 - Closing the window with unsaved changes now asks first (Save, Discard,
