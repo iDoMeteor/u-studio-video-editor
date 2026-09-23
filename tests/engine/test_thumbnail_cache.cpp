@@ -1,13 +1,18 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/model/model.h"
+#include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "engine/thumbnail_cache.h"
 
 #include <glib.h>
+#include <mlt++/Mlt.h>
 
 #include <chrono>
+#include <filesystem>
 #include <mutex>
+#include <random>
 #include <thread>
 
 using namespace ustudio::engine;
@@ -21,6 +26,16 @@ FactoryPolicy &sharedFactoryPolicy()
     static FactoryPolicy policy;
     return policy;
 }
+
+struct RemoveOnExit
+{
+    std::filesystem::path path;
+    ~RemoveOnExit()
+    {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+};
 
 // ThumbnailCache's onReady callback is marshaled onto the default GLib
 // main context (g_idle_add) -- nothing runs that context's loop in a
@@ -131,4 +146,64 @@ TEST_CASE("ThumbnailCache: an unopenable resource yields a cached, empty (not cr
     CHECK(data->width == 0);
     CHECK(data->height == 0);
     CHECK(data->rgba.empty());
+}
+
+TEST_CASE("ThumbnailCache: a real 16:9 video decodes at its own aspect, not MLT's default 4:3-ish profile "
+         "(audit E2)")
+{
+    using namespace ustudio::core;
+
+    sharedFactoryPolicy();
+    std::random_device rd;
+    std::filesystem::path path =
+        std::filesystem::temp_directory_path() / ("ustudio-thumbnail-e2-test-" + std::to_string(rd()) + ".mp4");
+    RemoveOnExit cleanup{path};
+
+    // Renders a tiny real 1920x1080 MP4 (doc 11: no binary media
+    // committed, generated on the fly), same avformat/libx264 pair
+    // renderProject() itself uses -- matches test_probe_media.cpp's own
+    // pattern.
+    {
+        Model renderModel = Model::createEmpty();
+        EngineSync renderSync(renderModel);
+        Mlt::Producer producer(renderSync.profile(), "color:red");
+        producer.set_in_and_out(0, 4);
+        std::unique_ptr<Mlt::Profile> consumerProfile(producer.profile());
+        Mlt::Consumer consumer(*consumerProfile, "avformat", path.string().c_str());
+        consumer.set("vcodec", "libx264");
+        consumer.connect(producer);
+        consumer.run();
+    }
+
+    std::mutex mutex;
+    int readyCount = 0;
+    ThumbnailCache cache([&] {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++readyCount;
+    });
+
+    CHECK(cache.thumbnailFor(path.string()) == nullptr);
+    bool ready = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return readyCount >= 1;
+        },
+        std::chrono::seconds(5));
+    REQUIRE(ready);
+
+    const ThumbnailCache::Data *data = cache.thumbnailFor(path.string());
+    REQUIRE(data != nullptr);
+    CHECK(data->width == 120);
+    // 120 * 1080 / 1920 == 67 (the source's real 16:9 shape). MLT's
+    // default dv_pal profile (720x576, decoded before this fix) would
+    // instead have produced 120 * 576 / 720 == 96 -- a visibly different,
+    // wrong number, not just an off-by-one.
+    CHECK(data->height == 67);
+
+    // No letterbox bars: the very first row (where dv_pal's black bar
+    // used to sit) must be the source's real red, not black.
+    REQUIRE(data->rgba.size() >= 4);
+    CHECK(data->rgba[0] > 200); // R
+    CHECK(data->rgba[1] < 50);  // G
+    CHECK(data->rgba[2] < 50);  // B
 }

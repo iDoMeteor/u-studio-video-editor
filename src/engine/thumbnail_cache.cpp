@@ -77,10 +77,34 @@ void ThumbnailCache::workerMain()
         // Independent Profile/Producer per job, same as WaveformCache --
         // never touches EngineSync's own objects or the live
         // playback/editing state. A thumbnail isn't frame-accurate
-        // against any sequence's fps, so the default profile is fine.
+        // against any sequence's fps, so the default profile's fps is
+        // fine -- but its 720x576, 16:15-sample-aspect *frame size*
+        // (dv_pal, MLT's own default) is not: the loader's normalising
+        // filters scale and pad every decoded frame to the profile,
+        // which get_image() then returns as 720x576 with black bars and
+        // squashed pixels regardless of the source's real 16:9 shape
+        // (audit E2, verified 2026-09-22 and again in a standalone
+        // repro here: a 1920x1080 red clip decoded to 720x576 with a
+        // black bar at rows 0-2 and 573-575). meta.media.width/height
+        // only populate after a frame has been pulled at least once
+        // (this session's own earlier finding, engine_sync.cpp's
+        // probeMedia), so prime with one throwaway get_frame() first,
+        // then reconfigure the SAME profile object's width/height/
+        // sample-aspect before decoding the real thumbnail frame --
+        // confirmed empirically that this is enough on its own; the
+        // producer does not need to be reopened.
         Mlt::Profile profile;
         Mlt::Producer producer(profile, job.resource.c_str());
         if (producer.is_valid()) {
+            std::unique_ptr<Mlt::Frame> primeFrame(producer.get_frame());
+            int metaWidth = producer.get_int("meta.media.width");
+            int metaHeight = producer.get_int("meta.media.height");
+            if (metaWidth > 0 && metaHeight > 0) {
+                profile.set_width(metaWidth);
+                profile.set_height(metaHeight);
+                profile.set_sample_aspect(1, 1);
+            }
+
             int length = producer.get_length();
             // A representative frame, not necessarily the first: many
             // real clips fade in from or open on black, which makes a

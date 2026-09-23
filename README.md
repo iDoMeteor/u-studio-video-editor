@@ -510,6 +510,23 @@ decodes one frame, and box-downsamples it in software to a fixed
 `PlaybackController`'s own live-frame callback already does
 (`gdk_memory_texture_new(..., GDK_MEMORY_R8G8B8A8, ...)`).
 
+A throwaway `Mlt::Profile` defaults to MLT's own `dv_pal` (720x576,
+16:15 sample aspect, 4:3 display) — an audit (2026-09-22) found that the
+loader's normalising filters scale and pad every decoded frame to fit
+that profile, so `get_image()` returned 720x576 with black letterbox
+bars and squashed pixels for any real 16:9 source, regardless of its
+actual shape (verified with a standalone repro: a rendered 1920x1080 red
+clip decoded to 720x576, with the top/bottom couple of rows reading
+black instead of red). Fixed by priming with one throwaway `get_frame()`
+first (populating `meta.media.width`/`height`, per the lazy-population
+finding above) and reconfiguring the *same* `Mlt::Profile` object's
+width, height, and sample aspect (1:1) before decoding the real
+thumbnail frame — confirmed empirically that the producer does not need
+to be reopened for this to take effect (`tests/engine/
+test_thumbnail_cache.cpp`'s own E2 test renders a real 1920x1080 clip
+and checks the thumbnail comes out 120x67, matching the source's real
+16:9 shape, not 120x96, dv_pal's).
+
 Import also reads an asset's fps and pixel dimensions off the producer's
 own `meta.media.frame_rate_num`/`_den`/`width`/`height` properties
 (`EngineSync::probeMedia()`) — confirmed empirically (a standalone repro

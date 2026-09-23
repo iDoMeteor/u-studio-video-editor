@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.2
+
+- Fixed media browser thumbnails for real (non-still) video: they were
+  decoded through MLT's default 4:3-ish profile, so every 16:9 clip's
+  thumbnail showed black letterbox bars and squashed pixels instead of
+  its real shape.
+
 ## 0.12.1
 
 - Fixed crashes and corrupted saved projects from editing a clip linked
