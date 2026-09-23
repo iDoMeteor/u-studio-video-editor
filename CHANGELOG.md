@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.14.1
+
+- The window title now shows the current project's name (or "Untitled
+  Project") instead of just "u Studio Video Editor" for every project.
+- A "Recent projects" button next to Open lists the last 10 projects
+  opened or saved, for one-click reopening.
+
 ## 0.14.0
 
 - Space bar toggles play/pause.

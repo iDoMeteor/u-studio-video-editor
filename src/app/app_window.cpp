@@ -213,6 +213,7 @@ AppWindow::AppWindow(GtkApplication *app)
 
     refreshTimeline();
     updateWindowTitle();
+    refreshRecentProjectsMenu();
     offerRecoveryIfAny();
     showStatus("Import a media file to begin.");
 }
@@ -240,8 +241,8 @@ void AppWindow::buildUi(GtkApplication *app)
     GtkWidget *toolbarView = adw_toolbar_view_new();
 
     GtkWidget *headerBar = adw_header_bar_new();
-    GtkWidget *title = adw_window_title_new("u Studio", nullptr);
-    adw_header_bar_set_title_widget(ADW_HEADER_BAR(headerBar), title);
+    m_windowTitle = ADW_WINDOW_TITLE(adw_window_title_new("u Studio", nullptr));
+    adw_header_bar_set_title_widget(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_windowTitle));
 
     GtkWidget *importButton = gtk_button_new_with_label("Import…");
     gtk_widget_add_css_class(importButton, "suggested-action");
@@ -286,6 +287,18 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_tooltip_text(openButton, "Open project…");
     g_signal_connect(openButton, "clicked", G_CALLBACK(&AppWindow::openProjectClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), openButton);
+
+    // Enhancement #15: recent projects, next to Open. refreshRecentProjectsMenu()
+    // (called once below, and again after every successful save/open)
+    // rebuilds m_recentProjectsPopover's contents from GtkRecentManager.
+    GtkWidget *recentProjectsButton = gtk_menu_button_new();
+    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(recentProjectsButton), "document-open-recent-symbolic");
+    gtk_widget_set_tooltip_text(recentProjectsButton, "Recent projects");
+    m_recentProjectsPopover = GTK_POPOVER(gtk_popover_new());
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(recentProjectsButton), GTK_WIDGET(m_recentProjectsPopover));
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), recentProjectsButton);
+    g_signal_connect(gtk_recent_manager_get_default(), "changed",
+                     G_CALLBACK(&AppWindow::recentManagerChangedTrampoline), this);
 
     GtkWidget *saveButton = gtk_button_new_from_icon_name("document-save-symbolic");
     gtk_widget_set_tooltip_text(saveButton, "Save project…");
@@ -858,6 +871,7 @@ bool AppWindow::performSaveToPath(const std::string &path, bool closeAfterSave)
         m_pendingAutosaveCleanupMetaPath.clear();
     }
     showStatus("Saved: " + path);
+    recordRecentProject(path); // enhancement #15
     if (closeAfterSave)
         gtk_window_destroy(GTK_WINDOW(m_window));
     return true;
@@ -895,36 +909,46 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
 
     char *path = g_file_get_path(file);
     if (path) {
-        auto loaded = core::loadProject(path);
-        if (!loaded.has_value()) {
-            showStatus(loaded.error());
-        } else {
-            m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy --
-                                          // reassigning its contents leaves both still pointing at the right object
-            m_currentProjectPath = path;
-            m_undoStack.clear();
-            m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
-            m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
-            m_activeTrack = 0;
-            m_selectedClip = -1;
-            // Audit A1: a pending recovered-autosave cleanup is only
-            // safe to act on once ITS OWN content has been durably
-            // saved (onSaveFinished()'s own comment) -- switching away
-            // to a different project via Open, same as New or Reload,
-            // must forget it rather than let a later Save of THIS
-            // project delete the still-only copy of whatever was
-            // recovered. The files themselves are left alone; a later
-            // launch (or offerRecoveryIfAny() looping later in this one)
-            // can still find and offer them.
-            m_pendingAutosaveCleanupPath.clear();
-            m_pendingAutosaveCleanupMetaPath.clear();
-            refreshTimeline();
-            refreshMediaBrowser();
-            showStatus(std::string("Opened: ") + path);
-        }
+        loadProjectFromPath(path);
         g_free(path);
     }
     g_object_unref(file);
+}
+
+bool AppWindow::loadProjectFromPath(const std::string &path)
+{
+    auto loaded = core::loadProject(path);
+    if (!loaded.has_value()) {
+        showStatus(loaded.error());
+        return false;
+    }
+    m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy --
+                                  // reassigning its contents leaves both still pointing at the right object
+    m_currentProjectPath = path;
+    m_undoStack.clear();
+    m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
+    m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
+    m_activeTrack = 0;
+    m_selectedClip = -1;
+    // Audit A1: a pending recovered-autosave cleanup is only
+    // safe to act on once ITS OWN content has been durably
+    // saved (onSaveFinished()'s own comment) -- switching away
+    // to a different project via Open, same as New or Reload,
+    // must forget it rather than let a later Save of THIS
+    // project delete the still-only copy of whatever was
+    // recovered. The files themselves are left alone; a later
+    // launch (or offerRecoveryIfAny() looping later in this one)
+    // can still find and offer them.
+    m_pendingAutosaveCleanupPath.clear();
+    m_pendingAutosaveCleanupMetaPath.clear();
+    refreshTimeline();
+    refreshMediaBrowser();
+    showStatus("Opened: " + path);
+    // Enhancement #15: recorded regardless of how the project got opened
+    // (dialog or the recent-projects menu itself), so re-opening it later
+    // keeps bumping it back to the top of the list.
+    recordRecentProject(path);
+    return true;
 }
 
 void AppWindow::onReloadProjectClicked()
@@ -2416,6 +2440,91 @@ void AppWindow::onToggleMediaBrowserClicked()
         refreshMediaBrowser(); // was hidden -- may be stale/never built
 }
 
+void AppWindow::recordRecentProject(const std::string &path)
+{
+    char *uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
+    if (!uri)
+        return;
+    gtk_recent_manager_add_item(gtk_recent_manager_get_default(), uri);
+    g_free(uri);
+    // No direct refreshRecentProjectsMenu() call here -- found live that
+    // gtk_recent_manager_get_items() right after add_item(), in the same
+    // call stack, doesn't yet see the item just added (GtkRecentManager
+    // updates its in-memory list asynchronously and emits "changed" once
+    // it has). buildUi() connects that signal to refreshRecentProjectsMenu()
+    // instead, which is the correct source of truth regardless of this
+    // timing.
+}
+
+void AppWindow::refreshRecentProjectsMenu()
+{
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_size_request(box, 260, -1);
+
+    GList *items = gtk_recent_manager_get_items(gtk_recent_manager_get_default());
+    // Newest first, capped at 10 -- a menu, not a full history browser.
+    items = g_list_sort(items, [](gconstpointer a, gconstpointer b) -> gint {
+        GDateTime *ta = gtk_recent_info_get_modified(static_cast<GtkRecentInfo *>(const_cast<gpointer>(a)));
+        GDateTime *tb = gtk_recent_info_get_modified(static_cast<GtkRecentInfo *>(const_cast<gpointer>(b)));
+        gint cmp = g_date_time_compare(tb, ta); // descending
+        g_date_time_unref(ta);
+        g_date_time_unref(tb);
+        return cmp;
+    });
+
+    int shown = 0;
+    for (GList *l = items; l != nullptr; l = l->next) {
+        auto *info = static_cast<GtkRecentInfo *>(l->data);
+        const char *uri = gtk_recent_info_get_uri(info);
+        // GtkRecentManager is shared system-wide across every app on the
+        // desktop -- filtering by extension is the only practical way to
+        // show only this app's own history, since this app doesn't
+        // register a custom MIME type to filter on instead.
+        if (!uri || !g_str_has_suffix(uri, ".ustudio"))
+            continue;
+        char *path = g_filename_from_uri(uri, nullptr, nullptr);
+        if (!path)
+            continue;
+        if (shown >= 10) {
+            g_free(path);
+            break;
+        }
+
+        GtkWidget *button = gtk_button_new_with_label(gtk_recent_info_get_display_name(info));
+        gtk_widget_add_css_class(button, "flat");
+        gtk_widget_set_halign(button, GTK_ALIGN_FILL);
+        gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
+        g_object_set_data_full(G_OBJECT(button), "ustudio-recent-path", g_strdup(path), g_free);
+        g_signal_connect(button, "clicked", G_CALLBACK(&AppWindow::recentProjectClickedTrampoline), this);
+        gtk_box_append(GTK_BOX(box), button);
+        g_free(path);
+        ++shown;
+    }
+    // GtkRecentInfo is its own refcounted boxed type (gtk_recent_info_ref/
+    // _unref), not a GObject -- g_object_unref() here segfaults inside
+    // GObject's own type-check machinery on the first real call (found
+    // live: a standalone repro via gdb reproduced it immediately).
+    g_list_free_full(items, reinterpret_cast<GDestroyNotify>(gtk_recent_info_unref));
+
+    if (shown == 0) {
+        GtkWidget *label = gtk_label_new("No recent projects");
+        gtk_widget_add_css_class(label, "dim-label");
+        gtk_widget_set_margin_top(label, 6);
+        gtk_widget_set_margin_bottom(label, 6);
+        gtk_widget_set_margin_start(label, 6);
+        gtk_widget_set_margin_end(label, 6);
+        gtk_box_append(GTK_BOX(box), label);
+    }
+
+    gtk_popover_set_child(m_recentProjectsPopover, box);
+}
+
+void AppWindow::openRecentProject(const std::string &path)
+{
+    gtk_popover_popdown(m_recentProjectsPopover);
+    confirmDiscardIfDirty([this, path] { loadProjectFromPath(path); });
+}
+
 void AppWindow::refreshMediaBrowser()
 {
     GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(m_mediaBrowserList));
@@ -2880,8 +2989,19 @@ bool AppWindow::pathIsProjectAsset(const std::string &path) const
 
 void AppWindow::updateWindowTitle()
 {
-    std::string title = m_undoStack.isClean() ? "u Studio Video Editor" : "u Studio Video Editor •";
+    // Enhancement #4: the project name, not just "u Studio Video Editor"
+    // for every window regardless of which project is open -- every call
+    // site that changes m_currentProjectPath (Save, Open, Reload, New
+    // Project, recovery) already calls something that emits
+    // m_undoStack's "changed" signal right after, which this is
+    // connected to, so this always sees the current path.
+    std::string docName =
+        m_currentProjectPath.empty() ? "Untitled Project" : std::filesystem::path(m_currentProjectPath).stem().string();
+    std::string title = docName + " — u Studio";
+    if (!m_undoStack.isClean())
+        title += " •";
     gtk_window_set_title(GTK_WINDOW(m_window), title.c_str());
+    adw_window_title_set_title(m_windowTitle, title.c_str());
     gtk_widget_set_sensitive(GTK_WIDGET(m_undoButton), m_undoStack.canUndo());
     gtk_widget_set_sensitive(GTK_WIDGET(m_redoButton), m_undoStack.canRedo());
 }
@@ -3171,6 +3291,18 @@ void AppWindow::saveFinishedTrampoline(GObject *sourceObject, GAsyncResult *resu
 void AppWindow::openProjectClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onOpenProjectClicked();
+}
+
+void AppWindow::recentProjectClickedTrampoline(GtkButton *button, gpointer userData)
+{
+    const char *path = static_cast<const char *>(g_object_get_data(G_OBJECT(button), "ustudio-recent-path"));
+    if (path)
+        static_cast<AppWindow *>(userData)->openRecentProject(path);
+}
+
+void AppWindow::recentManagerChangedTrampoline(GtkRecentManager *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->refreshRecentProjectsMenu();
 }
 
 void AppWindow::openProjectFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData)

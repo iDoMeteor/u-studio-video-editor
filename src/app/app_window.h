@@ -128,6 +128,24 @@ class AppWindow
     // confirmation" this used to be assumed to be.
     void onOpenProjectClicked();
     void onOpenProjectFinished(GObject *sourceObject, GAsyncResult *result);
+    // Shared by onOpenProjectFinished() (after the file dialog returns a
+    // path) and openRecentProject() (a path picked from the recent-
+    // projects menu, no dialog) -- everything loadProject() success/
+    // failure needs to do to the model/undo-stack/engine/UI either way.
+    bool loadProjectFromPath(const std::string &path);
+    // Enhancement #15: GtkRecentManager-backed "recent projects" menu, a
+    // GtkMenuButton next to the header bar's Open button.
+    // recordRecentProject() is called after every successful save/open
+    // (loadProjectFromPath()/performSaveToPath()); refreshRecentProjectsMenu()
+    // rebuilds the popover's contents from GtkRecentManager, filtered to
+    // this app's own ".ustudio" entries (GtkRecentManager is shared
+    // system-wide across every app, so this is the only practical way to
+    // avoid listing whatever some other app opened most recently too);
+    // openRecentProject() confirms unsaved changes first (same as the
+    // Open button, audit A4), then loads the picked path.
+    void recordRecentProject(const std::string &path);
+    void refreshRecentProjectsMenu();
+    void openRecentProject(const std::string &path);
     // Re-loads m_currentProjectPath from disk, discarding in-memory edits --
     // a quick way to pick up a fix or re-attempt opening the same file
     // without going through the file-picker dialog again. A no-op (with a
@@ -374,6 +392,15 @@ class AppWindow
     static void saveClickedTrampoline(GtkButton *button, gpointer userData);
     static void saveFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void openProjectClickedTrampoline(GtkButton *button, gpointer userData);
+    // Reads the path stashed via g_object_set_data_full() on `button`
+    // itself (refreshRecentProjectsMenu() builds one such button per
+    // recent entry) and opens it.
+    static void recentProjectClickedTrampoline(GtkButton *button, gpointer userData);
+    // GtkRecentManager's own "changed" signal -- the correct source of
+    // truth for refreshRecentProjectsMenu() (see recordRecentProject()'s
+    // own comment on why calling it directly right after add_item()
+    // isn't).
+    static void recentManagerChangedTrampoline(GtkRecentManager *manager, gpointer userData);
     static void openProjectFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void reloadProjectClickedTrampoline(GtkButton *button, gpointer userData);
     static void newProjectClickedTrampoline(GtkButton *button, gpointer userData);
@@ -480,6 +507,13 @@ class AppWindow
     GtkDrawingArea *m_playheadOverlay = nullptr;
     GtkScale *m_seekScale = nullptr;
     GtkButton *m_playButton = nullptr;
+    // Enhancement #4: the header bar's own title widget (what's actually
+    // visible -- libadwaita's client-side header replaces the OS
+    // titlebar text) -- updateWindowTitle() sets its title to the
+    // project name (+ dirty mark) alongside gtk_window_set_title(),
+    // which still drives the taskbar/Alt-Tab label.
+    AdwWindowTitle *m_windowTitle = nullptr;
+    GtkPopover *m_recentProjectsPopover = nullptr;
     GtkButton *m_undoButton = nullptr;
     GtkButton *m_redoButton = nullptr;
     GtkLabel *m_timecodeLabel = nullptr;

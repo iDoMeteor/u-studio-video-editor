@@ -114,6 +114,12 @@ single-track skeleton.
   them in audit A4, 2026-09-23 — navigating its file-picker dialog to
   choose what to open says nothing about the *current* project being
   discarded, so it was never the implicit confirmation it looked like).
+  A "Recent projects" button (clock icon, next to Open) lists the last
+  10 `.ustudio` files opened or saved, backed by `GtkRecentManager` (so
+  it also shows up in the GNOME Shell's own "recent files" if the desktop
+  surfaces those) — picking one confirms unsaved changes first too, the
+  same as Open. The window title shows the current project's name (or
+  "Untitled Project") with a `•` while there are unsaved changes.
   Closing the window itself
   confirms too, with a third option: "Save changes before closing?"
   offers Save/Discard/Cancel, and Cancel leaves the window open exactly
@@ -511,6 +517,25 @@ no effect), so this holds even though this app doesn't control the order
 GTK's shortcut controller and the entry's own key handling see the event.
 Undo/redo (`Ctrl+Z`/`Ctrl+Shift+Z`) are deliberately left enabled: they're
 modifier combos a text entry never needs to consume for itself.
+
+The recent-projects menu (`refreshRecentProjectsMenu()`) hit two GLib/GTK
+findings worth recording. `GtkRecentInfo` (what `gtk_recent_manager_get_items()`
+returns) is its own refcounted boxed type with `gtk_recent_info_ref()`/
+`_unref()` — **not** a `GObject`, despite looking like one; freeing the
+returned list with `g_object_unref` as the element destructor segfaults
+inside GObject's own type-check machinery on the very first real call
+(confirmed live via gdb: `g_type_check_instance_is_fundamentally_a`),
+not something a quick glance at the type name would catch. And calling
+`gtk_recent_manager_get_items()` immediately after
+`gtk_recent_manager_add_item()`, in the same call stack, does **not**
+see the just-added item — confirmed live (the menu showed "No recent
+projects" right after a save that had just added one) that
+`GtkRecentManager` updates its in-memory list and emits `"changed"`
+asynchronously, not synchronously inside `add_item()`. Fixed by
+connecting `refreshRecentProjectsMenu()` to the manager's own
+`"changed"` signal instead of calling it directly after `add_item()` —
+the correct source of truth regardless of that timing, confirmed live
+(the same save-then-check sequence then showed the entry correctly).
 
 "Move File to Trash…" (`onDeleteAssetFileClicked()`) used to permanently
 unlink the file with `std::filesystem::remove` despite the confirmation
