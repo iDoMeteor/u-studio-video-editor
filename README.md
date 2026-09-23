@@ -18,7 +18,15 @@ single-track skeleton.
   service, not the file extension) and default to spanning the rest of the
   current project length from the insert point — drop one onto an empty top
   track for an instant full-timeline watermark/logo overlay, no manual
-  trim-to-fit needed.
+  trim-to-fit needed. Import also probes fps and pixel dimensions (from the
+  media's own `meta.media.*` properties) and records the file's format
+  (extension) for the media browser below.
+- Collapsible media browser panel to the left of the video preview (toggle
+  from the header-bar button next to "Add track"): every imported asset as
+  a row with a thumbnail, name, length, fps, and format. Thumbnails are
+  decoded on a background thread (`src/engine/thumbnail_cache.{h,cpp}`,
+  the same architecture as the waveform cache below) so importing a large
+  file never blocks the UI.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).
   Higher tracks composite over lower ones for video (full-frame, top wins);
@@ -422,6 +430,30 @@ playback consumer was also trying to read from is the leading explanation
 for "playback doesn't work" reports that turned out to be "playback is
 starved for the fifteen-ish seconds after importing or editing a long
 clip," not a hard failure.
+
+### Thumbnail cache notes
+
+`ThumbnailCache` (`src/engine/thumbnail_cache.{h,cpp}`) is the same
+background-worker-thread-plus-cache architecture as `WaveformCache` above,
+one dedicated thread instead of a pool, keyed on the resource path alone
+(a thumbnail isn't tied to any sequence's fps the way waveform peaks are).
+Each job opens its own throwaway `Mlt::Profile`/`Producer`, seeks to 10%
+into the clip (a plain frame 0 often lands on a fade-in or black open),
+decodes one frame, and box-downsamples it in software to a fixed
+120px-wide RGBA thumbnail, converted to a `GdkTexture` the same way
+`PlaybackController`'s own live-frame callback already does
+(`gdk_memory_texture_new(..., GDK_MEMORY_R8G8B8A8, ...)`).
+
+Import also reads an asset's fps and pixel dimensions off the producer's
+own `meta.media.frame_rate_num`/`_den`/`width`/`height` properties
+(`EngineSync::probeMedia()`) — confirmed empirically (a standalone repro
+against a rendered test file, and `tests/engine/test_probe_media.cpp`)
+that these are populated **lazily**, only after the producer has actually
+decoded at least one frame, not at open time; a still image never sets
+them at all (`meta.media.*` is avformat-specific), so they're left at
+their zero default there. The asset's recorded "format" (its container)
+is read from the filename extension, not any MLT property — `meta.media.*`
+has no reliable container/format string to read.
 
 ### Render implementation notes
 

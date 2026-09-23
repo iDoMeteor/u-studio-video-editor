@@ -77,6 +77,52 @@ TEST_CASE("EngineSync::probeMedia reports a generator producer as not a still im
     CHECK_FALSE(probed.isStillImage);
 }
 
+TEST_CASE("EngineSync::probeMedia leaves fps/width/height at 0 for a generator (no meta.media.*)")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+
+    EngineSync::ProbedMedia probed = sync.probeMedia("color:red");
+    CHECK(probed.fps.num == 0);
+    CHECK(probed.width == 0);
+    CHECK(probed.height == 0);
+}
+
+TEST_CASE("EngineSync::probeMedia reads real fps/width/height from an actual media file")
+{
+    sharedFactoryPolicy();
+    std::random_device rd;
+    std::filesystem::path path =
+        std::filesystem::temp_directory_path() / ("ustudio-probe-media-fps-test-" + std::to_string(rd()) + ".mp4");
+    RemoveOnExit cleanup{path};
+
+    // Renders a tiny real MP4 (doc 11: no binary media committed to the
+    // repo, generated on the fly instead) via the same avformat/libx264
+    // pair renderProject() itself uses as this project's fixed working
+    // format (engine_sync.cpp), so meta.media.* is populated the same way
+    // a real imported clip's would be.
+    {
+        Model renderModel = Model::createEmpty();
+        EngineSync renderSync(renderModel);
+        Mlt::Producer producer(renderSync.profile(), "color:red");
+        producer.set_in_and_out(0, 4);
+        std::unique_ptr<Mlt::Profile> consumerProfile(producer.profile());
+        Mlt::Consumer consumer(*consumerProfile, "avformat", path.string().c_str());
+        consumer.set("vcodec", "libx264");
+        consumer.connect(producer);
+        consumer.run();
+    }
+
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+    EngineSync::ProbedMedia probed = sync.probeMedia(path.string());
+    CHECK(probed.fps.num > 0);
+    CHECK(probed.fps.den > 0);
+    CHECK(probed.width == model.sequence().profile.width);
+    CHECK(probed.height == model.sequence().profile.height);
+}
+
 TEST_CASE("EngineSync::probeMedia reports 0 length for a path nothing can open")
 {
     sharedFactoryPolicy();

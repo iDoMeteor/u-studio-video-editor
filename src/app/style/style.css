@@ -66,3 +66,8 @@ window {
 .preview-frame {
   background-color: black;
 }
+
+.media-browser-panel {
+  background-color: @ink_800;
+  border-right: 1px solid @ink_500;
+}

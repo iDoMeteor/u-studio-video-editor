@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -81,16 +82,72 @@ void drawLabel(cairo_t *cr, const std::string &text, double x, double y, double 
     g_object_unref(layout);
 }
 
-core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length, bool isStillImage, bool hasAudio)
+// Media-browser "length" column: an asset's own native duration, not
+// tied to any sequence's fps -- "H:MM:SS", or "M:SS" under an hour.
+std::string formatMediaLength(double seconds)
+{
+    if (seconds <= 0.0)
+        return "—";
+    int total = static_cast<int>(seconds + 0.5);
+    int hours = total / 3600;
+    int minutes = (total % 3600) / 60;
+    int secs = total % 60;
+    char buf[32];
+    if (hours > 0)
+        std::snprintf(buf, sizeof(buf), "%d:%02d:%02d", hours, minutes, secs);
+    else
+        std::snprintf(buf, sizeof(buf), "%d:%02d", minutes, secs);
+    return buf;
+}
+
+// Media-browser "fps" column -- a plain decimal (e.g. "30" or "29.97"),
+// not a raw num/den fraction; trims to an integer when the ratio already
+// is one (the overwhelmingly common case) rather than always showing a
+// misleadingly precise ".00".
+std::string formatMediaFps(core::Rational fps)
+{
+    if (fps.num <= 0 || fps.den <= 0)
+        return "—";
+    double value = static_cast<double>(fps.num) / fps.den;
+    char buf[32];
+    if (fps.num % fps.den == 0)
+        std::snprintf(buf, sizeof(buf), "%d", fps.num / fps.den);
+    else
+        std::snprintf(buf, sizeof(buf), "%.2f", value);
+    return buf;
+}
+
+// `length` is the caller's ADJUSTED length (still images get resized to
+// cover the current timeline, or a 10s default -- see the call site),
+// deliberately separate from `probed.length` (the raw probe result,
+// meaningless for a still image beyond "MLT's pixbuf default").
+core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length,
+                              const engine::EngineSync::ProbedMedia &probed, const core::Rational &sequenceFps)
 {
     core::Asset asset;
     asset.path = path;
     auto slash = path.find_last_of('/');
     asset.displayName = (slash == std::string::npos) ? path : path.substr(slash + 1);
     asset.info.hasVideo = true;
-    asset.info.hasAudio = hasAudio;
-    asset.info.isStillImage = isStillImage;
+    asset.info.hasAudio = probed.hasAudio;
+    asset.info.isStillImage = probed.isStillImage;
     asset.info.lengthInSequenceFrames = length;
+    asset.info.fps = probed.fps;
+    asset.info.width = probed.width;
+    asset.info.height = probed.height;
+    // `length` is already measured in the sequence's own frames
+    // (probeMedia opens its throwaway producer at that fps), so duration
+    // follows directly from it -- no dependency on probed.fps (0 for a
+    // still image/generator) being set at all.
+    if (sequenceFps.num > 0 && sequenceFps.den > 0)
+        asset.info.nativeDurationSeconds = static_cast<double>(length) * sequenceFps.den / sequenceFps.num;
+    // "Format" (container) is a filename-extension read, not an MLT
+    // property -- meta.media.* has no reliable container/format string
+    // (verified empirically alongside probeMedia's fps/width/height
+    // work), and the extension is exactly what a "format" column means
+    // to a user browsing their imports anyway.
+    auto dot = asset.displayName.find_last_of('.');
+    asset.info.container = (dot == std::string::npos) ? std::string{} : asset.displayName.substr(dot + 1);
     asset.status = core::Asset::Status::Ready;
     return asset;
 }
@@ -120,6 +177,7 @@ AppWindow::AppWindow(GtkApplication *app)
     });
 
     m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
+    m_thumbnails = std::make_unique<engine::ThumbnailCache>([this] { onThumbnailReady(); });
 
     // Single source of truth for the undo/redo buttons and the title's
     // dirty mark (audit A1): every place that used to call
@@ -177,6 +235,15 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(addTrackButton, "clicked", G_CALLBACK(&AppWindow::addTrackClickedTrampoline), this);
     adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), addTrackButton);
 
+    // Verified against the installed Adwaita symbolic icon set
+    // (/usr/share/icons/Adwaita/symbolic/actions/sidebar-show-symbolic.svg)
+    // rather than guessed -- CLAUDE.md's icon rule.
+    GtkWidget *toggleMediaBrowserButton = gtk_button_new_from_icon_name("sidebar-show-symbolic");
+    gtk_widget_set_tooltip_text(toggleMediaBrowserButton, "Media browser");
+    g_signal_connect(toggleMediaBrowserButton, "clicked", G_CALLBACK(&AppWindow::toggleMediaBrowserClickedTrampoline),
+                      this);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), toggleMediaBrowserButton);
+
     m_undoButton = GTK_BUTTON(gtk_button_new_from_icon_name("edit-undo-symbolic"));
     gtk_widget_set_tooltip_text(GTK_WIDGET(m_undoButton), "Undo (Ctrl+Z)");
     g_signal_connect(m_undoButton, "clicked", G_CALLBACK(&AppWindow::undoClickedTrampoline), this);
@@ -218,15 +285,42 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_paned_set_resize_start_child(GTK_PANED(paned), TRUE);
     gtk_paned_set_position(GTK_PANED(paned), 420);
 
-    // Preview
+    // Preview row: [media browser panel | preview], side by side.
+    GtkWidget *previewRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+
+    // Media browser: a plain toggleable GtkBox, not GtkRevealer (unused
+    // elsewhere in this codebase, and an animated slide would be
+    // "decorative" per the design system's own glow/animation rule) --
+    // gtk_widget_set_visible(FALSE) on a box child reclaims its layout
+    // space immediately, which is all "collapsible" needs here.
+    GtkWidget *mediaBrowserScroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(mediaBrowserScroller), GTK_POLICY_NEVER,
+                                   GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(mediaBrowserScroller, 320, -1);
+    gtk_widget_add_css_class(mediaBrowserScroller, "media-browser-panel");
+    m_mediaBrowserGrid = GTK_GRID(gtk_grid_new());
+    gtk_grid_set_row_spacing(m_mediaBrowserGrid, 4);
+    gtk_grid_set_column_spacing(m_mediaBrowserGrid, 8);
+    gtk_widget_set_margin_top(GTK_WIDGET(m_mediaBrowserGrid), 6);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(m_mediaBrowserGrid), 6);
+    gtk_widget_set_margin_start(GTK_WIDGET(m_mediaBrowserGrid), 6);
+    gtk_widget_set_margin_end(GTK_WIDGET(m_mediaBrowserGrid), 6);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(mediaBrowserScroller), GTK_WIDGET(m_mediaBrowserGrid));
+    m_mediaBrowserPanel = mediaBrowserScroller;
+    gtk_widget_set_visible(m_mediaBrowserPanel, FALSE); // starts collapsed
+    gtk_box_append(GTK_BOX(previewRow), m_mediaBrowserPanel);
+
     GtkWidget *previewFrame = gtk_frame_new(nullptr);
     gtk_widget_add_css_class(previewFrame, "preview-frame");
+    gtk_widget_set_hexpand(previewFrame, TRUE);
     m_preview = GTK_PICTURE(gtk_picture_new());
     gtk_picture_set_content_fit(m_preview, GTK_CONTENT_FIT_CONTAIN);
     gtk_widget_set_hexpand(GTK_WIDGET(m_preview), TRUE);
     gtk_widget_set_vexpand(GTK_WIDGET(m_preview), TRUE);
     gtk_frame_set_child(GTK_FRAME(previewFrame), GTK_WIDGET(m_preview));
-    gtk_paned_set_start_child(GTK_PANED(paned), previewFrame);
+    gtk_box_append(GTK_BOX(previewRow), previewFrame);
+
+    gtk_paned_set_start_child(GTK_PANED(paned), previewRow);
 
     // Timeline + transport
     GtkWidget *bottomBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
@@ -558,7 +652,7 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
 
                 std::vector<std::unique_ptr<core::Command>> steps;
                 steps.push_back(std::make_unique<core::AddAsset>(
-                    makeImportedAsset(path, length, probed.isStillImage, probed.hasAudio)));
+                    makeImportedAsset(path, length, probed, m_model.sequence().profile.fps)));
                 steps.push_back(
                     std::make_unique<core::InsertClip>(trackId, predictedAssetId, insertPos, 0, length - 1));
 
@@ -566,6 +660,7 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
 
                 if (m_undoStack.execute(std::move(composite))) {
                     refreshTimeline();
+                    refreshMediaBrowser();
                     showStatus(std::string("Imported to track ") + std::to_string(m_activeTrack) + ": " + path);
                 } else {
                     showStatus(std::string("Could not import: ") + path);
@@ -659,6 +754,7 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
             m_activeTrack = 0;
             m_selectedClip = -1;
             refreshTimeline();
+            refreshMediaBrowser();
             showStatus(std::string("Opened: ") + path);
         }
         g_free(path);
@@ -686,6 +782,7 @@ void AppWindow::onReloadProjectClicked()
     m_activeTrack = 0;
     m_selectedClip = -1;
     refreshTimeline();
+    refreshMediaBrowser();
     showStatus(std::string("Reloaded: ") + m_currentProjectPath);
 }
 
@@ -703,6 +800,7 @@ void AppWindow::onNewProjectClicked()
     m_activeTrack = 0;
     m_selectedClip = -1;
     refreshTimeline();
+    refreshMediaBrowser();
     showStatus("New project.");
 }
 
@@ -1939,6 +2037,77 @@ void AppWindow::onWaveformReady()
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
 }
 
+void AppWindow::onThumbnailReady()
+{
+    refreshMediaBrowser();
+}
+
+void AppWindow::onToggleMediaBrowserClicked()
+{
+    bool visible = gtk_widget_get_visible(m_mediaBrowserPanel);
+    gtk_widget_set_visible(m_mediaBrowserPanel, !visible);
+    if (!visible)
+        refreshMediaBrowser(); // was hidden -- may be stale/never built
+}
+
+void AppWindow::refreshMediaBrowser()
+{
+    // GtkGrid has no "remove all"; walk and remove one at a time (each
+    // removal is safe to do mid-walk since we capture `next` first).
+    GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(m_mediaBrowserGrid));
+    while (child) {
+        GtkWidget *next = gtk_widget_get_next_sibling(child);
+        gtk_grid_remove(m_mediaBrowserGrid, child);
+        child = next;
+    }
+
+    const auto &bin = m_model.project().bin;
+    for (size_t i = 0; i < bin.size(); ++i) {
+        const core::Asset &asset = bin[i];
+        int row = static_cast<int>(i);
+
+        GtkWidget *thumbCell = gtk_picture_new();
+        gtk_widget_set_size_request(thumbCell, 120, 68);
+        gtk_picture_set_content_fit(GTK_PICTURE(thumbCell), GTK_CONTENT_FIT_CONTAIN);
+        // thumbnailFor() kicks off a background job on a miss and returns
+        // nullptr; onThumbnailReady() re-calls refreshMediaBrowser() once
+        // it's ready, so a still-loading row just shows an empty cell for
+        // one redraw cycle rather than a placeholder icon.
+        const engine::ThumbnailCache::Data *thumb = m_thumbnails->thumbnailFor(asset.path);
+        if (thumb && thumb->width > 0 && thumb->height > 0) {
+            GBytes *bytes = g_bytes_new(thumb->rgba.data(), thumb->rgba.size());
+            GdkTexture *texture = gdk_memory_texture_new(thumb->width, thumb->height, GDK_MEMORY_R8G8B8A8, bytes,
+                                                          static_cast<gsize>(thumb->width) * 4);
+            g_bytes_unref(bytes);
+            gtk_picture_set_paintable(GTK_PICTURE(thumbCell), GDK_PAINTABLE(texture));
+            g_object_unref(texture);
+        }
+        gtk_grid_attach(m_mediaBrowserGrid, thumbCell, 0, row, 1, 1);
+
+        GtkWidget *nameLabel = gtk_label_new(asset.displayName.c_str());
+        gtk_label_set_ellipsize(GTK_LABEL(nameLabel), PANGO_ELLIPSIZE_MIDDLE);
+        gtk_label_set_xalign(GTK_LABEL(nameLabel), 0.0);
+        gtk_widget_set_size_request(nameLabel, 140, -1);
+        gtk_widget_set_tooltip_text(nameLabel, asset.path.c_str());
+        gtk_grid_attach(m_mediaBrowserGrid, nameLabel, 1, row, 1, 1);
+
+        GtkWidget *lengthLabel = gtk_label_new(formatMediaLength(asset.info.nativeDurationSeconds).c_str());
+        gtk_widget_add_css_class(lengthLabel, "dim-label");
+        gtk_grid_attach(m_mediaBrowserGrid, lengthLabel, 2, row, 1, 1);
+
+        GtkWidget *fpsLabel = gtk_label_new(formatMediaFps(asset.info.fps).c_str());
+        gtk_widget_add_css_class(fpsLabel, "dim-label");
+        gtk_grid_attach(m_mediaBrowserGrid, fpsLabel, 3, row, 1, 1);
+
+        std::string formatText = asset.info.container;
+        for (char &c : formatText)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        GtkWidget *formatLabel = gtk_label_new(formatText.empty() ? "—" : formatText.c_str());
+        gtk_widget_add_css_class(formatLabel, "dim-label");
+        gtk_grid_attach(m_mediaBrowserGrid, formatLabel, 4, row, 1, 1);
+    }
+}
+
 void AppWindow::beginTrackNameEdit(int row)
 {
     int trackCount = static_cast<int>(m_model.sequence().tracks.size());
@@ -2270,6 +2439,7 @@ void AppWindow::offerRecoveryIfAny()
                     owned->self->m_activeTrack = 0;
                     owned->self->m_selectedClip = -1;
                     owned->self->refreshTimeline();
+                    owned->self->refreshMediaBrowser();
                     owned->self->showStatus("Recovered unsaved work.");
                     // NOT deleted here: this session's own autosaves go to a
                     // filename keyed on its own (fresh) session id, never
@@ -2340,6 +2510,11 @@ void AppWindow::reloadProjectClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::newProjectClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onNewProjectClicked();
+}
+
+void AppWindow::toggleMediaBrowserClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onToggleMediaBrowserClicked();
 }
 
 void AppWindow::renderClickedTrampoline(GtkButton *, gpointer userData)

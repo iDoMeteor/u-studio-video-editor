@@ -138,6 +138,21 @@ EngineSync::ProbedMedia EngineSync::probeMedia(const std::string &path)
     const char *service = producer.get("mlt_service");
     result.isStillImage = service && (std::string(service) == "pixbuf" || std::string(service) == "qimage");
     result.hasAudio = !result.isStillImage;
+
+    if (!result.isStillImage) {
+        // meta.media.* is populated lazily by the avformat producer on its
+        // first decoded frame, not at open time (empirically confirmed) --
+        // this throwaway producer is discarded right after, so the decode
+        // cost here is one frame, once, per import.
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        int fpsNum = producer.get_int("meta.media.frame_rate_num");
+        int fpsDen = producer.get_int("meta.media.frame_rate_den");
+        if (fpsNum > 0 && fpsDen > 0)
+            result.fps = core::Rational{fpsNum, fpsDen};
+        result.width = producer.get_int("meta.media.width");
+        result.height = producer.get_int("meta.media.height");
+    }
+
     return result;
 }
 

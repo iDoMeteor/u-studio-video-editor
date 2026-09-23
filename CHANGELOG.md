@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.9.0
+
+- Collapsible media browser panel, to the left of the video preview:
+  thumbnail, name, length, fps, and format for every imported asset.
+  Toggle it from the new header-bar button next to "Add track". Import
+  now also probes and records fps/dimensions (previously left at 0) and
+  the file's format (from its extension).
+
 ## 0.8.0
 
 - Dissolve transitions: drag either edge of an existing dissolve to grow

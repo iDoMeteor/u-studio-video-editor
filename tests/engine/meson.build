@@ -54,6 +54,15 @@ test_waveform_cache_exe = executable(
 
 test('engine-waveform-cache', test_waveform_cache_exe)
 
+test_thumbnail_cache_exe = executable(
+  'test_thumbnail_cache',
+  files('test_thumbnail_cache.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+
+test('engine-thumbnail-cache', test_thumbnail_cache_exe)
+
 test_render_exe = executable(
   'test_render',
   files('test_render.cpp'),

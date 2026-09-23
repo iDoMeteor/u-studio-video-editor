@@ -113,6 +113,12 @@ class EngineSync
         core::FrameIndex length = 0; // 0 if the path couldn't be opened
         bool isStillImage = false;
         bool hasAudio = false;
+        // 0/0 if unavailable (still images/generators never set these;
+        // real media does, but only after a frame has actually been
+        // decoded -- see probeMedia()'s comment).
+        core::Rational fps{0, 0};
+        int width = 0;
+        int height = 0;
     };
 
     // Opens `path` against this EngineSync's profile just long enough to
@@ -126,6 +132,13 @@ class EngineSync
     // whatever MLT's pixbuf producer defaults to (15000 frames, verified
     // empirically) -- callers that need a specific duration should extend
     // it themselves; see the comment on masterProducerFor's length bump.
+    // `fps`/`width`/`height` come from the avformat producer's own
+    // `meta.media.frame_rate_num`/`_den`/`width`/`height` properties --
+    // verified empirically (standalone repro, a rendered test MP4) that
+    // these are populated lazily, only after the producer has actually
+    // decoded at least one frame, hence the explicit get_frame() below
+    // before reading them (absent on a still image, which never sets
+    // meta.media.* at all -- fps/width/height stay at their zero default).
     ProbedMedia probeMedia(const std::string &path);
 
   private:

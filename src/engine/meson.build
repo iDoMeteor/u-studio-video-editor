@@ -3,6 +3,7 @@ libustudio_engine_sources = files(
   'dispatcher.cpp',
   'playback_controller.cpp',
   'waveform_cache.cpp',
+  'thumbnail_cache.cpp',
   'engine_sync.cpp',
 )
 

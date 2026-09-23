@@ -13,6 +13,7 @@
 #include "core/model/model.h"
 #include "engine/engine_sync.h"
 #include "engine/playback_controller.h"
+#include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 
 namespace ustudio::app {
@@ -152,6 +153,14 @@ class AppWindow
     void onEditTrackNameClicked();
     void onTrackVolumeChanged();
     void onWaveformReady();
+    void onThumbnailReady();
+    void onToggleMediaBrowserClicked();
+    // Rebuilds m_mediaBrowserGrid from scratch against m_model.project().bin
+    // -- called at every call site that can change the bin: after a
+    // successful import, and after Open/Reload/New Project/Recover, which
+    // each replace m_model wholesale (same call sites refreshTimeline()
+    // itself already runs at, for the same reason).
+    void refreshMediaBrowser();
     // query-tooltip handler (GTK4's mechanism for a per-region tooltip on
     // a custom-drawn widget): true + gtk_tooltip_set_* if (x, y) is over a
     // clip, false to suppress the tooltip anywhere else.
@@ -226,6 +235,7 @@ class AppWindow
     static void openProjectFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void reloadProjectClickedTrampoline(GtkButton *button, gpointer userData);
     static void newProjectClickedTrampoline(GtkButton *button, gpointer userData);
+    static void toggleMediaBrowserClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);
@@ -275,6 +285,16 @@ class AppWindow
 
     AdwApplicationWindow *m_window = nullptr;
     GtkPicture *m_preview = nullptr;
+    // Media browser: a collapsible panel to the left of the preview
+    // (same row) listing every imported asset as a grid row (thumbnail,
+    // name, length, fps, format). m_mediaBrowserPanel is the whole
+    // collapsible widget (a GtkScrolledWindow); m_mediaBrowserGrid is
+    // rebuilt from scratch by refreshMediaBrowser() each time the bin
+    // changes (mirrors refreshTimeline()'s own call-site-driven resync --
+    // see its own comment for why this app doesn't subscribe to
+    // Model::changed directly).
+    GtkWidget *m_mediaBrowserPanel = nullptr;
+    GtkGrid *m_mediaBrowserGrid = nullptr;
     GtkDrawingArea *m_timeline = nullptr;
     GtkScale *m_seekScale = nullptr;
     GtkButton *m_playButton = nullptr;
@@ -308,6 +328,7 @@ class AppWindow
     std::unique_ptr<engine::EngineSync> m_engineSync;
     std::unique_ptr<engine::PlaybackController> m_playback;
     std::unique_ptr<engine::WaveformCache> m_waveforms;
+    std::unique_ptr<engine::ThumbnailCache> m_thumbnails;
     std::vector<ClipDisplay> m_clips;
     int m_selectedClip = -1;
     // Which track row new imports/splits target; set by clicking a track's
