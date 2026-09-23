@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.13.5
+
+- Opening a different project now asks first if the current one has
+  unsaved changes, matching Reload and New Project — previously it went
+  straight to the file picker with no warning.
+
 ## 0.13.4
 
 - "Delete File…" in the media browser is now "Move File to Trash…" — it

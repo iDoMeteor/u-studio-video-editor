@@ -103,6 +103,11 @@ class AppWindow
     void onFileOpened(GObject *sourceObject, GAsyncResult *result);
     void onSaveClicked();
     void onSaveFinished(GObject *sourceObject, GAsyncResult *result);
+    // Confirms first if there are unsaved changes (audit A4, 2026-09-23),
+    // same as Reload/New Project below -- navigating the file-picker
+    // dialog to choose what to open says nothing about whether it's safe
+    // to discard the *current* project, so it's not the "implicit
+    // confirmation" this used to be assumed to be.
     void onOpenProjectClicked();
     void onOpenProjectFinished(GObject *sourceObject, GAsyncResult *result);
     // Re-loads m_currentProjectPath from disk, discarding in-memory edits --
@@ -110,10 +115,8 @@ class AppWindow
     // without going through the file-picker dialog again. A no-op (with a
     // status message) if the project has never been saved/opened, since
     // there's nothing on disk yet to reload from. Confirms first if there
-    // are unsaved changes (audit A2) -- unlike Open, which already goes
-    // through a file-picker dialog the user actively navigates (its own
-    // implicit "are you sure"), Reload and New Project replace the model
-    // with a single click next to Save, with nothing else in the way.
+    // are unsaved changes (audit A2) -- a single click next to Save, with
+    // nothing else in the way.
     void onReloadProjectClicked();
     void performReload();
     // Resets to a brand new, empty, untitled project -- same effect as

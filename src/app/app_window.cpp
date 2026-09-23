@@ -823,10 +823,12 @@ void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
 
 void AppWindow::onOpenProjectClicked()
 {
-    GtkFileDialog *dialog = gtk_file_dialog_new();
-    gtk_file_dialog_set_title(dialog, "Open Project");
-    gtk_file_dialog_open(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::openProjectFinishedTrampoline, this);
-    g_object_unref(dialog);
+    confirmDiscardIfDirty([this] {
+        GtkFileDialog *dialog = gtk_file_dialog_new();
+        gtk_file_dialog_set_title(dialog, "Open Project");
+        gtk_file_dialog_open(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::openProjectFinishedTrampoline, this);
+        g_object_unref(dialog);
+    });
 }
 
 void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *result)

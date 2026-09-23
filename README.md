@@ -101,10 +101,12 @@ single-track skeleton.
   button (refresh icon) re-opens the current project's file from disk
   without a file-picker round trip; a New Project button resets to a
   fresh, empty, untitled project. Neither touches what's on disk beyond
-  what Reload reads. Both confirm first ("Discard unsaved changes?") if
-  there are any — unlike Open, which already goes through a file-picker
-  dialog the owner actively navigates, these are one click next to Save
-  with nothing else in the way (audit A2). Closing the window itself
+  what Reload reads. Open, Reload, and New Project all confirm first
+  ("Discard unsaved changes?") if there are any (audit A2; Open joined
+  them in audit A4, 2026-09-23 — navigating its file-picker dialog to
+  choose what to open says nothing about the *current* project being
+  discarded, so it was never the implicit confirmation it looked like).
+  Closing the window itself
   confirms too, with a third option: "Save changes before closing?"
   offers Save/Discard/Cancel, and Cancel leaves the window open exactly
   as it was (audit A2, 2026-09-23) — previously the window closed
