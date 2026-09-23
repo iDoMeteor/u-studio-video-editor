@@ -7,10 +7,24 @@ calendar, not the order. Dependencies are strict: don't start a milestone
 whose prerequisite hasn't passed its criteria.
 
 ```
-M0 Foundation ─▶ M1 Model+Undo+Save ─▶ M2 Playback v2 ─▶ M3 Multi-track timeline
-                                                   └───▶ M4 Bin & assets ──┘
-                                             M3 + M4 ─▶ M5 Effects & compositing ─▶ M6 Export ─▶ M7 Polish & Flatpak
+M0 Foundation ─▶ M1 Model+Undo+Save ─▶ M2 Playback v2 ─▶ M3 Multi-track timeline ──┐
+                                                   └───▶ M4 Bin & assets ──────────┤
+                                                                                   ▼
+   FX track (M5):  FX0 spikes ─▶ FX1 engine ─▶ FX2 Rack+Browser ─▶ FX3 transitions ─▶ FX4 lanes+handles ─┐
+                   (FX0–FX3 start now; FX4 needs M3)                                                     ├─▶ M6 Export ─▶ M7 Polish & Flatpak
+   Titles track:   T0 spikes ─▶ T1 format+renderer+producer ─▶ T2 titles app ─▶ T3 animation ─▶ T4 templates ┘
+                   (independent of M3/M4; T4 shares the Rack with FX2)
 ```
+
+**2026-09-23 re-plan (owner request: effects, transitions and titles as
+soon as possible).** M5 is no longer a single block after M3 and M4. It
+becomes the FX track in [doc 15](15-effects-and-transitions.md), whose
+first four phases depend only on work that has already landed (model,
+commands, EngineSync, playback). A new titles track
+([doc 16](16-titles-tool.md)) runs in parallel and is independent of the
+timeline widget. Both tracks need an owner; with one engineer, do FX0 and
+T0 first (they are short and de-risk everything after them), then
+alternate.
 
 ## M0 — Foundation (no behaviour change)
 
@@ -118,20 +132,43 @@ Acceptance:
       continues, relink restores everything with no other model change.
 - [ ] Proxy on/off changes nothing in the model except `proxyPath`.
 
-## M5 — Effects, keyframes, transitions
+## M5 — Effects, keyframes, transitions (the FX track)
 
-**Effort:** ~4 weeks. **Depends on:** M3, M4.
+**Effort:** ~9–11 weeks across phases. **Depends on:** M1 and M2 for FX0–FX3;
+M3 for FX4. Detailed deliverables and per-phase acceptance criteria are in
+[doc 15](15-effects-and-transitions.md); this section keeps only the
+milestone-level gate.
 
-Deliverables: catalogue + generic effect panel, Transform with on-preview
-handles, Opacity, Crop, colour basics, Blur, Volume, fades, Text title,
-keyframe lane, dissolve/dip-to-black transitions, track volume, split audio.
+Phases: FX0 spikes and packaging, FX1 engine and model, FX2 Rack, Browser
+and inspector keyframes, FX3 transitions library, FX4 curve lanes, FX lane
+and on-preview handles, FX5 optional plugin families.
 
-Acceptance:
-- [ ] Every catalogue entry passes the metadata self-check on this machine.
-- [ ] Keyframed transform renders identically in preview and in
-      `u-studio-render` output (frame diff on a synthetic project).
-- [ ] Dissolve between two clips survives move/trim of either clip and
-      undo/redo (verifier + XML round-trip).
+Acceptance (milestone gate):
+- [ ] Every installed frei0r service is usable or quarantined with a
+      reason; none can crash the editor (ADR-011).
+- [ ] Keyframed transform, masked effects, a dissolve with effects on both
+      sides and an adjustment block render identically in preview and in
+      `u-studio-render` output (frame hashes on a synthetic project).
+- [ ] Dissolves and wipes survive move/trim of either clip and undo/redo
+      (verifier + XML round-trip), and `melt` plays them.
+- [ ] Dragging any parameter does not restart the playback consumer.
+
+## Titles track (parallel to M3–M5)
+
+**Effort:** ~8–10 weeks across phases. **Depends on:** M1 (done) and
+`FactoryPolicy`. Details in [doc 16](16-titles-tool.md) and
+[ADR-012](adr/012-titles-mlt-module.md).
+
+Phases: T0 spikes, T1 format, renderer and `ustudio_title` producer, T2 the
+`u-studio-titles` app, T3 animation (keyframes, text animators,
+behaviours), T4 templates, fields in the editor and Bake title.
+
+Acceptance (track gate):
+- [ ] A title designed in `u-studio-titles` renders identically in the app,
+      the editor preview and export.
+- [ ] One template file drives many clips with different field values.
+- [ ] No keystroke typed into any text field in either app triggers a
+      shortcut.
 
 ## M6 — Export
 
@@ -165,9 +202,11 @@ Acceptance:
 
 ## Post-2.0 candidates (not planned)
 
-Speed ramps (`timewarp`), stabilisation, nested sequences in UI, wipes,
-audio mixer panel with meters, `frei0r` effect exposure, GL/dmabuf preview
-upload, drop-frame timecode, OpenTimelineIO export.
+Speed ramps (`timewarp`), stabilisation, nested sequences in UI,
+audio mixer panel with meters, GL/dmabuf preview upload, drop-frame
+timecode, OpenTimelineIO export, captions (titles T5), Lottie layers
+(titles T6). Wipes and frei0r exposure moved into M5 (doc 15) on
+2026-09-23.
 
 Real-time capture, as a new source alongside file import (owner request,
 2026-09-23): desktop audio + video capture, and separately, microphone

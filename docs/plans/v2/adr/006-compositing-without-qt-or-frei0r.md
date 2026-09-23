@@ -1,6 +1,6 @@
 # ADR-006: Compositing with `composite` + `affine`; frei0r optional; Qt never
 
-**Status:** Proposed
+**Status:** Superseded by [ADR-011](011-frei0r-required-and-effect-families.md) (2026-09-23)
 
 ## Context
 Kdenlive composites with `qtblend` (Qt) or `frei0r.cairoblend` (frei0r). On

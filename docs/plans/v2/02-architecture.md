@@ -35,6 +35,9 @@ with `include_directories` limited to what it may see):
 | engine | core, mlt++, glib | gtk, adwaita |
 | app | core, engine, gtk4, adwaita, gio | mlt (a `grep -rn 'mlt' src/app` in CI fails the build) |
 | render | core, engine, gio (GSubprocess-free; it's the child) | gtk |
+| titlerender *(planned, doc 16)* | core, pango, pangocairo, cairo, fontconfig | gtk, mlt |
+| mltmodule *(planned, doc 16)* | mlt framework C API, titlerender, core | gtk, mlt++ app code |
+| titles app *(planned, doc 16)* | core, titlerender, gtk4, adwaita, gio | mlt |
 
 ## Source layout after M0
 
