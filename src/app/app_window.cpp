@@ -814,6 +814,17 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
             m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
             m_activeTrack = 0;
             m_selectedClip = -1;
+            // Audit A1: a pending recovered-autosave cleanup is only
+            // safe to act on once ITS OWN content has been durably
+            // saved (onSaveFinished()'s own comment) -- switching away
+            // to a different project via Open, same as New or Reload,
+            // must forget it rather than let a later Save of THIS
+            // project delete the still-only copy of whatever was
+            // recovered. The files themselves are left alone; a later
+            // launch (or offerRecoveryIfAny() looping later in this one)
+            // can still find and offer them.
+            m_pendingAutosaveCleanupPath.clear();
+            m_pendingAutosaveCleanupMetaPath.clear();
             refreshTimeline();
             refreshMediaBrowser();
             showStatus(std::string("Opened: ") + path);
@@ -842,6 +853,9 @@ void AppWindow::onReloadProjectClicked()
     m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
     m_activeTrack = 0;
     m_selectedClip = -1;
+    // Audit A1 -- see onOpenProjectFinished's own comment.
+    m_pendingAutosaveCleanupPath.clear();
+    m_pendingAutosaveCleanupMetaPath.clear();
     refreshTimeline();
     refreshMediaBrowser();
     showStatus(std::string("Reloaded: ") + m_currentProjectPath);
@@ -860,6 +874,9 @@ void AppWindow::onNewProjectClicked()
     m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
     m_activeTrack = 0;
     m_selectedClip = -1;
+    // Audit A1 -- see onOpenProjectFinished's own comment.
+    m_pendingAutosaveCleanupPath.clear();
+    m_pendingAutosaveCleanupMetaPath.clear();
     refreshTimeline();
     refreshMediaBrowser();
     showStatus("New project.");

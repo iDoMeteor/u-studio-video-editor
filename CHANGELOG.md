@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.3
+
+- Fixed a data-loss bug: recovering an unsaved autosave, then starting a
+  New Project (or Open/Reload) without saving the recovered work first,
+  then later saving that different project, deleted the recovered
+  autosave -- the only copy of the original unsaved work.
+
 ## 0.12.2
 
 - Fixed media browser thumbnails for real (non-still) video: they were

@@ -504,7 +504,13 @@ class AppWindow
     // actually lands the recovered content somewhere durable -- not right
     // after recovery, when it would be the only copy of that work again if
     // the app crashed a second time before the user got to Save. Empty =
-    // nothing pending.
+    // nothing pending. Cleared WITHOUT deleting anything by New Project/
+    // Open/Reload (audit A1): switching away to a different project
+    // before that Save happens must forget this pending cleanup, or a
+    // later Save of the NEW project would delete the recovered
+    // content's still-only copy out from under it. The files themselves
+    // stay on disk either way -- a later launch, or offerRecoveryIfAny()
+    // looping later in this one, can still find and offer them.
     std::string m_pendingAutosaveCleanupPath;
     std::string m_pendingAutosaveCleanupMetaPath;
     // Every .meta path offerRecoveryIfAny() has already asked about this

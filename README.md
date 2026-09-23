@@ -624,6 +624,18 @@ instance's own in-progress autosave is never offered (or discarded) by a
 different instance's recovery dialog, since `findRecoverable()` skips any
 entry whose recorded pid is still alive.
 
+That deferred-cleanup path is only safe as long as it's forgotten the
+moment `m_model` is replaced by anything OTHER than the Recover it was
+set up for. Before an audit fix (A1, 2026-09-22), New Project/Open/
+Reload left it pointing at the just-recovered autosave; if the owner
+then saved that DIFFERENT (new/opened/reloaded) project, `onSaveFinished
+()`'s cleanup ran anyway and deleted the recovered autosave — the only
+copy of the original unsaved work, silently gone the moment an unrelated
+project happened to get saved next. All three now clear both pending-
+cleanup paths themselves before replacing `m_model`; the autosave files
+on disk are left untouched either way, so a later launch (or this one's
+own `offerRecoveryIfAny()` loop above) can still find and offer them.
+
 When several autosaves independently qualify for recovery at once (an
 agent, or the owner, bouncing the app through many untitled test launches
 without ever doing a Save leaves one behind per launch), `findRecoverable()`
