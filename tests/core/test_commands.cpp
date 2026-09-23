@@ -216,6 +216,74 @@ TEST_CASE("ResizeClip: extending a boundless clip past the asset's recorded leng
     CHECK(model.asset(assetId).info.lengthInSequenceFrames == 600);
 }
 
+TEST_CASE("InsertClip: revert restores the asset's recorded length, not just the clip (2026-09-22 audit C1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset stillAsset;
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 100;
+    AssetId assetId = model.addAsset(stillAsset);
+    Model before = model;
+
+    InsertClip cmd(track, assetId, 0, 0, 499); // 500 frames, past the recorded 100
+    REQUIRE(cmd.apply(model));
+    REQUIRE(model.asset(assetId).info.lengthInSequenceFrames == 500);
+
+    cmd.revert(model);
+    CHECK(model.asset(assetId).info.lengthInSequenceFrames == 100); // back to what it was, not left at 500
+    CHECK(equalIgnoringIdAllocator(model, before));
+}
+
+TEST_CASE("InsertClip: revert doesn't shrink the asset if another clip already extended it further "
+         "(2026-09-22 audit C1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset stillAsset;
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 100;
+    AssetId assetId = model.addAsset(stillAsset);
+
+    // A second, independent clip cuts even further into the same asset
+    // AFTER the first -- its own recorded extension (800) must survive
+    // the first clip's revert.
+    InsertClip firstCmd(track, assetId, 0, 0, 499); // extends to 500
+    REQUIRE(firstCmd.apply(model));
+    InsertClip secondCmd(track, assetId, 500, 0, 799); // extends to 800
+    REQUIRE(secondCmd.apply(model));
+    REQUIRE(model.asset(assetId).info.lengthInSequenceFrames == 800);
+
+    firstCmd.revert(model);
+    // Must NOT drop to 100 (firstCmd's own pre-apply value) -- the
+    // second clip's own, still-live extension to 800 is the true
+    // current requirement.
+    CHECK(model.asset(assetId).info.lengthInSequenceFrames == 800);
+}
+
+TEST_CASE("ResizeClip: revert restores the asset's recorded length too (2026-09-22 audit C1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset stillAsset;
+    stillAsset.displayName = "watermark.png";
+    stillAsset.info.isStillImage = true;
+    stillAsset.info.lengthInSequenceFrames = 100;
+    AssetId assetId = model.addAsset(stillAsset);
+    ClipId clip = model.insertClip(track, assetId, 0, 0, 99);
+    Model before = model;
+
+    ResizeClip cmd(clip, 0, 599, 0); // 600 frames, past the recorded 100
+    REQUIRE(cmd.apply(model));
+    REQUIRE(model.asset(assetId).info.lengthInSequenceFrames == 600);
+
+    cmd.revert(model);
+    CHECK(model.asset(assetId).info.lengthInSequenceFrames == 100);
+    CHECK(equalIgnoringIdAllocator(model, before));
+}
+
 TEST_CASE("InsertClip refuses a negative in point even for a boundless asset (audit C1)")
 {
     Model model = Model::createEmpty();

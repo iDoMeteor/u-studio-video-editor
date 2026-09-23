@@ -235,6 +235,18 @@ class InsertClip : public Command
     FrameIndex m_pos, m_in, m_out;
     ClipId m_clipId;
     bool m_appliedBefore = false;
+    // Audit C1 (2026-09-22): extendAssetLength() only grows the asset's
+    // recorded length, so its own effect has no built-in inverse.
+    // m_oldAssetLength/m_setAssetLength are captured around apply()'s
+    // own extendAssetLength() call; revert() restores m_oldAssetLength
+    // via Model::setAssetLength(), but ONLY when the asset's length is
+    // still exactly m_setAssetLength (what THIS apply() set it to) --
+    // if some other, later clip has since cut even further into the
+    // same asset, that's the true current requirement, and reverting
+    // this command must not shrink it out from under that other clip.
+    bool m_extendedAsset = false;
+    FrameIndex m_oldAssetLength = 0;
+    FrameIndex m_setAssetLength = 0;
 };
 
 // Captures the full Clip at apply time so revert() restores every field,
@@ -299,6 +311,10 @@ class ResizeClip : public Command
     FrameIndex m_newIn, m_newOut, m_newPos;
     FrameIndex m_oldIn = 0, m_oldOut = 0, m_oldPos = 0;
     std::vector<Transition> m_capturedTransitions;
+    // Audit C1 -- see InsertClip's own comment on these three.
+    bool m_extendedAsset = false;
+    FrameIndex m_oldAssetLength = 0;
+    FrameIndex m_setAssetLength = 0;
 };
 
 // Implemented as doc 04 describes: apply splits into left (this clip,

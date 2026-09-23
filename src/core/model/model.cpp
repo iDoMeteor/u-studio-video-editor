@@ -205,6 +205,17 @@ void Model::extendAssetLength(AssetId id, FrameIndex minimumLength)
     notify(AssetChanged{id});
 }
 
+void Model::setAssetLength(AssetId id, FrameIndex length)
+{
+    auto &bin = m_project.bin;
+    auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
+    assert(it != bin.end() && "Model::setAssetLength: unknown AssetId");
+    if (length == it->info.lengthInSequenceFrames)
+        return;
+    it->info.lengthInSequenceFrames = length;
+    notify(AssetChanged{id});
+}
+
 // --- Track mutators --------------------------------------------------------
 
 TrackId Model::addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId)

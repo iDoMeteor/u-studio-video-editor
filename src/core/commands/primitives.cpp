@@ -312,8 +312,18 @@ bool InsertClip::apply(Model &model)
     // keep the asset's recorded length truthful for whatever clip has cut
     // furthest into it, so EngineSync sizes the underlying MLT producer
     // long enough and the saved project file matches what's on the timeline.
-    if (boundless)
-        model.extendAssetLength(m_asset, m_out + 1);
+    // Audit C1: extendAssetLength() only grows, so capture whether (and
+    // from what) it actually did BEFORE calling it, using sourceAsset's
+    // pre-mutation value captured above -- revert() needs the exact old
+    // length to restore, and whether to bother at all (another clip may
+    // already have cut further into this asset, in which case this
+    // apply()'s own extend was a no-op and reverting must not shrink it).
+    if (boundless) {
+        m_oldAssetLength = sourceAsset.info.lengthInSequenceFrames;
+        m_setAssetLength = m_out + 1;
+        m_extendedAsset = m_setAssetLength > m_oldAssetLength;
+        model.extendAssetLength(m_asset, m_setAssetLength);
+    }
     // Audit A4: a clip lands with videoEnabled=true by default (Clip's own
     // field default); an audio track showing that video through wherever
     // the video tracks above it have a gap violates Model::check()'s
@@ -329,6 +339,11 @@ bool InsertClip::apply(Model &model)
 void InsertClip::revert(Model &model)
 {
     model.removeClip(m_clipId);
+    // Only undo the extension if nothing else has since cut even
+    // further into the same asset (primitives.h's own comment).
+    if (m_extendedAsset && model.hasAsset(m_asset) &&
+        model.asset(m_asset).info.lengthInSequenceFrames == m_setAssetLength)
+        model.setAssetLength(m_asset, m_oldAssetLength);
 }
 
 RemoveClip::RemoveClip(ClipId clip) : m_clip(clip) {}
@@ -482,10 +497,16 @@ bool ResizeClip::apply(Model &model)
     m_oldOut = shrunk.out;
     m_oldPos = shrunk.position;
     // See InsertClip::apply for why this is batched and why boundless assets
-    // get their recorded length extended alongside the resize.
+    // get their recorded length extended alongside the resize. Audit C1
+    // -- see InsertClip::apply's own comment on capturing the old length
+    // and whether this call actually grew it, for revert() to undo.
     model.resizeClip(m_clip, m_newIn, m_newOut, m_newPos);
-    if (boundless)
-        model.extendAssetLength(current.asset, m_newOut + 1);
+    if (boundless) {
+        m_oldAssetLength = model.asset(current.asset).info.lengthInSequenceFrames;
+        m_setAssetLength = m_newOut + 1;
+        m_extendedAsset = m_setAssetLength > m_oldAssetLength;
+        model.extendAssetLength(current.asset, m_setAssetLength);
+    }
     model.notify(BatchEnd{});
     return true;
 }
@@ -494,6 +515,12 @@ void ResizeClip::revert(Model &model)
 {
     model.notify(BatchBegin{});
     model.resizeClip(m_clip, m_oldIn, m_oldOut, m_oldPos);
+    // Only undo the extension if nothing else has since cut even
+    // further into the same asset (primitives.h's own comment).
+    AssetId resizedAsset = model.clip(m_clip).asset;
+    if (m_extendedAsset && model.hasAsset(resizedAsset) &&
+        model.asset(resizedAsset).info.lengthInSequenceFrames == m_setAssetLength)
+        model.setAssetLength(resizedAsset, m_oldAssetLength);
     restoreTransitions(model, m_capturedTransitions);
     model.notify(BatchEnd{});
 }

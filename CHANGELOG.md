@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.4
+
+- Fixed undo of importing or resizing a still image/logo overlay leaving
+  its recorded source length extended instead of restoring it, an
+  internal inconsistency between the model and what undo is supposed to
+  guarantee (harmless to playback, but wrong on inspection or in a saved
+  project's `out` point).
+
 ## 0.12.3
 
 - Fixed a data-loss bug: recovering an unsaved autosave, then starting a

@@ -79,6 +79,14 @@ class Model
     // other mutators, asserts on an unknown id rather than refusing --
     // callers are expected to have already validated hasAsset().
     void extendAssetLength(AssetId, FrameIndex minimumLength);
+    // Unconditional set, unlike extendAssetLength above -- restores an
+    // exact previously captured length on revert() (audit C1: apply()'s
+    // own extendAssetLength() call for a boundless asset had no inverse,
+    // so undo of an import or resize left the asset's recorded length
+    // extended, breaking command.h's "revert restores the model bit-for-
+    // bit" contract). Same "asserts on an unknown id, callers validate
+    // first" contract as every other mutator here.
+    void setAssetLength(AssetId, FrameIndex length);
 
     TrackId addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId = std::nullopt);
     void removeTrack(TrackId);
