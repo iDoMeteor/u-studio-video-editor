@@ -302,17 +302,46 @@ void AppWindow::buildUi(GtkApplication *app)
                                    GTK_POLICY_AUTOMATIC);
     gtk_widget_set_size_request(mediaBrowserScroller, 320, -1);
     gtk_widget_add_css_class(mediaBrowserScroller, "media-browser-panel");
-    m_mediaBrowserGrid = GTK_GRID(gtk_grid_new());
-    gtk_grid_set_row_spacing(m_mediaBrowserGrid, 4);
-    gtk_grid_set_column_spacing(m_mediaBrowserGrid, 8);
-    gtk_widget_set_margin_top(GTK_WIDGET(m_mediaBrowserGrid), 6);
-    gtk_widget_set_margin_bottom(GTK_WIDGET(m_mediaBrowserGrid), 6);
-    gtk_widget_set_margin_start(GTK_WIDGET(m_mediaBrowserGrid), 6);
-    gtk_widget_set_margin_end(GTK_WIDGET(m_mediaBrowserGrid), 6);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(mediaBrowserScroller), GTK_WIDGET(m_mediaBrowserGrid));
+    m_mediaBrowserList = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 4));
+    gtk_widget_set_margin_top(GTK_WIDGET(m_mediaBrowserList), 6);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(m_mediaBrowserList), 6);
+    gtk_widget_set_margin_start(GTK_WIDGET(m_mediaBrowserList), 6);
+    gtk_widget_set_margin_end(GTK_WIDGET(m_mediaBrowserList), 6);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(mediaBrowserScroller), GTK_WIDGET(m_mediaBrowserList));
     m_mediaBrowserPanel = mediaBrowserScroller;
     gtk_widget_set_visible(m_mediaBrowserPanel, FALSE); // starts collapsed
     gtk_box_append(GTK_BOX(previewRow), m_mediaBrowserPanel);
+
+    // Right-click menu for a media browser row. Parented once to
+    // m_mediaBrowserPanel (the outer GtkScrolledWindow, like
+    // m_trackContextMenu -> m_timeline below), deliberately NOT to
+    // m_mediaBrowserList or to the row that was clicked: rows are
+    // destroyed and rebuilt wholesale by refreshMediaBrowser() on every
+    // bin change, and gtk_widget_set_parent() makes a popover a real
+    // child in the generic widget tree -- parenting it to
+    // m_mediaBrowserList would put it right in the path of
+    // refreshMediaBrowser()'s own "walk every child of the list and
+    // remove it" loop (confirmed empirically: it was, and got swept up
+    // and destroyed by the very first refresh after buildUi(), leaving
+    // this member dangling -- a real, reproduced use-after-free crash in
+    // gtk_popover_set_pointing_to() the first time a row was right-
+    // clicked, via coredumpctl + gdb backtrace, 2026-09-23). The outer
+    // scroller is never touched by that loop -- only its one designated
+    // child (m_mediaBrowserList, set via gtk_scrolled_window_set_child)
+    // is -- so it's a safe, stable parent.
+    m_mediaBrowserContextMenu = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_set_parent(GTK_WIDGET(m_mediaBrowserContextMenu), m_mediaBrowserPanel);
+    GtkWidget *mediaContextBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    m_removeAssetButton = gtk_button_new_with_label("Remove from Project");
+    gtk_widget_add_css_class(m_removeAssetButton, "flat");
+    g_signal_connect(m_removeAssetButton, "clicked", G_CALLBACK(&AppWindow::removeAssetClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(mediaContextBox), m_removeAssetButton);
+    m_deleteAssetFileButton = gtk_button_new_with_label("Delete File…");
+    gtk_widget_add_css_class(m_deleteAssetFileButton, "flat");
+    g_signal_connect(m_deleteAssetFileButton, "clicked", G_CALLBACK(&AppWindow::deleteAssetFileClickedTrampoline),
+                      this);
+    gtk_box_append(GTK_BOX(mediaContextBox), m_deleteAssetFileButton);
+    gtk_popover_set_child(m_mediaBrowserContextMenu, mediaContextBox);
 
     GtkWidget *previewFrame = gtk_frame_new(nullptr);
     gtk_widget_add_css_class(previewFrame, "preview-frame");
@@ -358,6 +387,13 @@ void AppWindow::buildUi(GtkApplication *app)
     // widget) -- onTimelineQueryTooltip hit-tests (x, y) against m_clips.
     gtk_widget_set_has_tooltip(GTK_WIDGET(m_timeline), TRUE);
     g_signal_connect(m_timeline, "query-tooltip", G_CALLBACK(&AppWindow::timelineQueryTooltipTrampoline), this);
+
+    // Drop target for dragging a media browser row onto the timeline
+    // (refreshMediaBrowser() puts a matching GtkDragSource, carrying the
+    // asset's AssetId::value as a G_TYPE_INT64, on each row).
+    GtkDropTarget *dropTarget = gtk_drop_target_new(G_TYPE_INT64, GDK_ACTION_COPY);
+    g_signal_connect(dropTarget, "drop", G_CALLBACK(&AppWindow::timelineDropTrampoline), this);
+    gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(dropTarget));
 
     // One popover, three possible actions — onTimelineRightClicked decides
     // which single one is relevant (clip under the cursor -> Delete Clip;
@@ -650,17 +686,7 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
                 // needed. Falls back to a modest 10s default when there's
                 // nothing yet to cover (an empty project, or inserting
                 // past the current end).
-                core::FrameIndex length = probed.length;
-                if (probed.isStillImage) {
-                    core::FrameIndex timelineLength = m_model.sequence().length();
-                    if (timelineLength > insertPos) {
-                        length = timelineLength - insertPos;
-                    } else {
-                        const core::Rational &fps = m_model.sequence().profile.fps;
-                        double fpsValue = fps.den > 0 ? static_cast<double>(fps.num) / fps.den : 30.0;
-                        length = static_cast<core::FrameIndex>(fpsValue * 10.0);
-                    }
-                }
+                core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probed.length, insertPos);
 
                 // AddAsset applies first (below) and, with no reuseId,
                 // allocates exactly model.project().nextId as read here --
@@ -2187,19 +2213,23 @@ void AppWindow::onToggleMediaBrowserClicked()
 
 void AppWindow::refreshMediaBrowser()
 {
-    // GtkGrid has no "remove all"; walk and remove one at a time (each
-    // removal is safe to do mid-walk since we capture `next` first).
-    GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(m_mediaBrowserGrid));
+    GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(m_mediaBrowserList));
     while (child) {
         GtkWidget *next = gtk_widget_get_next_sibling(child);
-        gtk_grid_remove(m_mediaBrowserGrid, child);
+        gtk_box_remove(m_mediaBrowserList, child);
         child = next;
     }
 
     const auto &bin = m_model.project().bin;
-    for (size_t i = 0; i < bin.size(); ++i) {
-        const core::Asset &asset = bin[i];
-        int row = static_cast<int>(i);
+    for (const core::Asset &asset : bin) {
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        // Right-click (context menu) and drag-to-timeline both need to
+        // know which asset this row is for; stashed on the row itself
+        // rather than captured per-signal-connection since the row (and
+        // everything on it) is torn down and rebuilt wholesale on every
+        // refreshMediaBrowser() anyway.
+        g_object_set_data(G_OBJECT(row), "ustudio-asset-id",
+                          reinterpret_cast<void *>(static_cast<uintptr_t>(asset.id.value)));
 
         GtkWidget *thumbCell = gtk_picture_new();
         gtk_widget_set_size_request(thumbCell, 120, 68);
@@ -2217,30 +2247,218 @@ void AppWindow::refreshMediaBrowser()
             gtk_picture_set_paintable(GTK_PICTURE(thumbCell), GDK_PAINTABLE(texture));
             g_object_unref(texture);
         }
-        gtk_grid_attach(m_mediaBrowserGrid, thumbCell, 0, row, 1, 1);
+        gtk_box_append(GTK_BOX(row), thumbCell);
 
         GtkWidget *nameLabel = gtk_label_new(asset.displayName.c_str());
         gtk_label_set_ellipsize(GTK_LABEL(nameLabel), PANGO_ELLIPSIZE_MIDDLE);
         gtk_label_set_xalign(GTK_LABEL(nameLabel), 0.0);
         gtk_widget_set_size_request(nameLabel, 140, -1);
         gtk_widget_set_tooltip_text(nameLabel, asset.path.c_str());
-        gtk_grid_attach(m_mediaBrowserGrid, nameLabel, 1, row, 1, 1);
+        gtk_box_append(GTK_BOX(row), nameLabel);
 
         GtkWidget *lengthLabel = gtk_label_new(formatMediaLength(asset.info.nativeDurationSeconds).c_str());
         gtk_widget_add_css_class(lengthLabel, "dim-label");
-        gtk_grid_attach(m_mediaBrowserGrid, lengthLabel, 2, row, 1, 1);
+        gtk_widget_set_size_request(lengthLabel, 60, -1);
+        gtk_label_set_xalign(GTK_LABEL(lengthLabel), 0.0);
+        gtk_box_append(GTK_BOX(row), lengthLabel);
 
         GtkWidget *fpsLabel = gtk_label_new(formatMediaFps(asset.info.fps).c_str());
         gtk_widget_add_css_class(fpsLabel, "dim-label");
-        gtk_grid_attach(m_mediaBrowserGrid, fpsLabel, 3, row, 1, 1);
+        gtk_widget_set_size_request(fpsLabel, 40, -1);
+        gtk_label_set_xalign(GTK_LABEL(fpsLabel), 0.0);
+        gtk_box_append(GTK_BOX(row), fpsLabel);
 
         std::string formatText = asset.info.container;
         for (char &c : formatText)
             c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         GtkWidget *formatLabel = gtk_label_new(formatText.empty() ? "—" : formatText.c_str());
         gtk_widget_add_css_class(formatLabel, "dim-label");
-        gtk_grid_attach(m_mediaBrowserGrid, formatLabel, 4, row, 1, 1);
+        gtk_widget_set_size_request(formatLabel, 50, -1);
+        gtk_label_set_xalign(GTK_LABEL(formatLabel), 0.0);
+        gtk_box_append(GTK_BOX(row), formatLabel);
+
+        GtkGesture *rowRightClick = gtk_gesture_click_new();
+        gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(rowRightClick), GDK_BUTTON_SECONDARY);
+        g_signal_connect(rowRightClick, "pressed", G_CALLBACK(&AppWindow::mediaBrowserRowRightClickTrampoline),
+                         this);
+        gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(rowRightClick));
+
+        // Drag-to-timeline: content is just the AssetId's value (a
+        // G_TYPE_INT64), which onTimelineDrop looks back up against
+        // m_model.project().bin -- the row itself never needs to travel,
+        // only which asset it names.
+        GtkDragSource *dragSource = gtk_drag_source_new();
+        gtk_drag_source_set_actions(dragSource, GDK_ACTION_COPY);
+        GdkContentProvider *content =
+            gdk_content_provider_new_typed(G_TYPE_INT64, static_cast<gint64>(asset.id.value));
+        gtk_drag_source_set_content(dragSource, content);
+        g_object_unref(content);
+        gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(dragSource));
+
+        gtk_box_append(m_mediaBrowserList, row);
     }
+}
+
+void AppWindow::onMediaBrowserRowRightClicked(core::AssetId assetId, GtkWidget *row, double x, double y)
+{
+    m_contextMenuAssetId = assetId;
+
+    graphene_point_t local = GRAPHENE_POINT_INIT(static_cast<float>(x), static_cast<float>(y));
+    graphene_point_t inPanel{};
+    if (!gtk_widget_compute_point(row, m_mediaBrowserPanel, &local, &inPanel))
+        inPanel = local; // row is always a live descendant of m_mediaBrowserPanel; kept as a harmless fallback
+
+    GdkRectangle rect{static_cast<int>(inPanel.x), static_cast<int>(inPanel.y), 1, 1};
+    gtk_popover_set_pointing_to(m_mediaBrowserContextMenu, &rect);
+    gtk_popover_popup(m_mediaBrowserContextMenu);
+}
+
+void AppWindow::onRemoveAssetClicked()
+{
+    gtk_popover_popdown(m_mediaBrowserContextMenu);
+    if (!m_contextMenuAssetId.isValid() || !m_model.hasAsset(m_contextMenuAssetId))
+        return;
+    std::string name = m_model.asset(m_contextMenuAssetId).displayName;
+
+    if (m_undoStack.execute(std::make_unique<core::RemoveAsset>(m_contextMenuAssetId))) {
+        refreshTimeline();
+        refreshMediaBrowser();
+        showStatus("Removed " + name + " from the project.");
+    } else {
+        showStatus("Can't remove " + name + ": used by a clip on a locked track.");
+    }
+}
+
+void AppWindow::onDeleteAssetFileClicked()
+{
+    gtk_popover_popdown(m_mediaBrowserContextMenu);
+    if (!m_contextMenuAssetId.isValid() || !m_model.hasAsset(m_contextMenuAssetId))
+        return;
+    const core::Asset &asset = m_model.asset(m_contextMenuAssetId);
+
+    int clipCount = 0;
+    for (const auto &[clipId, clip] : m_model.sequence().clips)
+        if (clip.asset == m_contextMenuAssetId)
+            ++clipCount;
+
+    std::string body = "Permanently delete \"" + asset.displayName + "\" from disk? This cannot be undone.";
+    if (clipCount > 0)
+        body += " It's used by " + std::to_string(clipCount) + (clipCount == 1 ? " clip" : " clips") +
+                " in this project -- those will be removed too.";
+
+    AdwDialog *dialog = adw_alert_dialog_new("Delete file?", body.c_str());
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "delete", "Delete File");
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "delete", ADW_RESPONSE_DESTRUCTIVE);
+    adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "cancel");
+    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
+
+    struct DeleteContext
+    {
+        AppWindow *self;
+        core::AssetId assetId;
+        std::string path;
+        std::string displayName;
+    };
+    auto *ctx = new DeleteContext{this, m_contextMenuAssetId, asset.path, asset.displayName};
+
+    adw_alert_dialog_choose(
+        ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            std::unique_ptr<DeleteContext> owned(static_cast<DeleteContext *>(userData));
+            const char *response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+            if (!response || std::string(response) != "delete")
+                return;
+
+            AppWindow *self = owned->self;
+            if (!self->m_model.hasAsset(owned->assetId)) {
+                self->showStatus("Can't delete " + owned->displayName + ": no longer in the project.");
+                return;
+            }
+
+            if (!self->m_undoStack.execute(std::make_unique<core::RemoveAsset>(owned->assetId))) {
+                self->showStatus("Can't delete " + owned->displayName + ": used by a clip on a locked track.");
+                return;
+            }
+            self->refreshTimeline();
+            self->refreshMediaBrowser();
+
+            // The project no longer references it either way (RemoveAsset
+            // above already succeeded); a failed filesystem delete just
+            // leaves the now-orphaned file on disk -- CLAUDE.md's "never
+            // execute/shell-interpolate a project-file-derived path" rule
+            // is why this is std::filesystem::remove, not system("rm").
+            std::error_code ec;
+            if (!std::filesystem::exists(owned->path, ec)) {
+                self->showStatus("Removed " + owned->displayName + " (file was already gone).");
+                return;
+            }
+            std::filesystem::remove(owned->path, ec);
+            if (ec) {
+                Log::error("[app] could not delete " + owned->path + ": " + ec.message());
+                self->showStatus("Removed " + owned->displayName +
+                                 " from the project, but could not delete the file: " + ec.message());
+            } else {
+                self->showStatus("Deleted " + owned->displayName + ".");
+            }
+        },
+        ctx);
+}
+
+gboolean AppWindow::onTimelineDrop(const GValue *value, double x, double y)
+{
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
+    if (trackCount <= 0 || !G_VALUE_HOLDS_INT64(value))
+        return FALSE;
+
+    core::AssetId assetId{static_cast<uint64_t>(g_value_get_int64(value))};
+    if (!m_model.hasAsset(assetId))
+        return FALSE;
+    const core::Asset &asset = m_model.asset(assetId);
+
+    int row = std::clamp(static_cast<int>(y / kTrackRowHeight), 0, trackCount - 1);
+    core::TrackId trackId = trackIdForRow(row);
+    if (m_model.track(trackId).locked) {
+        showStatus("Can't drop onto a locked track.");
+        return FALSE;
+    }
+
+    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
+    if (widgetWidth <= kHandleWidth || x < kHandleWidth)
+        return FALSE;
+
+    int total = m_playback->totalFrames();
+    double contentWidth = widgetWidth - kHandleWidth;
+    core::FrameIndex dropFrame =
+        total > 0 ? static_cast<core::FrameIndex>(((x - kHandleWidth) / contentWidth) * total) : 0;
+
+    core::FrameIndex length =
+        effectiveInsertLength(asset.info.isBoundless(), asset.info.lengthInSequenceFrames, dropFrame);
+
+    if (!m_model.isRangeFree(trackId, dropFrame, dropFrame + length)) {
+        showStatus("Can't drop " + asset.displayName + " there: it would overlap another clip.");
+        return FALSE;
+    }
+
+    if (m_undoStack.execute(std::make_unique<core::InsertClip>(trackId, assetId, dropFrame, 0, length - 1))) {
+        refreshTimeline();
+        showStatus("Added " + asset.displayName + " to track " + std::to_string(row) + ".");
+        return TRUE;
+    }
+    return FALSE;
+}
+
+core::FrameIndex AppWindow::effectiveInsertLength(bool isBoundless, core::FrameIndex knownLength,
+                                                  core::FrameIndex insertPos) const
+{
+    if (!isBoundless)
+        return knownLength;
+    core::FrameIndex timelineLength = m_model.sequence().length();
+    if (timelineLength > insertPos)
+        return timelineLength - insertPos;
+    const core::Rational &fps = m_model.sequence().profile.fps;
+    double fpsValue = fps.den > 0 ? static_cast<double>(fps.num) / fps.den : 30.0;
+    return static_cast<core::FrameIndex>(fpsValue * 10.0);
 }
 
 void AppWindow::beginTrackNameEdit(int row)
@@ -2670,6 +2888,31 @@ void AppWindow::newProjectClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::toggleMediaBrowserClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onToggleMediaBrowserClicked();
+}
+
+void AppWindow::mediaBrowserRowRightClickTrampoline(GtkGestureClick *gesture, int, double x, double y,
+                                                    gpointer userData)
+{
+    GtkWidget *row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+    auto assetIdValue =
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(g_object_get_data(G_OBJECT(row), "ustudio-asset-id")));
+    static_cast<AppWindow *>(userData)->onMediaBrowserRowRightClicked(core::AssetId{assetIdValue}, row, x, y);
+}
+
+void AppWindow::removeAssetClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRemoveAssetClicked();
+}
+
+void AppWindow::deleteAssetFileClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onDeleteAssetFileClicked();
+}
+
+gboolean AppWindow::timelineDropTrampoline(GtkDropTarget *, const GValue *value, double x, double y,
+                                           gpointer userData)
+{
+    return static_cast<AppWindow *>(userData)->onTimelineDrop(value, x, y);
 }
 
 void AppWindow::renderClickedTrampoline(GtkButton *, gpointer userData)

@@ -383,6 +383,67 @@ TEST_CASE("SplitAudio: refuses a clip that is already audio-only")
     CHECK_FALSE(cmd.apply(model));
 }
 
+TEST_CASE("AddAsset / RemoveAsset: revert restores the asset and every clip that used it")
+{
+    Model model = Model::createEmpty();
+    AddTrack addTrackCmd(Track::Kind::Video, 0, "V1");
+    REQUIRE(addTrackCmd.apply(model));
+
+    Asset asset;
+    asset.displayName = "clip.mp4";
+    asset.info.lengthInSequenceFrames = 1000;
+    AddAsset addAssetCmd(asset);
+    REQUIRE(addAssetCmd.apply(model));
+
+    ClipId clipA = model.insertClip(addTrackCmd.trackId(), addAssetCmd.assetId(), 0, 0, 99);
+    ClipId clipB = model.insertClip(addTrackCmd.trackId(), addAssetCmd.assetId(), 100, 0, 49);
+
+    Model beforeRemoval = model;
+    RemoveAsset removeCmd(addAssetCmd.assetId());
+    REQUIRE(removeCmd.apply(model));
+    CHECK_FALSE(model.hasAsset(addAssetCmd.assetId()));
+    CHECK_FALSE(model.hasClip(clipA));
+    CHECK_FALSE(model.hasClip(clipB));
+
+    removeCmd.revert(model);
+    // Not model == beforeRemoval: addAsset()'s reuseId.value_or(AssetId{
+    // allocateId()}) evaluates allocateId() unconditionally (a value_or
+    // argument is a regular function argument, not short-circuited), so
+    // every reuse-by-id restore still burns and discards one id, same as
+    // any other id-allocating command's own apply/revert cycle --
+    // equalIgnoringIdAllocator's own comment above.
+    CHECK(equalIgnoringIdAllocator(model, beforeRemoval));
+}
+
+TEST_CASE("RemoveAsset refuses the whole removal when a referencing clip is on a locked track")
+{
+    Model model = Model::createEmpty();
+    AddTrack addTrackCmd(Track::Kind::Video, 0, "V1");
+    REQUIRE(addTrackCmd.apply(model));
+    AssetId asset = addTestAsset(model);
+    ClipId clip = model.insertClip(addTrackCmd.trackId(), asset, 0, 0, 99);
+
+    model.setTrackFlags(addTrackCmd.trackId(), /*muted=*/false, /*hidden=*/false, /*locked=*/true);
+
+    RemoveAsset removeCmd(asset);
+    CHECK_FALSE(removeCmd.apply(model));
+    CHECK(model.hasAsset(asset));
+    CHECK(model.hasClip(clip));
+}
+
+TEST_CASE("RemoveAsset with no referencing clips just removes the asset")
+{
+    Model model = Model::createEmpty();
+    AssetId asset = addTestAsset(model);
+
+    RemoveAsset removeCmd(asset);
+    REQUIRE(removeCmd.apply(model));
+    CHECK_FALSE(model.hasAsset(asset));
+
+    removeCmd.revert(model);
+    CHECK(model.hasAsset(asset));
+}
+
 TEST_CASE("AddTrack / RemoveTrack: revert restores the track's clips too")
 {
     Model model = Model::createEmpty();

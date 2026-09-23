@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.12.0
+
+- Media browser: right-click a row for "Remove from Project" (drops the
+  asset and every clip cut from it) or "Delete File…" (confirms, then
+  also deletes the file from disk). Drag a row onto the timeline to
+  insert a full-length clip at the drop's exact track/frame.
+
 ## 0.11.0
 
 - Keyboard shortcuts: `Ctrl+Left`/`Ctrl+Right` jump the playhead 10

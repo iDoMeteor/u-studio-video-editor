@@ -20,6 +20,39 @@ void AddAsset::revert(Model &model)
     model.removeAsset(m_assetId);
 }
 
+RemoveAsset::RemoveAsset(AssetId asset) : m_asset(asset) {}
+
+bool RemoveAsset::apply(Model &model)
+{
+    if (!model.hasAsset(m_asset))
+        return false;
+
+    // Collect first, mutate second: removing a clip while iterating
+    // Sequence::clips (an unordered_map) would invalidate the iterator
+    // RemoveAsset itself is walking.
+    m_capturedClips.clear();
+    for (const auto &[clipId, clip] : model.sequence().clips) {
+        if (clip.asset != m_asset)
+            continue;
+        if (model.track(clip.track).locked)
+            return false; // refuse the whole removal, not a partial one
+        m_capturedClips.push_back(clip);
+    }
+
+    m_capturedAsset = model.asset(m_asset);
+    for (const Clip &clip : m_capturedClips)
+        model.removeClip(clip.id);
+    model.removeAsset(m_asset);
+    return true;
+}
+
+void RemoveAsset::revert(Model &model)
+{
+    model.addAsset(m_capturedAsset, m_asset);
+    for (const Clip &clip : m_capturedClips)
+        model.restoreClip(clip);
+}
+
 // --- AddTrack / RemoveTrack / SetTrackFlags ---------------------------------
 
 AddTrack::AddTrack(Track::Kind kind, size_t index, std::string name)

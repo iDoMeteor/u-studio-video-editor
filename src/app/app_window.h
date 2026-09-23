@@ -192,6 +192,42 @@ class AppWindow
     // each replace m_model wholesale (same call sites refreshTimeline()
     // itself already runs at, for the same reason).
     void refreshMediaBrowser();
+    // Right-click on a media browser row: records which asset it landed
+    // on (m_contextMenuAssetId) and pops m_mediaBrowserContextMenu at the
+    // click point. `row` is the specific row widget the click landed on
+    // (rows are rebuilt from scratch by refreshMediaBrowser(), so it's
+    // passed in rather than cached); the popover itself stays parented
+    // to the stable m_mediaBrowserPanel (see buildUi()'s own comment on
+    // why not m_mediaBrowserList), so (x, y) -- relative to `row` -- is
+    // translated into m_mediaBrowserPanel's coordinate space first.
+    void onMediaBrowserRowRightClicked(core::AssetId assetId, GtkWidget *row, double x, double y);
+    // "Remove from Project": RemoveAsset also removes every clip using
+    // the asset (Model::check() invariant 5), so this is a single
+    // undoable command, not a two-step confirm -- the file on disk is
+    // untouched.
+    void onRemoveAssetClicked();
+    // "Delete File...": confirms (the file itself is not recoverable via
+    // undo, unlike removing it from the project), then does both --
+    // RemoveAsset via the undo stack, then an actual filesystem delete.
+    // If the delete fails (permissions, already gone) the asset stays
+    // removed from the project regardless; a status message says why.
+    void onDeleteAssetFileClicked();
+    // Drop target for dragging a media browser row onto the timeline
+    // (GtkDropTarget on m_timeline, G_TYPE_INT64 carrying the AssetId's
+    // value -- see refreshMediaBrowser()'s GtkDragSource on each row).
+    // Inserts the asset's full length at the exact row/frame the drop
+    // landed on; refuses (with a status message) if that space isn't
+    // free or the target track is locked, same as any other insert.
+    gboolean onTimelineDrop(const GValue *value, double x, double y);
+    // Shared by import (a freshly probed asset not yet in the bin --
+    // EngineSync::ProbedMedia, not yet a core::MediaInfo) and dragging an
+    // existing bin asset onto the timeline (core::MediaInfo::isBoundless
+    // ()): a still image or generator has no fixed duration of its own,
+    // so its clip spans the rest of the *current* project length from
+    // the insert point, falling back to a modest 10s when there's
+    // nothing yet to cover -- see onFileOpened's own comment for why.
+    core::FrameIndex effectiveInsertLength(bool isBoundless, core::FrameIndex knownLength,
+                                           core::FrameIndex insertPos) const;
     // query-tooltip handler (GTK4's mechanism for a per-region tooltip on
     // a custom-drawn widget): true + gtk_tooltip_set_* if (x, y) is over a
     // clip, false to suppress the tooltip anywhere else.
@@ -267,6 +303,12 @@ class AppWindow
     static void reloadProjectClickedTrampoline(GtkButton *button, gpointer userData);
     static void newProjectClickedTrampoline(GtkButton *button, gpointer userData);
     static void toggleMediaBrowserClickedTrampoline(GtkButton *button, gpointer userData);
+    static void mediaBrowserRowRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
+                                                    gpointer userData);
+    static void removeAssetClickedTrampoline(GtkButton *button, gpointer userData);
+    static void deleteAssetFileClickedTrampoline(GtkButton *button, gpointer userData);
+    static gboolean timelineDropTrampoline(GtkDropTarget *target, const GValue *value, double x, double y,
+                                           gpointer userData);
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);
@@ -325,15 +367,27 @@ class AppWindow
     AdwApplicationWindow *m_window = nullptr;
     GtkPicture *m_preview = nullptr;
     // Media browser: a collapsible panel to the left of the preview
-    // (same row) listing every imported asset as a grid row (thumbnail,
-    // name, length, fps, format). m_mediaBrowserPanel is the whole
-    // collapsible widget (a GtkScrolledWindow); m_mediaBrowserGrid is
-    // rebuilt from scratch by refreshMediaBrowser() each time the bin
-    // changes (mirrors refreshTimeline()'s own call-site-driven resync --
-    // see its own comment for why this app doesn't subscribe to
-    // Model::changed directly).
+    // (same row) listing every imported asset as a row (thumbnail, name,
+    // length, fps, format). m_mediaBrowserPanel is the whole collapsible
+    // widget (a GtkScrolledWindow); m_mediaBrowserList is rebuilt from
+    // scratch by refreshMediaBrowser() each time the bin changes (mirrors
+    // refreshTimeline()'s own call-site-driven resync -- see its own
+    // comment for why this app doesn't subscribe to Model::changed
+    // directly). A plain vertical GtkBox of per-row GtkBoxes, not a
+    // GtkGrid: each row needs to be one widget a right-click gesture and
+    // a drag source can attach to (a GtkGrid has no such per-row widget,
+    // only per-cell ones), so each row lays out its own cells at fixed
+    // widths to keep columns aligned across rows instead.
     GtkWidget *m_mediaBrowserPanel = nullptr;
-    GtkGrid *m_mediaBrowserGrid = nullptr;
+    GtkBox *m_mediaBrowserList = nullptr;
+    // Two-button popover ("Remove from Project" / "Delete File...") for
+    // whichever row was last right-clicked (m_contextMenuAssetId) --
+    // reparented onto that row each time (see
+    // onMediaBrowserRowRightClicked's own comment).
+    GtkPopover *m_mediaBrowserContextMenu = nullptr;
+    GtkWidget *m_removeAssetButton = nullptr;
+    GtkWidget *m_deleteAssetFileButton = nullptr;
+    core::AssetId m_contextMenuAssetId;
     GtkDrawingArea *m_timeline = nullptr;
     GtkScale *m_seekScale = nullptr;
     GtkButton *m_playButton = nullptr;

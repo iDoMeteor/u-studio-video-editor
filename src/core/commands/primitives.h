@@ -34,6 +34,30 @@ class AddAsset : public Command
     bool m_appliedBefore = false;
 };
 
+// Removes an asset from the project bin, along with every clip on every
+// track that uses it (Model::check() flags a clip whose asset is missing
+// as invariant 5, so the two can't be separated). Refuses the whole
+// operation, not just some clips, if any referencing clip lives on a
+// locked track -- same guard as RemoveClip's own, and for the same
+// reason: a locked track refuses removal of its own clips regardless of
+// what's driving the removal.
+class RemoveAsset : public Command
+{
+  public:
+    explicit RemoveAsset(AssetId asset);
+    std::string label() const override
+    {
+        return "Remove from project";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    AssetId m_asset;
+    Asset m_capturedAsset;
+    std::vector<Clip> m_capturedClips;
+};
+
 class AddTrack : public Command
 {
   public:

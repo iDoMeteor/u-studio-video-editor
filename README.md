@@ -26,7 +26,13 @@ single-track skeleton.
   a row with a thumbnail, name, length, fps, and format. Thumbnails are
   decoded on a background thread (`src/engine/thumbnail_cache.{h,cpp}`,
   the same architecture as the waveform cache below) so importing a large
-  file never blocks the UI.
+  file never blocks the UI. Right-click a row for "Remove from Project"
+  (drops the asset and every clip cut from it, undoable — the file on
+  disk is untouched) or "Delete File…" (confirms, since this one isn't
+  undoable, then does both: removes it from the project and deletes the
+  actual file from disk). Drag a row onto the timeline to insert a full-
+  length clip at the exact track/frame the drop lands on — refused, like
+  any other insert, if that space isn't free or the track is locked.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).
   Higher tracks composite over lower ones for video (full-frame, top wins);
