@@ -39,6 +39,9 @@ single-track skeleton.
   (`Left`/`Right`), jump to start/end (`Home`/`End`), loop in/out (`I`/`O`
   at the playhead), volume, preview-scale preference (Auto/Full/Half/
   Quarter), scrub by dragging the seek bar (including mid-playback).
+  `A`/`F` jump the playhead to the previous/next cut (a clip's start or
+  end, or the timeline's own start/end) on the active track; `S`/`D` move
+  which track is active up/down, the same target a plain click sets.
 - Split a clip at the playhead.
 - Drag a clip's body to move it — within a track or to a different one.
   Drag near a clip's left/right edge (~8px) to trim it shorter or longer.

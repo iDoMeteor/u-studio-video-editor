@@ -131,6 +131,24 @@ class AppWindow
     void onStepBackward();
     void onSeekHome();
     void onSeekEnd();
+    // Jumps the playhead to the nearest clip boundary (a clip's start or
+    // end) on the active track before/after the current frame -- the
+    // timeline's own start (0) and end (m_playback->totalFrames()) count
+    // as boundaries too, so there's always somewhere to land even on an
+    // otherwise-empty or single-clip track. Doesn't pause playback,
+    // matching onSeekHome/onSeekEnd's own precedent (a mid-playback jump
+    // is a scrub, not a stop).
+    void onSeekPreviousCut();
+    void onSeekNextCut();
+    // Every clip boundary on the active track, plus 0 and totalFrames(),
+    // sorted and deduplicated -- shared by the two methods above.
+    std::vector<int> cutBoundariesOnActiveTrack() const;
+    // Moves which track row is "active" (where imports/splits/single-key
+    // edits land) up or down by one, clamped to the track list -- the
+    // same target onTimelineClicked's plain click already sets, just
+    // reachable without the mouse.
+    void onActiveTrackUp();
+    void onActiveTrackDown();
     // I/O set the loop-in/loop-out at the current playhead (clamped so
     // in < out); there's no ruler widget yet to show the range visually
     // (that's UsTimelineView/ADR-008, M3), so m_loopStatusLabel is the only
@@ -269,6 +287,10 @@ class AppWindow
     static void seekEndActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void loopSetInActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void loopSetOutActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void seekPreviousCutActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void seekNextCutActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void activeTrackUpActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void activeTrackDownActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void clearLoopClickedTrampoline(GtkButton *button, gpointer userData);
     static void volumeChangedTrampoline(GtkRange *range, gpointer userData);
     static void previewScaleChangedTrampoline(GtkDropDown *dropdown, GParamSpec *pspec, gpointer userData);

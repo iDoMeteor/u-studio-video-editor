@@ -575,6 +575,12 @@ void AppWindow::installActions(GtkApplication *app)
     addAction(app, "seek-end", &AppWindow::seekEndActivated, {"End"});
     addAction(app, "loop-set-in", &AppWindow::loopSetInActivated, {"i"});
     addAction(app, "loop-set-out", &AppWindow::loopSetOutActivated, {"o"});
+    // A/F: previous/next cut on the active track. S/D: active track
+    // up/down -- the row edits/imports land on, same as clicking a row.
+    addAction(app, "seek-previous-cut", &AppWindow::seekPreviousCutActivated, {"a"});
+    addAction(app, "seek-next-cut", &AppWindow::seekNextCutActivated, {"f"});
+    addAction(app, "active-track-up", &AppWindow::activeTrackUpActivated, {"s"});
+    addAction(app, "active-track-down", &AppWindow::activeTrackDownActivated, {"d"});
 }
 
 void AppWindow::addAction(GtkApplication *app, const char *name,
@@ -967,6 +973,88 @@ void AppWindow::onSeekHome()
 void AppWindow::onSeekEnd()
 {
     m_playback->toEnd();
+}
+
+// Every clip boundary (start and end) on the active track, plus the
+// timeline's own start (0) and end, sorted and deduplicated -- shared by
+// onSeekPreviousCut/onSeekNextCut so their "which frames count as a cut"
+// definition can't drift apart.
+std::vector<int> AppWindow::cutBoundariesOnActiveTrack() const
+{
+    const core::Track &track = m_model.track(trackIdForRow(m_activeTrack));
+    // The LAST actually reachable frame, not the exclusive totalFrames()
+    // itself: PlaybackController::seek() clamps to [0, totalFrames()-1],
+    // so using the raw total here would make "next cut" silently re-seek
+    // to the same already-clamped frame forever once at the end, instead
+    // of ever reporting "no later cut".
+    int lastFrame = std::max(m_playback->totalFrames() - 1, 0);
+    std::vector<int> boundaries{0, lastFrame};
+    for (core::ClipId clipId : track.clips) {
+        const core::Clip &clip = m_model.clip(clipId);
+        boundaries.push_back(static_cast<int>(clip.position));
+        boundaries.push_back(static_cast<int>(clip.end()));
+    }
+    // A clip ending exactly at the sequence's own length (the common
+    // case for whichever clip plays last) pushes the raw, EXCLUSIVE
+    // clip.end() -- equal to totalFrames(), one past lastFrame -- so
+    // clamp every entry before deduping, or that unreachable value
+    // would slip back in as a distinct boundary past lastFrame,
+    // reintroducing the exact bug lastFrame above exists to avoid.
+    for (int &boundary : boundaries)
+        boundary = std::clamp(boundary, 0, lastFrame);
+    std::sort(boundaries.begin(), boundaries.end());
+    boundaries.erase(std::unique(boundaries.begin(), boundaries.end()), boundaries.end());
+    return boundaries;
+}
+
+void AppWindow::onSeekPreviousCut()
+{
+    if (m_model.sequence().tracks.empty())
+        return;
+    std::vector<int> boundaries = cutBoundariesOnActiveTrack();
+
+    // The largest boundary strictly before the current frame: lower_bound
+    // finds the first boundary >= current (which, if current sits exactly
+    // on one, is that same boundary, not the one before it), so the
+    // previous distinct cut is always one step back from there.
+    auto it = std::lower_bound(boundaries.begin(), boundaries.end(), m_playback->currentFrame());
+    if (it == boundaries.begin()) {
+        showStatus("No earlier cut on this track.");
+        return;
+    }
+    m_playback->seek(*(it - 1));
+}
+
+void AppWindow::onSeekNextCut()
+{
+    if (m_model.sequence().tracks.empty())
+        return;
+    std::vector<int> boundaries = cutBoundariesOnActiveTrack();
+
+    auto it = std::upper_bound(boundaries.begin(), boundaries.end(), m_playback->currentFrame());
+    if (it == boundaries.end()) {
+        showStatus("No later cut on this track.");
+        return;
+    }
+    m_playback->seek(*it);
+}
+
+void AppWindow::onActiveTrackUp()
+{
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
+    if (trackCount <= 0)
+        return;
+    m_activeTrack = std::clamp(m_activeTrack - 1, 0, trackCount - 1);
+    gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+}
+
+void AppWindow::onActiveTrackDown()
+{
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
+    if (trackCount <= 0)
+        return;
+    m_activeTrack = std::clamp(m_activeTrack + 1, 0, trackCount - 1);
+    gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
 }
 
 void AppWindow::onSetLoopIn()
@@ -2724,6 +2812,26 @@ void AppWindow::loopSetInActivated(GSimpleAction *, GVariant *, gpointer userDat
 void AppWindow::loopSetOutActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onSetLoopOut();
+}
+
+void AppWindow::seekPreviousCutActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSeekPreviousCut();
+}
+
+void AppWindow::seekNextCutActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSeekNextCut();
+}
+
+void AppWindow::activeTrackUpActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onActiveTrackUp();
+}
+
+void AppWindow::activeTrackDownActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onActiveTrackDown();
 }
 
 void AppWindow::clearLoopClickedTrampoline(GtkButton *, gpointer userData)

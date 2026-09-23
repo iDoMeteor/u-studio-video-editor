@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.10.0
+
+- Keyboard shortcuts: `A`/`F` jump the playhead to the previous/next cut
+  on the active track (a clip's start or end, or the timeline's own
+  start/end); `S`/`D` move the active track up/down.
+
 ## 0.9.1
 
 - Fixed a crash: a project referencing media that's since been moved,
