@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.9.1
+
+- Fixed a crash: a project referencing media that's since been moved,
+  renamed, or deleted would segfault the whole app the moment playback
+  or a redraw reached that clip, instead of failing gracefully. That
+  clip now plays as black and a status message names the missing file.
+
 ## 0.9.0
 
 - Collapsible media browser panel, to the left of the video preview:

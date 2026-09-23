@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace ustudio::engine {
@@ -81,6 +82,17 @@ class EngineSync
     // calling it after every edit themselves.
     core::Signal<> rebuilt;
 
+    // Fires synchronously, main thread only, from inside rebuildAll() (via
+    // masterProducerFor()) whenever an asset's file can't actually be
+    // opened -- a project referencing media that's since been moved,
+    // deleted, or lives on an unmounted drive (CLAUDE.md: project files
+    // are untrusted input). The carried string is the asset's own path.
+    // That clip plays as black rather than crashing (see
+    // masterProducerFor()'s comment for why letting an invalid producer
+    // through is not survivable); listeners should tell the user which
+    // file is missing.
+    core::Signal<const std::string &> mediaUnavailable;
+
     // Rebuilds the black backing track, every model track's playlist, and
     // the transition graph from scratch.
     void rebuildAll();
@@ -146,6 +158,11 @@ class EngineSync
     std::unique_ptr<Mlt::Profile> m_profile;
     std::shared_ptr<Mlt::Tractor> m_tractor;
     std::unordered_map<uint64_t, std::shared_ptr<Mlt::Producer>> m_masterProducers; // keyed by AssetId::value
+    // AssetId::value of every asset masterProducerFor() had to substitute
+    // a black placeholder for (its real file couldn't be opened) --
+    // verify() skips its resource check for these, since the mismatch
+    // there is the intended fallback, not a sync bug.
+    std::unordered_set<uint64_t> m_unavailableAssets;
     // MLT tractor index -> model TrackId; std::nullopt at index 0 (the
     // black backing track, not a model track).
     std::vector<std::optional<core::TrackId>> m_mltTrackOrder;

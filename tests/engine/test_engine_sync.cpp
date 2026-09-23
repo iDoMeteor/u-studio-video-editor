@@ -104,6 +104,53 @@ TEST_CASE("EngineSync: a clip with video/audio disabled gets video_index/audio_i
     CHECK(audioCut->get_int("audio_index") != -1);
 }
 
+TEST_CASE("EngineSync: a clip whose asset file can't be opened plays as black instead of crashing")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    // Keeps the constructor's own first rebuildAll() clean, so the signal
+    // connection below (which can only happen after EngineSync exists)
+    // catches the actual missing-asset rebuild, not a rebuild that
+    // already happened before anything could subscribe to it.
+    addGeneratorAsset(model, "color:blue");
+
+    EngineSync sync(model);
+    int unavailableCount = 0;
+    std::string unavailablePath;
+    sync.mediaUnavailable.connect([&](const std::string &path) {
+        ++unavailableCount;
+        unavailablePath = path;
+    });
+
+    Asset missing;
+    missing.path = "/nonexistent/path/does-not-exist.mp4";
+    missing.displayName = "missing.mp4";
+    missing.info.hasVideo = true;
+    missing.info.lengthInSequenceFrames = 50;
+    AssetId missingId = model.addAsset(missing);
+    model.insertClip(track, missingId, 0, 0, 49); // triggers EngineSync's own auto-resync
+
+    CHECK(unavailableCount == 1);
+    CHECK(unavailablePath == missing.path);
+    CHECK(sync.verify().empty()); // the substituted resource is the intended fallback, not a sync bug
+
+    // The actual crash this guards against (standalone repro, 2026-09-23):
+    // an invalid Mlt::Producer still lets .cut() "succeed" and plants
+    // into a playlist/tractor with no error, only segfaulting once a real
+    // frame is pulled through the live consumer -- so the real assertion
+    // here is simply that this doesn't crash.
+    sync.tractor().seek(10);
+    std::unique_ptr<Mlt::Frame> frame(sync.tractor().get_frame());
+    REQUIRE(frame != nullptr);
+    CHECK(frame->is_valid());
+
+    // A second clip on the same (already-cached-as-unavailable) asset
+    // must not re-fire the signal or re-attempt the open.
+    model.insertClip(track, missingId, 100, 0, 49);
+    CHECK(unavailableCount == 1);
+}
+
 TEST_CASE("EngineSync: a dissolve transition actually cross-fades, and the pair's total span is unchanged")
 {
     sharedFactoryPolicy();

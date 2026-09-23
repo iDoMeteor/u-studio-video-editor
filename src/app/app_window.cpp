@@ -172,6 +172,10 @@ AppWindow::AppWindow(GtkApplication *app)
         m_playback->setTractor(m_engineSync->tractorPtr());
         m_lastEditMonotonicUsec = g_get_monotonic_time();
     });
+    m_engineSync->mediaUnavailable.connect([this](const std::string &path) {
+        showStatus("Couldn't open \"" + path + "\" — showing black in its place. The file may have moved or been "
+                   "deleted.");
+    });
     m_playback->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });

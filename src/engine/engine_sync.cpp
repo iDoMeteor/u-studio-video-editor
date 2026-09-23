@@ -66,6 +66,7 @@ void EngineSync::reset()
     Log::ScopedTimer timer("[engine] reset");
     Log::debug("[engine] reset: dropping " + std::to_string(m_masterProducers.size()) + " cached master producer(s)");
     m_masterProducers.clear();
+    m_unavailableAssets.clear(); // a reopened project's media may have come back since -- give it a fresh try
 
     // Keep the OLD profile alive across applyProfile()+rebuildAll(), not
     // just swap it in place: applyProfile() would otherwise destroy it
@@ -163,6 +164,32 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId)
     auto it = m_masterProducers.find(assetId.value);
     if (it == m_masterProducers.end()) {
         auto producer = std::make_shared<Mlt::Producer>(*m_profile, asset.path.c_str());
+        if (!producer->is_valid()) {
+            // Untrusted input (CLAUDE.md): a project can reference a file
+            // that's since been moved, deleted, or lives on an unmounted
+            // drive. Confirmed empirically (standalone repro) that an
+            // invalid Mlt::Producer still lets .cut() "succeed" -- the
+            // resulting cut reports is_valid()==true, appends to a
+            // playlist fine, and the tractor built from it reports a
+            // normal length -- it only segfaults once a real frame is
+            // pulled through the live consumer, deep inside MLT's own
+            // mlt_producer_seek/transition_get_frame. That means this is
+            // the ONLY place that can catch it: by the time a bad
+            // producer would otherwise reach rebuildTrackPlaylist(), it's
+            // already too late to tell it apart from a real one. Falls
+            // back to a black placeholder sized to the asset's own
+            // recorded length, so the clip's span keeps its correct
+            // duration and every other clip's timing is unaffected --
+            // only its own frames show black instead of crashing the app.
+            Log::error("[engine] could not open asset " + std::to_string(assetId.value) + " (" + asset.path +
+                      ") -- showing black in its place");
+            mediaUnavailable.emit(asset.path);
+            m_unavailableAssets.insert(assetId.value);
+            producer = std::make_shared<Mlt::Producer>(*m_profile, kBlackResource);
+            core::FrameIndex placeholderLength = std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1);
+            producer->set("length", static_cast<int>(placeholderLength));
+            producer->set_in_and_out(0, static_cast<int>(placeholderLength - 1));
+        }
         it = m_masterProducers.emplace(assetId.value, std::move(producer)).first;
     }
     Mlt::Producer &producer = *it->second;
@@ -498,7 +525,11 @@ std::vector<std::string> EngineSync::verify() const
                                        " != expected " + std::to_string(seg.in) + "/" + std::to_string(seg.out));
                 }
                 const core::Clip &clip = m_model.clip(seg.clip);
-                if (m_model.hasAsset(clip.asset)) {
+                // A known-unavailable asset's cut deliberately comes from
+                // the black placeholder masterProducerFor() substituted,
+                // not the asset's own path -- that mismatch is the
+                // intended fallback (see its own comment), not a sync bug.
+                if (m_model.hasAsset(clip.asset) && !m_unavailableAssets.contains(clip.asset.value)) {
                     std::string expectedResource = m_model.asset(clip.asset).path;
                     // MLT's "resource" property for a "service:arg" shorthand
                     // producer (color:/noise:/tone: generators, used by

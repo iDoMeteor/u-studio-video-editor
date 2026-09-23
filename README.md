@@ -402,6 +402,22 @@ way). See `EngineSync::buildTransitionSubTractor()`'s comment and
 `tests/engine/test_engine_sync.cpp`'s dissolve test (pixel-samples the
 actual composited output) for the full finding.
 
+`masterProducerFor()` checks `Mlt::Producer::is_valid()` right after
+opening an asset's file and, on failure, substitutes a `color:black`
+placeholder (sized to the asset's own recorded length) instead of caching
+the broken producer — confirmed empirically (a standalone repro,
+2026-09-23) that an **invalid producer still lets `.cut()` "succeed"**:
+the resulting cut reports `is_valid()==true`, appends to a playlist with
+no error, and the tractor built from it reports a normal length — it only
+segfaults once a real frame is pulled through the live consumer, deep
+inside MLT's own `mlt_producer_seek`/`transition_get_frame`. That means
+open time is the *only* place this can be caught; by the time a bad
+producer would otherwise reach the playlist, it's indistinguishable from
+a real one. `EngineSync::mediaUnavailable` fires (main thread, from
+`rebuildAll()`) so the app layer can tell the user which file is missing;
+`verify()` skips its resource-match check for these clips, since the
+placeholder's resource is the intended fallback, not a sync bug.
+
 ### Waveform cache notes
 
 `WaveformCache` opens its own throwaway `Mlt::Profile`/`Producer` per clip
