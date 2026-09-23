@@ -69,10 +69,15 @@ Implementation notes (all main thread):
   Speed ∈ {±0.25, ±0.5, ±1, ±2, ±4, ±8} for J/K/L shuttle; `sdl2_audio`
   handles reverse and pitch-free speed change itself (audio is muted by MLT
   above |2| unless `pitch` handling is enabled; leave MLT defaults).
-- `pause()`: `tractor.set_speed(0)`; `consumer.purge()` to flush the
-  prefetch buffer so the displayed frame is the one at the playhead, then
-  `consumer.set("refresh", 1)` to render exactly one frame. This is the
-  kdenlive pattern and is what gives frame-accurate pause.
+- `pause()`: `tractor.set_speed(0)`; `tractor.seek(displayed)` back to the
+  frame last shown by `consumer-frame-show`; `consumer.purge()` to flush
+  the prefetch buffer; then `consumer.set("refresh", 1)` to render exactly
+  one frame. This is the kdenlive pattern (`VideoWidget::pause()` seeks the
+  producer to the consumer's position before purging) and is what gives
+  frame-accurate pause. The seek is not optional: while playing, the
+  read-ahead thread has pulled the producer up to `buffer` frames past the
+  screen, and `purge()` does not move it back. Without the seek, pause
+  landed ~30 frames late (measured 2026-09-20; test added 2026-09-23).
 - `seek(f)`: `tractor.seek(f)`; if paused, `purge()` + `refresh=1`. While
   playing, just seek; the consumer catches up.
 - Scrubbing (drag on ruler): `seek()` per motion event, rate-limited to one

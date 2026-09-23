@@ -219,6 +219,57 @@ TEST_CASE("PlaybackController: pause shows the exact frame sought to, not one of
     CHECK(deliveredPositions.back() == 30);
 }
 
+TEST_CASE("PlaybackController: pausing mid-playback stays on the last displayed frame")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+    auto tractor = makeOneClipTractor(profile, 400);
+
+    PlaybackController controller;
+    std::mutex mutex;
+    std::vector<int> deliveredPositions;
+    controller.setFrameCallback([&](std::vector<uint8_t>, int, int, int frameNumber) {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.push_back(frameNumber);
+    });
+    controller.setTractor(tractor);
+    controller.play(1.0);
+
+    // Play long enough for the consumer's read-ahead buffer (`buffer`=25
+    // frames) to fill, so the producer's position is well ahead of what's
+    // on screen -- the condition the 2026-09-20 audit's E1 measured (paused
+    // after frame 52 was shown, the refresh frame came back as 83).
+    bool playing = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return !deliveredPositions.empty() && deliveredPositions.back() >= 40;
+        },
+        std::chrono::seconds(10));
+    REQUIRE(playing);
+
+    controller.pause();
+    int pausedAt = controller.currentFrame();
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.clear();
+    }
+
+    // Frames already queued before pause() may still land first; the
+    // refresh frame pause() forces must then show exactly pausedAt. Before
+    // the fix it showed wherever the producer had read ahead to instead.
+    bool gotPausedFrame = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return !deliveredPositions.empty() && deliveredPositions.back() == pausedAt;
+        },
+        std::chrono::seconds(3));
+    std::lock_guard<std::mutex> lock(mutex);
+    INFO("paused at " << pausedAt << ", last delivered "
+                      << (deliveredPositions.empty() ? -1 : deliveredPositions.back()));
+    CHECK(gotPausedFrame);
+    CHECK(controller.currentFrame() == pausedAt);
+}
+
 TEST_CASE("PlaybackController: loop range wraps playback back to loop-in at loop-out")
 {
     sharedFactoryPolicy();

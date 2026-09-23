@@ -170,15 +170,14 @@ void PlaybackController::play(double speed)
     if (!m_tractor)
         return;
     Log::debug("[engine] play(speed=" + std::to_string(speed) + ")");
-    // Clears whatever pause()/seek() last left "refresh" set to. Found
-    // empirically (owner reports: "I can still scrub but not play", then
-    // "it doesn't play from the first frame after the first import
-    // either"): pause() and any seek() taken while paused both set
-    // "refresh"=1 to force exactly one frame through (see their own
-    // comments), and MLT's sdl2_audio consumer treats a still-set
-    // "refresh"=1 as staying latched in that single-frame mode -- calling
-    // set_speed() alone afterward is not enough to resume continuous
-    // pulling. Reproduced 100% with a standalone repro against a real
+    // Wakes the consumer thread. Found empirically (owner reports: "I can
+    // still scrub but not play", then "it doesn't play from the first
+    // frame after the first import either"): after pause() or a paused
+    // seek(), sdl2_audio's consumer thread shows one frame and then blocks
+    // on a condition variable that only a write to the "refresh" property
+    // wakes (consumer_refresh_cb in MLT's consumer_sdl2_audio.c -- any
+    // write fires it; the value written doesn't matter), so set_speed()
+    // alone afterward never resumed continuous pulling. Reproduced 100% with a standalone repro against a real
     // file: a SINGLE seek() (e.g. one click on the timeline -- exactly
     // what both reports amount to, since setTractor() ends every ordinary
     // edit, including an import, with an implicit pause() too) followed by
@@ -197,15 +196,24 @@ void PlaybackController::pause()
 {
     if (!m_tractor)
         return;
-    Log::debug("[engine] pause() at frame " + std::to_string(m_lastKnownFrame.load()));
-    m_pausedPosition.store(m_lastKnownFrame.load());
+    int displayed = m_lastKnownFrame.load();
+    Log::debug("[engine] pause() at frame " + std::to_string(displayed));
+    m_pausedPosition.store(displayed);
     m_tractor->set_speed(0);
     m_speed.store(0.0);
     m_playing.store(false);
     if (m_consumer) {
-        // The kdenlive pattern (doc 05): purge the prefetch buffer so the
-        // frame that shows is the one at the playhead, then force exactly
-        // one frame through. This is what gives frame-accurate pause.
+        // Seek back to the frame actually on screen BEFORE purging (audit
+        // E1, 2026-09-20). While playing, the consumer's read-ahead thread
+        // has already pulled the producer up to `buffer` (25) frames past
+        // what's displayed; purge() drops those queued frames but leaves
+        // the producer's position where the read-ahead left it, so the
+        // refresh frame below used to show that position instead --
+        // measured: paused with frame 40 on screen, the refresh frame came
+        // back as 72. kdenlive's VideoWidget::pause() seeks the producer
+        // to the consumer's position before purging for the same reason;
+        // doc 05's pause() spec had left that step out.
+        m_tractor->seek(displayed);
         m_consumer->purge();
         m_consumer->set("refresh", 1);
     }

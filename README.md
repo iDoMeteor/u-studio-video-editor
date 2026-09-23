@@ -370,21 +370,25 @@ milestone M6). Full rationale in
   `MainThreadDispatcher` — and touches nothing else. Everything else on
   `PlaybackController` (play/pause/seek/...) is main-thread-only, so unlike
   the old `MltEngine` there is no project-wide mutex.
-- **Pause is speed 0 + purge + refresh, not "stop pulling".** Set
-  `tractor.set_speed(0)`, then `consumer.purge()` (flush the prefetch
-  buffer) and `consumer.set("refresh", 1)` (force exactly one frame
-  through) — the pattern kdenlive uses for frame-accurate pause. A plain
-  speed-0 with no purge would keep showing whatever was already prefetched
-  ahead of the playhead. **`play()` must explicitly clear `"refresh"` back
-  to 0 before setting speed**, confirmed the hard way: pause() and any
-  seek() taken while paused both leave it set to 1, and MLT's `sdl2_audio`
-  consumer treats a still-set `"refresh"` as staying latched in that
-  single-frame mode even after `set_speed()` asks for continuous playback
-  again — one seek (a single timeline click, or the implicit `pause()`
-  every `setTractor()` call ends with when nothing was already playing,
-  e.g. right after an import) was enough on its own to freeze play() at
-  the seeked position indefinitely in a standalone repro against a real
-  file, fixed by that one line.
+- **Pause is speed 0 + seek back + purge + refresh, not "stop pulling".**
+  Set `tractor.set_speed(0)`, **seek the tractor back to the frame last
+  shown** (`consumer-frame-show`'s position), then `consumer.purge()`
+  (flush the prefetch buffer) and `consumer.set("refresh", 1)` (force
+  exactly one frame through) — the pattern kdenlive uses for frame-accurate
+  pause. The seek matters: during playback the read-ahead thread has
+  already pulled the producer up to `buffer` (25) frames past the screen,
+  and `purge()` drops the queued frames without moving the producer back.
+  Without it, pausing with frame 40 on screen showed frame 72 (audit E1;
+  regression test "pausing mid-playback stays on the last displayed
+  frame"). **`play()` must write `"refresh"` after setting speed back
+  up** (it writes 0): while paused, `sdl2_audio`'s consumer thread shows
+  one frame and then blocks on a condition variable that only a write to
+  the `"refresh"` property wakes (`consumer_refresh_cb` in MLT's
+  `consumer_sdl2_audio.c`; any write fires it, the value is irrelevant), so
+  `set_speed()` alone left play() frozen at the paused position — one seek
+  or the implicit `pause()` every `setTractor()` ends with was enough to
+  trigger it. The `null` consumer has no such wait, which is why
+  null-consumer tests never caught it.
 - **Position source of truth**: the position carried by each
   `consumer-frame-show` event while playing, the last explicit seek target
   while paused. Never `tractor->position()` for display — it runs ahead of

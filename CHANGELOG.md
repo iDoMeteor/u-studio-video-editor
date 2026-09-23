@@ -12,6 +12,11 @@ docs-only changes are not listed (CLAUDE.md).
   preview scale, and maximum shuttle speed are now user-configurable and
   persisted via GSettings, instead of hardcoded.
 
+## 0.14.7
+
+- Pausing now stops on the frame that was on screen, instead of jumping
+  about a second ahead.
+
 ## 0.14.6
 
 - A timecode ruler now runs along the top of the timeline, with ticks
