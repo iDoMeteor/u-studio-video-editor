@@ -33,6 +33,11 @@ constexpr double kClipFillR = 0x1b / 255.0, kClipFillG = 0x12 / 255.0, kClipFill
 constexpr double kClipBorderR = 0x34 / 255.0, kClipBorderG = 0x23 / 255.0, kClipBorderB = 0x57 / 255.0;
 constexpr double kSelectedR = 0x19 / 255.0, kSelectedG = 0xe3 / 255.0, kSelectedB = 0xff / 255.0;
 constexpr double kActiveTrackR = 0x19 / 255.0, kActiveTrackG = 0xe3 / 255.0, kActiveTrackB = 0xff / 255.0;
+// --cyan-500 (claude-design-system/tokens/colors.css) -- same token/value
+// as kSelected*/kActiveTrack* above, kept as its own named constant since
+// the playhead is a distinct element that shouldn't silently follow if
+// either of those two is ever retuned separately.
+constexpr double kPlayheadR = 0x19 / 255.0, kPlayheadG = 0xe3 / 255.0, kPlayheadB = 0xff / 255.0;
 // --warning (claude-design-system/tokens/colors.css) -- a locked track's
 // row tint; warning/caution is the closest existing token to "you can't
 // edit this", and reusing it keeps this from inventing an off-palette
@@ -2231,6 +2236,20 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_stroke(cr);
         cairo_restore(cr);
     }
+
+    // Playhead: a vertical line at the current frame, spanning every
+    // track row, drawn last so it sits on top of clips/waveforms/hatch
+    // overlays -- the only at-a-glance answer to "where are we" on a
+    // multi-track timeline (previously only the seek bar below the
+    // preview showed this). refreshTransport() queues the redraw that
+    // keeps this in sync with playback, not just with edits.
+    int currentFrame = m_playback->currentFrame();
+    double playheadX = kHandleWidth + (static_cast<double>(currentFrame) / total) * contentWidth;
+    cairo_set_source_rgb(cr, kPlayheadR, kPlayheadG, kPlayheadB);
+    cairo_set_line_width(cr, 2.0);
+    cairo_move_to(cr, playheadX, 0);
+    cairo_line_to(cr, playheadX, trackCount * kTrackRowHeight);
+    cairo_stroke(cr);
 }
 
 void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber)
@@ -2679,6 +2698,12 @@ void AppWindow::refreshTransport(int frameNumber)
     m_suppressSeekSignal = false;
 
     gtk_label_set_text(m_timecodeLabel, formatTimecode(frameNumber).c_str());
+    // Keeps the timeline's playhead line in sync with playback, not just
+    // with edits -- this runs once per displayed frame (onFrameReady's
+    // own comment), both while playing and after a seek (seek() purges
+    // and requests a fresh frame, which comes back through the same
+    // callback), so nothing else needs to separately queue this redraw.
+    gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
 }
 
 void AppWindow::refreshPlayButtonIcon()

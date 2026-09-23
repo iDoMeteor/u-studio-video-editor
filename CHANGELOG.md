@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.13.0
+
+- Timeline playhead: a vertical cyan line at the current frame, spanning
+  every track, updating live during playback and scrubbing — not just
+  the seek bar below the preview.
+
 ## 0.12.8
 
 - Importing several media files at once no longer rebuilds the entire

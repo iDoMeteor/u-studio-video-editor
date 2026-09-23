@@ -46,7 +46,9 @@ single-track skeleton.
   `Alt+Right` for a minute, both clamped to the timeline's start/end),
   jump to start/end (`Home`/`End`), loop in/out (`I`/`O` at the playhead),
   volume, preview-scale preference (Auto/Full/Half/Quarter), scrub by
-  dragging the seek bar (including mid-playback).
+  dragging the seek bar (including mid-playback). A vertical cyan line on
+  the timeline itself marks the current frame across every track, live
+  during playback, not just the seek bar below the preview.
   `A`/`F` jump the playhead to the previous/next cut (a clip's start or
   end, or the timeline's own start/end) on the active track; `S`/`D` move
   which track is active up/down, the same target a plain click sets.
