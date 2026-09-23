@@ -101,8 +101,26 @@ class AppWindow
     void installActions(GtkApplication *app);
     void onImportClicked();
     void onFileOpened(GObject *sourceObject, GAsyncResult *result);
+    // Always opens the "Save Project" dialog (Save As), regardless of
+    // m_currentProjectPath -- bound to Ctrl+Shift+S and the "Save
+    // project…" button. See saveInPlaceOrPrompt() for Ctrl+S's "save in
+    // place when possible" semantics (low-hanging enhancement #2).
     void onSaveClicked();
     void onSaveFinished(GObject *sourceObject, GAsyncResult *result);
+    // Writes `path` (validated, same as the dialog path always was), sets
+    // the clean point, and clears any pending recovered-autosave cleanup
+    // on success. Shared by onSaveFinished() (after the Save As dialog
+    // returns a path) and saveInPlaceOrPrompt() (writing straight back to
+    // m_currentProjectPath, no dialog) so both save paths behave
+    // identically. Destroys the window if `closeAfterSave` and the save
+    // succeeded (audit A2's close-and-save flow).
+    bool performSaveToPath(const std::string &path, bool closeAfterSave);
+    // Ctrl+S (enhancement #2): saves straight back to m_currentProjectPath
+    // with no dialog when the project already has one; falls back to
+    // onSaveClicked()'s Save As dialog for an untitled project, since
+    // there's no "in place" to save to yet. Also used by onCloseRequest()'s
+    // "Save" response, which needs the same in-place-when-possible choice.
+    void saveInPlaceOrPrompt(bool closeAfterSave);
     // Confirms first if there are unsaved changes (audit A4, 2026-09-23),
     // same as Reload/New Project below -- navigating the file-picker
     // dialog to choose what to open says nothing about whether it's safe
@@ -208,6 +226,11 @@ class AppWindow
     void onTimelineClicked(int nPress, double x, double y);
     void onTimelineRightClicked(double x, double y);
     void onDeleteClipClicked();
+    // Enhancement #3: Delete key removes m_selectedClip (the clip a plain
+    // click last landed on), unlike onDeleteClipClicked() above, which
+    // acts on whichever clip a right-click's context menu was opened
+    // over -- a different, independently-tracked selection.
+    void onDeleteSelectedClip();
     void onSplitAudioClicked();
     void onCloseGapClicked();
     void onRemoveTrackClicked();
@@ -387,6 +410,13 @@ class AppWindow
     static void trackDragEndTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
     static void undoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void redoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void playPauseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void saveActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void saveAsActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void openProjectActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void newProjectActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void importActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void deleteSelectedClipActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void shuttleForwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void shuttleReverseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void shuttleStopActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);

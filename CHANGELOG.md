@@ -4,6 +4,15 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.14.0
+
+- Space bar toggles play/pause.
+- Delete removes the selected clip (leaving a gap, same as right-click →
+  Delete Clip).
+- Ctrl+S saves in place once the project has a file, without opening a
+  dialog; Ctrl+Shift+S always opens the Save As dialog. Ctrl+O/N/I open
+  a project, start a new one, and import media.
+
 ## 0.13.6
 
 - The timeline playhead now updates on its own lightweight overlay

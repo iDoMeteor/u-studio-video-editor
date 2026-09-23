@@ -169,6 +169,7 @@ void PlaybackController::play(double speed)
 {
     if (!m_tractor)
         return;
+    Log::debug("[engine] play(speed=" + std::to_string(speed) + ")");
     // Clears whatever pause()/seek() last left "refresh" set to. Found
     // empirically (owner reports: "I can still scrub but not play", then
     // "it doesn't play from the first frame after the first import
@@ -196,6 +197,7 @@ void PlaybackController::pause()
 {
     if (!m_tractor)
         return;
+    Log::debug("[engine] pause() at frame " + std::to_string(m_lastKnownFrame.load()));
     m_pausedPosition.store(m_lastKnownFrame.load());
     m_tractor->set_speed(0);
     m_speed.store(0.0);

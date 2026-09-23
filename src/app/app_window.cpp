@@ -627,10 +627,12 @@ void AppWindow::installActions(GtkApplication *app)
     const char *redoAccels[] = {"<Control><Shift>z", nullptr};
     gtk_application_set_accels_for_action(app, "win.redo", redoAccels);
 
+    // Enhancement #1: Space toggles play/pause, same as every other video
+    // editor. L above already covers "start playing forward" too, but
+    // Space is the one everyone reaches for first.
+    addAction(app, "play-pause", &AppWindow::playPauseActivated, {"space"});
     // J/K/L shuttle, frame step, home/end, loop in/out (doc 05's M2
-    // transport deliverables). No accelerator for play/pause toggle here:
-    // the existing play button is mouse-only, and L already covers
-    // "start playing forward" from the keyboard.
+    // transport deliverables).
     addAction(app, "shuttle-forward", &AppWindow::shuttleForwardActivated, {"l"});
     addAction(app, "shuttle-reverse", &AppWindow::shuttleReverseActivated, {"j"});
     addAction(app, "shuttle-stop", &AppWindow::shuttleStopActivated, {"k"});
@@ -655,6 +657,22 @@ void AppWindow::installActions(GtkApplication *app)
     addAction(app, "step-backward-10", &AppWindow::stepBackward10Activated, {"<Control>Left"});
     addAction(app, "step-forward-minute", &AppWindow::stepForwardMinuteActivated, {"<Alt>Right"});
     addAction(app, "step-backward-minute", &AppWindow::stepBackwardMinuteActivated, {"<Alt>Left"});
+
+    // Enhancement #2: Ctrl+S saves in place (m_currentProjectPath, no
+    // dialog) when there is one, falling back to the Save As dialog for
+    // an untitled project -- see saveInPlaceOrPrompt(). Ctrl+Shift+S
+    // always opens the dialog. Ctrl+O/N/I mirror the header-bar buttons;
+    // Open and New already confirm unsaved changes first (audits A2/A4).
+    addAction(app, "save", &AppWindow::saveActionActivated, {"<Control>s"});
+    addAction(app, "save-as", &AppWindow::saveAsActivated, {"<Control><Shift>s"});
+    addAction(app, "open-project", &AppWindow::openProjectActionActivated, {"<Control>o"});
+    addAction(app, "new-project", &AppWindow::newProjectActionActivated, {"<Control>n"});
+    addAction(app, "import", &AppWindow::importActionActivated, {"<Control>i"});
+
+    // Enhancement #3: Delete removes the clip last clicked (m_selectedClip),
+    // the same target double-click-to-rename and the "corner badge" label
+    // use -- see onDeleteSelectedClip().
+    addAction(app, "delete-selected-clip", &AppWindow::deleteSelectedClipActivated, {"Delete"});
 }
 
 void AppWindow::addAction(GtkApplication *app, const char *name,
@@ -679,6 +697,13 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
         "loop-set-out",    "seek-previous-cut",   "seek-next-cut",        "active-track-up",
         "active-track-down", "step-forward-10",   "step-backward-10",    "step-forward-minute",
         "step-backward-minute",
+        // Enhancements #1/#3: bare Space and Delete, same reasoning as
+        // every action above -- a text entry needs both for perfectly
+        // ordinary typing (a space in a track/clip name, Delete removing
+        // a character), so they're disabled here too. Ctrl+S/Shift+S/O/N/I
+        // below are deliberately NOT in this list, same as Ctrl+Z/Shift+Z:
+        // modifier combos a text entry never needs for itself.
+        "play-pause", "delete-selected-clip",
     };
     for (const char *name : kTransportActions) {
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
@@ -790,50 +815,62 @@ void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
 
     char *path = g_file_get_path(file);
     if (path) {
-        if (pathIsProjectAsset(path)) {
-            showStatus(std::string("Refusing to save over a file already in this project's media: ") + path);
-            g_free(path);
-            g_object_unref(file);
-            return;
-        }
-        // Audit T1 stop-gap: saveProject() doesn't run check() itself, and
-        // loadProject() now refuses any file that fails it -- writing an
-        // invalid model out would produce a file that looks saved but
-        // can never be reopened. Checked here rather than inside
-        // saveProject() (used by autosave and render too, where refusing
-        // outright would be worse than writing best-effort) so this is
-        // the one place a human actually sees and can act on the message.
-        std::vector<std::string> problems = m_model.check();
-        if (!problems.empty()) {
-            Log::error("[app] refusing to save an invalid model: " + problems.front());
-            showStatus("Can't save: the project has an internal inconsistency (" + problems.front() +
-                      "). This is a bug -- please report it.");
-            g_free(path);
-            g_object_unref(file);
-            return;
-        }
-        std::string err = core::saveProject(m_model, path);
-        if (!err.empty()) {
-            showStatus(err);
-        } else {
-            m_currentProjectPath = path;
-            m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
-            // A successful manual Save is the one point A2 designates safe
-            // to remove a recovered autosave: the recovered content now has
-            // a durable copy of its own at `path`.
-            if (!m_pendingAutosaveCleanupPath.empty()) {
-                std::remove(m_pendingAutosaveCleanupPath.c_str());
-                std::remove(m_pendingAutosaveCleanupMetaPath.c_str());
-                m_pendingAutosaveCleanupPath.clear();
-                m_pendingAutosaveCleanupMetaPath.clear();
-            }
-            showStatus(std::string("Saved: ") + path);
-            if (closeAfterSave)
-                gtk_window_destroy(GTK_WINDOW(m_window));
-        }
+        performSaveToPath(path, closeAfterSave);
         g_free(path);
     }
     g_object_unref(file);
+}
+
+bool AppWindow::performSaveToPath(const std::string &path, bool closeAfterSave)
+{
+    if (pathIsProjectAsset(path)) {
+        showStatus("Refusing to save over a file already in this project's media: " + path);
+        return false;
+    }
+    // Audit T1 stop-gap: saveProject() doesn't run check() itself, and
+    // loadProject() now refuses any file that fails it -- writing an
+    // invalid model out would produce a file that looks saved but
+    // can never be reopened. Checked here rather than inside
+    // saveProject() (used by autosave and render too, where refusing
+    // outright would be worse than writing best-effort) so this is
+    // the one place a human actually sees and can act on the message.
+    std::vector<std::string> problems = m_model.check();
+    if (!problems.empty()) {
+        Log::error("[app] refusing to save an invalid model: " + problems.front());
+        showStatus("Can't save: the project has an internal inconsistency (" + problems.front() +
+                  "). This is a bug -- please report it.");
+        return false;
+    }
+    std::string err = core::saveProject(m_model, path);
+    if (!err.empty()) {
+        showStatus(err);
+        return false;
+    }
+    m_currentProjectPath = path;
+    m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
+    // A successful manual Save is the one point A2 designates safe
+    // to remove a recovered autosave: the recovered content now has
+    // a durable copy of its own at `path`.
+    if (!m_pendingAutosaveCleanupPath.empty()) {
+        std::remove(m_pendingAutosaveCleanupPath.c_str());
+        std::remove(m_pendingAutosaveCleanupMetaPath.c_str());
+        m_pendingAutosaveCleanupPath.clear();
+        m_pendingAutosaveCleanupMetaPath.clear();
+    }
+    showStatus("Saved: " + path);
+    if (closeAfterSave)
+        gtk_window_destroy(GTK_WINDOW(m_window));
+    return true;
+}
+
+void AppWindow::saveInPlaceOrPrompt(bool closeAfterSave)
+{
+    if (m_currentProjectPath.empty()) {
+        m_closeAfterSave = closeAfterSave;
+        onSaveClicked();
+        return;
+    }
+    performSaveToPath(m_currentProjectPath, closeAfterSave);
 }
 
 void AppWindow::onOpenProjectClicked()
@@ -1526,6 +1563,23 @@ void AppWindow::onDeleteClipClicked()
     }
 
     if (clipId.isValid() && m_undoStack.execute(std::make_unique<core::RemoveClip>(clipId))) {
+        m_selectedClip = -1;
+        refreshTimeline();
+        showStatus("Deleted clip — gap left behind. Right-click the gap to close it.");
+    } else {
+        showStatus("Couldn't delete that clip.");
+    }
+}
+
+void AppWindow::onDeleteSelectedClip()
+{
+    if (m_selectedClip < 0 || static_cast<size_t>(m_selectedClip) >= m_clips.size()) {
+        showStatus("No clip selected to delete.");
+        return;
+    }
+
+    core::ClipId clipId = m_clips[static_cast<size_t>(m_selectedClip)].id;
+    if (m_undoStack.execute(std::make_unique<core::RemoveClip>(clipId))) {
         m_selectedClip = -1;
         refreshTimeline();
         showStatus("Deleted clip — gap left behind. Right-click the gap to close it.");
@@ -2972,8 +3026,10 @@ gboolean AppWindow::onCloseRequest()
                 // same prompt.
                 gtk_window_destroy(GTK_WINDOW(self->m_window));
             } else if (chosen == "save") {
-                self->m_closeAfterSave = true;
-                self->onSaveClicked();
+                // Enhancement #2: saves straight back to the project's own
+                // path when it has one, same as Ctrl+S, rather than always
+                // forcing a Save As dialog just to close.
+                self->saveInPlaceOrPrompt(true);
             }
             // "cancel": nothing to do -- the close is already vetoed by
             // onCloseRequest()'s GDK_EVENT_STOP.
@@ -3325,6 +3381,41 @@ void AppWindow::undoActionActivated(GSimpleAction *, GVariant *, gpointer userDa
 void AppWindow::redoActionActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onRedo();
+}
+
+void AppWindow::playPauseActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onPlayToggled();
+}
+
+void AppWindow::saveActionActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->saveInPlaceOrPrompt(false);
+}
+
+void AppWindow::saveAsActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSaveClicked();
+}
+
+void AppWindow::openProjectActionActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onOpenProjectClicked();
+}
+
+void AppWindow::newProjectActionActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onNewProjectClicked();
+}
+
+void AppWindow::importActionActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onImportClicked();
+}
+
+void AppWindow::deleteSelectedClipActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onDeleteSelectedClip();
 }
 
 void AppWindow::shuttleForwardActivated(GSimpleAction *, GVariant *, gpointer userData)

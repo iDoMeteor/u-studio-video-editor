@@ -43,8 +43,9 @@ single-track skeleton.
 - **Undo/redo** for every edit (header-bar buttons, `Ctrl+Z`/`Ctrl+Shift+Z`),
   backed by a real command/undo-stack model — see "Architecture" below.
 - Playback via an MLT consumer (`sdl2_audio`, falling back to `rtaudio`,
-  then `null` — see "Playback engine notes"): play/pause, `J`/`K`/`L`
-  shuttle (repeated `J`/`L` ramps speed 1x→2x→4x→8x), frame step
+  then `null` — see "Playback engine notes"): play/pause (`Space`, or the
+  header-bar button), `J`/`K`/`L` shuttle (repeated `J`/`L` ramps speed
+  1x→2x→4x→8x), frame step
   (`Left`/`Right`; `Ctrl+Left`/`Ctrl+Right` for 10 frames, `Alt+Left`/
   `Alt+Right` for a minute, both clamped to the timeline's start/end),
   jump to start/end (`Home`/`End`), loop in/out (`I`/`O` at the playhead),
@@ -60,8 +61,9 @@ single-track skeleton.
 - Split a clip at the playhead.
 - Drag a clip's body to move it — within a track or to a different one.
   Drag near a clip's left/right edge (~8px) to trim it shorter or longer.
-  Right-click a clip to delete it (leaves a gap — "lift", nothing else
-  moves); right-click a clip that has audio and isn't already audio-only
+  Right-click a clip, or click to select it then press `Delete`, to
+  delete it (leaves a gap — "lift", nothing else moves); right-click a
+  clip that has audio and isn't already audio-only
   for "Split Audio" (pulls its audio out to a new, independent clip on the
   nearest audio track with room, creating one if none has room — the two
   halves can then be moved/trimmed independently); right-click a gap to
@@ -99,10 +101,14 @@ single-track skeleton.
   format (H.264 High/yuv420p, 1920×1080, 30fps, AAC 48kHz stereo) via the
   header bar's "Render…" button. Runs on a background thread.
 - Save/load a project as MLT XML with `ustudio:` namespaced properties
-  (see "Project files" below), plus autosave and crash recovery. A Reload
-  button (refresh icon) re-opens the current project's file from disk
-  without a file-picker round trip; a New Project button resets to a
-  fresh, empty, untitled project. Neither touches what's on disk beyond
+  (see "Project files" below), plus autosave and crash recovery.
+  `Ctrl+S` saves straight back to the project's own file with no dialog
+  once it has one (falling back to the Save As dialog for an untitled
+  project); `Ctrl+Shift+S` always opens the Save As dialog. `Ctrl+O`/
+  `Ctrl+N`/`Ctrl+I` mirror the header-bar Open/New Project/Import
+  buttons. A Reload button (refresh icon) re-opens the current project's
+  file from disk without a file-picker round trip; a New Project button
+  resets to a fresh, empty, untitled project. Neither touches what's on disk beyond
   what Reload reads. Open, Reload, and New Project all confirm first
   ("Discard unsaved changes?") if there are any (audit A2; Open joined
   them in audit A4, 2026-09-23 — navigating its file-picker dialog to
