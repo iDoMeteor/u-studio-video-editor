@@ -144,11 +144,12 @@ const Transition &Model::transition(TransitionId id) const
     return *it;
 }
 
-bool Model::isRangeFree(TrackId trackId, FrameIndex start, FrameIndex end, std::optional<ClipId> ignoreClip) const
+bool Model::isRangeFree(TrackId trackId, FrameIndex start, FrameIndex end,
+                        const std::vector<ClipId> &ignoreClips) const
 {
     const Track &target = track(trackId);
     for (ClipId clipId : target.clips) {
-        if (ignoreClip && clipId == *ignoreClip)
+        if (std::find(ignoreClips.begin(), ignoreClips.end(), clipId) != ignoreClips.end())
             continue;
         const Clip &existing = clip(clipId);
         if (start < existing.end() && end > existing.position)
@@ -525,6 +526,20 @@ void Model::removeTransition(TransitionId id)
 
     notify(TransitionRemoved{id, captured.track});
     notify(BatchEnd{});
+}
+
+void Model::retargetTransitionClip(TransitionId id, ClipId oldClip, ClipId newClip)
+{
+    auto &transitions = activeSequence().transitions;
+    auto it = std::find_if(transitions.begin(), transitions.end(), [id](const Transition &t) { return t.id == id; });
+    assert(it != transitions.end() && "Model::retargetTransitionClip: unknown TransitionId");
+    if (it->a == oldClip)
+        it->a = newClip;
+    else if (it->b == oldClip)
+        it->b = newClip;
+    else
+        assert(false && "Model::retargetTransitionClip: oldClip is not referenced by this transition");
+    notify(TransitionChanged{id});
 }
 
 // --- Invariants (doc 03) -----------------------------------------------------

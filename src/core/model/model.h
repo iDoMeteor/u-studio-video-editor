@@ -60,10 +60,14 @@ class Model
     bool hasTransition(TransitionId) const;
     const Transition &transition(TransitionId) const;
     // Pure query, no mutation: true if [start, end) is free of clips on
-    // `trackId`, ignoring `ignoreClip` if given (a clip checking against
-    // its own future position). Used by core/commands to validate before
-    // apply(), per doc 04's dry-run-query pattern.
-    bool isRangeFree(TrackId, FrameIndex start, FrameIndex end, std::optional<ClipId> ignoreClip = std::nullopt) const;
+    // `trackId`, ignoring every id in `ignoreClips` (a clip checking
+    // against its own future position, and -- audit C2 -- a dissolve
+    // partner whose current, transition-extended span legitimately
+    // overlaps the checked range and isn't being stripped by this same
+    // edit, so the ignore set isn't always a single, literal id). Used
+    // by core/commands to validate before apply(), per doc 04's
+    // dry-run-query pattern.
+    bool isRangeFree(TrackId, FrameIndex start, FrameIndex end, const std::vector<ClipId> &ignoreClips = {}) const;
 
     // --- Mutators -----------------------------------------------------
     AssetId addAsset(Asset newAsset, std::optional<AssetId> reuseId = std::nullopt);
@@ -148,6 +152,16 @@ class Model
     TransitionId addTransition(TrackId track, ClipId a, ClipId b, FrameIndex extendA, FrameIndex extendB,
                                std::optional<TransitionId> reuseId = std::nullopt);
     void removeTransition(TransitionId);
+    // Repoints a transition's `a` or `b` (whichever currently equals
+    // `oldClip`) to `newClip`, changing nothing else -- no clip geometry
+    // touched, unlike addTransition/removeTransition above. Used when an
+    // edit keeps a transition's own geometry valid but hands its role to
+    // a DIFFERENT clip object (SplitClip, audit C4: the half of a split
+    // clip that keeps the far edge the transition was already anchored
+    // to). Asserts if `oldClip` isn't actually referenced by this
+    // transition -- callers validate first, same contract as every
+    // other mutator here.
+    void retargetTransitionClip(TransitionId, ClipId oldClip, ClipId newClip);
 
     // Verbatim restore, used by Command::revert paths (core/commands) that
     // captured a full Clip/Track at apply time (e.g. RemoveClip, RemoveTrack)

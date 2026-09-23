@@ -4,6 +4,21 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.13.1
+
+- Trimming, moving, or splitting a clip that has a dissolve transition on
+  it no longer refuses the edit, or silently drops the transition, when
+  the edit doesn't actually touch the transition's own overlap — only
+  edits that reach into the overlap strip it now.
+- Splitting a clip whose far edge has a dissolve now keeps the
+  transition, moved onto whichever half of the split still owns that
+  edge, instead of always stripping it.
+- A clip drag that ends back exactly where it started no longer strips
+  the clip's dissolve transition.
+- Deleting a media asset from the media browser no longer leaves a
+  dangling dissolve transition on a clip it removed, or on a surviving
+  clip that shared the dissolve with a removed one.
+
 ## 0.13.0
 
 - Timeline playhead: a vertical cyan line at the current frame, spanning

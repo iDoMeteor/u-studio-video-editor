@@ -1884,8 +1884,19 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
             onTimelineClicked(1, m_dragStartX, m_dragStartY);
         } else if (mode == TimelineDragMode::MoveClip) {
             core::TrackId destTrack = trackIdForRow(m_dragPreviewTrack);
-            if (m_undoStack.execute(
-                    std::make_unique<core::MoveClip>(m_dragClipId, destTrack, m_dragPreviewStartFrame))) {
+            const core::Clip &draggedClip = m_model.clip(m_dragClipId);
+            // Audit C3: a drag whose pixel offset cleared the trivial
+            // threshold (so it wasn't caught above) but still lands back
+            // on the clip's own track and position isn't a move -- issuing
+            // MoveClip anyway would strip any dissolve on this clip for
+            // an edit that changes nothing. Model::MoveClip::apply()
+            // refuses this too (belt and suspenders), but skipping it
+            // here also avoids the wrong "that space is occupied" message
+            // for what's actually a no-op.
+            if (destTrack == draggedClip.track && m_dragPreviewStartFrame == draggedClip.position) {
+                // Nothing to do -- already exactly where it started.
+            } else if (m_undoStack.execute(
+                          std::make_unique<core::MoveClip>(m_dragClipId, destTrack, m_dragPreviewStartFrame))) {
                 m_activeTrack = m_dragPreviewTrack;
             } else {
                 showStatus("Can't move the clip there — that space is occupied.");

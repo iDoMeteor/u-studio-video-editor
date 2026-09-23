@@ -72,8 +72,9 @@ struct TransitionRemoved
     TransitionId transition;
     TrackId track;
 };
-// Reserved for a future in-place edit (e.g. changing length/service without
-// touching either clip's anchors) -- no mutator emits it yet.
+// Emitted by Model::retargetTransitionClip() (audit C4: repointing a
+// transition's `a`/`b` to a different clip object, e.g. after a split,
+// without touching either clip's geometry).
 struct TransitionChanged
 {
     TransitionId transition;

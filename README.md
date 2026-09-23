@@ -426,7 +426,7 @@ span — a crash on the next right-click/drag on that row (an unguarded
 `m_model.clip(t.a)`/`clip(t.b)` in the timeline's right-click and
 drag-begin handlers), and a saved project that fails `loadProject()`'s
 own `check()` refusal on reopen. `RemoveClip`, `MoveClip`, `ResizeClip`,
-`SplitClip`, and `RemoveTrack` now each strip any transition touching the
+`SplitClip`, and `RemoveTrack` each strip a transition touching the
 clip(s) they're about to change first (`Model::removeTransition`, which
 un-extends both linked clips back to pre-dissolve geometry) and restore
 it on revert (`Model::addTransition`) — the clip simply loses its
@@ -439,6 +439,33 @@ middle of an A-dissolve-B-dissolve-C chain — can have combined overlap
 longer than its own length, which `AddTransition`'s single-transition
 check doesn't catch but corrupts `planTrackSegments`'s layout); both
 `AddTransition` and `Model::check()` now enforce it.
+
+A 2026-09-23 follow-up audit found the T1 fix above was too eager:
+`ResizeClip`/`SplitClip` stripped (or flatly refused) an edit touching
+only a clip's *untouched* edge — trimming a clip's far tail away from an
+incoming dissolve on its head, for instance, was refused outright,
+because `Model::isRangeFree`'s overlap check only ever ignored the clip
+being edited, not the still-present, still-legitimately-overlapping
+partner clip a transition it wasn't stripping left in place.
+`isRangeFree` now takes a set of ids to ignore (the clip itself, plus the
+partner of any transition this edit determined it doesn't need to strip),
+and `ResizeClip`/`SplitClip` strip only the transition(s) whose own
+overlap region the edit would actually reach into — everything else on
+the clip keeps its dissolve. `SplitClip` additionally repoints a
+surviving *outgoing* transition from the original clip onto the new right
+half (`Model::retargetTransitionClip`, which changes a transition's `a`/
+`b` without touching either clip's geometry) rather than leaving it
+attached to the half that no longer owns that edge. Two narrower bugs
+from the same audit: `MoveClip::apply()` now refuses outright — before
+touching the model at all — a "move" whose destination track and
+position exactly match the clip's current ones (a click, or a small
+same-row wobble the drag-vs-click pixel threshold didn't fully absorb),
+since issuing it anyway would strip a dissolve for an edit that changes
+nothing; and `RemoveAsset` now strips each of its clips' transitions
+*before* capturing their (now pre-dissolve) geometry for revert, in the
+same batch as the removal, so deleting an asset no longer leaves a
+dangling transition on a clip about to disappear or on a surviving clip
+it was linked to.
 
 Fixing T1 surfaced a second, unrelated crash: `RemoveClip`/`MoveClip`/
 `RemoveAsset` (and, before this fix, the un-batched T1 strip-then-edit

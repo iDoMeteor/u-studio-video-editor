@@ -483,6 +483,71 @@ TEST_CASE("AddAsset / RemoveAsset: revert restores the asset and every clip that
     CHECK(equalIgnoringIdAllocator(model, beforeRemoval));
 }
 
+TEST_CASE("RemoveAsset strips a dissolve on one of its clips instead of leaving it dangling (2026-09-23 audit C1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+
+    // Removing the asset removes both a and b (both cut from it) --
+    // before this fix, RemoveAsset called Model::removeClip directly,
+    // never stripping the transition first, so it vanished along with
+    // whichever clip happened to be removed while the OTHER clip (if it
+    // had survived) would have kept its extension. Here both clips are
+    // gone either way, but check() must still report a clean model, not
+    // a transition referencing a missing clip (invariant 6).
+    RemoveAsset removeCmd(asset);
+    REQUIRE(removeCmd.apply(model));
+    CHECK_FALSE(model.hasAsset(asset));
+    CHECK_FALSE(model.hasClip(a));
+    CHECK_FALSE(model.hasClip(b));
+    CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.check().empty());
+
+    removeCmd.revert(model);
+    REQUIRE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(a).out == 55); // the dissolve's extension is back too, not just the clips
+    CHECK(model.check().empty());
+}
+
+TEST_CASE("RemoveAsset strips a dissolve to another clip that SURVIVES the removal (2026-09-23 audit C1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId assetA = addTestAsset(model);
+    Asset otherAsset;
+    otherAsset.displayName = "other.mp4";
+    otherAsset.info.lengthInSequenceFrames = 100'000;
+    AssetId assetB = model.addAsset(otherAsset);
+
+    ClipId a = model.insertClip(track, assetA, 0, 0, 49);
+    ClipId b = model.insertClip(track, assetB, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+
+    // Only assetA (and clip a) is removed; b survives on a different
+    // asset. Without stripping first, b would have kept its position
+    // pulled back by extendB while the transition record vanished with
+    // a -- exactly the "other clip keeps its dissolve extension" bug
+    // the audit reported.
+    RemoveAsset removeCmd(assetA);
+    REQUIRE(removeCmd.apply(model));
+    CHECK_FALSE(model.hasClip(a));
+    REQUIRE(model.hasClip(b));
+    CHECK(model.clip(b).position == 50); // back to its own un-extended position
+    CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.check().empty());
+
+    removeCmd.revert(model);
+    REQUIRE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(b).position == 46);
+    CHECK(model.check().empty());
+}
+
 TEST_CASE("RemoveAsset refuses the whole removal when a referencing clip is on a locked track")
 {
     Model model = Model::createEmpty();
@@ -808,6 +873,27 @@ TEST_CASE("MoveClip strips an existing transition first and restores it on rever
     CHECK(equalIgnoringIdAllocator(model, linked));
 }
 
+TEST_CASE("MoveClip refuses a no-op move to its own track and position (2026-09-23 audit C3)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4);
+    REQUIRE(addCmd.apply(model));
+    Model linked = model;
+
+    // A drag that ends exactly where it started (a small wobble past the
+    // pixel-level "trivial drag" threshold in the app layer, but landing
+    // back on the same track/position) must not strip b's dissolve for
+    // an edit that changes nothing.
+    MoveClip cmd(b, track, model.clip(b).position);
+    CHECK_FALSE(cmd.apply(model));
+    CHECK(equalIgnoringIdAllocator(model, linked));
+    CHECK(model.hasTransition(addCmd.transitionId()));
+}
+
 TEST_CASE("ResizeClip strips an existing transition first and restores it on revert (audit T1)")
 {
     Model model = Model::createEmpty();
@@ -835,21 +921,155 @@ TEST_CASE("ResizeClip strips an existing transition first and restores it on rev
     CHECK(equalIgnoringIdAllocator(model, linked));
 }
 
-TEST_CASE("SplitClip strips an existing transition first and restores it on revert (audit T1)")
+TEST_CASE("ResizeClip allows a tail trim far from an untouched incoming dissolve (2026-09-23 audit C2)")
 {
     Model model = Model::createEmpty();
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     AssetId asset = addTestAsset(model);
     ClipId a = model.insertClip(track, asset, 0, 0, 49);
     ClipId b = model.insertClip(track, asset, 50, 100, 149);
-    AddTransition addCmd(track, a, b, 6, 4);
+    AddTransition addCmd(track, a, b, 6, 4); // b's incoming overlap: [46, 56); b's current span [46,100)
     REQUIRE(addCmd.apply(model));
+
+    // Trim only b's tail (in/position unchanged, well away from the
+    // incoming dissolve at its head) -- previously always refused, since
+    // isRangeFree checked the new range against a's still-extended
+    // [0,55) span and found the legitimate [46,55) dissolve overlap
+    // "occupied" (audit C2's exact repro: "trim B tail by 5, far from
+    // the dissolve: ok=0").
+    ResizeClip cmd(b, 96, 139, 46);
+    REQUIRE(cmd.apply(model));
+    CHECK(model.hasTransition(addCmd.transitionId())); // untouched
+    CHECK(model.clip(a).out == 55);                    // a's extension survives completely undisturbed
+    CHECK(model.clip(b).out == 139);
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(b).out == 149);
+}
+
+TEST_CASE("ResizeClip allows a head trim far from an untouched outgoing dissolve (2026-09-23 audit C2)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 99);     // [0,100)
+    ClipId b = model.insertClip(track, asset, 100, 50, 149); // head handle to spare
+    AddTransition addCmd(track, a, b, 6, 4); // a's outgoing overlap: [96, 106); a's current span [0,106)
+    REQUIRE(addCmd.apply(model));
+
+    // Trim only a's head (out unchanged, well away from the outgoing
+    // dissolve at its tail).
+    ResizeClip cmd(a, 10, 105, 10);
+    REQUIRE(cmd.apply(model));
+    CHECK(model.hasTransition(addCmd.transitionId())); // untouched
+    CHECK(model.clip(b).position == 96);               // b's extension survives completely undisturbed
+    CHECK(model.clip(a).in == 10);
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(a).in == 0);
+}
+
+TEST_CASE("SplitClip preserves an incoming transition on the left half when the split is far from it (audit C4)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4); // b's incoming overlap: [46, 56)
+    REQUIRE(addCmd.apply(model));
+
+    // 70 is well past the overlap's own end (56) -- the split must not
+    // touch this dissolve at all (audit C4: T1's original fix stripped
+    // every transition on the clip regardless of where the split point
+    // fell, destroying dissolves nowhere near the cut).
+    SplitClip cmd(b, 70);
+    REQUIRE(cmd.apply(model));
+    CHECK(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.transition(addCmd.transitionId()).b == b); // still the left half, same id, untouched
+    CHECK(model.clip(a).out == 55);                        // a's extension survives completely undisturbed
+    CHECK(model.clip(b).position == 46);                   // left half keeps the original head geometry
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(model.hasTransition(addCmd.transitionId()));
+    CHECK_FALSE(model.hasClip(cmd.rightId()));
+}
+
+TEST_CASE("SplitClip strips an incoming transition when the split point falls inside its own overlap (audit C4)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, asset, 50, 100, 149);
+    AddTransition addCmd(track, a, b, 6, 4); // b's incoming overlap: [46, 56)
     Model linked = model;
 
-    SplitClip cmd(b, 70); // well inside both the extended [46,100) and base [50,100) spans
+    // Inside [46, 56) but also strictly inside b's own SHRUNK span
+    // (50, 100) once the strip below runs -- 50 itself is the shrunk
+    // span's own boundary, not strictly inside it.
+    SplitClip cmd(b, 52);
     REQUIRE(cmd.apply(model));
     CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
-    CHECK(model.clip(a).out == 49);
+    CHECK(model.clip(a).out == 49); // a's extension is undone along with the transition
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    CHECK(equalIgnoringIdAllocator(model, linked));
+}
+
+TEST_CASE("SplitClip repoints a preserved outgoing transition to the right half (audit C4)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 99);     // [0,100)
+    ClipId b = model.insertClip(track, asset, 100, 50, 149); // [100,200), head handle to spare
+    AddTransition addCmd(track, a, b, 6, 4);                  // a's outgoing overlap: [96, 106)
+    REQUIRE(addCmd.apply(model));
+
+    // a's extended end() is 106 (99 + extendA 6 + 1), transition length
+    // is 10 (extendA 6 + extendB 4), so its outgoing overlap is
+    // [96, 106). 50 is well before that -- must preserve the dissolve,
+    // repointed to the right half (which keeps a's original,
+    // still-extended `out` of 105).
+    SplitClip cmd(a, 50);
+    REQUIRE(cmd.apply(model));
+    ClipId right = cmd.rightId();
+    REQUIRE(model.hasTransition(addCmd.transitionId()));
+    const Transition &t = model.transition(addCmd.transitionId());
+    CHECK(t.a == right); // repointed away from the left half...
+    CHECK(t.a != a);      // ...which no longer reaches the tail edge at all
+    CHECK(model.clip(right).out == 105);
+    CHECK(model.clip(a).out == 49); // left half ends cleanly at the split point
+    CHECK(model.check().empty());
+
+    cmd.revert(model);
+    REQUIRE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.transition(addCmd.transitionId()).a == a); // repointed back before the right half was removed
+    CHECK_FALSE(model.hasClip(right));
+    CHECK(model.clip(a).out == 105);
+}
+
+TEST_CASE("SplitClip strips an outgoing transition when the split point falls inside its own overlap (audit C4)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 0, 99);
+    ClipId b = model.insertClip(track, asset, 100, 50, 149); // head handle to spare, same as the previous test
+    AddTransition addCmd(track, a, b, 6, 4); // a's outgoing overlap: [96, 106) -- see the previous test's own comment
+    Model linked = model;
+
+    SplitClip cmd(a, 98); // inside [96, 106) -- ambiguous, must strip
+    REQUIRE(cmd.apply(model));
+    CHECK_FALSE(model.hasTransition(addCmd.transitionId()));
+    CHECK(model.clip(a).out == 97); // split point minus 1, no leftover extension
     CHECK(model.check().empty());
 
     cmd.revert(model);

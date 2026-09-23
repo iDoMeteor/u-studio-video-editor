@@ -87,6 +87,12 @@ class RemoveAsset : public Command
     AssetId m_asset;
     Asset m_capturedAsset;
     std::vector<Clip> m_capturedClips;
+    // Audit C1: every transition any removed clip was part of, stripped
+    // before capture (see this file's top-of-file comment) and restored
+    // on revert -- without this, a dissolve's OTHER clip kept its
+    // extension while the transition record vanished with the removed
+    // one.
+    std::vector<Transition> m_capturedTransitions;
 };
 
 class AddTrack : public Command
@@ -319,12 +325,17 @@ class ResizeClip : public Command
 
 // Implemented as doc 04 describes: apply splits into left (this clip,
 // resized) + right (a new InsertClip-equivalent); revert removes the
-// right half and restores the left's original `out`. T1: strips (and,
-// on revert, restores) any transition touching the clip first -- see
-// this file's own top-of-file comment; the split point is re-validated
-// against the clip's un-extended span afterward, since stripping can
-// move it enough that a point valid before no longer strictly falls
-// inside the clip.
+// right half and restores the left's original `out`. Audit C4: a
+// transition on this clip is only stripped if the split point actually
+// falls inside ITS OWN overlap region (ambiguous which half it'd
+// belong to) -- one far from either edge is left alone instead of
+// unconditionally destroying both (T1's original, cruder rule). An
+// incoming transition (this clip is `b`) needs no other change, since
+// the left half keeps this clip's own id and head geometry; an
+// outgoing one (this clip is `a`) is repointed (Model::
+// retargetTransitionClip(), no geometry change) from this clip to the
+// new right half once it exists, since the left half no longer reaches
+// that edge.
 class SplitClip : public Command
 {
   public:
@@ -347,6 +358,12 @@ class SplitClip : public Command
     std::optional<FadeSpec> m_oldFadeOut;
     ClipId m_rightId;
     bool m_appliedBefore = false;
+    // Set only when an outgoing transition survived (wasn't stripped)
+    // and was repointed from m_clip to m_rightId -- revert() repoints
+    // it back before removing m_rightId, or that transition would be
+    // left dangling on a clip about to disappear. Invalid (default
+    // TransitionId) when there was none to repoint.
+    TransitionId m_repointedOutgoingTransition;
     std::vector<Transition> m_capturedTransitions;
 };
 
