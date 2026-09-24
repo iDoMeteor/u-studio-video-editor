@@ -137,7 +137,22 @@ Each lands as small reviewed commits with tests, in this order.
     2026-09-24).
 - Save and autosave serialise a snapshot on the pool (the atomic temp file
   and rename stay); the dirty flag is cleared only when the write that
-  matches the current undo depth succeeds.
+  matches the current undo depth succeeds. Landed in 0.25.0 as
+  `app/save_queue.*`:
+  - Writes run one at a time, so two writes to one path never share its
+    `.tmp`. Latest wins: at most one Save and one Autosave wait behind the
+    running write.
+  - `UndoStack` now names states rather than depths. Each entry has a
+    serial, renewed on merge; a save captures `state()` on submit and
+    passes it to `setCleanPoint(State)` on completion. This also fixed a
+    false "clean" after undoing below the save point and editing again.
+  - Closing waits for a running write; `prepareForShutdown()` runs
+    `SaveQueue::finish()`. Model `check()` runs on the pool as well.
+  - Measured on a 5,000-clip project (1,992 dissolves, 200 markers; 4.9 MB
+    file), three runs each, stall monitor on:
+    - before: Save blocked the main loop 172–184 ms;
+    - after: no main-loop iteration over 16 ms from Save onwards, and the
+      write lands 187–197 ms later on the pool.
 - Project load parses on the pool; the model swap happens on the main
   thread.
 

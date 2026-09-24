@@ -130,3 +130,12 @@ test_import_queue_exe = executable(
 )
 
 test('app-import-queue', test_import_queue_exe, timeout: 60)
+
+test_save_queue_exe = executable(
+  'test_save_queue',
+  files('test_save_queue.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+
+test('app-save-queue', test_save_queue_exe, timeout: 60)

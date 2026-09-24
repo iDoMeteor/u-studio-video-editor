@@ -1,6 +1,6 @@
 project(
   'u-studio-video-editor', 'cpp',
-  version: '0.24.0',
+  version: '0.25.0',
   license: 'GPL-3.0-or-later',
   default_options: [
     'cpp_std=c++23',

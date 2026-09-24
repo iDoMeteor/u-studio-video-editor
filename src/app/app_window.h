@@ -23,6 +23,7 @@
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "import_queue.h"
+#include "save_queue.h"
 #include "settings.h"
 #include "timeline/timeline_controller.h"
 #include "timeline/texture_cache.h"
@@ -126,20 +127,26 @@ class AppWindow
                                                            const engine::EngineSync::ProbedMedia &probed);
     // Open, New, Reload and Recover replace the project: imports still
     // probing for the old one are cancelled and their results dropped.
+    // Saves of the old project still finish writing (the user asked for
+    // them), but m_projectGeneration keeps them from touching the new
+    // one's path or dirty state.
     void cancelProjectJobs();
+    // A close waiting for a write to land (see onCloseRequest()) retries
+    // once nothing is left to write.
+    void onSaveQueueSettled();
     // Always opens the "Save Project" dialog (Save As), regardless of
     // m_currentProjectPath -- bound to Ctrl+Shift+S and the "Save
     // project…" button. See saveInPlaceOrPrompt() for Ctrl+S's "save in
     // place when possible" semantics (low-hanging enhancement #2).
     void onSaveClicked();
     void onSaveFinished(GObject *sourceObject, GAsyncResult *result);
-    // Writes `path` (validated, same as the dialog path always was), sets
-    // the clean point, and clears any pending recovered-autosave cleanup
-    // on success. Shared by onSaveFinished() (after the Save As dialog
-    // returns a path) and saveInPlaceOrPrompt() (writing straight back to
-    // m_currentProjectPath, no dialog) so both save paths behave
-    // identically. Destroys the window if `closeAfterSave` and the save
-    // succeeded (audit A2's close-and-save flow).
+    // Validates, then writes a snapshot to `path` on the pool (doc 19 MT1).
+    // When the write lands: marks the state it captured clean, clears any
+    // pending recovered-autosave cleanup, and destroys the window if
+    // `closeAfterSave` (audit A2's close-and-save flow). Shared by
+    // onSaveFinished() (after the Save As dialog) and saveInPlaceOrPrompt()
+    // (straight back to m_currentProjectPath) so both behave identically.
+    // Returns false if refused before writing.
     bool performSaveToPath(const std::string &path, bool closeAfterSave);
     // Ctrl+S (enhancement #2): saves straight back to m_currentProjectPath
     // with no dialog when the project already has one; falls back to
@@ -728,6 +735,10 @@ class AppWindow
     engine::MainThreadDispatcher::LifetimeToken m_lifetime = engine::MainThreadDispatcher::makeToken();
     std::unique_ptr<core::concurrency::ThreadPool> m_pool;
     std::unique_ptr<ImportQueue> m_importQueue;
+    std::unique_ptr<SaveQueue> m_saveQueue;
+    // Bumped whenever the project is replaced (cancelProjectJobs()).
+    uint64_t m_projectGeneration = 0;
+    bool m_closeWhenSaved = false;
     timeline::TextureCache m_thumbnailTextures{600};
     std::vector<ClipDisplay> m_clips;
     // doc 06's TimelineController: gesture state, drag preview and the

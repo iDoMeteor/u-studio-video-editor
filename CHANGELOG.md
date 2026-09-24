@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.25.0
+
+- Saving and autosaving write in the background, so a big project no longer
+  freezes the window while saving; closing or quitting waits for a save
+  that's still writing.
+- Fixed: undoing past the last save and then making a new edit could show
+  the project as saved when it wasn't.
+
 ## 0.24.0
 
 - Importing several files probes them in parallel off the main thread, shows

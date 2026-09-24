@@ -202,7 +202,10 @@ single-track skeleton.
   immediately with no prompt at all. Discarding, or any other path that
   reaches the app's own shutdown while still dirty, still leaves a final
   autosave behind as a recovery point, the same as any other still-dirty
-  exit.
+  exit. Saves and autosaves write in the background, so the window never
+  freezes on a big project. Closing or quitting while a save is still
+  writing waits for it to finish. An edit made during a save stays marked
+  unsaved, because the file doesn't have it yet.
 - Timestamped debug/info/warn/error logging to
   `$XDG_STATE_HOME/ustudio/logs/` (falls back to
   `~/.local/state/ustudio/logs/` if `XDG_STATE_HOME` is unset), level

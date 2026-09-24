@@ -179,6 +179,10 @@ AppWindow::AppWindow(GtkApplication *app)
         std::make_unique<ImportQueue>(*m_pool, [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
         });
+    m_saveQueue =
+        std::make_unique<SaveQueue>(*m_pool, [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
+            engine::MainThreadDispatcher::post(token, std::move(fn));
+        });
     m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
     m_thumbnails = std::make_unique<engine::ThumbnailCache>([this] { onThumbnailReady(); });
     // The timeline's strips have their own worker: dozens of frames arrive
@@ -242,8 +246,15 @@ void AppWindow::prepareForShutdown()
     // "Discard" (the autosave doesn't touch m_currentProjectPath, so
     // discarding still leaves a recovery point behind) and any path that
     // reaches shutdown without going through onCloseRequest at all.
-    if (!m_undoStack.isClean())
-        performAutosave();
+    // Saves and autosaves write on the pool: let the running one land and
+    // run the waiting ones here, then take a last autosave the same way.
+    if (m_saveQueue) {
+        m_saveQueue->finish();
+        if (!m_undoStack.isClean()) {
+            performAutosave();
+            m_saveQueue->finish();
+        }
+    }
     // A render still running would be inside MLT when main() closes the
     // factory (post-M3 audit P2: 3/3 crashes). Stop it and wait for it;
     // renderProject() removes its .part file when cancelled.
@@ -256,6 +267,7 @@ void AppWindow::prepareForShutdown()
     if (m_importQueue)
         m_importQueue->cancelAll();
     m_importQueue.reset();
+    m_saveQueue.reset();
     m_pool.reset();
     if (m_playback)
         m_playback->shutdown();
@@ -1360,8 +1372,17 @@ std::expected<void, std::string> AppWindow::importProbedAssetOnly(const std::str
 
 void AppWindow::cancelProjectJobs()
 {
+    ++m_projectGeneration;
     if (m_importQueue)
         m_importQueue->cancelAll();
+}
+
+void AppWindow::onSaveQueueSettled()
+{
+    if (m_closeWhenSaved && m_saveQueue && !m_saveQueue->busy()) {
+        m_closeWhenSaved = false;
+        gtk_window_close(GTK_WINDOW(m_window)); // clean now, or asks as usual
+    }
 }
 
 void AppWindow::onSaveClicked()
@@ -1407,40 +1428,59 @@ bool AppWindow::performSaveToPath(const std::string &requestedPath, bool closeAf
         showStatus("Refusing to save over a file already in this project's media: " + path);
         return false;
     }
-    // Audit T1 stop-gap: saveProject() doesn't run check() itself, and
-    // loadProject() now refuses any file that fails it -- writing an
-    // invalid model out would produce a file that looks saved but
-    // can never be reopened. Checked here rather than inside
-    // saveProject() (used by autosave and render too, where refusing
-    // outright would be worse than writing best-effort) so this is
-    // the one place a human actually sees and can act on the message.
-    std::vector<std::string> problems = m_model.check();
-    if (!problems.empty()) {
-        Log::error("[app] refusing to save an invalid model: " + problems.front());
-        showStatus("Can't save: the project has an internal inconsistency (" + problems.front() +
-                  "). This is a bug -- please report it.");
-        return false;
-    }
-    std::string err = core::saveProject(m_model, path);
-    if (!err.empty()) {
-        showStatus(err);
-        return false;
-    }
-    m_currentProjectPath = path;
-    m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
-    // A successful manual Save is the one point A2 designates safe
-    // to remove a recovered autosave: the recovered content now has
-    // a durable copy of its own at `path`.
-    if (!m_pendingAutosaveCleanupPath.empty()) {
-        std::remove(m_pendingAutosaveCleanupPath.c_str());
-        std::remove(m_pendingAutosaveCleanupMetaPath.c_str());
-        m_pendingAutosaveCleanupPath.clear();
-        m_pendingAutosaveCleanupMetaPath.clear();
-    }
-    showStatus("Saved: " + path);
-    recordRecentProject(path); // enhancement #15
-    if (closeAfterSave)
-        gtk_window_destroy(GTK_WINDOW(m_window));
+    if (!m_saveQueue)
+        return false; // shutting down
+    // The snapshot and the undo state are taken now; the write lands later,
+    // and only marks clean what it actually wrote.
+    std::shared_ptr<const core::Project> snapshot = m_model.snapshot();
+    core::UndoStack::State savedState = m_undoStack.state();
+    uint64_t generation = m_projectGeneration;
+    showStatus("Saving " + path + "…");
+    m_saveQueue->save(
+        [snapshot, path] {
+            core::Model model(*snapshot);
+            // Audit T1 stop-gap: saveProject() doesn't run check() itself,
+            // and loadProject() refuses any file that fails it -- writing an
+            // invalid model out would produce a file that looks saved but
+            // can never be reopened. Checked here rather than inside
+            // saveProject() (used by autosave and render too, where refusing
+            // outright would be worse than writing best-effort) so this is
+            // the one place a human sees the message. On the pool: ~50 ms
+            // for 5,000 clips.
+            std::vector<std::string> problems = model.check();
+            if (!problems.empty()) {
+                Log::error("[app] refusing to save an invalid model: " + problems.front());
+                return "Can't save: the project has an internal inconsistency (" + problems.front() +
+                       "). This is a bug -- please report it.";
+            }
+            return core::saveProject(model, path);
+        },
+        [this, path, savedState, generation, closeAfterSave](const std::string &error) {
+            if (!error.empty()) {
+                showStatus(error);
+                onSaveQueueSettled();
+                return;
+            }
+            if (generation == m_projectGeneration) {
+                m_currentProjectPath = path;
+                m_undoStack.setCleanPoint(savedState); // emits changed -- updateWindowTitle() follows
+                // A successful manual Save is the one point A2 designates
+                // safe to remove a recovered autosave: the recovered content
+                // now has a durable copy of its own at `path`.
+                if (!m_pendingAutosaveCleanupPath.empty()) {
+                    std::remove(m_pendingAutosaveCleanupPath.c_str());
+                    std::remove(m_pendingAutosaveCleanupMetaPath.c_str());
+                    m_pendingAutosaveCleanupPath.clear();
+                    m_pendingAutosaveCleanupMetaPath.clear();
+                }
+            }
+            showStatus("Saved: " + path);
+            recordRecentProject(path); // enhancement #15
+            if (closeAfterSave)
+                gtk_window_destroy(GTK_WINDOW(m_window));
+            else
+                onSaveQueueSettled();
+        });
     return true;
 }
 
@@ -3352,9 +3392,8 @@ void AppWindow::performAutosave()
     std::string autosavePath = dir + "/" + base + ".ustudio";
     std::string metaPath = dir + "/" + base + ".meta";
 
-    if (!core::saveProject(m_model, autosavePath).empty())
-        return; // silent: an autosave failure shouldn't interrupt the user
-
+    if (!m_saveQueue)
+        return;
     autosave::Meta meta;
     meta.originalPath = m_currentProjectPath;
     meta.timestampUnix = static_cast<int64_t>(std::time(nullptr));
@@ -3363,10 +3402,29 @@ void AppWindow::performAutosave()
     // later, unrelated process reusing this same pid isn't mistaken for
     // this instance still being alive.
     meta.ownerStartTime = autosave::processStartTime(meta.ownerPid);
-    autosave::writeMeta(metaPath, meta);
 
-    m_unsavedSinceMonotonicUsec = 0;
-    Log::debug("[app] Autosaved to " + autosavePath);
+    std::shared_ptr<const core::Project> snapshot = m_model.snapshot();
+    uint64_t generation = m_projectGeneration;
+    m_saveQueue->autosave(
+        [snapshot, autosavePath, metaPath, meta] {
+            core::Model model(*snapshot);
+            std::string error = core::saveProject(model, autosavePath);
+            if (error.empty() && !autosave::writeMeta(metaPath, meta))
+                error = "could not write " + metaPath;
+            return error;
+        },
+        [this, autosavePath, generation](const std::string &error) {
+            // Silent either way: an autosave failure shouldn't interrupt
+            // the user.
+            if (!error.empty()) {
+                Log::warn("[app] Autosave failed: " + error);
+            } else {
+                if (generation == m_projectGeneration)
+                    m_unsavedSinceMonotonicUsec = 0;
+                Log::debug("[app] Autosaved to " + autosavePath);
+            }
+            onSaveQueueSettled();
+        });
 }
 
 void AppWindow::onAutosaveHeartbeat()
@@ -3447,6 +3505,15 @@ gboolean AppWindow::onCloseRequest()
                 }
             },
             this);
+        return GDK_EVENT_STOP;
+    }
+
+    // A save still writing (Ctrl+S, then straight to close): wait for it
+    // rather than ask about changes it's about to make clean. Quitting any
+    // other way waits in prepareForShutdown().
+    if (m_saveQueue && m_saveQueue->busy()) {
+        m_closeWhenSaved = true;
+        showStatus("Finishing the save before closing…");
         return GDK_EVENT_STOP;
     }
 
