@@ -4,6 +4,7 @@
 #include "core/model/model.h"
 #include "core/model/signal.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,41 +37,53 @@ class UndoStack
     }
     std::string undoLabel() const
     {
-        return m_undo.empty() ? std::string{} : m_undo.back()->label();
+        return m_undo.empty() ? std::string{} : m_undo.back().command->label();
     }
     std::string redoLabel() const
     {
-        return m_redo.empty() ? std::string{} : m_redo.back()->label();
+        return m_redo.empty() ? std::string{} : m_redo.back().command->label();
     }
 
-    // Dirty-flag tracking (Qt QUndoStack-style depth marker): isClean() is
-    // true exactly when the undo stack is back at the depth it was at the
-    // last setCleanPoint() call (e.g. the last save).
-    // Emits `changed` too (audit A1): this flips isClean() exactly like an
+    // Names the model's current state for dirty tracking: the serial of
+    // the top undo entry, renewed whenever that entry's effect changes (a
+    // merge), or of the base state below the stack when it's empty. Two
+    // moments share a state() exactly when undo/redo alone moves between
+    // them, so an async save (doc 19 MT1) can capture it on submit and mark
+    // that state clean on completion: if the user edited meanwhile, the
+    // project stays dirty, and undoing back to the saved state makes it
+    // clean again. (A depth marker can't do this: undo below the save
+    // point, then a new edit, reaches the saved depth with other content.)
+    using State = uint64_t;
+    State state() const
+    {
+        return m_undo.empty() ? m_baseState : m_undo.back().serial;
+    }
+
+    // Dirty-flag tracking: isClean() is true exactly when the model is in
+    // the state of the last setCleanPoint() (e.g. the last save). Emits
+    // `changed` too (audit A1): this flips isClean() exactly like an
     // execute()/undo()/redo() does, so a UI that only listens to `changed`
-    // to refresh its dirty marker (rather than calling back in after every
-    // individual place that can change it) stays correct after a save
-    // without needing its own explicit follow-up call.
+    // to refresh its dirty marker stays correct after a save.
     void setCleanPoint()
     {
-        m_cleanDepth = m_undo.size();
+        setCleanPoint(state());
+    }
+    // An async save's completion: `saved` is state() when it was submitted.
+    void setCleanPoint(State saved)
+    {
+        m_cleanState = saved;
         changed.emit();
     }
     bool isClean() const
     {
-        return m_undo.size() == m_cleanDepth;
+        return state() == m_cleanState;
     }
-    // Forces isClean() to false regardless of the undo stack's current
-    // depth (audit A2). Needed for recovery: clear() alone can't express
-    // "this content is unsaved" when the stack is also empty, since an
-    // empty stack whose clean depth is 0 (clear()'s own reset) is
-    // otherwise indistinguishable from a freshly-saved one -- both compare
-    // m_undo.size() == m_cleanDepth as 0 == 0. No real m_undo.size() can
-    // ever equal the sentinel used here, so this stays dirty until an
-    // explicit, later setCleanPoint() (a real Save) says otherwise.
+    // Forces isClean() to false until the next setCleanPoint() (audit A2):
+    // recovered content is unsaved even though its stack, like a freshly
+    // opened project's, is empty.
     void markDirty()
     {
-        m_cleanDepth = static_cast<size_t>(-1);
+        m_cleanState = kNoState;
         changed.emit();
     }
 
@@ -78,10 +91,19 @@ class UndoStack
     size_t limit = 500; // oldest entries dropped beyond this
 
   private:
+    struct Entry
+    {
+        std::unique_ptr<Command> command;
+        State serial;
+    };
+    static constexpr State kNoState = 0; // never a real state
+
     Model &m_model;
-    std::vector<std::unique_ptr<Command>> m_undo;
-    std::vector<std::unique_ptr<Command>> m_redo;
-    size_t m_cleanDepth = 0;
+    std::vector<Entry> m_undo;
+    std::vector<Entry> m_redo;
+    State m_nextState = 2;
+    State m_baseState = 1; // the state below the bottom entry
+    State m_cleanState = 1;
 };
 
 } // namespace ustudio::core

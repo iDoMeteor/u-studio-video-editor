@@ -1358,9 +1358,9 @@ TEST_CASE("UndoStack: markDirty forces isClean() false even on an otherwise-clea
     Model model = Model::createEmpty();
     UndoStack undoStack(model);
 
-    // clear() alone resets m_cleanDepth to match the now-empty stack (0 ==
-    // 0), so it reports clean by definition -- exactly the trap recovery
-    // fell into: an empty stack looks identical to a freshly-saved one.
+    // clear() alone makes the empty stack the clean state, so it reports
+    // clean by definition -- exactly the trap recovery fell into: an empty
+    // stack looks identical to a freshly-saved one.
     undoStack.clear();
     CHECK(undoStack.isClean());
 
@@ -1372,6 +1372,81 @@ TEST_CASE("UndoStack: markDirty forces isClean() false even on an otherwise-clea
     CHECK_FALSE(undoStack.isClean());
 
     undoStack.setCleanPoint();
+    CHECK(undoStack.isClean());
+}
+
+TEST_CASE("UndoStack: a new edit at the saved depth is not clean")
+{
+    // Depth alone can't tell these apart: undo below the save point, edit,
+    // and the stack is back at the saved depth with other content.
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    UndoStack undoStack(model);
+
+    REQUIRE(undoStack.execute(std::make_unique<InsertClip>(track, asset, 0, 0, 99)));
+    undoStack.setCleanPoint();
+    CHECK(undoStack.undo());
+    REQUIRE(undoStack.execute(std::make_unique<InsertClip>(track, asset, 200, 0, 99)));
+    CHECK_FALSE(undoStack.isClean());
+}
+
+TEST_CASE("UndoStack: an async save marks the state it captured, not the current one (doc 19 MT1)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    UndoStack undoStack(model);
+
+    REQUIRE(undoStack.execute(std::make_unique<InsertClip>(track, asset, 0, 0, 99)));
+    UndoStack::State submitted = undoStack.state(); // save submitted here
+    REQUIRE(undoStack.execute(std::make_unique<InsertClip>(track, asset, 200, 0, 99)));
+
+    undoStack.setCleanPoint(submitted); // ... and completes after the edit
+    CHECK_FALSE(undoStack.isClean());   // the file doesn't have the second clip
+    CHECK(undoStack.undo());
+    CHECK(undoStack.isClean()); // back to what the file holds
+
+    // Cleared (Open/New) while a save of the old project was in flight:
+    // its completion can't make the new project clean or dirty by accident.
+    undoStack.clear();
+    REQUIRE(undoStack.execute(std::make_unique<InsertClip>(track, asset, 400, 0, 99)));
+    undoStack.setCleanPoint(submitted);
+    CHECK_FALSE(undoStack.isClean());
+    CHECK(undoStack.undo());
+    CHECK_FALSE(undoStack.isClean());
+}
+
+TEST_CASE("UndoStack: a merge into the captured entry makes it a new state")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Audio, 0, "A1");
+    UndoStack undoStack(model);
+
+    REQUIRE(undoStack.execute(std::make_unique<SetTrackVolume>(track, 0.5)));
+    REQUIRE(undoStack.execute(std::make_unique<SetTrackVolume>(track, 0.6)));
+    UndoStack::State submitted = undoStack.state();
+    // The same drag continues and merges into the top entry.
+    REQUIRE(undoStack.execute(std::make_unique<SetTrackVolume>(track, 0.7)));
+    undoStack.setCleanPoint(submitted);
+    CHECK_FALSE(undoStack.isClean());
+}
+
+TEST_CASE("UndoStack: the clean state survives the oldest entries being dropped")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    UndoStack undoStack(model);
+    undoStack.limit = 2;
+
+    REQUIRE(undoStack.execute(std::make_unique<InsertClip>(track, asset, 0, 0, 9)));
+    undoStack.setCleanPoint();
+    REQUIRE(undoStack.execute(std::make_unique<InsertClip>(track, asset, 100, 0, 9)));
+    REQUIRE(undoStack.execute(std::make_unique<InsertClip>(track, asset, 200, 0, 9))); // drops the saved entry
+    CHECK_FALSE(undoStack.isClean());
+    CHECK(undoStack.undo());
+    CHECK(undoStack.undo()); // the bottom of the stack is now the saved state
     CHECK(undoStack.isClean());
 }
 
