@@ -105,9 +105,13 @@ v1, which already ships clip/gap/track right-click menus):
 
 | Right-click target | Menu items |
 |---|---|
-| Clip | Delete (lift — leaves a gap, nothing else moves); **Split Audio** (doc 13 Q2 — pulls the clip's audio out to a new linked clip on the nearest audio track, creating one if needed; only shown when the clip has audio and isn't already audio-only) |
-| Gap (blank span) | Close Gap (ripples later content on that track earlier to fill it) |
-| Empty track space | Remove Track |
+| Clip | Delete (lift — leaves a gap, nothing else moves); **Split Audio** (doc 13 Q2 — pulls the clip's audio out to a new linked clip on the nearest audio track, creating one if needed; only shown when the clip has audio and isn't already audio-only); Add/Edit Clip Name; Remove Clip Name |
+| Gap (blank span) | Close Gap (ripples later content on that track earlier to fill it; dissolves between the moved clips stay) |
+| Where two clips touch | Add Transition |
+| Dissolve | Remove Transition |
+| Empty track space | Track volume; Lock/Unlock Track; Hide/Show Track (video tracks); Mute/Unmute Track; Edit Track Name; Remove Track |
+
+Every item's tooltip and its Help entry come from `app/ui_hints.cpp`.
 
 Snapping (toggle with `S` key state or magnet button): candidate edges snap
 to clip edges on all tracks, playhead, markers, in/out, and sequence start,
@@ -125,21 +129,25 @@ Modifiers, matching GNOME/kdenlive habits where they agree:
 | drag with `Ripple` mode on | ripple move (later clips follow) |
 | drag between tracks | moves track; audio-only clips can only land on audio tracks |
 
-Keyboard (as `GAction`s with accelerators so they show in the menu):
+Keyboard (as `GAction`s with accelerators so they show in the menu). The
+shipped bindings are the owner's and are the source of truth
+(`app/action_registry.cpp`); rows marked M3 are still to come:
 
 | Key | Action |
 |-----|--------|
 | Space | play/pause |
 | J / K / L | reverse / pause / forward; repeated J/L step speed |
-| ← / → | −1 / +1 frame; Shift = 1 second |
+| ← / → | −1 / +1 frame; Ctrl = 10 frames, Alt = 1 minute |
 | Home / End | sequence start/end |
-| S | split selected (or all under playhead if none selected) |
-| Delete / Shift+Delete | delete / ripple delete |
-| I / O | set in / out point |
+| A / F | previous / next cut on the active track |
+| S / D | active track up / down |
+| X | split the active track's clip at the playhead |
+| Delete / Shift+Delete | delete / ripple delete (M3) |
+| I / O | set loop in / out |
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
-| + / − / 0 | zoom in / out / fit |
-| M | add marker |
-| Ctrl+A | select all |
+| + / − / 0 | zoom in / out / fit (M3) |
+| M | add marker (M3) |
+| Ctrl+A | select all (M3) |
 | Ctrl+G / Ctrl+Shift+G | group / ungroup (M3.5) |
 
 ## Selection model
@@ -148,8 +156,8 @@ Keyboard (as `GAction`s with accelerators so they show in the menu):
 current track. Emitted as a signal; the effects panel and actions follow it.
 Selection is cleared when a selected clip is removed. Linked audio/video from
 the same asset move together by default (v2.0 treats a video clip with
-`audioEnabled` as one clip on the video track carrying audio; "split
-audio" is an M5 command that creates a separate audio-track clip).
+`audioEnabled` as one clip on the video track carrying audio; "Split
+Audio" (shipped) creates a separate audio-track clip).
 
 ## Performance budget
 

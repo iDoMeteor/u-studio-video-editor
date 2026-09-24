@@ -33,7 +33,7 @@ with `include_directories` limited to what it may see):
 |-------|-------------|-----------------|
 | core | std, libxml2, own headers | gtk, glib, mlt |
 | engine | core, mlt++, glib | gtk, adwaita |
-| app | core, engine, gtk4, adwaita, gio | mlt (a `grep -rn 'mlt' src/app` in CI fails the build) |
+| app | core, engine, gtk4, adwaita, gio | mlt (the build's `app-boundary-check` target fails on any `#include` of an mlt or pulse header in `src/app`) |
 | render | core, engine, gio (GSubprocess-free; it's the child) | gtk |
 | `drop-ins/<name>/core` *(planned, docs 15, 16)* | same as core, plus `src/core` headers | same as core |
 | `drop-ins/<name>/engine` *(planned, doc 15)* | same as engine, plus `src/` core/engine headers | same as engine |
@@ -46,7 +46,12 @@ Drop-ins live under a top-level `drop-ins/<name>/`. They reach `src/` only
 through the integration points listed in doc 15, "Drop-in structure"
 (ADR-013), and nothing in `src/` includes from `drop-ins/`.
 
-## Source layout after M0
+## Target source layout
+
+> REVIEW: Claude (2026-09-24): this is the target tree, not today's. M0 landed with a flatter
+> layout (a single `app_window.*` plus `action_registry.*`, `ui_hints.*`,
+> `autosave.*`, `settings.*`; commands in `primitives.*` and
+> `timeline_edits.*`); CLAUDE.md's "Repository layout" describes the current tree.
 
 ```
 src/
@@ -162,6 +167,11 @@ queued. Frame memory is handed to `GdkMemoryTexture` via
 - All edits to the tractor go through `EngineSync`, which takes
   `Mlt::Service::lock()` on the tractor for the duration of one *model
   change event*, then releases.
+
+> REVIEW: Claude (2026-09-24): not what shipped. `EngineSync::rebuildAll()` builds a new
+> tractor on the main thread with no lock, and `PlaybackController::setTractor()`
+> stops the consumer, swaps the tractor in and restarts it (CLAUDE.md,
+> "Threading rules").
 - `PlaybackController` never touches the tractor structure; it only seeks and
   reads position.
 - Workers never touch the shared tractor. They open their own producer for

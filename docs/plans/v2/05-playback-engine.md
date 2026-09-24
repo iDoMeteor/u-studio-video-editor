@@ -31,6 +31,13 @@ in preferences:
    paces to the profile fps so playback remains usable; a persistent banner
    says "Audio output unavailable").
 
+> REVIEW: Claude (2026-09-24): measured, `null` does **not** pace (9,000+ frames a second in
+> a device-less container), and with no audio device `rtaudio`'s `start()`
+> returns 0 and then never shows a frame, so it gets picked and playback
+> stalls (`playback_controller.cpp`). SDL's `dummy` driver
+> (`SDL_AUDIODRIVER=dummy`) is silent and paced; the tests use it. The banner
+> and storing the backend in settings are not implemented.
+
 Selection is by trying `Mlt::Consumer(profile, name).is_valid()` in order,
 same as kdenlive `:780-796`. The chosen backend name is stored in settings.
 
@@ -136,6 +143,10 @@ Mlt::Tractor
         producers on a 2-track Tractor that replaces the overlap region on the playlist (kdenlive's
         "mix" model). Full design in doc 08.
 ```
+
+> REVIEW: Claude (2026-09-24): as built, `composite` and `mix` are planted between every
+> adjacent track pair (audio included), and every change rebuilds the whole
+> tractor without a lock (`engine_sync.cpp`, `rebuildAll()`).
 
 Rebuild policy (ADR-005): on any model event touching a track, `EngineSync`
 rebuilds that **whole track playlist** under the tractor lock: clear it,

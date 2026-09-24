@@ -263,11 +263,11 @@ that needs it.
 | IP | Where | What it is | Needed from |
 |---|---|---|---|
 | IP1 | `core/model` | Model data and mutators: `Easing` replacing `Keyframe::Interp`; `Effect::mix`, `Effect::mask`; `Sequence::effects`; `Transition::recipe` + `params`; `AdjustmentBlock` and its lane; `Look` in the bin; `Clip::sourceParams` (titles); `EffectParamChanged` event; `Effect::owner` (which drop-in applies it, doc 17); the matching `check()` rules. Mutators stay on `Model` (doc 14); commands live in `drop-ins/effects/core/`. | FX1 |
-| IP2 | `core/xml` | Writer and reader handle the IP1 fields directly (`<filter>` elements, `ustudio:*` effect and field properties); format version 4. Kept in `src/` so project data never depends on a drop-in being built. | FX1 |
+| IP2 | `core/xml` | Writer and reader handle the IP1 fields directly (`<filter>` elements, `ustudio:*` effect and field properties); format version 5 (4 is taken by the render-graph save, doc 09). Kept in `src/` so project data never depends on a drop-in being built. | FX1 |
 | IP3 | `engine/engine_sync` | An `EngineExtension` interface, registered with `EngineSync::addExtension()`: `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), `compositor()` (replace the
 default `composite` track compositor; effects uses `frei0r.cairoblend`), and `applyInPlace(event)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
 | IP4 | `engine/factory_policy` | Extra plugin search paths and module directories contributed before `Mlt::Factory::init()`: the curated `FREI0R_PATH` (and `OFX_PLUGIN_PATH`), and titles' `libmltustudio.so`. Because it runs before init, each drop-in also exposes `contributeFactoryPaths()`, listed in `drop_ins.h` next to `registerDropIn()`. | FX1 |
-| IP5 | `app/` | Five small hosts in the shell: an **inspector host** (collapsible right sidebar with `addInspectorPage()`); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (the action registry accepts module-supplied `ActionSpec` lists with their own target, so the Help dialog lists them automatically); a **preview overlay host** (`addPreviewOverlay()` plus a frame-to-widget coordinate mapper); a **timeline overlay/lane provider** (paint, hit-test and extra lane height, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (file type → handler, so titles can own `.ustitle` without touching the import code). | FX2 (timeline provider: FX4; import handlers: titles T1) |
+| IP5 | `app/` | Five small hosts in the shell: an **inspector host** (collapsible right sidebar with `addInspectorPage()`); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (the action registry accepts module-supplied `ActionSpec` lists with their own target, so the Help dialog lists them automatically); **hint contributions** (`registerHints()` in `app/ui_hints.h`, already built: a drop-in's controls get tooltips from its own hint table, and Help's Controls tab lists them under the drop-in's category); a **preview overlay host** (`addPreviewOverlay()` plus a frame-to-widget coordinate mapper); a **timeline overlay/lane provider** (paint, hit-test and extra lane height, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (file type → handler, so titles can own `.ustitle` without touching the import code). | FX2 (timeline provider: FX4; import handlers: titles T1) |
 | IP6 | `render/` | `u-studio-render` dispatches subcommands registered by drop-ins; effects registers `--probe-effect`. | FX1 |
 | — | build | Top-level `meson.build` adds `subdir('drop-ins')`; `meson_options.txt` gains one `dropin_<name>` option per drop-in (ADR-014) and `titles`; `drop_ins.h` is generated. | FX1 |
 
@@ -408,7 +408,7 @@ does this for its own threading, verify in FX0).
 
 ## Persistence
 
-Format version 4 (doc 09). Effects are written as MLT `<filter>` elements
+Format version 5 (doc 09). Effects are written as MLT `<filter>` elements
 inside the owning `<entry>`, `<playlist>` or `<tractor>`, with
 `ustudio:effect_id`, `ustudio:mix`, `ustudio:mask` and keyframes in MLT's
 native animation syntax, so `melt` renders effects without the editor
@@ -416,9 +416,9 @@ native animation syntax, so `melt` renders effects without the editor
 paths. Generated luma maps are referenced by a `ustudio:luma` name and
 resolved from the data directory, so projects stay portable.
 
-Known gap, not new: the writer does not yet emit the nested dissolve
-sub-tractor, so `melt` plays dissolves as hard cuts. Adjustment blocks
-share that gap. Closing both is an FX3 deliverable.
+Dissolves already play in `melt`: format 4 writes the same render graph
+the editor plays, dissolve sub-tractors included. Adjustment blocks still
+need a graph-level writer path, an FX3 deliverable.
 
 ## Transitions
 

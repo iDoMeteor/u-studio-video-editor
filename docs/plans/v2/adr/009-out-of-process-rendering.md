@@ -2,6 +2,9 @@
 
 **Status:** Proposed
 
+> REVIEW: Claude (2026-09-24): not built yet. Until M6, `engine::renderProject()` renders
+> in-process on a worker thread from a deep copy of the model.
+
 ## Context
 Rendering in-process shares the editor's MLT factory, threads, and address
 space with a running preview. Encoder or demuxer crashes take the editor

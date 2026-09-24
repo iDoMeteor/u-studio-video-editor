@@ -4,7 +4,7 @@
 
 A `.ustudio` file is an MLT XML document (`<mlt>` root) that:
 
-1. `melt` and `u-studio-render` can render **directly**, with no editor
+1. `melt` (and, from M6, `u-studio-render`) can render **directly**, with no editor
    involved, because the tractor/playlist/filter/transition structure is the
    real MLT graph. This is the same strategy kdenlive uses (`.kdenlive` files
    are MLT XML with `kdenlive:` properties).
@@ -80,6 +80,10 @@ The reader refuses newer versions with a clear message and migrates older
 ones in code (`core/xml/migrations.cpp`, one function per version bump).
 Every migration has a fixture file in `tests/fixtures/projects/`.
 
+> REVIEW: Claude (2026-09-24): neither exists yet. The reader reads formats 3 and 4 directly
+> (`kOldestReadableFormatVersion`, `reader.cpp`); the first bump that changes
+> record data adds `migrations.cpp` and the fixtures.
+
 ## Save semantics
 
 - Atomic: write to `<name>.ustudio.tmp` in the same directory, `fsync`,
@@ -132,7 +136,8 @@ Never write `.kdenlive` files.
 ## Settings
 
 `GSettings` schema `com.ustudio.VideoEditor` (`data/*.gschema.xml`) for
-preferences: audio backend, preview scale, real-time drop, thumbnail
-interval, autosave interval, default still duration, last export preset,
-recent files (`GtkRecentManager` handles the list itself). No project-level
-data in GSettings.
+preferences. Today it has four keys: `autosave-delay-minutes`,
+`default-preview-scale`, `shuttle-max-speed` and `recent-projects-max`
+(`GtkRecentManager` holds the list itself). Planned: audio backend,
+real-time drop, thumbnail interval, default still duration, last export
+preset. No project-level data in GSettings.

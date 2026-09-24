@@ -42,10 +42,15 @@ Short, because a `.clang-format` and the compiler enforce most of it.
   widget owns, so it's testable without GTK.
 - Callbacks: static trampolines forward to member functions (as v1 does);
   the trampoline is the only place that casts `gpointer`. Group them at the
-  bottom of the file with a banner, as `app_window.cpp:277` does.
+  bottom of the file with a banner, as `app_window.cpp`'s trampolines section does.
 - Actions: every user command is a `GAction` (`app.` or `win.` prefix) with
-  an accelerator registered in one table (`app/actions.cpp`), so menus,
+  an accelerator registered in one table (`app/action_registry.cpp`), so menus,
   shortcuts, and the shortcuts window agree.
+- Tooltips and Help text: every control's tooltip comes from
+  `app/ui_hints.cpp` via `setTooltip(widget, "<area>.<control>")`; the hint
+  names its action and the shortcut is looked up, never typed into the text.
+  The Help dialog's Controls tab lists the same table. Tooltips that show
+  data (a file path, a clip's timecodes) are set directly.
 - GTK/GLib/MLT C-cast warning noise is silenced via `include_type: 'system'`
   on those `dependency()` calls (root `meson.build`), not a pragma wrapper
   around the includes — see doc 11 for why the pragma approach doesn't

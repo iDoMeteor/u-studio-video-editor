@@ -112,5 +112,10 @@ slider drag is one undo step. Merge windows close on any other command.
 Executing a command while playing is allowed. `EngineSync` takes the tractor
 lock; the consumer thread blocks for the duration of one track rebuild
 (sub-millisecond for typical tracks, single-digit ms for thousands of clips).
+
+> REVIEW: Claude (2026-09-24): as built, each command (or batch) triggers one coalesced
+> rebuild of the whole tractor, and the consumer is stopped and restarted
+> around the swap (`PlaybackController::setTractor()`); there is no lock.
+
 Commands that change the sequence length also update the black backing track.
 The playhead is clamped afterwards if it fell off the end.

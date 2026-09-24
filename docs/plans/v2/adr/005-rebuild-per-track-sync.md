@@ -2,6 +2,11 @@
 
 **Status:** Proposed
 
+> REVIEW: Claude (2026-09-24): the code goes further than this ADR: every change rebuilds the
+> whole tractor, not one track; there is no tractor lock (the consumer is
+> stopped, the tractor swapped and the consumer restarted); and `verify()` runs
+> in tests only. It should be amended, or superseded, to match.
+
 ## Context
 Keeping an `Mlt::Playlist` in sync with the model can be done incrementally
 (insert_at/remove/resize/move, handling blanks) or by rebuilding. Incremental

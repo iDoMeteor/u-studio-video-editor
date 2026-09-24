@@ -11,7 +11,7 @@ src/engine/meson.build      libustudio_engine = static_library(..., dependencies
 src/app/meson.build         executable('u-studio-video-editor', ..., dependencies: [gtk4, adwaita, gio], link_with: [core, engine]) + gresource
 src/render/meson.build      executable('u-studio-render', ..., link_with: [core, engine])
 tests/meson.build           doctest dependency from subprojects; one executable per layer; test() entries
-subprojects/doctest.wrap    wrap-file for the single header (vendored copy committed under subprojects/packagefiles/ so offline builds work)
+subprojects/doctest/       vendored doctest.h plus its meson.build (ADR-010), so offline builds work
 data/meson.build            desktop file, metainfo, icons, gschema compile, install
 ```
 
@@ -53,7 +53,7 @@ step.
 
 Sanitisers: a CI job builds with `-Db_sanitize=address,undefined` and runs
 `tests/core` and `tests/engine`. MLT has some known leaks at `Factory::close`;
-use an `LSAN_OPTIONS=suppressions=tests/lsan.supp` file rather than
+use an `LSAN_OPTIONS=suppressions=tests/sanitizers/lsan.supp` file rather than
 disabling leak checks.
 
 Test data: **no binary media in the repo.** Every media-needing test
@@ -109,3 +109,7 @@ just check-qt   # runs the factory-policy test only
 Debug builds enable `Model::check()` after every command and
 `EngineSync::verify()` after every engine event (behind `USTUDIO_VERIFY=0` to
 turn off when profiling).
+
+> REVIEW: Claude (2026-09-24): not built yet. Today `verify()` runs in tests only (including
+> the `slow` suite's `engine-sync-property-10k`), `check()` runs before save,
+> and `USTUDIO_VERIFY` doesn't exist.

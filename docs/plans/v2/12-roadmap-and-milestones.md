@@ -67,10 +67,12 @@ Deliverables:
 - `docs/plans/v2` linked from the root README under "Roadmap".
 
 Acceptance:
-- [ ] `just build && just test` green on a clean Fedora 44 container.
+- [x] `just build && just test` green on a clean Fedora 44 container.
+      (2026-09-24, `51b150c`: fresh `fedora:44`, `xvfb-run -a just test`, 14/14.)
 - [ ] The app behaves exactly as before (import, play, split).
-- [ ] Factory-policy test proves 0 Qt mappings.
-- [ ] `grep -rn '<mlt' src/app` returns nothing (enforced by the build).
+      (In daily use; owner to confirm.)
+- [x] Factory-policy test proves 0 Qt mappings. (`engine-factory-policy`.)
+- [x] `grep -rn '<mlt' src/app` returns nothing (enforced by the build). (`app-boundary-check`.)
 
 ## M1 — Project model, commands, undo, save/load
 
@@ -83,15 +85,25 @@ Deliverables:
   now driven by commands (`InsertClip`, `SplitClip`, `RemoveClip`).
 - XML writer/reader, atomic save, open, recent files, dirty flag, autosave
   + recovery (doc 09).
-- Undo/redo actions with labels in an Edit menu.
+- Undo/redo actions with labels in an Edit menu. (Shipped as header-bar
+  buttons and Ctrl+Z / Ctrl+Shift+Z; there is no Edit menu.)
 
 Acceptance:
-- [ ] Property test (random commands → undo all → equal) passes 10k iterations.
+- [x] Property test (random commands → undo all → equal) passes 10k iterations.
+      (`core`, "UndoStack property"; stream shared via `tests/common/random_commands.h`.)
 - [ ] `EngineSync::verify()` never fails across the property test.
-- [ ] Save → quit → open restores the timeline identically (round-trip test).
-- [ ] `melt saved.ustudio` (or `u-studio-render`) plays the saved file with
-      no editor.
-- [ ] Kill -9 during editing → next launch offers recovery with ≤ 2 min lost.
+      (`engine-sync-property-10k`, `meson test --suite slow`; takes hours, first
+      full run in progress 2026-09-24. The 500-edit version runs in `engine-sync`.)
+- [x] Save → quit → open restores the timeline identically (round-trip test).
+      (`core`: `test_xml.cpp`, and every edit in `test_timeline_edits.cpp`.)
+- [x] `melt saved.ustudio` (or `u-studio-render`) plays the saved file with
+      no editor. (`engine-xml-playback`: a saved project with a dissolve,
+      track volume, muted clip and hidden/muted tracks matches the editor's
+      own graph frame by frame, 90 frames, through MLT's xml producer.)
+- [x] Kill -9 during editing → next launch offers recovery with ≤ 2 min lost.
+      (0.16.3; live run 2026-09-24: edits every 30 s, kill -9 about 36 s after
+      the last autosave, recovery offered, at most about 36 s lost. Rule tested
+      in `app-autosave`.)
 
 ## M2 — Playback v2
 
@@ -109,13 +121,20 @@ Acceptance:
 - [ ] A/V sync: a generated clip with a 1 kHz beep on frame 0 of every
       second and a white flash on the same frames shows no perceptible offset
       (< 1 frame) at 1×; verified by eye and by the `null`-consumer position
-      test.
+      test. (Automated half: `engine-av-sync`, 2 samples offset. By eye:
+      pending, clip from `builddir/tests/engine/make_sync_clip`.)
 - [ ] Pause shows the exact frame at the playhead (timecode matches the burnt
-      -in `timer` filter of a test clip).
+      -in `timer` filter of a test clip). (Frame index checked in
+      `engine-playback-controller`; the burnt-in timer check by eye is pending.)
 - [ ] 4K60 source plays at real time with frame dropping at preview scale
       0.5 on the dev machine; no unbounded memory growth over 10 min.
-- [ ] Sanitiser run of the playback tests is clean; shutdown during playback
-      is clean 100/100 runs.
+      (`playback_soak`, 2026-09-24: real time held, RSS plateaued at about
+      1.19 GB, but delivered frames fell about 450 behind after about 5.5 min.
+      Under investigation.)
+- [x] Sanitiser run of the playback tests is clean; shutdown during playback
+      is clean 100/100 runs. (`just asan`/`just tsan` 12/12 clean at 0.15.3,
+      `docs/audit/2026-09-23-sanitizer-report.md`; the 100-run shutdown loop is
+      in `engine-playback-controller`. Rerun at the post-M3 audit.)
 
 ## M3 — Multi-track timeline
 
@@ -137,6 +156,10 @@ Acceptance:
 - [ ] Illegal drops are shown red and refused; no model invariant violation
       is reachable via UI (fuzz with `xdotool`-scripted random drags for 10
       min under the debug verifier).
+
+      > REVIEW: Claude (2026-09-24): `xdotool` isn't installed here. AT-SPI's
+      > `Atspi.generate_mouse_event()` against the app under Xvfb with
+      > `GDK_BACKEND=x11` does drive real clicks (used to test the track menu).
 - [ ] Snapshot ≤ 4 ms with 10 tracks × 500 clips on screen.
 - [ ] Timeline stays responsive while thumbnails and waveforms generate.
 
