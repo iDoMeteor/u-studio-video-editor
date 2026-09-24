@@ -267,6 +267,26 @@ TEST_CASE("PlaybackController: an edit while paused (setTractor) keeps showing t
         CHECK(position == 30);
 }
 
+TEST_CASE("PlaybackController: back-to-back frame steps while paused each count")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+    PlaybackController controller;
+    controller.setTractor(makeOneClipTractor(profile, 50));
+
+    // No main-loop pumping between the steps: the first step's frame has
+    // not been displayed yet when the second one runs, which is exactly a
+    // quick double-click on the step button or a held arrow key. Each step
+    // must still advance from the previous step's target, not from the
+    // last frame that happened to reach the screen.
+    controller.stepFrame(1);
+    controller.stepFrame(1);
+    controller.stepFrame(1);
+    CHECK(controller.currentFrame() == 3);
+    controller.stepFrame(-1);
+    CHECK(controller.currentFrame() == 2);
+}
+
 TEST_CASE("PlaybackController: pausing mid-playback stays on the last displayed frame")
 {
     sharedFactoryPolicy();

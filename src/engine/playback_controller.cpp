@@ -214,7 +214,14 @@ void PlaybackController::pause()
 {
     if (!m_tractor)
         return;
-    int displayed = m_lastKnownFrame.load();
+    // Snap to the frame on screen only when pausing *from playback* (E1
+    // below). Already paused, the target is m_pausedPosition: a paused
+    // seek/step hasn't been displayed yet, so snapping to the displayed
+    // frame there threw away every step after the first in a quick
+    // sequence (stepFrame() pauses before each step; found 2026-09-23 via
+    // the new transport buttons, covered by "back-to-back frame steps
+    // while paused each count").
+    int displayed = m_playing.load() ? m_lastKnownFrame.load() : m_pausedPosition.load();
     Log::debug("[engine] pause() at frame " + std::to_string(displayed));
     m_pausedPosition.store(displayed);
     m_tractor->set_speed(0);
