@@ -236,7 +236,8 @@ single-track skeleton.
   its action and the shortcut is looked up in `action_registry.cpp`, so a
   tooltip can't show a stale key. Drop-ins add their own hints with
   `registerHints()`. Settings dialog (header-bar gear
-  button): General (autosave delay, recent-projects list size) and
+  button): General (autosave delay, recent-projects list size, worker
+  threads) and
   Playback (default preview scale, maximum shuttle speed) tabs, backed by
   real `GSettings` persistence (`data/com.ustudio.VideoEditor.gschema.xml`)
   — falls back to in-memory defaults with a one-time warning log and an

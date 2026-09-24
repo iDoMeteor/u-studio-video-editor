@@ -547,6 +547,9 @@ class AppWindow
     static void settingsAutosaveDelayChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
     static void settingsRecentProjectsMaxChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
     static void settingsShuttleMaxSpeedChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
+    static void settingsWorkerThreadsChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
+    static gboolean settingsWorkerThreadsOutputTrampoline(AdwSpinRow *row, gpointer userData);
+    static gint settingsWorkerThreadsInputTrampoline(AdwSpinRow *row, double *newValue, gpointer userData);
     static void settingsPreviewScaleChangedTrampoline(AdwComboRow *row, GParamSpec *pspec, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);
     static void undoClickedTrampoline(GtkButton *button, gpointer userData);

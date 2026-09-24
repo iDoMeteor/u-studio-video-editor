@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.27.0
+
+- Settings has a "Worker threads" option for the background work (import,
+  load, save): Automatic by default, applies after a restart.
+
 ## 0.26.0
 
 - Opening, reloading and recovering a project read the file in the

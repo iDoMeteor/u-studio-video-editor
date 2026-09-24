@@ -162,6 +162,15 @@ Each lands as small reviewed commits with tests, in this order.
   - On the 5,000-clip project the parse (264–285 ms) left the main thread.
     The swap's iteration is now `rebuildAll` (2.0–2.2 s) plus 10–15 ms;
     that rebuild is MT2's.
+- The pool's size is the `worker-threads` setting (0.27.0), shown in
+  Settings as "Worker threads": 0, the default, is "Automatic (N)" with
+  N = `hardware_concurrency / 2`, at least 2. It's read once at startup.
+
+**MT1 status (2026-09-24): done.** Import, save, autosave and load are all
+off the main thread; the timings for each are in its entry above. The
+cost left on the main thread is `EngineSync::rebuildAll` after each edit
+or swap: 110–210 ms with a dozen real clips, and 2.0–2.2 s with 5,000.
+That is MT2's starting point, and it carries the 50-file import criterion.
 
 ### MT2 — Engine thread (about 2 weeks; the core of this plan)
 

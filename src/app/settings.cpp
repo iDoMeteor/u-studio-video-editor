@@ -90,4 +90,15 @@ void Settings::setRecentProjectsMax(int max)
         g_settings_set_int(m_settings, "recent-projects-max", max);
 }
 
+int Settings::workerThreads() const
+{
+    return m_settings != nullptr ? g_settings_get_int(m_settings, "worker-threads") : kDefaultWorkerThreads;
+}
+
+void Settings::setWorkerThreads(int threads)
+{
+    if (m_settings != nullptr)
+        g_settings_set_int(m_settings, "worker-threads", threads);
+}
+
 } // namespace ustudio::app

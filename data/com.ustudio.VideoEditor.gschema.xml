@@ -43,5 +43,11 @@
       <summary>Recent projects list size</summary>
       <description>Maximum number of entries shown in the header bar's recent-projects popover.</description>
     </key>
+    <key name="worker-threads" type="i">
+      <range min="0" max="64"/>
+      <default>0</default>
+      <summary>Worker threads</summary>
+      <description>Threads in the background pool that probes imports and loads and saves projects (doc 19). 0 picks automatically: half the CPU cores, at least 2. Read at startup.</description>
+    </key>
   </schema>
 </schemalist>

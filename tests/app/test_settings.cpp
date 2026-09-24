@@ -22,6 +22,7 @@ TEST_CASE("Settings: schema found -- defaults match the gschema, get/set round-t
     CHECK(settings.defaultPreviewScale() == Settings::kDefaultPreviewScale);
     CHECK(settings.shuttleMaxSpeed() == doctest::Approx(Settings::kDefaultShuttleMaxSpeed));
     CHECK(settings.recentProjectsMax() == Settings::kDefaultRecentProjectsMax);
+    CHECK(settings.workerThreads() == Settings::kDefaultWorkerThreads);
 
     settings.setAutosaveDelayMinutes(7);
     CHECK(settings.autosaveDelayMinutes() == 7);
@@ -34,4 +35,7 @@ TEST_CASE("Settings: schema found -- defaults match the gschema, get/set round-t
 
     settings.setRecentProjectsMax(25);
     CHECK(settings.recentProjectsMax() == 25);
+
+    settings.setWorkerThreads(3);
+    CHECK(settings.workerThreads() == 3);
 }

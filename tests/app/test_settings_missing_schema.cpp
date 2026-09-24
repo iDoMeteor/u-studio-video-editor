@@ -23,6 +23,7 @@ TEST_CASE("Settings: schema not found -- every getter falls back to its default,
     CHECK(settings.defaultPreviewScale() == Settings::kDefaultPreviewScale);
     CHECK(settings.shuttleMaxSpeed() == doctest::Approx(Settings::kDefaultShuttleMaxSpeed));
     CHECK(settings.recentProjectsMax() == Settings::kDefaultRecentProjectsMax);
+    CHECK(settings.workerThreads() == Settings::kDefaultWorkerThreads);
 
     // No schema behind these -- must not crash, and must leave the
     // defaults exactly as they were (nothing to persist to).
@@ -30,9 +31,11 @@ TEST_CASE("Settings: schema not found -- every getter falls back to its default,
     settings.setDefaultPreviewScale("half");
     settings.setShuttleMaxSpeed(16.0);
     settings.setRecentProjectsMax(25);
+    settings.setWorkerThreads(3);
 
     CHECK(settings.autosaveDelayMinutes() == Settings::kDefaultAutosaveDelayMinutes);
     CHECK(settings.defaultPreviewScale() == Settings::kDefaultPreviewScale);
     CHECK(settings.shuttleMaxSpeed() == doctest::Approx(Settings::kDefaultShuttleMaxSpeed));
     CHECK(settings.recentProjectsMax() == Settings::kDefaultRecentProjectsMax);
+    CHECK(settings.workerThreads() == Settings::kDefaultWorkerThreads);
 }

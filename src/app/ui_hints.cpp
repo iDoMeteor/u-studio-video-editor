@@ -94,6 +94,9 @@ std::vector<HintSpec> &registry()
         {"media.add-files",    "Media browser", "Add files without placing them", nullptr, nullptr, "Drop files from the file manager onto the browser"},
         {"media.remove",       "Media browser", "Remove from project", "Also removes every clip cut from it; undoable. The file is untouched", nullptr, nullptr},
         {"media.trash",        "Media browser", "Move file to Trash…", "Removes it from the project and moves the file to the desktop Trash", nullptr, nullptr},
+
+        // --- Settings ---
+        {"settings.worker-threads", "Settings", "Worker threads", "Background threads for probing imports and loading and saving projects; Automatic uses half the CPU cores. Applies after restart", nullptr, nullptr},
     };
     // clang-format on
     return hints;

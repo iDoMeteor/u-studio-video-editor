@@ -174,7 +174,14 @@ AppWindow::AppWindow(GtkApplication *app)
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
 
-    m_pool = std::make_unique<core::concurrency::ThreadPool>();
+    // Sized once, here: the worker-threads setting takes effect at the next
+    // launch (0 = automatic).
+    const int workerThreads = m_settings->workerThreads();
+    const size_t poolSize =
+        workerThreads > 0 ? static_cast<size_t>(workerThreads) : core::concurrency::ThreadPool::defaultThreadCount();
+    m_pool = std::make_unique<core::concurrency::ThreadPool>(poolSize);
+    Log::debug("[app] worker pool: " + std::to_string(poolSize) + " threads" +
+               (workerThreads > 0 ? " (worker-threads setting)" : " (automatic)"));
     m_importQueue =
         std::make_unique<ImportQueue>(*m_pool, [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
@@ -1072,6 +1079,31 @@ void AppWindow::showSettingsDialog()
     g_signal_connect(recentRow, "notify::value", G_CALLBACK(&AppWindow::settingsRecentProjectsMaxChangedTrampoline),
                      this);
     adw_preferences_group_add(projectGroup, GTK_WIDGET(recentRow));
+
+    AdwPreferencesGroup *performanceGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    adw_preferences_group_set_title(performanceGroup, "Performance");
+    adw_preferences_page_add(generalPage, performanceGroup);
+
+    // 0 is "Automatic (N)" (the output/input handlers below); the pool is
+    // sized once, at startup.
+    const double maxThreads = std::max(1.0, static_cast<double>(std::thread::hardware_concurrency()));
+    AdwSpinRow *threadsRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(0.0, maxThreads, 1.0));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(threadsRow), "Worker threads");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(threadsRow), "Applies after restart");
+    setTooltip(GTK_WIDGET(threadsRow), "settings.worker-threads");
+    adw_spin_row_set_digits(threadsRow, 0);
+    g_signal_connect(threadsRow, "output", G_CALLBACK(&AppWindow::settingsWorkerThreadsOutputTrampoline), nullptr);
+    g_signal_connect(threadsRow, "input", G_CALLBACK(&AppWindow::settingsWorkerThreadsInputTrampoline), nullptr);
+    adw_spin_row_set_value(threadsRow, static_cast<double>(m_settings->workerThreads()));
+    // The row starts at 0, so setting 0 changes nothing and never re-runs
+    // the output handler; the default width fits two digits, not the label;
+    // and a numeric spin row (the default) drops the label's letters
+    // (confirmed: gtk_editable_set_text left it empty until this was off).
+    adw_spin_row_set_numeric(threadsRow, FALSE);
+    gtk_editable_set_width_chars(GTK_EDITABLE(threadsRow), 13);
+    adw_spin_row_update(threadsRow);
+    g_signal_connect(threadsRow, "notify::value", G_CALLBACK(&AppWindow::settingsWorkerThreadsChangedTrampoline), this);
+    adw_preferences_group_add(performanceGroup, GTK_WIDGET(threadsRow));
 
     adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog), generalPage);
 
@@ -3839,6 +3871,31 @@ void AppWindow::settingsAutosaveDelayChangedTrampoline(AdwSpinRow *row, GParamSp
 void AppWindow::settingsRecentProjectsMaxChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->m_settings->setRecentProjectsMax(static_cast<int>(adw_spin_row_get_value(row)));
+}
+
+void AppWindow::settingsWorkerThreadsChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->m_settings->setWorkerThreads(static_cast<int>(adw_spin_row_get_value(row)));
+}
+
+gboolean AppWindow::settingsWorkerThreadsOutputTrampoline(AdwSpinRow *row, gpointer)
+{
+    if (adw_spin_row_get_value(row) != 0.0)
+        return FALSE; // the number itself
+    std::string text = "Automatic (" + std::to_string(core::concurrency::ThreadPool::defaultThreadCount()) + ")";
+    gtk_editable_set_text(GTK_EDITABLE(row), text.c_str());
+    return TRUE;
+}
+
+gint AppWindow::settingsWorkerThreadsInputTrampoline(AdwSpinRow *row, double *newValue, gpointer)
+{
+    // "Automatic (N)" as shown at 0 -- anything else parses as a number.
+    const char *text = gtk_editable_get_text(GTK_EDITABLE(row));
+    if (text && std::string(text).starts_with("Automatic")) {
+        *newValue = 0.0;
+        return TRUE;
+    }
+    return FALSE;
 }
 
 void AppWindow::settingsShuttleMaxSpeedChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)

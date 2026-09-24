@@ -31,6 +31,7 @@ class Settings
     static constexpr const char *kDefaultPreviewScale = "auto";
     static constexpr double kDefaultShuttleMaxSpeed = 8.0;
     static constexpr int kDefaultRecentProjectsMax = 10;
+    static constexpr int kDefaultWorkerThreads = 0; // automatic
 
     int autosaveDelayMinutes() const;
     void setAutosaveDelayMinutes(int minutes);
@@ -48,6 +49,12 @@ class Settings
 
     int recentProjectsMax() const;
     void setRecentProjectsMax(int max);
+
+    // The worker pool's size (doc 19 MT1); 0 means automatic
+    // (core::concurrency::ThreadPool::defaultThreadCount()). Read once, when
+    // the window creates its pool.
+    int workerThreads() const;
+    void setWorkerThreads(int threads);
 
     // False when the schema wasn't found (not installed, and
     // GSETTINGS_SCHEMA_DIR doesn't point at a compiled one) -- every
