@@ -425,6 +425,12 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), scroll);
     // The scroll event carries no position; Ctrl+wheel zoom anchors on the
     // last pointer x seen here.
+    // Pinch to zoom (touchpad or touchscreen), anchored between the fingers.
+    GtkGesture *pinch = gtk_gesture_zoom_new();
+    g_signal_connect(pinch, "begin", G_CALLBACK(&AppWindow::timelinePinchBeginTrampoline), this);
+    g_signal_connect(pinch, "scale-changed", G_CALLBACK(&AppWindow::timelinePinchTrampoline), this);
+    gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(pinch));
+
     GtkEventController *motion = gtk_event_controller_motion_new();
     g_signal_connect(motion, "motion", G_CALLBACK(&AppWindow::timelineMotionTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), motion);
@@ -686,6 +692,12 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(splitButton, "clicked", G_CALLBACK(&AppWindow::splitClickedTrampoline), this);
     gtk_box_append(GTK_BOX(transport), splitButton);
 
+    GtkWidget *rippleButton = gtk_toggle_button_new_with_label("Ripple");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(rippleButton), "win.ripple-mode");
+    gtk_widget_set_focusable(rippleButton, FALSE); // audit A7, as the transport buttons
+    setTooltip(rippleButton, "transport.ripple-mode");
+    gtk_box_append(GTK_BOX(transport), rippleButton);
+
     m_seekScale = GTK_SCALE(gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1, 1));
     gtk_scale_set_draw_value(m_seekScale, FALSE);
     setTooltip(GTK_WIDGET(m_seekScale), "transport.seek-bar");
@@ -776,6 +788,14 @@ void AppWindow::installActions(GtkApplication *app)
     g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(redoAction));
     g_object_unref(redoAction);
 
+    // Ripple mode: a boolean state with no parameter, which GIO's default
+    // "activate" flips, so R and the transport's toggle button both just
+    // activate it and the button shows the state.
+    GSimpleAction *rippleAction = g_simple_action_new_stateful("ripple-mode", nullptr, g_variant_new_boolean(FALSE));
+    g_signal_connect(rippleAction, "notify::state", G_CALLBACK(&AppWindow::rippleModeChangedTrampoline), this);
+    g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(rippleAction));
+    g_object_unref(rippleAction);
+
     // Every action's name/accels/handler (undo/redo included, for their
     // default accelerators) comes from the shared action_registry.h table
     // now, so it and the Help dialog's Keyboard Shortcuts tab
@@ -784,7 +804,8 @@ void AppWindow::installActions(GtkApplication *app)
     // their GSimpleActions are already created above (enabled/disabled
     // state tracks UndoStack::canUndo/canRedo via m_undoButton/
     // m_redoButton's sensitivity, not a GAction property), so only their
-    // accelerators still need setting.
+    // accelerators still need setting. ripple-mode is the same (stateful,
+    // made above).
     for (const ActionSpec &spec : actionSpecs()) {
         if (spec.activated != nullptr)
             addAction(app, spec.name, spec.activated, spec.accels);
@@ -1085,6 +1106,14 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
         "ripple-delete-selected",
         "add-marker",
         "remove-marker",
+        // Tab moves between fields; , . and r are characters.
+        "select-next-clip",
+        "select-previous-clip",
+        "nudge-left",
+        "nudge-right",
+        "nudge-left-10",
+        "nudge-right-10",
+        "ripple-mode",
     };
     for (const char *name : kTransportActions) {
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
@@ -1851,7 +1880,8 @@ timeline::TimelineContext AppWindow::timelineContext() const
                                      .edgeGrabPx = kEdgeGrabWidth,
                                      .dragThresholdPx = kDragClickThreshold,
                                      .playhead = m_playback->currentFrame(),
-                                     .sequenceLength = m_playback->totalFrames()};
+                                     .sequenceLength = m_playback->totalFrames(),
+                                     .rippleMode = rippleMode()};
 }
 
 void AppWindow::applyTimelineOutcome(timeline::TimelineOutcome &outcome)
@@ -3819,6 +3849,76 @@ void AppWindow::onRippleDeleteSelected()
     }
 }
 
+bool AppWindow::rippleMode() const
+{
+    GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), "ripple-mode");
+    if (!action)
+        return false;
+    GVariant *state = g_action_get_state(action);
+    bool on = state && g_variant_get_boolean(state);
+    if (state)
+        g_variant_unref(state);
+    return on;
+}
+
+void AppWindow::selectAdjacentClip(bool forward)
+{
+    const auto &tracks = m_model.sequence().tracks;
+    if (m_activeTrack < 0 || m_activeTrack >= static_cast<int>(tracks.size()))
+        return;
+    const std::vector<core::ClipId> &clips = tracks[static_cast<size_t>(m_activeTrack)].clips;
+    if (clips.empty()) {
+        showStatus("No clips on this track.");
+        return;
+    }
+    // From the selected clip if it's on this track, else from the playhead.
+    core::ClipId current = m_timelineController.selection().single();
+    core::FrameIndex from = m_playback->currentFrame();
+    bool fromClip = current.isValid() && m_model.hasClip(current) &&
+                    m_model.clip(current).track == tracks[static_cast<size_t>(m_activeTrack)].id;
+    if (fromClip)
+        from = m_model.clip(current).position;
+    core::ClipId pick;
+    if (forward) {
+        for (core::ClipId id : clips) {
+            core::FrameIndex p = m_model.clip(id).position;
+            if (fromClip ? p > from : p >= from) {
+                pick = id;
+                break;
+            }
+        }
+    } else {
+        for (auto it = clips.rbegin(); it != clips.rend(); ++it) {
+            if (m_model.clip(*it).position < from) {
+                pick = *it;
+                break;
+            }
+        }
+    }
+    if (!pick.isValid()) {
+        showStatus(forward ? "No later clip on this track." : "No earlier clip on this track.");
+        return;
+    }
+    m_timelineController.selection().selectOnly(pick);
+    m_playback->seek(static_cast<int>(m_model.clip(pick).position));
+    gtk_widget_queue_draw(m_timeline);
+}
+
+void AppWindow::nudgeSelection(core::FrameIndex frames)
+{
+    const std::set<core::ClipId> &selected = m_timelineController.selection().clips();
+    if (selected.empty()) {
+        showStatus("Select a clip to nudge.");
+        return;
+    }
+    std::vector<core::ClipId> clips(selected.begin(), selected.end());
+    if (m_undoStack.execute(std::make_unique<core::MoveClips>(std::move(clips), frames, 0))) {
+        refreshTimeline();
+    } else {
+        showStatus("Can't nudge there — something is in the way, or it would go before the start.");
+    }
+}
+
 void AppWindow::onAddMarker()
 {
     int frame = m_playback->currentFrame();
@@ -3858,6 +3958,60 @@ void AppWindow::onRemoveMarker()
         gtk_widget_queue_draw(GTK_WIDGET(m_rulerArea));
         gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
     }
+}
+
+void AppWindow::selectNextClipActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->selectAdjacentClip(true);
+}
+
+void AppWindow::selectPreviousClipActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->selectAdjacentClip(false);
+}
+
+void AppWindow::nudgeLeftActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->nudgeSelection(-1);
+}
+
+void AppWindow::nudgeRightActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->nudgeSelection(1);
+}
+
+void AppWindow::nudgeLeft10Activated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->nudgeSelection(-10);
+}
+
+void AppWindow::nudgeRight10Activated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->nudgeSelection(10);
+}
+
+void AppWindow::rippleModeChangedTrampoline(GObject *, GParamSpec *, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    self->showStatus(self->rippleMode() ? "Ripple mode on: moving a clip closes its gap and pushes later clips."
+                                        : "Ripple mode off.");
+}
+
+void AppWindow::timelinePinchBeginTrampoline(GtkGesture *, GdkEventSequence *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->m_pinchLastScale = 1.0;
+}
+
+void AppWindow::timelinePinchTrampoline(GtkGestureZoom *gesture, double scale, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    double anchorX = self->m_timelinePointerX, anchorY = 0.0;
+    gtk_gesture_get_bounding_box_center(GTK_GESTURE(gesture), &anchorX, &anchorY);
+    if (self->m_pinchLastScale > 0.0 && scale > 0.0) {
+        self->m_viewport.zoomAround(std::max(anchorX, kHandleWidth), scale / self->m_pinchLastScale);
+        self->onTimelineViewportChanged();
+    }
+    self->m_pinchLastScale = scale;
 }
 
 void AppWindow::rippleDeleteSelectedActivated(GSimpleAction *, GVariant *, gpointer userData)

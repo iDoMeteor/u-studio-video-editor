@@ -30,6 +30,9 @@ struct TimelineContext
     double dragThresholdPx = 3.0; // below this a press-release is a click
     core::FrameIndex playhead = 0;
     core::FrameIndex sequenceLength = 0; // frames; 0 = nothing to edit or seek
+    // doc 06's Ripple mode: a single-clip move closes the gap it leaves and
+    // pushes later clips along where it lands (core::RippleMove).
+    bool rippleMode = false;
 };
 
 enum class Modifiers : unsigned
@@ -184,8 +187,10 @@ class TimelineController
                                               const std::vector<core::FrameIndex> &targets) const;
     // Whether `clips`, shifted by `delta` frames and `rowDelta` rows, would
     // land somewhere free (a copy leaves the originals in place).
+    // `rippled`: room is made where they land, so only locks and the
+    // audio-track rule can refuse it.
     bool placementValid(const TimelineContext &ctx, const std::vector<core::ClipId> &clips, core::FrameIndex delta,
-                        int rowDelta, bool copy) const;
+                        int rowDelta, bool copy, bool rippled = false) const;
     void releaseMove(const TimelineContext &ctx, TimelineOutcome &out);
     void releaseTrim(const TimelineContext &ctx, TimelineOutcome &out);
     void releaseTransitionResize(const TimelineContext &ctx, TimelineOutcome &out);

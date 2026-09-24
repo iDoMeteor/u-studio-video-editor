@@ -154,6 +154,10 @@ Modifiers, matching GNOME/kdenlive habits where they agree:
 > toggles the selection. Shift on a clip's body adds it to the selection
 > (and drags the group); only Shift on an edge slips. The "Ripple mode"
 > toggle is not built.
+> Update, same day: Ripple mode is built (`R` or the transport's Ripple
+> button; `core::RippleMove`), and a ripple drop inside a clip goes to its
+> nearer edge, since a ripple insert happens at a cut. Pinch zoom is wired
+> (GtkGestureZoom).
 | drag with `Ripple` mode on | ripple move (later clips follow) |
 | drag between tracks | moves track; audio-only clips can only land on audio tracks |
 
@@ -176,6 +180,10 @@ shipped bindings are the owner's and are the source of truth
 | + / − / 0 | zoom in / out / fit (M3) |
 | M / Shift+M | add marker / remove the marker at the playhead |
 | Ctrl+A / Escape | select all / clear selection |
+| Tab / Shift+Tab | select next / previous clip on the active track |
+| ↑ / ↓ | active track up / down (also S / D) |
+| , / . (Shift: ×10) | nudge the selection one frame |
+| R | Ripple mode on/off |
 | Ctrl+G / Ctrl+Shift+G | group / ungroup (M3.5) |
 
 ## Selection model

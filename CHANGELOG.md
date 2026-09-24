@@ -4,6 +4,15 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.23.0
+
+- Ripple mode (R, or the Ripple button): moving a clip closes the gap it
+  leaves and pushes later clips along where it lands.
+- Keyboard: Tab / Shift+Tab select the next / previous clip on the active
+  track, Up / Down change track, comma / period nudge the selection a frame
+  (Shift: ten).
+- Pinch to zoom the timeline.
+
 ## 0.22.0
 
 - The timeline draws with GTK's scene graph (a custom widget) and stays

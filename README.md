@@ -104,6 +104,14 @@ single-track skeleton.
   the playhead and `Shift+M` removes it; markers show on the ruler and
   edges snap to them. The commands are in `src/core/commands/
   timeline_edits.h`.
+- Ripple mode (`R`, or the Ripple button in the transport): while it's on,
+  moving a clip closes the gap it leaves and pushes later clips along where
+  it lands (`core::RippleMove`); a drop inside another clip goes to its
+  nearer edge.
+- Keyboard-only editing: `Tab`/`Shift+Tab` select the next/previous clip on
+  the active track and move the playhead to it, `Up`/`Down` (as well as
+  `S`/`D`) change the active track, `,`/`.` nudge the selection a frame
+  (`Shift` for ten). Pinch to zoom on a touchpad or touchscreen.
   Right-click a clip, or click to select it then press `Delete`, to
   delete it (leaves a gap — "lift", nothing else moves); right-click a
   clip that has audio and isn't already audio-only
@@ -248,8 +256,8 @@ model, commands, undo/redo, MLT-XML save/load, autosave/recovery) have
 landed; M2 (playback via a real MLT consumer instead of a hand-rolled pull
 loop, per ADR-002) is built, with an automated A/V sync test
 (`engine-av-sync`) and a soak tool (`tests/engine/playback_soak.cpp`); its
-4K60 soak result is still being investigated. M3 (the multi-track
-timeline) is in progress. See
+4K60 soak result is accepted. M3 (the multi-track timeline) is done,
+pending the post-M3 audit. See
 [`docs/plans/v2/12-roadmap-and-milestones.md`](docs/plans/v2/12-roadmap-and-milestones.md)
 for what ships in what order. `CLAUDE.md` governs day-to-day coding/agent
 conventions for this repo.

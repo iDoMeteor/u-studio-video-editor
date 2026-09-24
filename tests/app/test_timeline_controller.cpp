@@ -425,3 +425,38 @@ TEST_CASE("TimelineController: a move or copy onto something shows as invalid wh
     f.controller.motion(f.ctx(), 200.0, -60.0); // onto free V1 space at 700
     CHECK(f.controller.preview().valid);
 }
+
+TEST_CASE("TimelineController: in ripple mode a move closes its gap and pushes later clips")
+{
+    Fixture f;
+    TimelineContext ctx = f.ctx();
+    ctx.rippleMode = true;
+    // a [0,100) dropped at d's place on V2 (frame 500): d moves right by 100;
+    // V1 closes up behind a.
+    f.controller.press(ctx, Fixture::x(50), Fixture::bodyY(0), Modifiers::None);
+    f.controller.motion(ctx, 500.0, 60.0);
+    CHECK(f.controller.preview().valid); // overlapping d is fine: room is made
+    TimelineOutcome out = f.controller.release(ctx, 500.0, 60.0);
+    CHECK(f.apply(out) == 0);
+    CHECK(f.model.clip(f.a).track == f.v2);
+    CHECK(f.model.clip(f.a).position == 500);
+    CHECK(f.model.clip(f.d).position == 600);
+    CHECK(f.model.clip(f.b).position == 0);
+    CHECK(f.model.clip(f.c).position == 200);
+}
+
+TEST_CASE("TimelineController: in ripple mode a drop inside a clip goes to its nearer edge")
+{
+    Fixture f;
+    TimelineContext ctx = f.ctx();
+    ctx.rippleMode = true;
+    // d [500,600) dropped with its start at 330 on V1, inside c [300,400):
+    // nearer c's start, so it lands at 300 and c moves to 400.
+    f.controller.press(ctx, Fixture::x(550), Fixture::bodyY(1), Modifiers::None);
+    f.controller.motion(ctx, -170.0, -60.0);
+    CHECK(f.controller.preview().start == 300);
+    TimelineOutcome out = f.controller.release(ctx, -170.0, -60.0);
+    CHECK(f.apply(out) == 0);
+    CHECK(f.model.clip(f.d).position == 300);
+    CHECK(f.model.clip(f.c).position == 400);
+}

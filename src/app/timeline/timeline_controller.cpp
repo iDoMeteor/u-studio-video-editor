@@ -335,13 +335,26 @@ TimelineOutcome TimelineController::motion(const TimelineContext &ctx, double of
         }
         m_preview.start = std::max<core::FrameIndex>(0, start);
         m_preview.length = m_originLength;
+        // Ripple mode inserts at a cut: a drop inside another clip moves to
+        // whichever of its edges is nearer.
+        if (ctx.rippleMode && !m_preview.group && rowInRange(ctx, m_preview.row)) {
+            for (core::ClipId id : ctx.model.track(trackAtRow(ctx, m_preview.row)).clips) {
+                const core::Clip &other = ctx.model.clip(id);
+                if (id != m_preview.clip && other.position < m_preview.start && m_preview.start < other.end()) {
+                    m_preview.start = m_preview.start - other.position <= other.end() - m_preview.start ? other.position
+                                                                                                        : other.end();
+                    m_preview.snappedTo = m_preview.start;
+                    break;
+                }
+            }
+        }
         m_preview.groupDelta = m_preview.start - m_originStart;
         if (m_preview.group) {
             std::vector<core::ClipId> clips(m_selection.clips().begin(), m_selection.clips().end());
             m_preview.valid = placementValid(ctx, clips, m_preview.groupDelta, m_preview.groupRowDelta, false);
         } else if (!(m_preview.row == m_originRow && m_preview.start == m_originStart)) {
             m_preview.valid = placementValid(ctx, {m_preview.clip}, m_preview.start - m_originStart,
-                                             m_preview.row - m_originRow, false);
+                                             m_preview.row - m_originRow, false, ctx.rippleMode);
         }
         break;
     }
@@ -501,6 +514,13 @@ void TimelineController::releaseMove(const TimelineContext &ctx, TimelineOutcome
         out.failureStatus = "Can't move those clips there — something is in the way, or a track is locked.";
         return;
     }
+    if (ctx.rippleMode) {
+        out.attempts.push_back({std::make_unique<core::RippleMove>(m_preview.clip, dest, m_preview.start), ""});
+        out.activeRowOnSuccess = m_preview.row;
+        out.failureStatus = "Can't ripple the clip there — that's inside another clip or a dissolve, or a track "
+                            "is locked.";
+        return;
+    }
     out.attempts.push_back({std::make_unique<core::MoveClip>(m_preview.clip, dest, m_preview.start), ""});
     out.activeRowOnSuccess = m_preview.row;
     out.failureStatus = "Can't move the clip there — that space is occupied.";
@@ -593,7 +613,7 @@ void TimelineController::cancel()
 }
 
 bool TimelineController::placementValid(const TimelineContext &ctx, const std::vector<core::ClipId> &clips,
-                                        core::FrameIndex delta, int rowDelta, bool copy) const
+                                        core::FrameIndex delta, int rowDelta, bool copy, bool rippled) const
 {
     // What the move leaves behind doesn't block it: every moving clip,
     // and (C2) any dissolve partner whose extended span overlaps it.
@@ -628,7 +648,7 @@ bool TimelineController::placementValid(const TimelineContext &ctx, const std::v
             !(clip.audioEnabled && ctx.model.hasAsset(clip.asset) && ctx.model.asset(clip.asset).info.hasAudio))
             return false;
         core::FrameIndex start = clip.position + delta;
-        if (start < 0 || !ctx.model.isRangeFree(dest.id, start, start + clip.length(), ignore))
+        if (start < 0 || (!rippled && !ctx.model.isRangeFree(dest.id, start, start + clip.length(), ignore)))
             return false;
     }
     return true;

@@ -34,13 +34,23 @@ const std::vector<ActionSpec> &actionSpecs()
         // up/down -- the row edits/imports land on, same as clicking a row.
         {"seek-previous-cut",    "Seek to Previous Cut",       "Editing", {"a"},                    &AppWindow::seekPreviousCutActivated},
         {"seek-next-cut",        "Seek to Next Cut",           "Editing", {"f"},                    &AppWindow::seekNextCutActivated},
-        {"active-track-up",      "Active Track Up",            "Editing", {"s"},                    &AppWindow::activeTrackUpActivated},
-        {"active-track-down",    "Active Track Down",          "Editing", {"d"},                    &AppWindow::activeTrackDownActivated},
+        {"active-track-up",      "Active Track Up",            "Editing", {"s", "Up"},              &AppWindow::activeTrackUpActivated},
+        {"active-track-down",    "Active Track Down",          "Editing", {"d", "Down"},            &AppWindow::activeTrackDownActivated},
         {"delete-selected-clip", "Delete Selected Clip",       "Editing", {"Delete"},               &AppWindow::deleteSelectedClipActivated},
         {"split-at-playhead",    "Split Clip at Playhead",     "Editing", {"x"},                    &AppWindow::splitAtPlayheadActivated},
         {"ripple-delete-selected", "Ripple Delete Selected",   "Editing", {"<Shift>Delete"},        &AppWindow::rippleDeleteSelectedActivated},
         {"add-marker",           "Add Marker at Playhead",     "Editing", {"m"},                    &AppWindow::addMarkerActivated},
         {"remove-marker",        "Remove Marker at Playhead",  "Editing", {"<Shift>m"},             &AppWindow::removeMarkerActivated},
+        // doc 06's keyboard-only editing: walk the clips on the active
+        // track, and nudge the selection.
+        {"select-next-clip",     "Select Next Clip",           "Editing", {"Tab"},                  &AppWindow::selectNextClipActivated},
+        {"select-previous-clip", "Select Previous Clip",       "Editing", {"<Shift>Tab", "<Shift>ISO_Left_Tab"}, &AppWindow::selectPreviousClipActivated},
+        {"nudge-left",           "Nudge Selection Left 1 Frame",   "Editing", {"comma"},            &AppWindow::nudgeLeftActivated},
+        {"nudge-right",          "Nudge Selection Right 1 Frame",  "Editing", {"period"},           &AppWindow::nudgeRightActivated},
+        {"nudge-left-10",        "Nudge Selection Left 10 Frames", "Editing", {"<Shift>comma", "less"}, &AppWindow::nudgeLeft10Activated},
+        {"nudge-right-10",       "Nudge Selection Right 10 Frames", "Editing", {"<Shift>period", "greater"}, &AppWindow::nudgeRight10Activated},
+        // Stateful (on/off), so installActions() makes it itself.
+        {"ripple-mode",          "Ripple Mode On/Off",         "Editing", {"r"},                    nullptr},
         {"select-all",           "Select All Clips",           "Editing", {"<Control>a"},           &AppWindow::selectAllActivated},
         {"clear-selection",      "Clear Selection",            "Editing", {"Escape"},               &AppWindow::clearSelectionActivated},
 

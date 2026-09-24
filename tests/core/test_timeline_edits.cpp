@@ -415,3 +415,36 @@ TEST_CASE("ResizeClip can't trim a clip past the partner of a dissolve it keeps"
     ResizeClip tailTooShort(f.b, b.in, b.in + 5, b.position);
     CHECK_FALSE(tailTooShort.apply(f.model));
 }
+
+TEST_CASE("RippleMove closes the gap it leaves and makes room where it lands")
+{
+    Fixture f; // V1: a, b (dissolve), gap, c, d (dissolve)
+    TrackId v2 = f.model.addTrack(Track::Kind::Video, 1, "V2");
+    ClipId e = f.model.insertClip(v2, f.asset, 0, 0, 49);  // [0, 50)
+    ClipId g = f.model.insertClip(v2, f.asset, 50, 0, 49); // [50, 100)
+    Model before = f.model;
+
+    // e onto V1 at the gap's start (after b): c and d move right by 50;
+    // V2 closes up, so g moves to 0.
+    FrameIndex bEnd = f.model.clip(f.b).end();
+    RippleMove move(e, f.track, bEnd);
+    REQUIRE(move.apply(f.model));
+    CHECK(f.model.clip(e).track == f.track);
+    CHECK(f.model.clip(e).position == bEnd);
+    CHECK(f.model.clip(f.c).position == before.clip(f.c).position + 50);
+    CHECK(f.model.hasTransition(f.cd));
+    CHECK(f.model.clip(g).position == 0);
+    checkRoundTrip(f.model, move, before);
+
+    // Within one track: g to the far end of V2's content, counted before the move.
+    RippleMove later(e, v2, 100);
+    REQUIRE(later.apply(f.model));
+    CHECK(f.model.clip(g).position == 0);
+    CHECK(f.model.clip(e).position == 50);
+    checkRoundTrip(f.model, later, before);
+
+    // Not into the middle of a clip, nor between a dissolve's halves.
+    CHECK_FALSE(RippleMove(e, f.track, 50).apply(f.model));
+    CHECK_FALSE(RippleMove(e, f.track, f.model.clip(f.d).position).apply(f.model));
+    CHECK(equalIgnoringIdAllocator(f.model, before));
+}

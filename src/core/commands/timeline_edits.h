@@ -78,6 +78,44 @@ class MoveClips : public Command
     std::vector<Transition> m_stripped;
 };
 
+// Moves one clip in ripple mode (doc 06): the gap it leaves closes (later
+// clips on its old track move left), and clips at or after the drop point
+// on the new track move right to make room. `pos` is where the clip's start
+// goes, counted on the timeline as it was before the move. Refused where
+// the drop point is inside another clip or would split a dissolve, a track
+// is locked, or a clip with no audio would land on an audio track. The
+// clip's own dissolves are removed, as MoveClip does. Validated by a dry run
+// on a copy of the model.
+class RippleMove : public Command
+{
+  public:
+    RippleMove(ClipId clip, TrackId track, FrameIndex pos);
+    std::string label() const override
+    {
+        return "Ripple move";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    struct Record
+    {
+        TrackId oldTrack;
+        FrameIndex oldPosition = 0;
+        bool oldVideoEnabled = true;
+        std::vector<ClipId> closedUp; // moved left by the length on the old track
+        std::vector<ClipId> pushedOn; // moved right by the length on the new track
+        FrameIndex length = 0;
+        std::vector<Transition> stripped;
+    };
+    bool perform(Model &model, Record &record) const;
+
+    ClipId m_clip;
+    TrackId m_track;
+    FrameIndex m_pos;
+    Record m_record;
+};
+
 // Removes a clip and closes the hole it leaves: every later clip on its
 // track moves left by the clip's length (doc 06: Shift+Delete). Any
 // dissolve on the removed clip goes with it, as with a plain delete.

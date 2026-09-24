@@ -5,6 +5,7 @@
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "engine/thumbnail_cache.h"
+#include "engine/waveform_cache.h"
 #include "sync_clip.h"
 
 #include <glib.h>
@@ -237,4 +238,41 @@ TEST_CASE("ThumbnailCache: frame thumbnails show the frame asked for, at the seq
     CHECK(brightness(fps) > 200);          // second 1's flash
     CHECK(brightness(fps + fps / 2) < 50); // half a second later
     CHECK(brightness(2 * fps) > 200);
+}
+
+// doc 12, M3: "Timeline stays responsive while thumbnails and waveforms
+// generate". The timeline's snapshot only ever asks the caches; it must
+// never wait for them. Hundreds of requests while both workers are busy
+// decoding: every call returns at once.
+TEST_CASE("ThumbnailCache and WaveformCache never block the caller while their workers decode")
+{
+    sharedFactoryPolicy();
+    ustudio::core::Model model = ustudio::core::Model::createEmpty();
+    EngineSync sync(model);
+    int fps = ustudio::testing::framesPerSecond(sync.profile());
+    std::random_device rd;
+    std::filesystem::path media =
+        std::filesystem::temp_directory_path() / ("ustudio-responsive-" + std::to_string(rd()) + ".mp4");
+    RemoveOnExit cleanup{media};
+    ustudio::testing::renderSyncClip(sync.profile(), media.string(), 4);
+
+    ThumbnailCache thumbnails([] {});
+    WaveformCache waveforms([] {});
+    double worstMs = 0.0;
+    auto timed = [&](auto call) {
+        auto start = std::chrono::steady_clock::now();
+        call();
+        worstMs = std::max(worstMs,
+                           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    };
+    for (int round = 0; round < 3; ++round) {
+        for (int frame = 0; frame < 4 * fps; frame += 1)
+            timed([&] { thumbnails.frameThumbnail(media.string(), frame, fps, 1); });
+        for (int in = 0; in < 100; ++in)
+            timed([&] { waveforms.peaksFor(media.string(), in, in + fps, ustudio::core::Rational{fps, 1}); });
+        while (g_main_context_iteration(nullptr, FALSE)) {
+        }
+    }
+    MESSAGE("slowest request while decoding: " << worstMs << " ms");
+    CHECK(worstMs < 5.0); // a frame at 60 Hz is 16 ms; a request must be a small part of one
 }

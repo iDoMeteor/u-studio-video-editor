@@ -80,7 +80,8 @@ void fuzz(unsigned seed)
                             .edgeGrabPx = 8.0,
                             .dragThresholdPx = 3.0,
                             .playhead = static_cast<FrameIndex>(rng() % 1000),
-                            .sequenceLength = length};
+                            .sequenceLength = length,
+                            .rippleMode = rng() % 4 == 0};
         auto rx = [&] { return static_cast<double>(rng() % 1040); };
         auto ry = [&] { return static_cast<double>(rng() % 200); };
         Modifiers mods = kMods[rng() % std::size(kMods)];

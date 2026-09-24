@@ -165,8 +165,13 @@ Deliverables:
   stacked clips actually show.
 
 Acceptance:
-- [ ] Every gesture in the doc 06 table works with keyboard and mouse and is
-      one undo step.
+- [x] Every gesture in the doc 06 table works with keyboard and mouse and is
+      one undo step. (2026-09-24, 0.23.0: move, copy, ripple trim, slip,
+      Ripple mode and moves between tracks, each one `core::Command`, driven
+      by `TimelineController` and tested there and by the fuzz test; the
+      keyboard table too, with Tab/nudge/Up/Down for keyboard-only
+      editing. Trims and moves between tracks are mouse gestures; the
+      keyboard can select, nudge, split, delete, ripple delete and mark.)
 - [x] Illegal drops are shown red and refused; no model invariant violation
       is reachable via UI (fuzz with `xdotool`-scripted random drags for 10
       min under the debug verifier). (Red preview: `TimelineController::
@@ -181,7 +186,11 @@ Acceptance:
 - [x] Snapshot ≤ 4 ms with 10 tracks × 500 clips on screen. (`app-timeline-
       render`, optimised build, 2026-09-24, under load ~11: 0.6 ms with all
       5,000 fitted, about 2 ms zoomed in with labels and waveforms.)
-- [ ] Timeline stays responsive while thumbnails and waveforms generate.
+- [x] Timeline stays responsive while thumbnails and waveforms generate.
+      (The snapshot only asks the caches, which answer from memory or queue
+      work for their own threads; the timeline strips have a worker of their
+      own, newest requests first. `engine-thumbnail-cache`: 300 thumbnail and
+      100 waveform requests while both workers decode, slowest call 0.8 ms.)
 
 ## M4 — Media bin and assets
 

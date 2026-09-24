@@ -267,6 +267,12 @@ class AppWindow
     void onRippleDeleteSelected();
     // M / Shift+M: a marker at the playhead, or remove the one there.
     void onAddMarker();
+    // Tab / Shift+Tab: select the next / previous clip on the active track
+    // (from the selection, or the playhead) and move the playhead to it.
+    void selectAdjacentClip(bool forward);
+    // , . (Shift for 10): move the selected clips by whole frames.
+    void nudgeSelection(core::FrameIndex frames);
+    bool rippleMode() const;
     void onRemoveMarker();
     void onSplitAudioClicked();
     void onCloseGapClicked();
@@ -521,6 +527,15 @@ class AppWindow
     static void rippleDeleteSelectedActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void addMarkerActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void removeMarkerActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void selectNextClipActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void selectPreviousClipActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void nudgeLeftActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void nudgeRightActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void nudgeLeft10Activated(GSimpleAction *, GVariant *, gpointer userData);
+    static void nudgeRight10Activated(GSimpleAction *, GVariant *, gpointer userData);
+    static void rippleModeChangedTrampoline(GObject *action, GParamSpec *, gpointer userData);
+    static void timelinePinchTrampoline(GtkGestureZoom *gesture, double scale, gpointer userData);
+    static void timelinePinchBeginTrampoline(GtkGesture *gesture, GdkEventSequence *, gpointer userData);
     static void selectAllActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void clearSelectionActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void zoomInActivated(GSimpleAction *, GVariant *, gpointer userData);
@@ -628,6 +643,7 @@ class AppWindow
     GtkAdjustment *m_timelineHAdjustment = nullptr;
     bool m_suppressHScrollSignal = false;
     double m_timelinePointerX = 0.0;
+    double m_pinchLastScale = 1.0;
     GtkScale *m_seekScale = nullptr;
     GtkButton *m_playButton = nullptr;
     // Enhancement #4: the header bar's own title widget (what's actually

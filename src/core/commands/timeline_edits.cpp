@@ -188,6 +188,125 @@ void MoveClips::revert(Model &model)
     model.notify(BatchEnd{});
 }
 
+// --- RippleMove -------------------------------------------------------------
+
+RippleMove::RippleMove(ClipId clip, TrackId track, FrameIndex pos) : m_clip(clip), m_track(track), m_pos(pos) {}
+
+bool RippleMove::perform(Model &model, Record &record) const
+{
+    std::vector<Transition> stripped;
+    for (const Transition &t : model.sequence().transitions) {
+        if (t.a == m_clip || t.b == m_clip)
+            stripped.push_back(t);
+    }
+    for (const Transition &t : stripped)
+        model.removeTransition(t.id);
+    record.stripped = stripped;
+
+    const Clip &clip = model.clip(m_clip);
+    const TrackId source = clip.track;
+    const FrameIndex oldPos = clip.position, length = clip.length(), oldEnd = clip.end();
+    record.oldTrack = source;
+    record.oldPosition = oldPos;
+    record.oldVideoEnabled = clip.videoEnabled;
+    record.length = length;
+
+    // Park the clip past everything while the tracks close up and open up.
+    FrameIndex farAway = 0;
+    for (const Track &t : model.sequence().tracks)
+        for (ClipId id : t.clips)
+            farAway = std::max(farAway, model.clip(id).end());
+    model.moveClip(m_clip, source, farAway + length + 1000);
+
+    for (ClipId id : std::vector<ClipId>(model.track(source).clips)) {
+        if (id != m_clip && model.clip(id).position >= oldEnd) {
+            model.moveClip(id, source, model.clip(id).position - length);
+            record.closedUp.push_back(id);
+        }
+    }
+
+    FrameIndex pos = m_pos;
+    if (m_track == source && pos >= oldEnd)
+        pos -= length; // the timeline closed up under the drop point
+    // Not into the middle of a clip, and not between the two halves of a
+    // dissolve.
+    for (ClipId id : model.track(m_track).clips) {
+        const Clip &other = model.clip(id);
+        if (id != m_clip && other.position < pos && pos < other.end())
+            return false;
+    }
+    for (const Transition &t : model.sequence().transitions) {
+        if (t.track == m_track && model.clip(t.a).position < pos && model.clip(t.b).position >= pos)
+            return false;
+    }
+    std::vector<ClipId> later;
+    for (ClipId id : model.track(m_track).clips) {
+        if (id != m_clip && model.clip(id).position >= pos)
+            later.push_back(id);
+    }
+    std::reverse(later.begin(), later.end()); // make room from the far end first
+    for (ClipId id : later) {
+        model.moveClip(id, m_track, model.clip(id).position + length);
+        record.pushedOn.push_back(id);
+    }
+
+    model.moveClip(m_clip, m_track, pos);
+    if (model.track(m_track).kind == Track::Kind::Audio && model.clip(m_clip).videoEnabled)
+        model.setClipEnabled(m_clip, /*videoEnabled=*/false, model.clip(m_clip).audioEnabled);
+    return true;
+}
+
+bool RippleMove::apply(Model &model)
+{
+    if (!model.hasClip(m_clip) || !model.hasTrack(m_track) || m_pos < 0)
+        return false;
+    const Clip &clip = model.clip(m_clip);
+    if (m_track == clip.track && m_pos == clip.position)
+        return false;
+    if (model.track(clip.track).locked || model.track(m_track).locked)
+        return false;
+    if (model.track(m_track).kind == Track::Kind::Audio &&
+        !(clip.audioEnabled && model.hasAsset(clip.asset) && model.asset(clip.asset).info.hasAudio))
+        return false;
+    // The dry run: no invariant the model didn't already break may break.
+    std::vector<std::string> before = model.check();
+    Model scratch = model;
+    Record scratchRecord;
+    if (!perform(scratch, scratchRecord))
+        return false;
+    for (const std::string &problem : scratch.check()) {
+        if (std::find(before.begin(), before.end(), problem) == before.end())
+            return false;
+    }
+    model.notify(BatchBegin{});
+    m_record = Record{};
+    perform(model, m_record);
+    model.notify(BatchEnd{});
+    return true;
+}
+
+void RippleMove::revert(Model &model)
+{
+    const Record &r = m_record;
+    model.notify(BatchBegin{});
+    FrameIndex farAway = 0;
+    for (const Track &t : model.sequence().tracks)
+        for (ClipId id : t.clips)
+            farAway = std::max(farAway, model.clip(id).end());
+    model.moveClip(m_clip, m_track, farAway + r.length + 1000);
+    for (auto it = r.pushedOn.rbegin(); it != r.pushedOn.rend(); ++it)
+        model.moveClip(*it, m_track, model.clip(*it).position - r.length);
+    for (auto it = r.closedUp.rbegin(); it != r.closedUp.rend(); ++it)
+        model.moveClip(*it, r.oldTrack, model.clip(*it).position + r.length);
+    model.moveClip(m_clip, r.oldTrack, r.oldPosition);
+    const Clip &clip = model.clip(m_clip);
+    if (clip.videoEnabled != r.oldVideoEnabled)
+        model.setClipEnabled(m_clip, r.oldVideoEnabled, clip.audioEnabled);
+    for (const Transition &t : r.stripped)
+        model.addTransition(t.track, t.a, t.b, t.extendA, t.extendB, t.id);
+    model.notify(BatchEnd{});
+}
+
 // --- Step lists ------------------------------------------------------------
 
 namespace {
