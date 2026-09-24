@@ -2,6 +2,7 @@
 
 #include "action_registry.h"
 #include "autosave.h"
+#include "portal_path.h"
 #include "core/commands/composite_command.h"
 #include "core/commands/primitives.h"
 #include "core/commands/transaction.h"
@@ -158,6 +159,18 @@ core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length,
     asset.info.container = (dot == std::string::npos) ? std::string{} : asset.displayName.substr(dot + 1);
     asset.status = core::Asset::Status::Ready;
     return asset;
+}
+
+// A GFile from a file dialog or a drop, as a local path -- see
+// portal_path.h for why it isn't just g_file_get_path().
+std::string localPathFor(GFile *file, bool createIfMissing = false)
+{
+    char *raw = g_file_get_path(file);
+    if (!raw)
+        return {};
+    std::string path = raw;
+    g_free(raw);
+    return portal::resolveHostPath(path, createIfMissing);
 }
 } // namespace
 
@@ -1036,15 +1049,14 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
     guint n = g_list_model_get_n_items(files);
     for (guint i = 0; i < n; ++i) {
         auto *file = static_cast<GFile *>(g_list_model_get_item(files, i));
-        char *path = g_file_get_path(file);
-        if (path) {
+        std::string path = localPathFor(file);
+        if (!path.empty()) {
             // Recomputed per file: importFileToTrack() on success appends
             // a new clip to this track, so the next file (if any) needs
             // to land after THAT one, not stack at the same position.
             const core::Track &track = m_model.track(trackId);
             core::FrameIndex insertPos = track.clips.empty() ? 0 : m_model.clip(track.clips.back()).end();
             importFileToTrack(path, trackId, insertPos);
-            g_free(path);
         }
         g_object_unref(file);
     }
@@ -1144,16 +1156,18 @@ void AppWindow::onSaveFinished(GObject *sourceObject, GAsyncResult *result)
         return;
     }
 
-    char *path = g_file_get_path(file);
-    if (path) {
+    std::string path = localPathFor(file, true);
+    if (!path.empty())
         performSaveToPath(path, closeAfterSave);
-        g_free(path);
-    }
     g_object_unref(file);
 }
 
-bool AppWindow::performSaveToPath(const std::string &path, bool closeAfterSave)
+bool AppWindow::performSaveToPath(const std::string &requestedPath, bool closeAfterSave)
 {
+    // Ctrl+S reuses m_currentProjectPath, which a project opened before the
+    // portal fix (or via an old recent-projects entry) may still hold as a
+    // document-portal path -- see portal_path.h.
+    const std::string path = portal::resolveHostPath(requestedPath);
     if (pathIsProjectAsset(path)) {
         showStatus("Refusing to save over a file already in this project's media: " + path);
         return false;
@@ -1236,16 +1250,17 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
         return;
     }
 
-    char *path = g_file_get_path(file);
-    if (path) {
+    std::string path = localPathFor(file);
+    if (!path.empty())
         loadProjectFromPath(path);
-        g_free(path);
-    }
     g_object_unref(file);
 }
 
-bool AppWindow::loadProjectFromPath(const std::string &path)
+bool AppWindow::loadProjectFromPath(const std::string &requestedPath)
 {
+    // Covers recent-projects entries recorded as document-portal paths
+    // before portal::resolveHostPath() existed, not just fresh dialog picks.
+    const std::string path = portal::resolveHostPath(requestedPath);
     auto loaded = core::loadProject(path);
     if (!loaded.has_value()) {
         showStatus(loaded.error());
@@ -1356,12 +1371,10 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
         return;
     }
 
-    char *pathC = g_file_get_path(file);
+    std::string path = localPathFor(file, true);
     g_object_unref(file);
-    if (!pathC)
+    if (path.empty())
         return;
-    std::string path = pathC;
-    g_free(pathC);
 
     if (pathIsProjectAsset(path)) {
         showStatus(std::string("Refusing to render over a file already in this project's media: ") + path);
@@ -3313,8 +3326,8 @@ gboolean AppWindow::onTimelineFileDrop(GdkFileList *files, double x, double y)
     bool anySucceeded = false;
     for (GSList *l = list; l != nullptr; l = l->next) {
         auto *file = static_cast<GFile *>(l->data);
-        char *path = g_file_get_path(file);
-        if (!path)
+        std::string path = localPathFor(file);
+        if (path.empty())
             continue;
         if (importFileToTrack(path, trackId, position)) {
             anySucceeded = true;
@@ -3324,7 +3337,6 @@ gboolean AppWindow::onTimelineFileDrop(GdkFileList *files, double x, double y)
             const core::Track &track = m_model.track(trackId);
             position = track.clips.empty() ? position : m_model.clip(track.clips.back()).end();
         }
-        g_free(path);
     }
     return anySucceeded ? TRUE : FALSE;
 }
@@ -3337,12 +3349,11 @@ gboolean AppWindow::onMediaBrowserFileDrop(GdkFileList *files)
     bool anySucceeded = false;
     for (GSList *l = list; l != nullptr; l = l->next) {
         auto *file = static_cast<GFile *>(l->data);
-        char *path = g_file_get_path(file);
-        if (!path)
+        std::string path = localPathFor(file);
+        if (path.empty())
             continue;
         if (importAssetOnly(path))
             anySucceeded = true;
-        g_free(path);
     }
     return anySucceeded ? TRUE : FALSE;
 }

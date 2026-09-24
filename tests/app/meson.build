@@ -53,3 +53,14 @@ test(
     'XDG_DATA_DIRS': meson.current_build_dir() / 'empty-xdg-data-dir',
   },
 )
+
+test_portal_path_exe = executable(
+  'test_portal_path',
+  files('test_portal_path.cpp'),
+  dependencies: [doctest_dep, app_portal_dep, gio_dep],
+  install: false,
+)
+
+# Talks to the real session's xdg-document-portal (skips itself when there
+# isn't one, e.g. in a CI container).
+test('app-portal-path', test_portal_path_exe, workdir: meson.current_build_dir())

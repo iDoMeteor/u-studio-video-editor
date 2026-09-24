@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.15.4
+
+- Fixed Ctrl+S (and Save As, Render, Import) failing with "failed to write
+  /run/user/…/doc/…" when the file picker handed back a sandbox portal
+  path: the app now saves to the file's real location.
+
 ## 0.15.3
 
 - The app now quits cleanly on logout, shutdown, `kill`, or Ctrl+C in a

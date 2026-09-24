@@ -46,6 +46,21 @@ app_settings_dep = declare_dependency(
   dependencies: [gio_dep, glib_dep, libustudio_core_dep],
 )
 
+# GLib-only, like the two libraries above, so tests/app/ can exercise it
+# against the real Documents portal.
+app_portal_lib = static_library(
+  'ustudio_app_portal',
+  files('portal_path.cpp'),
+  dependencies: [glib_dep, libustudio_core_dep],
+  include_directories: src_inc,
+  install: false,
+)
+app_portal_dep = declare_dependency(
+  link_with: app_portal_lib,
+  include_directories: src_inc,
+  dependencies: [glib_dep, libustudio_core_dep],
+)
+
 app_sources = files(
   'action_registry.cpp',
   'app_window.cpp',
@@ -77,7 +92,7 @@ executable(
   'u-studio-video-editor',
   app_sources,
   app_resources,
-  dependencies: [libustudio_engine_dep, app_autosave_dep, app_settings_dep, gtk4_dep, adwaita_dep, gio_dep],
+  dependencies: [libustudio_engine_dep, app_autosave_dep, app_settings_dep, app_portal_dep, gtk4_dep, adwaita_dep, gio_dep],
   install: true,
   cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
 )
