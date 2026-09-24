@@ -249,6 +249,13 @@ with `meson test`.
   media.
 - Sanitiser builds (`-Db_sanitize=address,undefined`) are the standard for
   anything touching threads or MLT lifetime.
+- **Before landing** (not before every commit) a change that touches
+  threads, MLT object lifetime, or the concurrency code (`core/concurrency/`,
+  the dispatcher, pool jobs, worker caches, `PlaybackController`), run both
+  `just asan` and `just tsan` and report their pass counts. They take about
+  6½ and 4½ minutes on the dev machine (2026-09-24, incremental build
+  included). Docs, UI-only and pure-core changes need only
+  `meson test`.
 
 ---
 
