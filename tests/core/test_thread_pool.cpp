@@ -188,13 +188,13 @@ TEST_CASE("ThreadPool: thousands of tiny jobs from several producer threads each
     CHECK(cancelled <= kProducers * (kJobsEach / 97 + 1));
 }
 
-TEST_CASE("ThreadPool: a job that throws is logged and doesn't take the worker down")
+TEST_CASE("ThreadPool: a job that throws ends Failed, is logged, and doesn't take the worker down")
 {
     ThreadPool pool(1);
     JobHandle bad = pool.submit([](std::stop_token) { throw std::runtime_error("boom"); });
     JobHandle good = pool.submit([](std::stop_token) {});
     bad.wait();
     good.wait();
-    CHECK(bad.state() == JobState::Done);
+    CHECK(bad.state() == JobState::Failed);
     CHECK(good.state() == JobState::Done);
 }

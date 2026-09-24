@@ -29,6 +29,7 @@ enum class JobState
     Running,
     Done,
     Cancelled, // cancelled before it started, or stopped by request while running
+    Failed,    // the job threw (logged); MT1's import progress tells this apart from Done
 };
 
 namespace detail {
@@ -48,7 +49,7 @@ class JobHandle
     }
     JobState state() const;
     void cancel();
-    // Blocks until the job is Done or Cancelled (tests, shutdown paths;
+    // Blocks until the job is Done, Cancelled or Failed (tests, shutdown paths;
     // never from the main thread in the app).
     void wait() const;
 

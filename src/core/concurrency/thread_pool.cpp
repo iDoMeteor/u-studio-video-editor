@@ -59,7 +59,7 @@ void JobHandle::wait() const
     std::unique_lock<std::mutex> lock(m_control->mutex);
     m_control->finished.wait(lock, [this] {
         JobState s = m_control->state.load();
-        return s == JobState::Done || s == JobState::Cancelled;
+        return s == JobState::Done || s == JobState::Cancelled || s == JobState::Failed;
     });
 }
 
@@ -139,11 +139,14 @@ void ThreadPool::workerMain(std::stop_token poolStop)
         }
 
         std::stop_token token = next.control->stop.get_token();
+        bool threw = false;
         try {
             next.job(token);
         } catch (const std::exception &e) {
+            threw = true;
             Log::warn(std::string("[pool] a job threw: ") + e.what());
         } catch (...) {
+            threw = true;
             Log::warn("[pool] a job threw a non-exception");
         }
 
@@ -151,7 +154,7 @@ void ThreadPool::workerMain(std::stop_token poolStop)
             std::lock_guard<std::mutex> lock(m_mutex);
             std::erase(m_running, next.control);
         }
-        next.control->finish(token.stop_requested() ? JobState::Cancelled : JobState::Done);
+        next.control->finish(threw ? JobState::Failed : token.stop_requested() ? JobState::Cancelled : JobState::Done);
     }
 }
 
