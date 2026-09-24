@@ -190,6 +190,11 @@ void PlaybackController::setFrameCallback(FrameCallback cb)
     m_callback = std::move(cb);
 }
 
+void PlaybackController::setDrainPoster(DrainPoster poster)
+{
+    m_drainPoster = std::move(poster);
+}
+
 void PlaybackController::play(double speed)
 {
     if (!m_tractor)
@@ -376,8 +381,12 @@ void PlaybackController::handleFrameShow(const Mlt::EventData &eventData)
     m_slot.store(std::move(data));
 
     bool expected = false;
-    if (m_drainQueued.compare_exchange_strong(expected, true))
-        MainThreadDispatcher::post(m_lifetimeToken, [this] { drainSlot(); });
+    if (m_drainQueued.compare_exchange_strong(expected, true)) {
+        if (m_drainPoster)
+            m_drainPoster([this] { drainSlot(); }); // the engine thread drops it unrun after shutdown()
+        else
+            MainThreadDispatcher::post(m_lifetimeToken, [this] { drainSlot(); });
+    }
 }
 
 void PlaybackController::drainSlot()

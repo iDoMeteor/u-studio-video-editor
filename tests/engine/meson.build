@@ -123,4 +123,15 @@ test_chunked_playlist_exe = executable(
   install: false,
 )
 
-test('engine-chunked-playlist', test_chunked_playlist_exe, timeout: 180)
+# 178 s under ASan (2026-09-24): the render and every-frame hashing.
+test('engine-chunked-playlist', test_chunked_playlist_exe, timeout: 400)
+
+# doc 19 MT2 piece 2: the engine thread through its facade.
+test_engine_thread_exe = executable(
+  'test_engine_thread',
+  files('test_engine_thread.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, glib_dep],
+  install: false,
+)
+
+test('engine-thread', test_engine_thread_exe, timeout: 180)

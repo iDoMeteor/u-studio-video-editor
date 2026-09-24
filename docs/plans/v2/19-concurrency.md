@@ -296,9 +296,16 @@ threads; it submits jobs to the pool.
       monitor): importing 50 files (checked at MT2: MT1 moved the probing
       off, but each apply's `rebuildAll` stays on the main thread until
       then); saving a 5,000-clip project; 100 edits in 10 s while playing
-      4K.
+      1080p (owner direction 2026-09-24: HD is the primary target; 4K
+      throughput is MT4's, run on demand).
 - [ ] Edits while playing never block input; playback picks up the newest
-      graph within one rebuild.
+      graph within one rebuild: in a release build, from publishing the
+      snapshot to the first frame of the new graph, at most 500 ms at 5,000
+      clips on 8 tracks and 200 ms at 500; a burst of edits costs at most
+      one build beyond the last one.
+- [ ] The routine soak (`playback_soak`, 10 min of generated 1080p H.264,
+      more than 64 clips so tracks are chunked) holds real time. The
+      recorded 4K60 runs above are history.
 - [ ] `just tsan` and `just asan` pass on every suite.
 - [ ] Export runs in `u-studio-render`; killing the editor doesn't stop it.
 - [ ] Each parallel change has a recorded before/after measurement.

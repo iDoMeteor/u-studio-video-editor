@@ -50,6 +50,13 @@ class PlaybackController
     // position and play/pause state across the restart.
     void setTractor(std::shared_ptr<Mlt::Tractor> tractor);
     void setFrameCallback(FrameCallback cb);
+    // Where the consumer thread's frame hand-off (drainSlot(): the loop
+    // wrap, then the frame callback) runs. Unset, it's posted to the main
+    // thread (MainThreadDispatcher). The engine thread (engine.cpp) sets it
+    // to its own queue, since the loop wrap seeks the tractor that only it
+    // touches. Set before setTractor().
+    using DrainPoster = std::function<void(std::function<void()>)>;
+    void setDrainPoster(DrainPoster poster);
 
     // speed: 1.0 = normal forward. J/K/L shuttle uses {-8,-4,-2,-1,-0.5,
     // -0.25, 0.25, 0.5, 1, 2, 4, 8}; sdl2_audio/rtaudio handle reverse and
@@ -169,6 +176,7 @@ class PlaybackController
     int m_consumerRestartCount = 0;
     std::atomic<long> m_frameShowCount{0};
     FrameCallback m_callback;
+    DrainPoster m_drainPoster;
 
     LatestFrameSlot m_slot;
     MainThreadDispatcher::LifetimeToken m_lifetimeToken = MainThreadDispatcher::makeToken();

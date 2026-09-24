@@ -1,11 +1,15 @@
-// doc 12, M2 soak: "4K60 source plays at real time with frame dropping at
-// preview scale 0.5 on the dev machine; no unbounded memory growth over
-// 10 min". Not part of `meson test` (it runs for minutes against the real
+// Playback soak: any source, played for minutes through the real engine.
+// M2's recorded criterion (doc 12) was 4K60 ("plays at real time with frame
+// dropping at preview scale 0.5 on the dev machine; no unbounded memory
+// growth over 10 min"). The routine soak is now 1080p (owner direction
+// 2026-09-24: HD is the primary target; doc 19); 4K is run on demand for
+// MT4. Not part of `meson test` (it runs for minutes against the real
 // audio device); run by hand:
 //   playback_soak <media> <minutes> [clips]
+// Use more than 64 clips so the track is built chunked (doc 19 MT2).
 // Builds a timeline of `clips` back-to-back copies of <media> in a sequence
-// whose size and frame rate match the source (the criterion is 4K60
-// playback; a default 30 fps sequence would only show every other frame),
+// whose size and frame rate match the source (a 60 fps source in a default
+// 30 fps sequence would only show every other frame),
 // plays it through the real EngineSync + PlaybackController at
 // PreviewScale::Half, and prints every 10 s:
 //   playhead vs. wall clock; frames the consumer showed; frames the UI

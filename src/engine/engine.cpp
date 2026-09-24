@@ -1,0 +1,368 @@
+#include "engine.h"
+
+#include "core/log.h"
+#include "core/trace.h"
+#include "engine/engine_sync.h"
+#include "engine/playback_controller.h"
+
+#include <glib.h>
+#include <pthread.h>
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
+
+namespace ustudio::engine {
+
+namespace Log = ustudio::core::Log;
+
+// Everything here runs on the engine thread except enqueue() (any thread)
+// and the constructor/stop() (main thread).
+class Engine::Thread
+{
+  public:
+    struct Entry
+    {
+        std::function<void(Thread &)> command; // empty for a snapshot
+        std::shared_ptr<const core::Project> snapshot;
+        bool reset = false;
+        bool shutdown = false;
+        uint64_t seq = 0;
+    };
+
+    Thread(Engine *owner, std::shared_ptr<const core::Project> project, PreviewScale scale)
+        : m_owner(owner), m_ownerToken(owner->m_lifetime)
+    {
+        m_thread = std::jthread([this, project = std::move(project), scale] { run(project, scale); });
+    }
+
+    // Appends in order; a snapshot straight after another one replaces it
+    // (latest wins), keeping a reset flag if either had one.
+    void enqueue(Entry entry)
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (!entry.command && !entry.shutdown && !m_queue.empty() && !m_queue.back().command &&
+                !m_queue.back().shutdown) {
+                Entry &last = m_queue.back();
+                last.reset = last.reset || entry.reset;
+                last.snapshot = std::move(entry.snapshot);
+                last.seq = entry.seq;
+            } else {
+                m_queue.push_back(std::move(entry));
+            }
+        }
+        m_cv.notify_one();
+    }
+
+    void stop(uint64_t seq)
+    {
+        Entry entry;
+        entry.shutdown = true;
+        entry.seq = seq;
+        enqueue(std::move(entry));
+        if (m_thread.joinable())
+            m_thread.join();
+    }
+
+    std::unique_ptr<EngineSync> sync;
+    std::unique_ptr<PlaybackController> controller;
+
+  private:
+    void run(std::shared_ptr<const core::Project> project, PreviewScale scale)
+    {
+        pthread_setname_np(pthread_self(), "ustudio-engine");
+        {
+            core::trace::Scope trace("engine: start");
+            sync = std::make_unique<EngineSync>(std::move(project), scale);
+            controller = std::make_unique<PlaybackController>();
+            // The consumer thread's frame hand-off lands here, not on the
+            // main thread: its loop wrap seeks the tractor, which only this
+            // thread touches. The UI gets the frame from onControllerFrame().
+            controller->setDrainPoster([this](std::function<void()> drain) {
+                Entry entry;
+                entry.command = [drain = std::move(drain)](Thread &) { drain(); };
+                entry.seq = kInternal;
+                enqueue(std::move(entry));
+            });
+            controller->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int position) {
+                onControllerFrame(std::move(rgba), width, height, position);
+            });
+            sync->rebuilt.connect([this] {
+                controller->setTractor(sync->tractorPtr());
+                m_rebuilt = true;
+            });
+            sync->mediaUnavailable.connect([this](const std::string &path) {
+                MainThreadDispatcher::post(m_ownerToken,
+                                           [owner = m_owner, path] { owner->mediaUnavailable.emit(path); });
+            });
+            controller->setTractor(sync->tractorPtr());
+            m_rebuilt = true;
+            postState(0);
+        }
+
+        while (true) {
+            Entry entry;
+            {
+                std::unique_lock<std::mutex> lock(m_mutex);
+                m_cv.wait(lock, [this] { return !m_queue.empty(); });
+                entry = std::move(m_queue.front());
+                m_queue.pop_front();
+            }
+            if (entry.shutdown) {
+                core::trace::Scope trace("engine: shutdown");
+                // Stop the consumer first, then drop the graph (CLAUDE.md:
+                // never destroy what a running consumer can reach). Anything
+                // still queued behind this is dropped unrun.
+                controller->shutdown();
+                controller.reset();
+                sync.reset();
+                return;
+            }
+            if (entry.command) {
+                entry.command(*this);
+            } else if (entry.reset) {
+                sync->reset(std::move(entry.snapshot));
+            } else {
+                sync->setProject(std::move(entry.snapshot));
+            }
+            if (entry.seq != kInternal)
+                postState(entry.seq);
+            else if (m_rebuilt)
+                postState(m_lastSeq);
+        }
+    }
+
+    void postState(uint64_t seq)
+    {
+        m_lastSeq = seq;
+        State state;
+        state.seq = seq;
+        state.position = controller->currentFrame();
+        state.playing = controller->isPlaying();
+        state.speed = controller->speed();
+        state.totalFrames = controller->totalFrames();
+        state.fps = controller->fps();
+        state.backend = controller->backendName();
+        bool rebuilt = std::exchange(m_rebuilt, false);
+        MainThreadDispatcher::post(m_ownerToken,
+                                   [owner = m_owner, state, rebuilt] { owner->applyState(state, rebuilt); });
+    }
+
+    // Engine thread (PlaybackController's drain, after its loop check): hands
+    // the newest frame to the main thread, one post in flight at a time.
+    void onControllerFrame(std::vector<uint8_t> rgba, int width, int height, int position)
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_frameMutex);
+            m_frame = Frame{std::move(rgba), width, height, position};
+        }
+        if (m_frameQueued.exchange(true))
+            return;
+        MainThreadDispatcher::post(m_ownerToken, [this, owner = m_owner] {
+            // The owner's token being alive means shutdown() hasn't
+            // returned, so this Thread still exists.
+            m_frameQueued = false;
+            std::optional<Frame> frame;
+            {
+                std::lock_guard<std::mutex> lock(m_frameMutex);
+                frame = std::exchange(m_frame, std::nullopt);
+            }
+            if (frame)
+                owner->onFrame(std::move(frame->rgba), frame->width, frame->height, frame->position);
+        });
+    }
+
+    struct Frame
+    {
+        std::vector<uint8_t> rgba;
+        int width = 0;
+        int height = 0;
+        int position = 0;
+    };
+    static constexpr uint64_t kInternal = UINT64_MAX; // engine-originated work, not a main-thread command
+
+    Engine *m_owner;
+    std::weak_ptr<void> m_ownerToken;
+    std::mutex m_mutex;
+    std::condition_variable m_cv;
+    std::deque<Entry> m_queue;
+    bool m_rebuilt = false; // engine thread only
+    uint64_t m_lastSeq = 0; // engine thread only
+    std::mutex m_frameMutex;
+    std::optional<Frame> m_frame;
+    std::atomic<bool> m_frameQueued{false};
+    std::jthread m_thread;
+};
+
+Engine::Engine(std::shared_ptr<const core::Project> project, PreviewScale previewScale)
+    : m_thread(std::make_unique<Thread>(this, std::move(project), previewScale))
+{}
+
+Engine::~Engine()
+{
+    shutdown();
+}
+
+void Engine::shutdown()
+{
+    if (!m_thread)
+        return;
+    Log::debug("[engine] shutting down the engine thread");
+    m_thread->stop(++m_sent);
+    m_thread.reset();
+    // Frames and state still queued for the main thread would call into a
+    // stopped engine's mirror only; they're harmless, but drop them anyway.
+    m_lifetime = MainThreadDispatcher::makeToken();
+}
+
+uint64_t Engine::send(std::function<void(Thread &)> command)
+{
+    if (!m_thread)
+        return m_sent;
+    Thread::Entry entry;
+    entry.command = std::move(command);
+    entry.seq = ++m_sent;
+    m_thread->enqueue(std::move(entry));
+    return m_sent;
+}
+
+void Engine::publish(std::shared_ptr<const core::Project> project)
+{
+    if (!m_thread || !project)
+        return;
+    Thread::Entry entry;
+    entry.snapshot = std::move(project);
+    entry.seq = ++m_sent;
+    m_thread->enqueue(std::move(entry));
+}
+
+void Engine::reset(std::shared_ptr<const core::Project> project)
+{
+    if (!m_thread || !project)
+        return;
+    Thread::Entry entry;
+    entry.snapshot = std::move(project);
+    entry.reset = true;
+    entry.seq = ++m_sent;
+    m_thread->enqueue(std::move(entry));
+}
+
+void Engine::setPreviewScale(PreviewScale scale)
+{
+    send([scale](Thread &t) { t.sync->setPreviewScale(scale); });
+}
+
+void Engine::setFrameCallback(FrameCallback callback)
+{
+    m_frameCallback = std::move(callback);
+}
+
+int Engine::clampFrame(int frame) const
+{
+    return std::clamp(frame, 0, std::max(m_totalFrames - 1, 0));
+}
+
+void Engine::play(double speed)
+{
+    m_playing = speed != 0.0;
+    m_speed = speed;
+    send([speed](Thread &t) { t.controller->play(speed); });
+}
+
+void Engine::pause()
+{
+    m_playing = false;
+    m_speed = 0.0;
+    send([](Thread &t) { t.controller->pause(); });
+}
+
+void Engine::togglePlay()
+{
+    if (m_playing)
+        pause();
+    else
+        play(1.0);
+}
+
+void Engine::seek(int frame)
+{
+    m_position = clampFrame(frame);
+    send([frame](Thread &t) { t.controller->seek(frame); });
+}
+
+void Engine::stepFrame(int delta)
+{
+    m_playing = false;
+    m_speed = 0.0;
+    m_position = clampFrame(m_position + delta);
+    send([delta](Thread &t) { t.controller->stepFrame(delta); });
+}
+
+void Engine::toHome()
+{
+    m_position = 0;
+    send([](Thread &t) { t.controller->toHome(); });
+}
+
+void Engine::toEnd()
+{
+    m_position = std::max(m_totalFrames - 1, 0);
+    send([](Thread &t) { t.controller->toEnd(); });
+}
+
+void Engine::setLoopRange(std::optional<std::pair<int, int>> range)
+{
+    if (range && range->first >= range->second)
+        range.reset(); // as PlaybackController does
+    m_loopRange = range;
+    send([range](Thread &t) { t.controller->setLoopRange(range); });
+}
+
+void Engine::setVolume(double volume)
+{
+    m_volume = std::clamp(volume, 0.0, 1.0);
+    send([volume = m_volume](Thread &t) { t.controller->setVolume(volume); });
+}
+
+void Engine::applyState(const State &state, bool graphRebuilt)
+{
+    m_totalFrames = state.totalFrames;
+    m_fps = state.fps;
+    m_backend = state.backend;
+    if (state.seq >= m_sent) {
+        // Nothing newer has been sent: this is where the engine really is.
+        m_playing = state.playing;
+        m_speed = state.speed;
+        if (!m_playing)
+            m_position = state.position;
+    }
+    m_applied = std::max(m_applied, state.seq);
+    if (graphRebuilt)
+        rebuilt.emit();
+}
+
+void Engine::onFrame(std::vector<uint8_t> rgba, int width, int height, int position)
+{
+    if (m_playing)
+        m_position = position;
+    if (m_frameCallback)
+        m_frameCallback(std::move(rgba), width, height, position);
+}
+
+void Engine::syncForTesting()
+{
+    uint64_t target = send([](Thread &) {});
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (m_applied < target && std::chrono::steady_clock::now() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+
+} // namespace ustudio::engine
