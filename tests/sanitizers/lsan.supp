@@ -1,0 +1,41 @@
+# LeakSanitizer suppressions for `just asan` (docs/audit/2026-09-23-sanitizer-report.md).
+# Only leaks that are not ours and that we cannot free belong here. Each entry
+# matches any frame of the allocation stack. Keep them narrow enough that a
+# leaked mlt++ wrapper of ours still reports (report finding S1): such a
+# wrapper is allocated by `new` inside libmlt++/our code, never under
+# mlt_factory_producer, so it is not hidden by the entries below.
+
+# MLT's module repository, allocated once by Mlt::Factory::init (fixed ~14 KB).
+leak:Mlt::Factory::init
+leak:mlt_factory_init
+
+# MLT's loader leaks the normaliser filters it attaches to every producer it
+# creates, including the "blank" producer mlt_playlist creates internally
+# (report finding S3; upstream). Per-producer and not freeable from our side.
+leak:mlt_factory_producer
+
+# SDL audio (via MLT's sdl2_audio consumer, sdl2-compat over SDL3): hint
+# cache and mutexes SDL never frees because the audio subsystem is never
+# shut down.
+leak:libSDL3.so
+leak:libSDL2
+
+# App session only (report's "not ours" table): font caches, and AppWindow,
+# which main.cpp leaks on purpose for the process lifetime.
+leak:libfontconfig.so
+leak:libpango
+leak:ustudio::app::onActivate
+
+# FFmpeg worker-thread buffers (decode/encode threads spawned via MLT's avformat
+# module). `just asan` LD_PRELOADs these libraries so they stay mapped after
+# Factory::close() unloads the module and their frames can be symbolized.
+leak:libavcodec.so
+leak:libavutil.so
+leak:libavformat.so
+leak:libswscale.so
+leak:libswresample.so
+leak:libx264.so
+
+# p11-kit's library constructor (newlocale), pulled in by libavformat -> GnuTLS
+# when the libraries above are preloaded.
+leak:_p11_kit_init

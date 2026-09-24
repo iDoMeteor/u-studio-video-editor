@@ -265,6 +265,23 @@ ldd builddir/src/app/u-studio-video-editor | grep -iE 'qt|kde'   # expect no out
 ./builddir/tests/engine/test_factory_policy                      # expect PASS (runtime: /proc/self/maps has no libQt)
 ```
 
+Sanitizer runs, each in its own build directory (`builddir-asan`,
+`builddir-tsan`). Both pass clean, so any report they print is a real
+finding:
+
+```sh
+just asan    # ASan + UBSan + LeakSanitizer over the whole suite
+just tsan    # ThreadSanitizer over the whole suite
+```
+
+`tests/sanitizers/lsan.supp` lists the leaks that aren't ours (MLT's
+loader and module repository, FFmpeg worker threads, SDL). Its header
+explains why a leaked mlt++ wrapper of ours still reports through it (a
+reintroduced `Tractor::track()` leak was confirmed to fail `just asan`).
+The `justfile` comments explain the non-default sanitizer options each
+recipe needs. First run and findings:
+[`docs/audit/2026-09-23-sanitizer-report.md`](docs/audit/2026-09-23-sanitizer-report.md).
+
 For verbose logging during development:
 
 ```sh
