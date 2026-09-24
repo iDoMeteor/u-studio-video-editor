@@ -111,3 +111,13 @@ test_timeline_fuzz_exe = executable(
 )
 
 test('app-timeline-fuzz', test_timeline_fuzz_exe, timeout: 120)
+
+test_stall_monitor_exe = executable(
+  'test_stall_monitor',
+  files('test_stall_monitor.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+
+# USTUDIO_LOG_LEVEL=debug turns the monitor on in release test builds too.
+test('app-stall-monitor', test_stall_monitor_exe, env: ['USTUDIO_LOG_LEVEL=debug'])

@@ -1,6 +1,7 @@
 #include "engine_sync.h"
 
 #include "core/log.h"
+#include "core/trace.h"
 #include "core/model/audio_level.h"
 #include "core/model/mlt_order.h"
 #include "core/model/track_segments.h"
@@ -374,6 +375,7 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
 void EngineSync::rebuildAll()
 {
     Log::ScopedTimer timer("[engine] rebuildAll");
+    core::trace::Scope trace("EngineSync::rebuildAll");
     const core::Sequence &seq = m_model.sequence();
     size_t clipCount = seq.clips.size();
     size_t trackCount = seq.tracks.size();

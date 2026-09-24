@@ -8,6 +8,7 @@
 #include <string>
 
 #include "app_window.h"
+#include "stall_monitor.h"
 #include "core/log.h"
 #include "engine/factory_policy.h"
 
@@ -51,6 +52,7 @@ void onActivate(GtkApplication *app, gpointer /*userData*/)
     }
 
     core::Log::info("[app] Application activated");
+    stall::install(); // doc 19 MT0: logs main-loop iterations over 16 ms (debug)
 
     // The Unicorn Tears palette (style.css) is dark-only: under a light
     // system theme libadwaita's own light cards and dialogs showed through

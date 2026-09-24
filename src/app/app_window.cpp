@@ -10,6 +10,7 @@
 #include "core/commands/timeline_edits.h"
 #include "core/commands/transaction.h"
 #include "core/log.h"
+#include "core/trace.h"
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
 
@@ -844,7 +845,12 @@ void AppWindow::addAction(GtkApplication *app, const char *name,
                           const std::vector<const char *> &accels)
 {
     GSimpleAction *action = g_simple_action_new(name, nullptr);
-    g_signal_connect(action, "activate", G_CALLBACK(activated), this);
+    // Through one traced trampoline, so the stall monitor names the action
+    // behind a slow iteration (doc 19 MT0); the data lives as long as the
+    // action.
+    g_signal_connect_data(
+        action, "activate", G_CALLBACK(&AppWindow::tracedActionTrampoline), new TracedAction{this, activated, name},
+        [](gpointer data, GClosure *) { delete static_cast<TracedAction *>(data); }, GConnectFlags{});
     g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(action));
     g_object_unref(action);
     setAccelsForAction(app, name, accels);
@@ -2367,6 +2373,7 @@ void AppWindow::addTimelineOverlay(const timeline::TimelineOverlayProvider *over
 
 void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int height)
 {
+    core::trace::Scope trace("timeline snapshot");
     m_timelineThumbnails->newFrameGeneration(); // older requests the view no longer shows can be dropped
     PangoLayout *layout = newLabelLayout(m_timeline, false);
     timeline::TimelineScene scene{
@@ -3712,6 +3719,13 @@ gboolean AppWindow::timelineScrollTrampoline(GtkEventControllerScroll *controlle
                                              gpointer userData)
 {
     return static_cast<AppWindow *>(userData)->onTimelineScroll(controller, dx, dy);
+}
+
+void AppWindow::tracedActionTrampoline(GSimpleAction *action, GVariant *parameter, gpointer data)
+{
+    auto *traced = static_cast<TracedAction *>(data);
+    core::trace::Scope trace([traced] { return std::string("action: ") + traced->name; });
+    traced->activated(action, parameter, traced->self);
 }
 
 void AppWindow::unparentPopoverTrampoline(GtkWidget *, gpointer popover)

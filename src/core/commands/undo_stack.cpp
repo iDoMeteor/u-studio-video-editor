@@ -1,11 +1,14 @@
 #include "undo_stack.h"
 
+#include "core/trace.h"
+
 #include <cassert>
 
 namespace ustudio::core {
 
 bool UndoStack::execute(std::unique_ptr<Command> command)
 {
+    core::trace::Scope trace([&] { return "execute: " + command->label(); });
     if (!command->apply(m_model))
         return false;
 
@@ -45,6 +48,7 @@ bool UndoStack::undo()
 {
     if (m_undo.empty())
         return false;
+    core::trace::Scope trace([&] { return "undo: " + m_undo.back()->label(); });
 
     std::unique_ptr<Command> command = std::move(m_undo.back());
     m_undo.pop_back();
@@ -67,6 +71,7 @@ bool UndoStack::redo()
 {
     if (m_redo.empty())
         return false;
+    core::trace::Scope trace([&] { return "redo: " + m_redo.back()->label(); });
 
     std::unique_ptr<Command> command = std::move(m_redo.back());
     m_redo.pop_back();

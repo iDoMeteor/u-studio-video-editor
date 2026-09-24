@@ -1,6 +1,7 @@
 #include "playback_controller.h"
 
 #include "core/log.h"
+#include "core/trace.h"
 
 #include <algorithm>
 
@@ -123,6 +124,7 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
 void PlaybackController::setTractor(std::shared_ptr<Mlt::Tractor> tractor)
 {
     Log::ScopedTimer timer("[engine] setTractor");
+    core::trace::Scope trace("PlaybackController::setTractor");
     if (!tractor) {
         Log::debug("[engine] setTractor(nullptr): shutting down");
         shutdown();

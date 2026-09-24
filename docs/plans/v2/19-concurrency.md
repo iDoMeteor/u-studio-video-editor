@@ -107,7 +107,12 @@ Each lands as small reviewed commits with tests, in this order.
   benchmark on a generated 5,000-clip project.
 - A **main-thread stall monitor** in debug builds: logs any main-loop
   iteration over 16 ms with what was running, so regressions show up in
-  everyday use, not just in tests.
+  everyday use, not just in tests. Built as `app/stall_monitor.*`
+  plus `core/trace.h` markers (actions, `UndoStack`, `EngineSync::
+  rebuildAll`, `PlaybackController::setTractor`, the timeline snapshot).
+  First reading (2026-09-24, nudges while playing, the audit's test
+  project): every edit blocked the main loop 108–160 ms, all of it in
+  `execute: Move clips > EngineSync::rebuildAll`, which is MT2's target.
 - `just tsan` becomes part of the pre-commit routine for anything touching
   threads (it exists and passes today).
 

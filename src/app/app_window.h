@@ -526,6 +526,15 @@ class AppWindow
                                              gpointer userData);
     static void timelineHScrollChangedTrampoline(GtkAdjustment *adjustment, gpointer userData);
     static void unparentPopoverTrampoline(GtkWidget *parent, gpointer popover);
+    // Every registered action runs through this (addAction), inside a
+    // core::trace::Scope named after it, for the stall monitor.
+    struct TracedAction
+    {
+        AppWindow *self;
+        void (*activated)(GSimpleAction *, GVariant *, gpointer);
+        const char *name; // from action_registry's static table
+    };
+    static void tracedActionTrampoline(GSimpleAction *action, GVariant *parameter, gpointer data);
     static void timelineMotionTrampoline(GtkEventControllerMotion *controller, double x, double y, gpointer userData);
     static void rippleDeleteSelectedActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void addMarkerActivated(GSimpleAction *, GVariant *, gpointer userData);
