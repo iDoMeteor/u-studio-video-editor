@@ -11,6 +11,11 @@ docs-only changes are not listed (CLAUDE.md).
   skips a file it can't open; Import, timeline drops and media-browser
   drops all work this way.
 
+## 0.23.2
+
+- Release builds log at Info by default instead of Debug (debug builds are
+  unchanged); `USTUDIO_LOG_LEVEL` still overrides either way.
+
 ## 0.23.1
 
 - Fixed: Shift+Delete crashed after removing a media file whose clips were

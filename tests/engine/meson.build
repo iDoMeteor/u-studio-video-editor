@@ -71,7 +71,9 @@ test_thumbnail_cache_exe = executable(
   install: false,
 )
 
-test('engine-thumbnail-cache', test_thumbnail_cache_exe)
+# Decodes real frames on its worker; ~11 s alone, past meson's default 30 s
+# on a loaded machine (2026-09-24), hence its own timeout.
+test('engine-thumbnail-cache', test_thumbnail_cache_exe, timeout: 90)
 
 test_render_exe = executable(
   'test_render',

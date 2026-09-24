@@ -22,11 +22,14 @@ namespace Log {
 
 // Creates the log directory if needed and opens
 // <appName>-YYYYMMDD-HHMMSS.log inside it. Initial level comes from the
-// USTUDIO_LOG_LEVEL environment variable (debug/info/warn/error/none),
-// defaulting to Debug if unset or unrecognized (see log.cpp's
-// levelFromEnv() for why -- raised from Info while actively hunting
-// real bugs; set USTUDIO_LOG_LEVEL=info explicitly for quieter logs).
+// USTUDIO_LOG_LEVEL environment variable (see levelFromValue()).
 void init(const std::string &appName);
+
+// Debug in debug builds, Info in release builds (log.cpp says why).
+LogLevel defaultLevel();
+// A USTUDIO_LOG_LEVEL value (debug/info/warn/warning/error/none/off, any
+// case) as a level; unset or unrecognised gives defaultLevel().
+LogLevel levelFromValue(const char *value);
 
 void setLevel(LogLevel level);
 LogLevel level();
