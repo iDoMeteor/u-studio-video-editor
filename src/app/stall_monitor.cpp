@@ -103,7 +103,7 @@ gint monitoredPoll(GPollFD *fds, guint count, gint timeout)
 
 bool wanted()
 {
-#ifndef NDEBUG
+#if USTUDIO_DEBUG_BUILD // not NDEBUG: meson leaves b_ndebug off, so it is never defined
     return true;
 #else
     const char *level = std::getenv("USTUDIO_LOG_LEVEL");
