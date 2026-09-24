@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.16.0
+
+- Full transport controls next to the play button: go to start, shuttle
+  reverse, step back, stop, step forward, shuttle forward, go to end.
+- X splits the active track's clip at the playhead.
+
 ## 0.15.5
 
 - Stepping frame by frame quickly (holding an arrow key, or clicking the

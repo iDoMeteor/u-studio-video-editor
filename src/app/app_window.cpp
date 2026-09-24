@@ -614,13 +614,37 @@ void AppWindow::buildUi(GtkApplication *app)
 
     GtkWidget *transport = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 
+    // Transport buttons bound straight to the existing window actions
+    // (action_registry.cpp), so each one does exactly what its shortcut
+    // does and greys out with it (setTransportActionsEnabled). Not
+    // focusable, like the sliders below (audit A7): a focused button
+    // takes Space and the arrow keys for itself instead of letting them
+    // reach the window's play/step shortcuts.
+    auto addTransportButton = [&](const char *icon, const char *action, const char *tooltip) {
+        GtkWidget *button = gtk_button_new_from_icon_name(icon);
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(button), action);
+        gtk_widget_set_tooltip_text(button, tooltip);
+        gtk_widget_set_focusable(button, FALSE);
+        gtk_box_append(GTK_BOX(transport), button);
+    };
+    addTransportButton("media-skip-backward-symbolic", "win.seek-home", "Go to start (Home)");
+    addTransportButton("media-seek-backward-symbolic", "win.shuttle-reverse",
+                       "Shuttle reverse (J, repeat to speed up)");
+    addTransportButton("go-previous-symbolic", "win.step-backward", "Step back one frame (Left)");
+
     m_playButton = GTK_BUTTON(gtk_button_new_from_icon_name("media-playback-start-symbolic"));
     gtk_widget_add_css_class(GTK_WIDGET(m_playButton), "circular");
+    gtk_widget_set_tooltip_text(GTK_WIDGET(m_playButton), "Play/Pause (Space)");
     g_signal_connect(m_playButton, "clicked", G_CALLBACK(&AppWindow::playToggledTrampoline), this);
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_playButton));
 
+    addTransportButton("media-playback-stop-symbolic", "win.shuttle-stop", "Stop (K)");
+    addTransportButton("go-next-symbolic", "win.step-forward", "Step forward one frame (Right)");
+    addTransportButton("media-seek-forward-symbolic", "win.shuttle-forward", "Shuttle forward (L, repeat to speed up)");
+    addTransportButton("media-skip-forward-symbolic", "win.seek-end", "Go to end (End)");
+
     GtkWidget *splitButton = gtk_button_new_from_icon_name("edit-cut-symbolic");
-    gtk_widget_set_tooltip_text(splitButton, "Split at playhead");
+    gtk_widget_set_tooltip_text(splitButton, "Split the active track's clip at the playhead (X)");
     g_signal_connect(splitButton, "clicked", G_CALLBACK(&AppWindow::splitClickedTrampoline), this);
     gtk_box_append(GTK_BOX(transport), splitButton);
 
@@ -972,13 +996,14 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
         "loop-set-out",    "seek-previous-cut",   "seek-next-cut",        "active-track-up",
         "active-track-down", "step-forward-10",   "step-backward-10",    "step-forward-minute",
         "step-backward-minute",
-        // Enhancements #1/#3: bare Space and Delete, same reasoning as
-        // every action above -- a text entry needs both for perfectly
-        // ordinary typing (a space in a track/clip name, Delete removing
-        // a character), so they're disabled here too. Ctrl+S/Shift+S/O/N/I
+        // Enhancements #1/#3: bare Space and Delete, and X (split at
+        // playhead), same reasoning as every action above -- a text entry
+        // needs all three for perfectly ordinary typing (a space or an
+        // "x" in a track/clip name, Delete removing a character), so
+        // they're disabled here too. Ctrl+S/Shift+S/O/N/I
         // below are deliberately NOT in this list, same as Ctrl+Z/Shift+Z:
         // modifier combos a text entry never needs for itself.
-        "play-pause", "delete-selected-clip",
+        "play-pause", "delete-selected-clip", "split-at-playhead",
     };
     for (const char *name : kTransportActions) {
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
@@ -4241,6 +4266,11 @@ void AppWindow::newProjectActionActivated(GSimpleAction *, GVariant *, gpointer 
 void AppWindow::importActionActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onImportClicked();
+}
+
+void AppWindow::splitAtPlayheadActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSplitClicked();
 }
 
 void AppWindow::deleteSelectedClipActivated(GSimpleAction *, GVariant *, gpointer userData)

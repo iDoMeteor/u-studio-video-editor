@@ -72,7 +72,12 @@ single-track skeleton.
   `A`/`F` jump the playhead to the previous/next cut (a clip's start or
   end, or the timeline's own start/end) on the active track; `S`/`D` move
   which track is active up/down, the same target a plain click sets.
-- Split a clip at the playhead.
+- Split the active track's clip at the playhead (`X`, or the scissors
+  button in the transport bar).
+- Transport buttons around the play button: go to start, shuttle reverse,
+  step back one frame, play/pause, stop, step forward one frame, shuttle
+  forward, go to end. Each is bound to the same window action as its
+  keyboard shortcut (tooltips name the key).
 - Drag a clip's body to move it — within a track or to a different one.
   Drag near a clip's left/right edge (~8px) to trim it shorter or longer.
   Both snap to nearby clip edges (on whichever row the drag is currently

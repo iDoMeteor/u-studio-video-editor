@@ -37,6 +37,7 @@ const std::vector<ActionSpec> &actionSpecs()
         {"active-track-up",      "Active Track Up",            "Editing", {"s"},                    &AppWindow::activeTrackUpActivated},
         {"active-track-down",    "Active Track Down",          "Editing", {"d"},                    &AppWindow::activeTrackDownActivated},
         {"delete-selected-clip", "Delete Selected Clip",       "Editing", {"Delete"},               &AppWindow::deleteSelectedClipActivated},
+        {"split-at-playhead",    "Split Clip at Playhead",     "Editing", {"x"},                    &AppWindow::splitAtPlayheadActivated},
 
         // --- Project ---
         {"save",         "Save",              "Project", {"<Control>s"},             &AppWindow::saveActionActivated},

@@ -546,6 +546,7 @@ class AppWindow
     static void newProjectActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void importActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void deleteSelectedClipActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void splitAtPlayheadActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void shuttleForwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void shuttleReverseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void shuttleStopActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
