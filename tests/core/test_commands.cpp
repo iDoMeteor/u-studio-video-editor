@@ -1435,11 +1435,19 @@ TEST_CASE("UndoStack property: random commands, undo all, model restored exactly
     // tests/common/random_commands.h, shared with tests/engine's "verify()
     // never fails across 500 undoable commands" -- the same seed, so that
     // test runs the first 500 commands of this stream.
-    int appliedCount = ustudio::testing::runRandomCommands(model, undoStack, track, asset, 2026, 10'000);
+    int staleSnapshots = 0;
+    int appliedCount =
+        ustudio::testing::runRandomCommands(model, undoStack, track, asset, 2026, 10'000, {}, &staleSnapshots);
+    CHECK(staleSnapshots == 0);
 
     REQUIRE(appliedCount > 0);
-    for (int i = 0; i < appliedCount; ++i)
+    for (int i = 0; i < appliedCount; ++i) {
+        (void)model.snapshot();
         REQUIRE(undoStack.undo());
+        if (*model.snapshot() != model.project())
+            ++staleSnapshots; // undo must invalidate the cached snapshot too
+    }
+    CHECK(staleSnapshots == 0);
 
     CHECK_FALSE(undoStack.canUndo());
     CHECK(equalIgnoringIdAllocator(model, snapshot));

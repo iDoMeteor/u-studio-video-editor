@@ -126,8 +126,12 @@ void fuzz(unsigned seed)
             // Undo and redo must keep the model valid too.
             bool back = kind == 2;
             std::string label = back ? undo.undoLabel() : undo.redoLabel();
+            (void)model.snapshot();
             if (back ? undo.canUndo() : undo.canRedo())
                 back ? undo.undo() : undo.redo();
+            // doc 19 MT0: the cached snapshot must never outlive an edit.
+            if (*model.snapshot() != model.project())
+                FAIL("gesture " << i << " (" << (back ? "undo " : "redo ") << label << ") left a stale snapshot");
             controller.selection().prune(model);
             std::vector<std::string> problems = model.check();
             if (!problems.empty())
@@ -153,6 +157,7 @@ void fuzz(unsigned seed)
 
         for (TimelineOutcome::Attempt &attempt : out.attempts) {
             std::string label = attempt.command->label();
+            (void)model.snapshot();
             Model beforeEdit = model;
             auto layoutBefore = baseLayout(model);
             size_t dissolvesBefore = model.sequence().transitions.size();
@@ -176,6 +181,8 @@ void fuzz(unsigned seed)
                     dump(model, "after");
                 }
                 what += " -> " + label;
+                if (*model.snapshot() != model.project())
+                    FAIL("gesture " << i << " (" << what << ") left a stale snapshot");
                 // post-M3 audit P4: an edit that leaves every clip where it
                 // was must not cost a dissolve.
                 if (baseLayout(model) == layoutBefore && model.sequence().transitions.size() < dissolvesBefore)

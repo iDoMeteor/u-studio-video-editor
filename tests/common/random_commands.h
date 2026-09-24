@@ -21,8 +21,14 @@ namespace ustudio::testing {
 // through `undoStack`, calling `afterEach(i)` after every command that was
 // actually executed. Returns how many were executed (a refused command is
 // not pushed, so this is exactly how many undos unwind the whole run).
+//
+// `staleSnapshots`, if given, counts commands after which Model::snapshot()
+// no longer matched the project: a snapshot is taken before every command,
+// so a command that writes the project without a notify() afterwards (the
+// snapshot cache's one assumption, doc 19 MT0) shows up here.
 inline int runRandomCommands(core::Model &model, core::UndoStack &undoStack, core::TrackId track, core::AssetId asset,
-                             uint32_t seed, int iterations, const std::function<void(int)> &afterEach = {})
+                             uint32_t seed, int iterations, const std::function<void(int)> &afterEach = {},
+                             int *staleSnapshots = nullptr)
 {
     using namespace ustudio::core;
     std::mt19937 rng(seed);
@@ -31,6 +37,8 @@ inline int runRandomCommands(core::Model &model, core::UndoStack &undoStack, cor
     int appliedCount = 0;
 
     for (int i = 0; i < iterations; ++i) {
+        if (staleSnapshots)
+            (void)model.snapshot(); // cached now; a command must invalidate it
         std::uniform_int_distribution<int> pickAction(0, liveClips.empty() ? 0 : 3);
         int action = pickAction(rng);
         bool executed = false;
@@ -71,6 +79,8 @@ inline int runRandomCommands(core::Model &model, core::UndoStack &undoStack, cor
             }
         }
 
+        if (staleSnapshots && *model.snapshot() != model.project())
+            ++*staleSnapshots;
         if (executed) {
             ++appliedCount;
             if (afterEach)
