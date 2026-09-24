@@ -2,7 +2,7 @@
 
 One page each. Status is one of Proposed / Accepted / Superseded by ADR-nnn.
 All were **Proposed** as of 2026-09-12 pending team review; each file
-carries its own current status (ADR-011 to ADR-015 are Accepted).
+carries its own current status (ADR-011 to ADR-016 are Accepted).
 
 | ADR | Decision |
 |-----|----------|

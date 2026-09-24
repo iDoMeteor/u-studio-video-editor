@@ -1,7 +1,10 @@
 # ADR-016: The main thread only does UI and commands; an engine thread, a worker pool and child processes do the rest
 
-**Status:** Proposed (2026-09-24, owner direction: make the editor
-multi-threaded before going much further). Design in
+**Status:** Accepted (owner, 2026-09-24: proceed with the multi-threading
+plan, starting with MT0; proposed the same day on owner direction to make
+the editor multi-threaded before going much further). The doc 02 and
+CLAUDE.md threading-rule changes land with MT2, when the engine thread
+exists. Design in
 [doc 19](../19-concurrency.md).
 
 ## Context
