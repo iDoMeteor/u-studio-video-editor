@@ -5,7 +5,9 @@
 #include "core/commands/undo_stack.h"
 #include "core/model/model.h"
 
+#include <map>
 #include <random>
+#include <tuple>
 
 using namespace ustudio::core;
 using namespace ustudio::app::timeline;
@@ -18,6 +20,29 @@ bool equalIgnoringIdAllocator(const Model &a, const Model &b)
     Project pb = b.project();
     pa.nextId = pb.nextId = 0;
     return pa == pb;
+}
+
+// Every clip's track and un-extended source window and position: what an
+// edit that "does nothing" leaves alone.
+std::map<ClipId, std::tuple<TrackId, FrameIndex, FrameIndex, FrameIndex>> baseLayout(const Model &model)
+{
+    std::map<ClipId, std::tuple<TrackId, FrameIndex, FrameIndex, FrameIndex>> layout;
+    for (const Track &t : model.sequence().tracks) {
+        for (ClipId id : t.clips) {
+            const Clip &c = model.clip(id);
+            FrameIndex pos = c.position, in = c.in, out = c.out;
+            for (const Transition &tr : model.sequence().transitions) {
+                if (tr.b == id) {
+                    pos += tr.extendB;
+                    in += tr.extendB;
+                }
+                if (tr.a == id)
+                    out -= tr.extendA;
+            }
+            layout[id] = {c.track, pos, in, out};
+        }
+    }
+    return layout;
 }
 
 } // namespace
@@ -88,7 +113,8 @@ void fuzz(unsigned seed)
 
         TimelineOutcome out;
         std::string what;
-        switch (rng() % 10) {
+        unsigned kind = static_cast<unsigned>(rng() % 10);
+        switch (kind) {
         case 0:
             out = controller.click(ctx, 2, rx(), ry(), mods);
             break;
@@ -96,15 +122,19 @@ void fuzz(unsigned seed)
             (void)controller.contextTargetAt(ctx, rx(), ry());
             continue;
         case 2:
-            if (undo.canUndo())
-                undo.undo();
+        case 3: {
+            // Undo and redo must keep the model valid too.
+            bool back = kind == 2;
+            std::string label = back ? undo.undoLabel() : undo.redoLabel();
+            if (back ? undo.canUndo() : undo.canRedo())
+                back ? undo.undo() : undo.redo();
             controller.selection().prune(model);
+            std::vector<std::string> problems = model.check();
+            if (!problems.empty())
+                FAIL("gesture " << i << " (" << (back ? "undo " : "redo ") << label
+                                << ") broke the model: " << problems.front());
             continue;
-        case 3:
-            if (undo.canRedo())
-                undo.redo();
-            controller.selection().prune(model);
-            continue;
+        }
         default: {
             double x = rx(), y = ry();
             controller.press(ctx, x, y, mods);
@@ -124,6 +154,8 @@ void fuzz(unsigned seed)
         for (TimelineOutcome::Attempt &attempt : out.attempts) {
             std::string label = attempt.command->label();
             Model beforeEdit = model;
+            auto layoutBefore = baseLayout(model);
+            size_t dissolvesBefore = model.sequence().transitions.size();
             if (undo.execute(std::move(attempt.command))) {
                 if (!model.check().empty()) {
                     auto dump = [](const Model &m, const char *tag) {
@@ -144,6 +176,10 @@ void fuzz(unsigned seed)
                     dump(model, "after");
                 }
                 what += " -> " + label;
+                // post-M3 audit P4: an edit that leaves every clip where it
+                // was must not cost a dissolve.
+                if (baseLayout(model) == layoutBefore && model.sequence().transitions.size() < dissolvesBefore)
+                    FAIL("gesture " << i << " (" << what << ") removed a dissolve without changing the layout");
                 ++applied;
                 break;
             }
@@ -164,6 +200,6 @@ void fuzz(unsigned seed)
 
 TEST_CASE("TimelineController fuzz: random gestures never break the model")
 {
-    for (unsigned seed : {2026u, 7u, 42u, 1234u})
+    for (unsigned seed : {2026u, 7u, 42u, 1234u, 338u})
         fuzz(seed);
 }

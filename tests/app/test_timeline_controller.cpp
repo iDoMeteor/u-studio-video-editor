@@ -460,3 +460,18 @@ TEST_CASE("TimelineController: in ripple mode a drop inside a clip goes to its n
     CHECK(f.model.clip(f.d).position == 300);
     CHECK(f.model.clip(f.c).position == 400);
 }
+
+TEST_CASE("TimelineController: a short ripple drag inside the clip's own span is no move (post-M3 audit P6)")
+{
+    Fixture f;
+    TimelineContext ctx = f.ctx();
+    ctx.rippleMode = true;
+    // a [0,100) nudged 50 frames right, still inside its own span; b butts it.
+    f.controller.press(ctx, Fixture::x(20), Fixture::bodyY(0), Modifiers::None);
+    f.controller.motion(ctx, 50.0, 0.0);
+    CHECK(f.controller.preview().start == 0);
+    CHECK(f.controller.preview().valid);
+    TimelineOutcome out = f.controller.release(ctx, 50.0, 0.0);
+    CHECK(out.attempts.empty());
+    CHECK(f.model.clip(f.a).position == 0);
+}

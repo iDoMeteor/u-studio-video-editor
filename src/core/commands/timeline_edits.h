@@ -253,7 +253,9 @@ class RemoveMarker : public Command
 class EditMarker : public Command
 {
   public:
-    EditMarker(MarkerId marker, FrameIndex at, std::string text);
+    // `gesture`: edits carrying the same non-zero id (one drag) merge into
+    // one undo step; 0 never merges (post-M3 audit P7).
+    EditMarker(MarkerId marker, FrameIndex at, std::string text, uint64_t gesture = 0);
     std::string label() const override
     {
         return "Edit marker";
@@ -261,6 +263,10 @@ class EditMarker : public Command
     bool apply(Model &) override;
     void revert(Model &) override;
     bool mergeWith(const Command &next) override;
+    bool isNoOp() const override
+    {
+        return m_at == m_oldAt && m_text == m_oldText;
+    }
 
   private:
     MarkerId m_id;
@@ -268,6 +274,7 @@ class EditMarker : public Command
     std::string m_text;
     FrameIndex m_oldAt = 0;
     std::string m_oldText;
+    uint64_t m_gesture = 0;
 };
 
 } // namespace ustudio::core

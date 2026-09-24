@@ -261,8 +261,24 @@ bool RippleMove::apply(Model &model)
     if (!model.hasClip(m_clip) || !model.hasTrack(m_track) || m_pos < 0)
         return false;
     const Clip &clip = model.clip(m_clip);
-    if (m_track == clip.track && m_pos == clip.position)
-        return false;
+    // Where the clip would land, in the closed-up timeline, against where it
+    // is without its dissolves: equal means the layout doesn't change, and
+    // stripping the dissolves for that would be an edit that does nothing
+    // but lose them (post-M3 audit P4; audit C3 was the same for MoveClip).
+    if (m_track == clip.track) {
+        FrameIndex basePos = clip.position, baseLength = clip.length();
+        for (const Transition &t : model.sequence().transitions) {
+            if (t.b == m_clip) {
+                basePos += t.extendB;
+                baseLength -= t.extendB;
+            }
+            if (t.a == m_clip)
+                baseLength -= t.extendA;
+        }
+        FrameIndex landing = m_pos >= basePos + baseLength ? m_pos - baseLength : m_pos;
+        if (landing == basePos)
+            return false;
+    }
     if (model.track(clip.track).locked || model.track(m_track).locked)
         return false;
     if (model.track(m_track).kind == Track::Kind::Audio &&
@@ -611,8 +627,8 @@ void RemoveMarker::revert(Model &model)
     model.addMarker(m_captured.at, m_captured.text, m_captured.id);
 }
 
-EditMarker::EditMarker(MarkerId marker, FrameIndex at, std::string text)
-    : m_id(marker), m_at(at), m_text(std::move(text))
+EditMarker::EditMarker(MarkerId marker, FrameIndex at, std::string text, uint64_t gesture)
+    : m_id(marker), m_at(at), m_text(std::move(text)), m_gesture(gesture)
 {}
 
 bool EditMarker::apply(Model &model)
@@ -636,7 +652,7 @@ void EditMarker::revert(Model &model)
 bool EditMarker::mergeWith(const Command &next)
 {
     const auto *other = dynamic_cast<const EditMarker *>(&next);
-    if (!other || other->m_id != m_id)
+    if (!other || other->m_id != m_id || m_gesture == 0 || other->m_gesture != m_gesture)
         return false;
     m_at = other->m_at;
     m_text = other->m_text;

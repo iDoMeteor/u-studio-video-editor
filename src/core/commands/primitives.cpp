@@ -416,6 +416,19 @@ bool MoveClip::apply(Model &model)
     // clip back onto itself isn't an edit to the track either.
     if (m_newTrack == current.track && m_newPos == current.position)
         return false;
+    // Likewise its position without an incoming dissolve's extension: the
+    // strip below puts it there, so landing there changes nothing but the
+    // lost dissolve (found by the timeline fuzz test's no-op invariant,
+    // post-M3 audit P4's twin).
+    if (m_newTrack == current.track) {
+        FrameIndex basePos = current.position;
+        for (const Transition &t : model.sequence().transitions) {
+            if (t.b == m_clip)
+                basePos += t.extendB;
+        }
+        if (m_newPos == basePos)
+            return false;
+    }
     // Both ends of the move must be unlocked: leaving a locked track's
     // content untouched is the whole point, and dropping something new
     // onto a locked track is just as much an edit to it as moving one of
@@ -803,9 +816,13 @@ bool AddTransition::apply(Model &model)
     // Same bound Model::check() enforces on the result; checking it here
     // too, before mutating, also keeps b's new position from crossing
     // before a's start (and vice versa) -- see the class comment.
+    // Strictly shorter than either clip: a dissolve as long as a whole clip
+    // starts b on the same frame as a, and nothing then orders the two
+    // (found by the timeline fuzz test after the post-M3 audit: a later
+    // re-sort flipped them and the track read as overlapping).
     FrameIndex newLengthA = clipA.length() + m_extendA;
     FrameIndex newLengthB = clipB.length() + m_extendB;
-    if (m_extendA + m_extendB > std::min(newLengthA, newLengthB))
+    if (m_extendA + m_extendB >= std::min(newLengthA, newLengthB))
         return false;
 
     // T2 (2026-09-22 audit): the check above only looks at THIS

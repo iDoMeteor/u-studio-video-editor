@@ -296,7 +296,7 @@ TEST_CASE("Markers: add, edit (merged while dragging), remove, all undoable")
 
     // A drag: many edits, one undo step.
     for (FrameIndex at = 101; at <= 110; ++at)
-        REQUIRE(undo.execute(std::make_unique<EditMarker>(id, at, "Chorus")));
+        REQUIRE(undo.execute(std::make_unique<EditMarker>(id, at, "Chorus", /*gesture=*/1)));
     CHECK(model.marker(id).at == 110);
     REQUIRE(undo.undo());
     CHECK(model.marker(id).at == 100);
@@ -447,4 +447,73 @@ TEST_CASE("RippleMove closes the gap it leaves and makes room where it lands")
     CHECK_FALSE(RippleMove(e, f.track, 50).apply(f.model));
     CHECK_FALSE(RippleMove(e, f.track, f.model.clip(f.d).position).apply(f.model));
     CHECK(equalIgnoringIdAllocator(f.model, before));
+}
+
+TEST_CASE("RippleMove refuses a move that lands the clip back where it is (post-M3 audit P4)")
+{
+    // A, B, C butted, a 20-frame A->B dissolve: B dropped on C's start
+    // closes up to exactly where it was. Before the fix that was an undo
+    // step that only removed the dissolve.
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 100, 199);
+    ClipId b = model.insertClip(track, asset, 100, 300, 399);
+    ClipId c = model.insertClip(track, asset, 200, 500, 599);
+    model.addTransition(track, a, b, 10, 10);
+    Model before = model;
+    CHECK_FALSE(RippleMove(b, track, model.clip(c).position).apply(model));
+    CHECK(equalIgnoringIdAllocator(model, before));
+    CHECK(model.sequence().transitions.size() == 1);
+}
+
+TEST_CASE("MoveClip refuses landing on its own un-extended position (it would only lose the dissolve)")
+{
+    Fixture f; // b is the incoming side of the a->b dissolve (extendB 5)
+    Model before = f.model;
+    const Clip &b = f.model.clip(f.b);
+    CHECK_FALSE(MoveClip(f.b, f.track, b.position + 5).apply(f.model));
+    CHECK(equalIgnoringIdAllocator(f.model, before));
+}
+
+TEST_CASE("AddTransition leaves every clip at least one frame of its own")
+{
+    // A dissolve as long as a whole clip started the incoming clip on the
+    // same frame as the outgoing one (found by the timeline fuzz test).
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addAsset(model);
+    ClipId a = model.insertClip(track, asset, 0, 100, 199); // 100 frames
+    ClipId b = model.insertClip(track, asset, 100, 300, 399);
+    CHECK_FALSE(AddTransition(track, a, b, 0, 100).apply(model)); // b would start at 0, with a
+    AddTransition ok(track, a, b, 0, 99);
+    CHECK(ok.apply(model));
+    CHECK(model.check().empty());
+}
+
+TEST_CASE("EditMarker: a drag back to the start leaves no step; separate edits stay separate (post-M3 audit P7)")
+{
+    Model model = Model::createEmpty();
+    UndoStack undo(model);
+    MarkerId id = model.addMarker(100, "m");
+    undo.setCleanPoint();
+
+    // Out and back in one gesture: nothing changed, so nothing to undo (a
+    // kept no-op entry used to assert on redo).
+    REQUIRE(undo.execute(std::make_unique<EditMarker>(id, 120, "m", 7)));
+    REQUIRE(undo.execute(std::make_unique<EditMarker>(id, 130, "m", 7)));
+    REQUIRE(undo.execute(std::make_unique<EditMarker>(id, 100, "m", 7)));
+    CHECK_FALSE(undo.canUndo());
+    CHECK(undo.isClean());
+
+    // Two edits without a shared gesture are two undo steps.
+    REQUIRE(undo.execute(std::make_unique<EditMarker>(id, 150, "m")));
+    REQUIRE(undo.execute(std::make_unique<EditMarker>(id, 160, "m")));
+    REQUIRE(undo.undo());
+    CHECK(model.marker(id).at == 150);
+    REQUIRE(undo.undo());
+    CHECK(model.marker(id).at == 100);
+    REQUIRE(undo.redo());
+    REQUIRE(undo.redo());
+    CHECK(model.marker(id).at == 160);
 }

@@ -106,6 +106,15 @@ TEST_CASE("Timeline snapshot: 10 tracks x 500 clips on screen")
     // -Dbuildtype=release). Debug and sanitiser builds, often run in parallel
     // with everything else, only get a wide guard that still catches a real
     // regression (the first version of this renderer took 116 ms here).
+    // Under ASan or TSan the times say nothing about the product (ASan took
+    // 254 ms here), so they're printed, not checked: otherwise `just asan`
+    // is always red and a real report there gets overlooked (post-M3 audit
+    // P9). GCC defines these macros for -fsanitize=address / thread.
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    MESSAGE("sanitizer build: snapshot times reported, not checked");
+    (void)all;
+    (void)zoomed;
+#else
 #ifdef NDEBUG
     constexpr double kBudgetMs = 4.0;
 #else
@@ -113,4 +122,5 @@ TEST_CASE("Timeline snapshot: 10 tracks x 500 clips on screen")
 #endif
     CHECK(all < kBudgetMs);
     CHECK(zoomed < kBudgetMs);
+#endif
 }

@@ -26,6 +26,8 @@ bool UndoStack::execute(std::unique_ptr<Command> command)
         // is asked to absorb it into the existing top entry, e.g. so a
         // slider drag is one undo step); the new object itself is
         // discarded here since the top entry now represents both.
+        if (m_undo.back()->isNoOp())
+            m_undo.pop_back(); // the model is back where that entry began
     } else {
         m_undo.push_back(std::move(command));
         if (m_undo.size() > limit) {

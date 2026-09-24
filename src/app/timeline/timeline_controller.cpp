@@ -335,6 +335,14 @@ TimelineOutcome TimelineController::motion(const TimelineContext &ctx, double of
         }
         m_preview.start = std::max<core::FrameIndex>(0, start);
         m_preview.length = m_originLength;
+        // Ripple mode on the clip's own track: a drop inside its own old
+        // span leaves it where it is. RippleMove judges the drop against the
+        // closed-up timeline, where the next clip now fills that span, so
+        // anything else there would preview valid and then be refused
+        // (post-M3 audit P6).
+        if (ctx.rippleMode && !m_preview.group && m_preview.row == m_originRow && m_originStart < m_preview.start &&
+            m_preview.start < m_originStart + m_originLength)
+            m_preview.start = m_originStart;
         // Ripple mode inserts at a cut: a drop inside another clip moves to
         // whichever of its edges is nearer.
         if (ctx.rippleMode && !m_preview.group && rowInRange(ctx, m_preview.row)) {
@@ -515,6 +523,10 @@ void TimelineController::releaseMove(const TimelineContext &ctx, TimelineOutcome
         return;
     }
     if (ctx.rippleMode) {
+        // Landing back where it is once the timeline closes up (the drop on
+        // the cut right after the clip) isn't a move either (P4).
+        if (dest == clip.track && m_preview.start == clip.end())
+            return;
         out.attempts.push_back({std::make_unique<core::RippleMove>(m_preview.clip, dest, m_preview.start), ""});
         out.activeRowOnSuccess = m_preview.row;
         out.failureStatus = "Can't ripple the clip there — that's inside another clip or a dissolve, or a track "

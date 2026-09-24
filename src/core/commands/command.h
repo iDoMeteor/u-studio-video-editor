@@ -38,6 +38,14 @@ class Command
         (void)next;
         return false;
     }
+
+    // After a merge: true if the entry now changes nothing (a drag that
+    // ended where it began). UndoStack then drops it, since an entry that
+    // changes nothing can't be redone (post-M3 audit P7). Default: never.
+    virtual bool isNoOp() const
+    {
+        return false;
+    }
 };
 
 } // namespace ustudio::core

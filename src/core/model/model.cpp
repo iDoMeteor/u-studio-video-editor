@@ -170,8 +170,18 @@ Track &Model::mutableTrack(TrackId id)
 void Model::sortTrackClips(Track &trackRef)
 {
     const auto &clips = activeSequence().clips;
-    std::sort(trackRef.clips.begin(), trackRef.clips.end(),
-              [&clips](ClipId a, ClipId b) { return clips.at(a).position < clips.at(b).position; });
+    // Ties broken by end, then id, so the order is the same however the
+    // clips got there: two clips can share a start only inside a dissolve
+    // (saved before AddTransition refused whole-clip overlaps), where the
+    // outgoing one ends first.
+    std::sort(trackRef.clips.begin(), trackRef.clips.end(), [&clips](ClipId a, ClipId b) {
+        const Clip &ca = clips.at(a), &cb = clips.at(b);
+        if (ca.position != cb.position)
+            return ca.position < cb.position;
+        if (ca.end() != cb.end())
+            return ca.end() < cb.end();
+        return a < b;
+    });
 }
 
 // --- Asset mutators -------------------------------------------------------
