@@ -3,6 +3,9 @@
 
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
+#include "random_commands.h"
+
+#include "core/commands/undo_stack.h"
 
 #include <algorithm>
 #include <cmath>
@@ -541,4 +544,39 @@ TEST_CASE("EngineSync property: verify() never fails across 500 random edits")
         INFO("iteration ", i, " problems: ", problems.empty() ? std::string{"<none>"} : problems.front());
         REQUIRE(problems.empty());
     }
+}
+
+// doc 12, M1: "EngineSync::verify() never fails across the property test".
+// The same 10k-command stream as tests/core's undo property test (shared
+// generator, same seed), with a live EngineSync resyncing on every model
+// change: verify() after every executed command, then after every undo
+// while unwinding the whole run back to the start.
+// Quadratic (every step rebuilds a tractor that grows to thousands of
+// clips), so skipped by default and run as its own `slow` suite test:
+//   meson test -C builddir --suite slow
+TEST_CASE("EngineSync property: verify() never fails across the 10k-command undo property test" * doctest::skip())
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addGeneratorAsset(model, "color:yellow", 1'000'000);
+    UndoStack undoStack(model);
+    undoStack.limit = 20'000; // unwind all of it, as the core test does
+    EngineSync sync(model);
+
+    int failures = 0;
+    auto check = [&](const char *phase, int step) {
+        std::vector<std::string> problems = sync.verify();
+        if (!problems.empty() && ++failures <= 3)
+            MESSAGE(phase << " " << step << ": " << problems.front());
+    };
+    int applied = ustudio::testing::runRandomCommands(model, undoStack, track, asset, 2026, 10'000,
+                                                      [&](int i) { check("after command", i); });
+    REQUIRE(applied > 0);
+    for (int i = 0; i < applied; ++i) {
+        REQUIRE(undoStack.undo());
+        check("after undo", i);
+    }
+    CHECK(failures == 0);
+    CHECK(model.sequence().clips.empty());
 }

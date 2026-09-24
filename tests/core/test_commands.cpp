@@ -4,6 +4,7 @@
 #include "core/commands/transaction.h"
 #include "core/commands/undo_stack.h"
 #include "core/model/model.h"
+#include "random_commands.h"
 
 #include <random>
 
@@ -1431,55 +1432,10 @@ TEST_CASE("UndoStack property: random commands, undo all, model restored exactly
 
     Model snapshot = model; // the state the whole sequence must revert back to
 
-    std::mt19937 rng(2026);
-    std::vector<ClipId> liveClips;
-    FrameIndex nextFreePosition = 0;
-    int appliedCount = 0;
-
-    for (int i = 0; i < 10'000; ++i) {
-        std::uniform_int_distribution<int> pickAction(0, liveClips.empty() ? 0 : 3);
-        int action = pickAction(rng);
-        bool executed = false;
-
-        if (action == 0 || liveClips.empty()) {
-            FrameIndex length = 10 + static_cast<FrameIndex>(rng() % 90);
-            auto cmd = std::make_unique<InsertClip>(track, asset, nextFreePosition, 0, length - 1);
-            InsertClip *raw = cmd.get();
-            executed = undoStack.execute(std::move(cmd));
-            if (executed) {
-                nextFreePosition += length;
-                liveClips.push_back(raw->clipId());
-            }
-        } else if (action == 1) {
-            std::uniform_int_distribution<size_t> pickClip(0, liveClips.size() - 1);
-            size_t index = pickClip(rng);
-            executed = undoStack.execute(std::make_unique<RemoveClip>(liveClips[index]));
-            if (executed)
-                liveClips.erase(liveClips.begin() + static_cast<std::ptrdiff_t>(index));
-        } else if (action == 2) {
-            std::uniform_int_distribution<size_t> pickClip(0, liveClips.size() - 1);
-            ClipId clip = liveClips[pickClip(rng)];
-            FrameIndex length = model.clip(clip).length();
-            executed = undoStack.execute(std::make_unique<MoveClip>(clip, track, nextFreePosition));
-            if (executed)
-                nextFreePosition += length;
-        } else {
-            std::uniform_int_distribution<size_t> pickClip(0, liveClips.size() - 1);
-            ClipId clip = liveClips[pickClip(rng)];
-            const Clip &current = model.clip(clip);
-            if (current.length() > 2) {
-                FrameIndex at = current.position + 1 + static_cast<FrameIndex>(rng() % (current.length() - 2));
-                auto cmd = std::make_unique<SplitClip>(clip, at);
-                SplitClip *raw = cmd.get();
-                executed = undoStack.execute(std::move(cmd));
-                if (executed)
-                    liveClips.push_back(raw->rightId());
-            }
-        }
-
-        if (executed)
-            ++appliedCount;
-    }
+    // tests/common/random_commands.h, shared with tests/engine's "verify()
+    // never fails across the property test" -- the same seed, so the same
+    // 10k-command stream.
+    int appliedCount = ustudio::testing::runRandomCommands(model, undoStack, track, asset, 2026, 10'000);
 
     REQUIRE(appliedCount > 0);
     for (int i = 0; i < appliedCount; ++i)
