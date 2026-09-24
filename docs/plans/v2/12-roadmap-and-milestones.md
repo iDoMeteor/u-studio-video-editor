@@ -126,14 +126,14 @@ Deliverables:
 - Remove `libpulse-simple`.
 
 Acceptance:
-- [ ] A/V sync: a generated clip with a 1 kHz beep on frame 0 of every
+- [x] A/V sync: a generated clip with a 1 kHz beep on frame 0 of every
       second and a white flash on the same frames shows no perceptible offset
       (< 1 frame) at 1×; verified by eye and by the `null`-consumer position
       test. (Automated half: `engine-av-sync`, 2 samples offset. By eye:
-      pending, clip from `builddir/tests/engine/make_sync_clip`.)
-- [ ] Pause shows the exact frame at the playhead (timecode matches the burnt
+      confirmed by the owner, 2026-09-24, with `make_sync_clip`'s clip.)
+- [x] Pause shows the exact frame at the playhead (timecode matches the burnt
       -in `timer` filter of a test clip). (Frame index checked in
-      `engine-playback-controller`; the burnt-in timer check by eye is pending.)
+      `engine-playback-controller`; confirmed by eye by the owner, 2026-09-24.)
 - [x] 4K60 source plays at real time with frame dropping at preview scale
       0.5 on the dev machine; no unbounded memory growth over 10 min.
       (`playback_soak`, 2026-09-24, after "Make preview scale work by
