@@ -18,3 +18,5 @@ All are **Proposed** as of 2026-09-12 pending team review.
 | [011](011-frei0r-required-and-effect-families.md) | frei0r is a required runtime dependency; effects come from frei0r, MLT, libavfilter and audio plugin hosts, health-checked out of process |
 | [012](012-titles-mlt-module.md) | Titles render through our own MLT module (Pango + Cairo) and are authored in a separate `u-studio-titles` app |
 | [013](013-effects-and-titles-as-drop-in-modules.md) | Effects and titles are drop-in modules behind named integration points, optional at build time; their project data never is |
+| [014](014-drop-in-loading-and-distribution.md) | Drop-ins build built-in or as loadable modules; core ships with effects and titles, everything else is an opt-in package |
+| [015](015-ai-generation-network-boundary.md) | AI generation runs in a separate networked helper; the editor stays network-free |

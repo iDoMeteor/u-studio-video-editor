@@ -75,6 +75,9 @@ src/app/                  GTK4/libadwaita shell, built imperatively (no .ui file
 src/render/               u-studio-render headless CLI (placeholder until M6)
 tests/                    doctest suites: core/, engine/, app/
 data/                     Desktop file, metainfo, icons, GResource manifest
+drop-ins/                 (planned, ADR-013) one self-contained folder per drop-in
+                          (effects, titles): own code, data, tests, meson.build.
+                          src/ never includes from drop-ins/
 docs/plans/v2/            v2 architecture, model, roadmap, ADRs (see top of this file)
 builddir/                 meson build output — gitignored, per-worktree
 ```
@@ -101,7 +104,8 @@ builddir/                 meson build output — gitignored, per-worktree
   Run `meson test -C builddir --print-errorlogs` before every commit.
 - Dependencies are: GTK4 ≥ 4.10, libadwaita, GLib/GIO/GObject, MLT 7
   (`mlt-framework-7`, `mlt++-7`), `libxml2`, and doctest for tests
-  (ADR-010); at runtime, `frei0r-plugins` (ADR-011). **Anything else needs
+  (ADR-010). `frei0r-plugins` is a dependency of the effects drop-in only,
+  never of the core editor (ADR-011, ADR-014). **Anything else needs
   an ADR** and the owner's sign-off.
 
 ---
@@ -189,12 +193,11 @@ team's practice is the rule:
   comment where it applies, so the next agent doesn't rediscover it.
 - Only `sdl2_audio`, `rtaudio`, `null`, `avformat`, `xml`, and the core
   transitions (`composite`, `affine`, `luma`, `mix`) are assumed present
-  (verified on this machine, doc 00). `frei0r` is **required** as of
-  ADR-011 (2026-09-23), but `frei0r-plugins` is not yet installed on every
-  machine: code must still detect it at runtime and degrade (hide frei0r
-  effects, fall back to `composite`) rather than crash, until packaging
-  makes it structural. Effects and titles plans: `docs/plans/v2/15-*`,
-  `16-*`.
+  (verified on this machine, doc 00). `frei0r` is required by the effects
+  drop-in, **not** by the core editor (ADR-011 as narrowed by ADR-014,
+  2026-09-24): nothing in `src/` may depend on a frei0r service, and the
+  core keeps compositing with `composite`. Effects, titles and drop-in
+  plans: `docs/plans/v2/15-*` to `18-*`.
 
 ---
 

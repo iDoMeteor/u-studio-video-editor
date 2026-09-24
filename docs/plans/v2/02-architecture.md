@@ -35,15 +35,16 @@ with `include_directories` limited to what it may see):
 | engine | core, mlt++, glib | gtk, adwaita |
 | app | core, engine, gtk4, adwaita, gio | mlt (a `grep -rn 'mlt' src/app` in CI fails the build) |
 | render | core, engine, gio (GSubprocess-free; it's the child) | gtk |
-| core/effects, core/titles *(planned, docs 15, 16)* | same as core | same as core |
-| engine/effects *(planned, doc 15)* | same as engine | same as engine |
-| app/effects, app/titles *(planned, docs 15, 16)* | same as app | same as app |
+| `drop-ins/<name>/core` *(planned, docs 15, 16)* | same as core, plus `src/core` headers | same as core |
+| `drop-ins/<name>/engine` *(planned, doc 15)* | same as engine, plus `src/` core/engine headers | same as engine |
+| `drop-ins/<name>/app`, `drop-ins/titles/editor` *(planned, docs 15, 16)* | same as app, plus `src/` headers | same as app |
 | titlerender *(planned, doc 16)* | core, pango, pangocairo, cairo, fontconfig | gtk, mlt |
 | mltmodule *(planned, doc 16)* | mlt framework C API, titlerender, core | gtk, mlt++ app code |
 | titles app *(planned, doc 16)* | core, titlerender, gtk4, adwaita, gio | mlt |
 
-The effects and titles modules reach the rest of their layer only through
-the integration points listed in doc 15, "Drop-in structure" (ADR-013).
+Drop-ins live under a top-level `drop-ins/<name>/`. They reach `src/` only
+through the integration points listed in doc 15, "Drop-in structure"
+(ADR-013), and nothing in `src/` includes from `drop-ins/`.
 
 ## Source layout after M0
 

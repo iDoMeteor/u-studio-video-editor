@@ -19,7 +19,7 @@ mature and already loaded via GTK4.
   and linked into the curated module directory by `FactoryPolicy`, so the
   editor and `u-studio-render` both load it.
 - A separate GTK application, `u-studio-titles`, authors `.ustitle` files
-  using `core/titles` and `titlerender` directly, with no MLT.
+  using its own `core/` and `render/` libraries directly, with no MLT.
 - The document format is versioned XML via libxml2, like project files.
 
 ## Consequences
@@ -29,7 +29,7 @@ mature and already loaded via GTK4.
   title" command renders a title to a video file with alpha for
   portability. This is a deliberate, narrow exception to ADR-004's "`melt`
   plays the project" property.
-- Three new build targets (`titlerender`, `mltmodule`, `titles/app`) with
-  their own layer rules in doc 02.
+- Three new build targets (`render`, `mltmodule`, `app`), all inside the
+  `drop-ins/titles/` folder (ADR-013), with their own layer rules in doc 02.
 - Pango's threading rules apply inside an MLT producer: each producer owns
   its own font map (verified in T0, doc 16).

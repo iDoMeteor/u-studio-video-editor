@@ -33,15 +33,21 @@ from here:
 1. Wrap up everything through M3 (in progress).
 2. Audit (bugs plus sanitizers) before starting M4.
 3. Land the integration points IP1–IP6 (doc 15, "Drop-in structure") as
-   small reviewed commits, each a no-op with the `effects` / `titles`
-   build options off, so M4's bin and import work builds on them.
+   small reviewed commits, each a no-op with the drop-in build options
+   `disabled`, so M4's bin and import work builds on them. The drop-in
+   loader and the Settings "Drop-ins" page (ADR-014) land alongside IP5.
 4. M4, with the FX and titles tracks continuing in parallel and wiring into
    those integration points phase by phase.
+5. Optional drop-ins from the catalogue
+   ([doc 17](17-drop-in-catalogue-and-distribution.md)) as opportunity
+   allows: **audio polish first, then keying**; then stabilise,
+   auto-captions, motion tracking, speed ramps, audio visualiser and AI
+   generation ([doc 18](18-ai-generation.md)), each starting with its spike
+   and, where listed, its dependency ADR.
 
-Module-internal work (FX0 and T0 spikes; new files under
-`src/core/effects`, `src/engine/effects`, `src/core/titles`,
-`src/titles/`, `src/mltmodule/`) may start at any time, because it changes
-nothing outside its own directories.
+Drop-in work inside `drop-ins/effects/` and `drop-ins/titles/` (including
+the FX0 and T0 spikes) may start at any time, because it changes nothing
+outside its own folder.
 
 ## M0 — Foundation (no behaviour change)
 
@@ -219,11 +225,11 @@ Acceptance:
 
 ## Post-2.0 candidates (not planned)
 
-Speed ramps (`timewarp`), stabilisation, nested sequences in UI,
-audio mixer panel with meters, GL/dmabuf preview upload, drop-frame
-timecode, OpenTimelineIO export, captions (titles T5), Lottie layers
-(titles T6). Wipes and frei0r exposure moved into M5 (doc 15) on
-2026-09-23.
+Nested sequences in UI, audio mixer panel with meters, GL/dmabuf preview
+upload, drop-frame timecode, OpenTimelineIO export, captions (titles T5),
+Lottie layers (titles T6). Wipes and frei0r exposure moved into M5 (doc 15)
+on 2026-09-23; speed ramps and stabilisation became optional drop-ins
+(doc 17) on 2026-09-24.
 
 Real-time capture, as a new source alongside file import (owner request,
 2026-09-23): desktop audio + video capture, and separately, microphone

@@ -81,7 +81,7 @@ explicitly:
 
 | Family | Decision | Why |
 |---|---|---|
-| **frei0r** | **Required** (ADR-011). Bundled in the Flatpak. | Owner directive. Roughly 130 mature, GPL, CPU-only plugins (exact count confirmed in FX0) covering stylise, colour, keying, distortion, generators and blend-mode mixers. MLT already hosts it. |
+| **frei0r** | **Required by this drop-in** (ADR-011, narrowed by ADR-014). Ships in the effects package, never in core. | Owner directive. Roughly 130 mature, GPL, CPU-only plugins (exact count confirmed in FX0) covering stylise, colour, keying, distortion, generators and blend-mode mixers. MLT already hosts it. |
 | **MLT native** | Required (already are) | Zero cost; `affine`, `luma`, `mask_*`, `lift_gamma_gain`, `loudness`, `vidstab` are best-in-class for MLT. |
 | **libavfilter** | Required (already present via `avformat`) | Largest library available; the only one with `.cube` LUTs (`lut3d`), proper curves and EBU R128 loudness. |
 | **LADSPA** | Supported; plugin packs optional | Host is present. Real value comes from LSP, Calf, x42 or SWH packs; offer, don't require. |
@@ -112,24 +112,26 @@ for plugin search paths that it already applies to MLT modules:
 ## Architecture
 
 ```
-data/effects/overlays/*.json   curated names, groups, ranges, featured flags
-data/transitions/*.json        transition recipes
-data/lumas/                    generated wipe maps (build step)
+(all paths under drop-ins/effects/, see "Drop-in structure")
+
+data/overlays/*.json      curated names, groups, ranges, featured flags
+data/transitions/*.json   transition recipes
+data/lumas/               generated wipe maps (build step)
         │
 engine/EffectRegistry ──── enumerates Mlt::Repository + metadata()
         │                   merges overlays, applies health results
         ▼
-core/effects/EffectDescriptor  plain structs: id, family, category,
-        │                       params (kind, range, default, animatable)
+core/EffectDescriptor     plain structs: id, family, category,
+        │                  params (kind, range, default, animatable)
         ▼
 app/ Effect Browser, Effect Rack, param widgets   (no MLT, per doc 02)
 
-render/ u-studio-render --probe-effect <service>  (child process health + cost)
+render subcommand: u-studio-render --probe-effect <service>  (child process health + cost)
 ```
 
-Layer placement follows doc 02: only `engine/` sees MLT. `core/` gains
-`effects/descriptor.h` (pure data) so the app can build UI without MLT
-types. The registry result is cached on disk
+Layer placement follows doc 02 inside the drop-in: only its `engine/`
+sees MLT; its `core/` holds `descriptor.h` (pure data) so its `app/` can
+build UI without MLT types. The registry result is cached on disk
 (`$XDG_CACHE_HOME/ustudio/effects-<mlt-version>-<plugin-set-hash>.json`) so
 startup doesn't re-parse 500+ YAML documents each launch.
 
@@ -207,32 +209,67 @@ structure").
 
 ### Where the code lives
 
+Every drop-in lives in its own folder under a top-level `drop-ins/`
+directory (beside `src/`, `tests/` and `data/`), and that folder holds
+everything about it: code for each layer, data, tests, build file and
+documentation.
+
 ```
-src/core/effects/     descriptor, easing, look, effect commands, XML (de)serialisers
-src/engine/effects/   EffectRegistry, overlay loader, EngineExtension impl, probe
-src/app/effects/      Effect Rack, Effect Browser, parameter widgets, keyframe UI
-data/effects/  data/transitions/  data/lumas/
-tests/core/effects/  tests/engine/effects/  tests/app/effects/
+drop-ins/
+  meson.build             one subdir() per drop-in whose build option is on
+  effects/
+    meson.build           its libraries, tests and data install; nothing else
+    README.md             what it does, the integration points it uses, how to test it alone
+    register.{h,cpp}      the single entry point: registerDropIn(DropInHost&)
+    core/                 descriptors, easing helpers, looks, effect commands   (core rules)
+    engine/               EffectRegistry, overlay loader, EngineExtension, probe (engine rules)
+    app/                  Effect Rack, Effect Browser, parameter widgets, keyframe UI (app rules)
+    data/                 overlays/, transitions/, lumas/ (generator)
+    tests/                core/, engine/, app/
+  titles/                 same shape, doc 16
 ```
 
-Each directory is its own meson `static_library`. `src/engine/effects/`
-and `src/app/effects/` build only when `-Deffects=true`; `src/core/effects/`
-always builds (see IP1 and IP2).
+Rules that keep a drop-in self-contained:
+
+- **Dependencies point one way.** A drop-in may include headers from
+  `src/`; nothing in `src/` includes anything from `drop-ins/`. The only
+  link back is a file meson generates, `drop_ins.h`, listing the
+  `registerDropIn()` functions of drop-ins built in, which `app/main.cpp`
+  and `render/main.cpp` call at startup. Drop-ins built as loadable modules
+  are found and registered at startup instead ([ADR-014](adr/014-drop-in-loading-and-distribution.md),
+  [doc 17](17-drop-in-catalogue-and-distribution.md), "Distribution").
+- **Deleting the folder removes the feature.** Removing
+  `drop-ins/effects/` and its build option leaves a working editor that
+  still loads and saves every project (IP1 and IP2 live in `src/`).
+- **Doc 02's layer rules apply inside each drop-in.** Its `core/` may not
+  include GTK, GLib or MLT; its `app/` may not include MLT. The meson
+  boundary check extends to `drop-ins/*/app/` and `drop-ins/*/core/`.
+- **Drop-ins don't depend on each other.** Anything two drop-ins need
+  (the `Easing` type, for example) goes into `src/` through an integration
+  point.
+- **Data installs per drop-in**, to `$datadir/u-studio/drop-ins/<name>/`.
+- The whole folder builds only when its option isn't `disabled`
+  (`-Ddropin_effects=builtin|module|disabled`, likewise `dropin_titles`;
+  ADR-014).
 
 ### Integration points
 
-These are the only places effects code touches files outside its own
-directories. A new one is added to this table in the same change that
-needs it.
+These are the only changes to `src/` that the drop-ins need, plus the
+`DropInHost` object that `registerDropIn()` receives and that exposes
+IP3–IP6. They are written as general extension points, not as
+effects-specific code. A new one is added to this table in the same change
+that needs it.
 
 | IP | Where | What it is | Needed from |
 |---|---|---|---|
-| IP1 | `core/model` | Model data and mutators: `Easing` replacing `Keyframe::Interp`; `Effect::mix`, `Effect::mask`; `Sequence::effects`; `Transition::recipe` + `params`; `AdjustmentBlock` and its lane; `Look` in the bin; `Clip::sourceParams` (titles); `EffectParamChanged` event; the matching `check()` rules. Mutators stay on `Model` (doc 14), commands live in `core/effects`. | FX1 |
-| IP2 | `core/xml` | Writer and reader call `core/effects` (and `core/titles`) serialisers for `<filter>` elements and `ustudio:*` effect properties; format version 4. | FX1 |
-| IP3 | `engine/engine_sync` | An `EngineExtension` interface, registered with `EngineSync::addExtension()`: `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), and `applyInPlace(event)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
-| IP4 | `engine/factory_policy` | Extra plugin search paths and module directories contributed before `Mlt::Factory::init()`: the curated `FREI0R_PATH` (and `OFX_PLUGIN_PATH`), and titles' `libmltustudio.so`. | FX1 |
+| IP1 | `core/model` | Model data and mutators: `Easing` replacing `Keyframe::Interp`; `Effect::mix`, `Effect::mask`; `Sequence::effects`; `Transition::recipe` + `params`; `AdjustmentBlock` and its lane; `Look` in the bin; `Clip::sourceParams` (titles); `EffectParamChanged` event; `Effect::owner` (which drop-in applies it, doc 17); the matching `check()` rules. Mutators stay on `Model` (doc 14); commands live in `drop-ins/effects/core/`. | FX1 |
+| IP2 | `core/xml` | Writer and reader handle the IP1 fields directly (`<filter>` elements, `ustudio:*` effect and field properties); format version 4. Kept in `src/` so project data never depends on a drop-in being built. | FX1 |
+| IP3 | `engine/engine_sync` | An `EngineExtension` interface, registered with `EngineSync::addExtension()`: `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), `compositor()` (replace the
+default `composite` track compositor; effects uses `frei0r.cairoblend`), and `applyInPlace(event)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
+| IP4 | `engine/factory_policy` | Extra plugin search paths and module directories contributed before `Mlt::Factory::init()`: the curated `FREI0R_PATH` (and `OFX_PLUGIN_PATH`), and titles' `libmltustudio.so`. Because it runs before init, each drop-in also exposes `contributeFactoryPaths()`, listed in `drop_ins.h` next to `registerDropIn()`. | FX1 |
 | IP5 | `app/` | Five small hosts in the shell: an **inspector host** (collapsible right sidebar with `addInspectorPage()`); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (the action registry accepts module-supplied `ActionSpec` lists with their own target, so the Help dialog lists them automatically); a **preview overlay host** (`addPreviewOverlay()` plus a frame-to-widget coordinate mapper); a **timeline overlay/lane provider** (paint, hit-test and extra lane height, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (file type → handler, so titles can own `.ustitle` without touching the import code). | FX2 (timeline provider: FX4; import handlers: titles T1) |
-| IP6 | `render/` | `u-studio-render` dispatches subcommands registered by modules; effects registers `--probe-effect`. | FX1 |
+| IP6 | `render/` | `u-studio-render` dispatches subcommands registered by drop-ins; effects registers `--probe-effect`. | FX1 |
+| — | build | Top-level `meson.build` adds `subdir('drop-ins')`; `meson_options.txt` gains one `dropin_<name>` option per drop-in (ADR-014) and `titles`; `drop_ins.h` is generated. | FX1 |
 
 Target size of the wiring in `app_window.cpp`: instantiate the module,
 place its widgets in the hosts, register it. Under about 50 lines per
@@ -259,7 +296,7 @@ Three changes can't be pure drop-ins and are reviewed as such:
 
 | Situation | Behaviour |
 |---|---|
-| Built with `-Deffects=false` (the default until FX2's gate passes) | No effects engine or UI; IP3–IP6 are no-ops; projects containing effects load, save and round-trip unchanged (IP1 and IP2 are always built) and play without the effects, with a one-line status notice |
+| Built with `-Ddropin_effects=disabled` (the default until FX2's gate passes) | No effects engine or UI; IP3–IP6 are no-ops; projects containing effects load, save and round-trip unchanged (IP1 and IP2 are always built) and play without the effects, with a one-line status notice |
 | Built with effects, `frei0r-plugins` missing | frei0r entries hidden, compositing falls back to `composite` (ADR-011) |
 | Built with effects, a plugin quarantined | Hidden unless "Show unstable effects" |
 
@@ -269,11 +306,12 @@ without the app.
 
 ### Sequencing around the M3 wrap-up
 
-1. **Now, module-internal only.** FX0 spikes (standalone repros), and new
-   files only: `core/effects` descriptors and easing,
-   `engine/effects` registry and probe logic (testable against
+1. **Now, inside `drop-ins/effects/` only.** FX0 spikes (standalone
+   repros), descriptors, the registry and probe logic (testable against
    `Mlt::Repository` without EngineSync), overlay and recipe data, the luma
-   generator. Nothing outside the module directories changes.
+   generator. Until the build integration point lands, the folder builds
+   on its own (`meson setup` in `drop-ins/effects/`, or a scratch
+   top-level option). Nothing outside `drop-ins/` changes.
 2. **After the post-M3 audit.** Land IP1 and IP2, then IP4, IP3, IP6 and
    IP5, one reviewed commit each, each a no-op with the option off. These go
    before or at the very start of M4 so M4's bin and import work builds on
@@ -346,9 +384,11 @@ effect runs, `mask_apply` composites the result back over the snapshot with
 `transition=affine` at `mix` opacity, optionally limited to a `shape` mask.
 The Qt default of `mask_apply` is overridden every time.
 
-**Blend modes.** When frei0r is present (always, after ADR-011), track
-compositing moves from `composite` to `frei0r.cairoblend`, and a per-clip
-blend mode is the `cairoblend_mode` filter's `mode` parameter. Values
+**Blend modes.** The core editor always composites tracks with
+`composite`. When the effects drop-in is loaded and frei0r is present, it
+replaces the track compositor with `frei0r.cairoblend` through IP3's
+`compositor()` hook, and a per-clip blend mode is the `cairoblend_mode`
+filter's `mode` parameter. Values
 (normal, multiply, screen, overlay, ...) are read from metadata at runtime.
 
 **Parameter changes must not rebuild.** Today every model event rebuilds the
@@ -394,7 +434,7 @@ what runs inside the sub-tractor.
 | Blend | frei0r mixer2 plugins | additive flash, screen burn, multiply fade |
 | Audio | `mix` with `start=-1` (crossfade) or `volume` keyframes with easing | linear, equal power, cut |
 
-A recipe is a small JSON file in `data/transitions/`:
+A recipe is a small JSON file in `drop-ins/effects/data/transitions/`:
 
 ```json
 {
@@ -409,7 +449,7 @@ A recipe is a small JSON file in `data/transitions/`:
 Brand and user recipes are just more files; no code change.
 
 **Luma library.** This install has no luma images, and copying kdenlive's
-is off the table. A small build-time generator (`data/lumas/generate.py`,
+is off the table. A small build-time generator (`drop-ins/effects/data/lumas/generate.py`,
 or a C++ tool if Python in the build is unwelcome) writes 16-bit PGM maps:
 linear in 8 directions, radial, clock, iris, diamond, barn door, blinds,
 checker, noise dissolve, and Unicorn Tears shapes (horn, star, sparkle). Every
@@ -619,7 +659,7 @@ Acceptance:
 ### FX2 — Rack, Browser and keyframes in the inspector (about 2 weeks)
 
 Integration points: IP5 (inspector host, selection signal, action
-contributions, preview overlay host). Flips `-Deffects` on by default
+contributions, preview overlay host). Flips `dropin_effects` to `builtin` by default
 when its gate passes.
 
 
