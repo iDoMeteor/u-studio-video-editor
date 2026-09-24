@@ -45,19 +45,49 @@ same as kdenlive `:780-796`. The chosen backend name is stored in settings.
 
 | Property | Value | Why |
 |----------|-------|-----|
-| `real_time` | `1` (drop frames) by default; `-1` to disable dropping (preference) | `>0` keeps real time by dropping; magnitude = decode threads. Start with 1 thread; expose 2–4 as a preference for 4K. |
+| `real_time` | `1` (drop frames) by default; `-1` to disable dropping (preference) | `>0` keeps real time by dropping; magnitude = render threads. **Values above 1 measured broken with `sdl2_audio`** (2026-09-24: 5–6 frames/s shown at 4K60 instead of 20+), so don't expose them until that is understood; see the multi-threading plan. |
 | `mlt_image_format` | `rgba` | Matches `GDK_MEMORY_R8G8B8A8` with no conversion in our code. yuv420p + shader upload is a later optimisation (doc 13). |
 | `channels` | 2 | Stereo monitoring. |
 | `frequency` | 48000 | |
-| `scale` | `0.5` while playing at 1080p+, `1.0` when paused | Half-res preview during playback halves decode/upload cost; paused frame is full quality. Preference: Auto/Full/Half/Quarter. |
 | `volume` | user | |
 | `buffer` | 25 (frames) | Default MLT prefetch; lower (12) for snappier reverse/scrub. |
 | `terminate_on_pause` | 0 | Consumer stays alive across pause; we pause by speed 0. |
 | `audio_device` (sdl) | from preferences if set | |
 
-Width/height are the profile's. Do **not** set consumer width/height to the
-widget size; use `scale` instead so the aspect and pixel maths stay in one
-place.
+Width/height are the profile's. Neither the consumer's `scale` nor its
+width/height is used for preview scaling; see below.
+
+## Preview scale
+
+Preview scale (Auto/Full/Half/Quarter) is applied by building the
+**playback tractor on a scaled profile**: `EngineSync` takes the sequence
+profile, multiplies width and height by the factor (rounded to even
+numbers) and keeps fps, SAR and DAR, so positions and aspect are
+unchanged. Export (`renderProject`) and media probing always use the full
+profile.
+
+Measured on 2026-09-24 (4K60 H.264 source, `tests/engine/playback_soak`),
+because the first design did not work:
+
+| Approach | Frames shown (of 60/s) | Frame the UI received |
+|---|---|---|
+| Consumer `scale = 0.5` (the original plan) | 20–23 | 3840×2160: no effect |
+| Consumer width/height set to half | ~16 | 1920×1080, but slower: rendering stays full size and one more downscale is added |
+| Half-size playback profile (chosen; kdenlive resizes its monitor profile too) | 32–43 | 1920×1080 |
+
+- **Auto** is Half for sequences taller than 1080 lines, Full otherwise.
+  It no longer changes between playing and paused: a factor change
+  rebuilds the tractor and restarts the consumer, which is too costly for
+  every play/pause. So a paused 4K frame also shows at half size. A
+  full-quality still for the paused frame (rendered off-thread, like
+  thumbnails) is a follow-up.
+- Changing the preference rebuilds only when the resolved factor changes.
+- Anything with **pixel-valued parameters** (effects in doc 15, titles in
+  doc 16) must scale them with the playback profile or use relative units.
+- **Decoder threads**: the `avformat` producer's `threads` property is
+  documented as default 1, but unset it lets FFmpeg pick (about one thread
+  per CPU here). Explicit values (1, 2, 4, 8) made no measurable
+  difference in repeated runs, so the engine leaves it unset.
 
 ## State machine
 

@@ -729,6 +729,9 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_focusable(GTK_WIDGET(m_previewScaleDropdown), FALSE);
     g_signal_connect(m_previewScaleDropdown, "notify::selected", G_CALLBACK(&AppWindow::previewScaleChangedTrampoline),
                      this);
+    // The selection above was set before the handler was connected, so the
+    // Settings default never reached playback; apply it once here.
+    onPreviewScaleChanged();
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_previewScaleDropdown));
 
     m_loopStatusLabel = GTK_LABEL(gtk_label_new(""));
@@ -1792,18 +1795,21 @@ void AppWindow::onVolumeChanged()
 
 void AppWindow::onPreviewScaleChanged()
 {
+    // EngineSync owns the preview scale: it builds the playback tractor on
+    // a scaled profile (doc 05), rebuilding -- and so restarting playback
+    // via `rebuilt` -- only when the resolved factor actually changes.
     switch (gtk_drop_down_get_selected(m_previewScaleDropdown)) {
     case 1:
-        m_playback->setPreviewScale(engine::PlaybackController::PreviewScale::Full);
+        m_engineSync->setPreviewScale(engine::PreviewScale::Full);
         break;
     case 2:
-        m_playback->setPreviewScale(engine::PlaybackController::PreviewScale::Half);
+        m_engineSync->setPreviewScale(engine::PreviewScale::Half);
         break;
     case 3:
-        m_playback->setPreviewScale(engine::PlaybackController::PreviewScale::Quarter);
+        m_engineSync->setPreviewScale(engine::PreviewScale::Quarter);
         break;
     default:
-        m_playback->setPreviewScale(engine::PlaybackController::PreviewScale::Auto);
+        m_engineSync->setPreviewScale(engine::PreviewScale::Auto);
         break;
     }
 }

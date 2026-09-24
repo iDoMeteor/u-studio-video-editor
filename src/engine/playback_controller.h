@@ -35,14 +35,6 @@ class PlaybackController
   public:
     using FrameCallback = std::function<void(std::vector<uint8_t> rgba, int width, int height, int frameNumber)>;
 
-    enum class PreviewScale
-    {
-        Auto,    // 1.0 while paused, 0.5 while playing a 1080p+ profile (doc 05)
-        Full,
-        Half,
-        Quarter,
-    };
-
     PlaybackController();
     ~PlaybackController();
 
@@ -97,12 +89,6 @@ class PlaybackController
         return m_volume.load();
     }
 
-    void setPreviewScale(PreviewScale scale);
-    PreviewScale previewScale() const
-    {
-        return m_previewScalePreference;
-    }
-
     // Source of truth (doc 05): while playing, the position carried by the
     // most recent frame-show event; while paused, whatever was last sought
     // to. Never tractor->position() -- that runs ahead of what's on screen
@@ -127,6 +113,16 @@ class PlaybackController
     int consumerRestartCount() const
     {
         return m_consumerRestartCount;
+    }
+    // Frames the consumer has shown (consumer-frame-show with a usable
+    // image), counted on the consumer thread. Compared with the frames the
+    // UI callback received, it separates frames the consumer skipped
+    // (rendering behind real time) from frames the single-slot hand-off
+    // overwrote because the main loop didn't drain it in time
+    // (tests/engine/playback_soak).
+    long frameShowCount() const
+    {
+        return m_frameShowCount.load();
     }
 
     // Stops the consumer before Factory::close() runs on quit (main.cpp's
@@ -160,7 +156,6 @@ class PlaybackController
     };
 
     bool selectAndStartConsumer(Mlt::Tractor &tractor);
-    void applyResolvedScale();
     void applyVolumeToConsumer();
     static void frameShowTrampoline(mlt_properties owner, void *self, mlt_event_data data);
     void handleFrameShow(const Mlt::EventData &eventData);
@@ -172,6 +167,7 @@ class PlaybackController
 
     std::string m_backendName;
     int m_consumerRestartCount = 0;
+    std::atomic<long> m_frameShowCount{0};
     FrameCallback m_callback;
 
     LatestFrameSlot m_slot;
@@ -187,7 +183,6 @@ class PlaybackController
     std::atomic<int> m_lastKnownFrame{0}; // updated from the consumer thread; valid while playing
     std::atomic<int> m_pausedPosition{0}; // last explicit seek target; valid while paused
     std::atomic<double> m_volume{1.0};
-    PreviewScale m_previewScalePreference = PreviewScale::Auto;
     std::optional<std::pair<int, int>> m_loopRange;
 };
 

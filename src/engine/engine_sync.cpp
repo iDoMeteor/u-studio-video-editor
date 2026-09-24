@@ -37,7 +37,7 @@ std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 }
 } // namespace
 
-EngineSync::EngineSync(core::Model &model) : m_model(model)
+EngineSync::EngineSync(core::Model &model, PreviewScale previewScale) : m_model(model), m_previewScale(previewScale)
 {
     applyProfile();
     rebuildAll();
@@ -52,11 +52,28 @@ EngineSync::~EngineSync()
 void EngineSync::reset()
 {
     Log::ScopedTimer timer("[engine] reset");
-    Log::debug("[engine] reset: dropping " + std::to_string(m_masterProducers.size()) + " cached master producer(s)");
-    m_masterProducers.clear();
-    // Built from the old profile, which applyProfile() below may replace.
-    m_blackMaster.reset();
     m_unavailableAssets.clear(); // a reopened project's media may have come back since -- give it a fresh try
+    rebuildOnNewProfile();
+    connectToModel();
+}
+
+void EngineSync::setPreviewScale(PreviewScale scale)
+{
+    m_previewScale = scale;
+    double factor = previewScaleFactor(scale, m_model.sequence().profile.height);
+    if (factor == m_previewFactor)
+        return;
+    Log::debug("[engine] preview scale factor " + std::to_string(m_previewFactor) + " -> " + std::to_string(factor));
+    rebuildOnNewProfile();
+}
+
+void EngineSync::rebuildOnNewProfile()
+{
+    Log::debug("[engine] new profile: dropping " + std::to_string(m_masterProducers.size()) +
+               " cached master producer(s)");
+    m_masterProducers.clear();
+    // Built from the old profile, which applyProfile() below replaces.
+    m_blackMaster.reset();
 
     // Keep the OLD profile alive across applyProfile()+rebuildAll(), not
     // just swap it in place: applyProfile() would otherwise destroy it
@@ -75,7 +92,6 @@ void EngineSync::reset()
     std::unique_ptr<Mlt::Profile> oldProfile = std::move(m_profile);
     applyProfile();
     rebuildAll();
-    connectToModel();
 }
 
 void EngineSync::connectToModel()
@@ -113,7 +129,23 @@ void EngineSync::onModelEvent(const core::ModelEvent &event)
 
 void EngineSync::applyProfile()
 {
-    m_profile = makeProfileFrom(m_model.sequence().profile);
+    const core::Profile &sequenceProfile = m_model.sequence().profile;
+    m_previewFactor = previewScaleFactor(m_previewScale, sequenceProfile.height);
+    m_profile = makeProfileFrom(sequenceProfile);
+    if (m_previewFactor != 1.0) {
+        // Even dimensions: yuv420p sources and most scalers need them, and
+        // an odd width would skew the display aspect by a pixel. Fps, SAR
+        // and DAR are unchanged, so positions and aspect are identical to
+        // the full-size profile.
+        auto scaled = [this](int size) {
+            int value = static_cast<int>(size * m_previewFactor + 0.5);
+            return std::max(2, value + value % 2);
+        };
+        m_profile->set_width(scaled(sequenceProfile.width));
+        m_profile->set_height(scaled(sequenceProfile.height));
+    }
+    Log::debug("[engine] playback profile " + std::to_string(m_profile->width()) + "x" +
+               std::to_string(m_profile->height()) + " (preview factor " + std::to_string(m_previewFactor) + ")");
 }
 
 EngineSync::ProbedMedia EngineSync::probeMedia(const std::string &path)

@@ -99,7 +99,6 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
         m_frameShowEvent = std::move(event);
         m_backendName = name;
         ++m_consumerRestartCount;
-        applyResolvedScale();
 
         Log::info(std::string("[engine] Playback consumer: ") + name + " (restart #" +
                   std::to_string(m_consumerRestartCount) + ")");
@@ -202,7 +201,6 @@ void PlaybackController::play(double speed)
     m_tractor->set_speed(speed);
     m_speed.store(speed);
     m_playing.store(speed != 0.0);
-    applyResolvedScale();
 }
 
 void PlaybackController::pause()
@@ -237,7 +235,6 @@ void PlaybackController::pause()
         m_consumer->purge();
         m_consumer->set("refresh", 1);
     }
-    applyResolvedScale();
 }
 
 void PlaybackController::togglePlay()
@@ -297,43 +294,6 @@ void PlaybackController::applyVolumeToConsumer()
         m_consumer->set("volume", m_volume.load());
 }
 
-void PlaybackController::setPreviewScale(PreviewScale scale)
-{
-    m_previewScalePreference = scale;
-    applyResolvedScale();
-}
-
-void PlaybackController::applyResolvedScale()
-{
-    if (!m_consumer)
-        return;
-
-    double resolved = 1.0;
-    switch (m_previewScalePreference) {
-    case PreviewScale::Full:
-        resolved = 1.0;
-        break;
-    case PreviewScale::Half:
-        resolved = 0.5;
-        break;
-    case PreviewScale::Quarter:
-        resolved = 0.25;
-        break;
-    case PreviewScale::Auto: {
-        // doc 05: half-res while playing a 1080p+ profile (halves
-        // decode/upload cost during playback); full when paused, so a
-        // stopped-on frame is crisp. tractor->profile() heap-allocates a
-        // fresh wrapper on every call (see selectAndStartConsumer's
-        // comment) -- called once here and owned, not twice and leaked;
-        // this runs on every play/pause/scale-preference change.
-        std::unique_ptr<Mlt::Profile> profile(m_tractor ? m_tractor->profile() : nullptr);
-        bool isHighRes = profile && profile->height() >= 1080;
-        resolved = (m_playing.load() && isHighRes) ? 0.5 : 1.0;
-        break;
-    }
-    }
-    m_consumer->set("scale", resolved);
-}
 
 int PlaybackController::currentFrame() const
 {
@@ -393,6 +353,7 @@ void PlaybackController::handleFrameShow(const Mlt::EventData &eventData)
 
     int position = frame.get_position();
     m_lastKnownFrame.store(position);
+    ++m_frameShowCount;
 
     FrameData data;
     data.rgba.assign(image, image + static_cast<size_t>(width) * static_cast<size_t>(height) * 4);

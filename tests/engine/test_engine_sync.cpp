@@ -630,3 +630,70 @@ TEST_CASE("EngineSync: a hidden track shows what's under it and a muted track is
     CHECK(rms < 1.0);
     CHECK(sync.verify().empty());
 }
+
+TEST_CASE("EngineSync: preview scale builds the playback tractor on a scaled profile")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty(); // 1920x1080 @ 30
+    AssetId asset = addGeneratorAsset(model, "color:red");
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    model.insertClip(track, asset, 10, 0, 49);
+
+    EngineSync sync(model, PreviewScale::Half);
+    int rebuilds = 0;
+    sync.rebuilt.connect([&] { ++rebuilds; });
+    CHECK(sync.profile().width() == 960);
+    CHECK(sync.profile().height() == 540);
+    CHECK(sync.profile().frame_rate_num() == 30);
+    CHECK(sync.profile().frame_rate_den() == 1);
+    CHECK(sync.tractor().get_length() == 60); // positions and lengths don't scale
+    CHECK(sync.verify().empty());
+
+    sync.setPreviewScale(PreviewScale::Full);
+    CHECK(rebuilds == 1);
+    CHECK(sync.profile().width() == 1920);
+    CHECK(sync.profile().height() == 1080);
+    CHECK(sync.verify().empty());
+
+    sync.setPreviewScale(PreviewScale::Full); // same factor: no rebuild, no playback restart
+    CHECK(rebuilds == 1);
+    sync.setPreviewScale(PreviewScale::Auto); // 1080 lines resolves to Full: still no rebuild
+    CHECK(rebuilds == 1);
+
+    sync.setPreviewScale(PreviewScale::Quarter);
+    CHECK(rebuilds == 2);
+    CHECK(sync.profile().width() == 480);
+    CHECK(sync.profile().height() == 270);
+    CHECK(sync.verify().empty());
+}
+
+TEST_CASE("EngineSync: Auto preview scale halves only sequences taller than 1080 lines")
+{
+    sharedFactoryPolicy();
+    Profile uhd;
+    uhd.width = 3840;
+    uhd.height = 2160;
+    uhd.fps = {60, 1};
+    Model model4k = Model::createEmpty(uhd);
+    EngineSync sync4k(model4k, PreviewScale::Auto);
+    CHECK(sync4k.previewFactor() == 0.5);
+    CHECK(sync4k.profile().width() == 1920);
+    CHECK(sync4k.profile().height() == 1080);
+
+    Model model1080 = Model::createEmpty();
+    EngineSync sync1080(model1080, PreviewScale::Auto);
+    CHECK(sync1080.previewFactor() == 1.0);
+    CHECK(sync1080.profile().height() == 1080);
+}
+
+TEST_CASE("EngineSync: scaled preview dimensions are rounded to even numbers")
+{
+    sharedFactoryPolicy();
+    Profile odd;
+    odd.width = 1366;
+    odd.height = 770;
+    Model model = Model::createEmpty(odd);
+    EngineSync sync(model, PreviewScale::Half);
+    CHECK(sync.profile().width() == 684);  // 683 rounded up to even
+    CHECK(sync.profile().height() == 386); // 385 rounded up to even
+}

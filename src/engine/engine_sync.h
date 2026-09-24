@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/model/model.h"
+#include "engine/preview_scale.h"
 #include "core/model/model_event.h"
 #include "core/model/signal.h"
 #include "core/model/track_segments.h"
@@ -51,16 +52,43 @@ namespace core = ustudio::core;
 class EngineSync
 {
   public:
-    explicit EngineSync(core::Model &model);
+    // `previewScale` sets how large the playback tractor renders (see
+    // setPreviewScale()). The default, Full, is what export and tests want:
+    // renderProject() builds its own EngineSync and must render at the
+    // sequence's real size.
+    explicit EngineSync(core::Model &model, PreviewScale previewScale = PreviewScale::Full);
     // Disconnects from Model::changed (audit C4): Model outlives EngineSync
     // in every current caller, but nothing enforces that, and a dangling
     // subscription firing into a destroyed `this` is exactly the kind of
     // bug that only shows up once something changes that assumption.
     ~EngineSync();
 
+    // The profile the tractor is built on: the sequence profile scaled by
+    // previewFactor(). At Full it *is* the sequence profile.
     Mlt::Profile &profile()
     {
         return *m_profile;
+    }
+
+    // Renders the playback tractor at a fraction of the sequence size by
+    // building it on a scaled profile (doc 05). MLT has no cheaper way:
+    // producers and transitions render at their profile's size, and the
+    // consumer's "scale" property does not shrink that (measured,
+    // 2026-09-24: 4K60 playback at "Half" still delivered 3840x2160
+    // frames), while overriding the consumer's width/height only adds a
+    // final downscale after full-size rendering (measured slower). kdenlive
+    // likewise resizes its monitor profile. Changing the resolved factor
+    // rebuilds the tractor on a new profile, which restarts playback via
+    // `rebuilt`; setting the same factor again does nothing. Positions,
+    // lengths and fps are unaffected; only pixel dimensions change.
+    void setPreviewScale(PreviewScale scale);
+    PreviewScale previewScale() const
+    {
+        return m_previewScale;
+    }
+    double previewFactor() const
+    {
+        return m_previewFactor;
     }
     Mlt::Tractor &tractor()
     {
@@ -159,6 +187,8 @@ class EngineSync
     core::Model &m_model;
     std::unique_ptr<Mlt::Profile> m_profile;
     std::shared_ptr<Mlt::Tractor> m_tractor;
+    PreviewScale m_previewScale = PreviewScale::Full;
+    double m_previewFactor = 1.0;
     // Keyed by AssetId::value plus the clip's two stream switches (see
     // masterProducerFor()).
     std::unordered_map<uint64_t, std::shared_ptr<Mlt::Producer>> m_masterProducers;
@@ -187,6 +217,10 @@ class EngineSync
     int m_modelConnection = 0;
 
     void applyProfile();
+    // Swaps in a freshly derived profile and rebuilds everything built on
+    // the old one (master producers, the black master, the tractor); shared
+    // by reset() and setPreviewScale().
+    void rebuildOnNewProfile();
     void connectToModel();
     void onModelEvent(const core::ModelEvent &event);
     Mlt::Producer &masterProducerFor(core::AssetId, bool videoEnabled, bool audioEnabled);

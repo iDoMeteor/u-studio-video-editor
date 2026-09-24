@@ -392,6 +392,18 @@ milestone M6). Full rationale in
 
 ### Playback engine notes
 
+**Preview scale works by shrinking the playback profile.** Setting the
+consumer's `scale` property had no effect on what MLT renders (4K60 at
+"Half" still delivered 3840×2160 frames and showed only 20–23 of 60 frames
+a second), and overriding the consumer's width/height only added a final
+downscale after full-size rendering (slower). `EngineSync` now builds the
+playback tractor on the sequence profile scaled by the preview factor
+(even dimensions, same fps and aspect); export keeps the full profile.
+Auto means Half for sequences taller than 1080 lines. Details and
+measurements: doc 05, "Preview scale". Leave the `avformat` producer's
+`threads` unset: unset already decodes with about one thread per CPU, and
+explicit values measured no better.
+
 **SDL signal handlers are disabled.** MLT's `sdl2_audio` consumer
 initialises SDL, and by default SDL turns SIGINT/SIGTERM into an
 `SDL_QUIT` event that nothing in a GTK app reads, so `kill`, Ctrl+C and

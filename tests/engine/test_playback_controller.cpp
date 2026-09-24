@@ -1,6 +1,8 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/model/model.h"
+#include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "engine/playback_controller.h"
 
@@ -10,6 +12,7 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 using namespace ustudio::engine;
@@ -446,5 +449,49 @@ TEST_CASE("PlaybackController: shutdown during playback is clean, repeated 100 t
         // M2 acceptance) is meant to catch. A clean run 100/100 times,
         // ideally under -Db_sanitize=address,undefined, is the criterion.
         controller.shutdown();
+    }
+}
+
+TEST_CASE("PlaybackController: frames reach the UI at the preview size, not the sequence size")
+{
+    // Regression for the 2026-09-24 soak finding: at "Half", 4K60 playback
+    // still delivered 3840x2160 frames, because only the consumer's "scale"
+    // was set. EngineSync now builds the playback tractor on a scaled
+    // profile, so the rendered and delivered frames are actually smaller.
+    sharedFactoryPolicy();
+    using namespace ustudio::core;
+    Model model = Model::createEmpty(); // 1920x1080 @ 30
+    Asset asset;
+    asset.path = "color:blue";
+    asset.displayName = "blue";
+    asset.info.hasVideo = true;
+    asset.info.lengthInSequenceFrames = 100'000;
+    AssetId assetId = model.addAsset(asset);
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    model.insertClip(track, assetId, 0, 0, 59);
+
+    for (auto [scale, expectedWidth, expectedHeight] :
+         {std::tuple{PreviewScale::Half, 960, 540}, std::tuple{PreviewScale::Full, 1920, 1080}}) {
+        EngineSync sync(model, scale);
+        PlaybackController controller;
+        std::mutex mutex;
+        int width = 0, height = 0;
+        controller.setFrameCallback([&](std::vector<uint8_t>, int w, int h, int) {
+            std::lock_guard<std::mutex> lock(mutex);
+            width = w;
+            height = h;
+        });
+        controller.setTractor(sync.tractorPtr());
+        bool got = pumpMainContextUntil(
+            [&] {
+                std::lock_guard<std::mutex> lock(mutex);
+                return width > 0;
+            },
+            std::chrono::seconds(5));
+        controller.shutdown();
+        REQUIRE(got);
+        std::lock_guard<std::mutex> lock(mutex);
+        CHECK(width == expectedWidth);
+        CHECK(height == expectedHeight);
     }
 }
