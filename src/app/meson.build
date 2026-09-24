@@ -89,7 +89,7 @@ app_tokens_h = custom_target(
 # hint and action tables against each other (test_ui_hints.cpp).
 app_window_lib = static_library(
   'ustudio_app_window',
-  files('action_registry.cpp', 'app_window.cpp', 'import_queue.cpp', 'save_queue.cpp', 'stall_monitor.cpp', 'ui_hints.cpp', 'timeline/timeline_renderer.cpp',
+  files('action_registry.cpp', 'app_window.cpp', 'import_queue.cpp', 'project_loader.cpp', 'save_queue.cpp', 'stall_monitor.cpp', 'ui_hints.cpp', 'timeline/timeline_renderer.cpp',
         'timeline/us_timeline_view.cpp'),
   app_tokens_h,
   dependencies: [libustudio_engine_dep, app_timeline_dep, app_autosave_dep, app_settings_dep, app_portal_dep, gtk4_dep, adwaita_dep, gio_dep],

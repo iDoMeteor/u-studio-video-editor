@@ -183,6 +183,12 @@ AppWindow::AppWindow(GtkApplication *app)
         std::make_unique<SaveQueue>(*m_pool, [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
         });
+    m_projectLoader = std::make_unique<ProjectLoader>(
+        *m_pool,
+        [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
+            engine::MainThreadDispatcher::post(token, std::move(fn));
+        },
+        core::loadProject);
     m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
     m_thumbnails = std::make_unique<engine::ThumbnailCache>([this] { onThumbnailReady(); });
     // The timeline's strips have their own worker: dozens of frames arrive
@@ -267,6 +273,9 @@ void AppWindow::prepareForShutdown()
     if (m_importQueue)
         m_importQueue->cancelAll();
     m_importQueue.reset();
+    if (m_projectLoader)
+        m_projectLoader->cancel();
+    m_projectLoader.reset();
     m_saveQueue.reset();
     m_pool.reset();
     if (m_playback)
@@ -1375,6 +1384,8 @@ void AppWindow::cancelProjectJobs()
     ++m_projectGeneration;
     if (m_importQueue)
         m_importQueue->cancelAll();
+    if (m_projectLoader)
+        m_projectLoader->cancel();
 }
 
 void AppWindow::onSaveQueueSettled()
@@ -1531,44 +1542,72 @@ void AppWindow::onOpenProjectFinished(GObject *sourceObject, GAsyncResult *resul
     g_object_unref(file);
 }
 
-bool AppWindow::loadProjectFromPath(const std::string &requestedPath)
+void AppWindow::loadProjectFromPath(const std::string &requestedPath)
 {
     // Covers recent-projects entries recorded as document-portal paths
     // before portal::resolveHostPath() existed, not just fresh dialog picks.
     const std::string path = portal::resolveHostPath(requestedPath);
-    auto loaded = core::loadProject(path);
-    if (!loaded.has_value()) {
-        showStatus(loaded.error());
-        return false;
-    }
+    showStatus("Opening " + path + "…");
+    loadProjectAsync(
+        path,
+        [this, path](core::Model model) {
+            replaceProject(std::move(model));
+            m_currentProjectPath = path;
+            m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
+            // Audit A1: a pending recovered-autosave cleanup is only
+            // safe to act on once ITS OWN content has been durably
+            // saved (onSaveFinished()'s own comment) -- switching away
+            // to a different project via Open, same as New or Reload,
+            // must forget it rather than let a later Save of THIS
+            // project delete the still-only copy of whatever was
+            // recovered. The files themselves are left alone; a later
+            // launch (or offerRecoveryIfAny() looping later in this one)
+            // can still find and offer them.
+            m_pendingAutosaveCleanupPath.clear();
+            m_pendingAutosaveCleanupMetaPath.clear();
+            refreshTimeline();
+            refreshMediaBrowser();
+            showStatus("Opened: " + path);
+            // Enhancement #15: recorded regardless of how the project got
+            // opened (dialog or the recent-projects menu itself), so
+            // re-opening it later keeps bumping it back to the top.
+            recordRecentProject(path);
+        },
+        [this](const std::string &error) { showStatus(error); });
+}
+
+void AppWindow::loadProjectAsync(const std::string &path, std::function<void(core::Model)> adopt,
+                                 std::function<void(const std::string &)> failed)
+{
+    if (!m_projectLoader)
+        return; // shutting down
+    core::UndoStack::State startState = m_undoStack.state();
+    m_projectLoader->load(
+        path, [this, startState, adopt = std::move(adopt), failed = std::move(failed)](ProjectLoader::Result loaded) {
+            if (!loaded) {
+                failed(loaded.error());
+                return;
+            }
+            auto model = std::make_shared<core::Model>(std::move(*loaded));
+            auto swap = [adopt, model] { adopt(std::move(*model)); };
+            // The discard confirmation (if any) came before the parse; edits
+            // made while it ran would otherwise vanish without a word.
+            if (m_undoStack.state() != startState)
+                confirmDiscardIfDirty(swap);
+            else
+                swap();
+        });
+}
+
+void AppWindow::replaceProject(core::Model model)
+{
     cancelProjectJobs();
-    m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy --
-                                  // reassigning its contents leaves both still pointing at the right object
-    m_currentProjectPath = path;
+    m_model = std::move(model); // m_undoStack/m_engineSync hold a reference to m_model, not a copy --
+                                // reassigning its contents leaves both still pointing at the right object
     m_undoStack.clear();
-    m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
     m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
     m_activeTrack = 0;
     m_timelineController.selection().clear();
-    // Audit A1: a pending recovered-autosave cleanup is only
-    // safe to act on once ITS OWN content has been durably
-    // saved (onSaveFinished()'s own comment) -- switching away
-    // to a different project via Open, same as New or Reload,
-    // must forget it rather than let a later Save of THIS
-    // project delete the still-only copy of whatever was
-    // recovered. The files themselves are left alone; a later
-    // launch (or offerRecoveryIfAny() looping later in this one)
-    // can still find and offer them.
-    m_pendingAutosaveCleanupPath.clear();
-    m_pendingAutosaveCleanupMetaPath.clear();
-    refreshTimeline();
-    refreshMediaBrowser();
-    showStatus("Opened: " + path);
-    // Enhancement #15: recorded regardless of how the project got opened
-    // (dialog or the recent-projects menu itself), so re-opening it later
-    // keeps bumping it back to the top of the list.
-    recordRecentProject(path);
-    return true;
 }
 
 void AppWindow::onReloadProjectClicked()
@@ -1582,25 +1621,21 @@ void AppWindow::onReloadProjectClicked()
 
 void AppWindow::performReload()
 {
-    auto loaded = core::loadProject(m_currentProjectPath);
-    if (!loaded.has_value()) {
-        showStatus(loaded.error());
-        return;
-    }
-
-    cancelProjectJobs();
-    m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy
-    m_undoStack.clear();
-    m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
-    m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
-    m_activeTrack = 0;
-    m_timelineController.selection().clear();
-    // Audit A1 -- see onOpenProjectFinished's own comment.
-    m_pendingAutosaveCleanupPath.clear();
-    m_pendingAutosaveCleanupMetaPath.clear();
-    refreshTimeline();
-    refreshMediaBrowser();
-    showStatus(std::string("Reloaded: ") + m_currentProjectPath);
+    const std::string path = m_currentProjectPath;
+    showStatus("Reloading " + path + "…");
+    loadProjectAsync(
+        path,
+        [this, path](core::Model model) {
+            replaceProject(std::move(model));
+            m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
+            // Audit A1 -- see loadProjectFromPath()'s own comment.
+            m_pendingAutosaveCleanupPath.clear();
+            m_pendingAutosaveCleanupMetaPath.clear();
+            refreshTimeline();
+            refreshMediaBrowser();
+            showStatus("Reloaded: " + path);
+        },
+        [this](const std::string &error) { showStatus(error); });
 }
 
 void AppWindow::onNewProjectClicked()
@@ -3607,43 +3642,40 @@ void AppWindow::offerRecoveryIfAny()
             const char *response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
 
             if (response && std::string(response) == "recover") {
-                auto loaded = core::loadProject(owned->found.autosavePath);
-                if (loaded.has_value()) {
-                    owned->self->cancelProjectJobs();
-                    owned->self->m_model = std::move(*loaded);
-                    owned->self->m_currentProjectPath = owned->found.meta.originalPath;
-                    owned->self->m_undoStack.clear();
-                    // markDirty(), not setCleanPoint() (audit A2): recovered
-                    // content is unsaved relative to m_currentProjectPath (or
-                    // has no target at all), but clear() alone already makes
-                    // an empty stack report clean by definition (0 == 0) --
-                    // there's no "depth" to NOT reset back to that would
-                    // otherwise leave it dirty. markDirty() forces isClean()
-                    // false until an explicit, later setCleanPoint() (a real
-                    // Save) says otherwise.
-                    owned->self->m_undoStack.markDirty(); // emits changed -- updateWindowTitle() follows
-                    owned->self->m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
-                    owned->self->m_activeTrack = 0;
-                    owned->self->m_timelineController.selection().clear();
-                    owned->self->refreshTimeline();
-                    owned->self->refreshMediaBrowser();
-                    owned->self->showStatus("Recovered unsaved work.");
-                    // NOT deleted here: this session's own autosaves go to a
-                    // filename keyed on its own (fresh) session id, never
-                    // this recovered file's, so nothing else will ever clean
-                    // it up. Kept as the only durable copy of the recovered
-                    // work until a manual Save succeeds (onSaveFinished()),
-                    // so a second crash before that Save doesn't lose it
-                    // again.
-                    owned->self->m_pendingAutosaveCleanupPath = owned->found.autosavePath;
-                    owned->self->m_pendingAutosaveCleanupMetaPath = owned->found.metaPath;
-                } else {
-                    // Load failed -- leave the autosave files untouched
-                    // entirely rather than destroying what may be the only
-                    // copy of that work; a later launch gets another chance
-                    // to recover them.
-                    owned->self->showStatus("Couldn't recover: " + loaded.error());
-                }
+                AppWindow *self = owned->self;
+                autosave::Recoverable recoverable = owned->found;
+                self->showStatus("Recovering unsaved work…");
+                self->loadProjectAsync(
+                    recoverable.autosavePath,
+                    [self, recoverable](core::Model model) {
+                        self->replaceProject(std::move(model));
+                        self->m_currentProjectPath = recoverable.meta.originalPath;
+                        // markDirty(), not setCleanPoint() (audit A2):
+                        // recovered content is unsaved relative to
+                        // m_currentProjectPath (or has no target at all),
+                        // but clear() alone makes the empty stack clean.
+                        // markDirty() keeps it dirty until a real Save.
+                        self->m_undoStack.markDirty(); // emits changed -- updateWindowTitle() follows
+                        self->refreshTimeline();
+                        self->refreshMediaBrowser();
+                        self->showStatus("Recovered unsaved work.");
+                        // NOT deleted here: this session's own autosaves go
+                        // to a filename keyed on its own (fresh) session id,
+                        // never this recovered file's, so nothing else will
+                        // ever clean it up. Kept as the only durable copy of
+                        // the recovered work until a manual Save succeeds
+                        // (performSaveToPath()), so a second crash before
+                        // that Save doesn't lose it again.
+                        self->m_pendingAutosaveCleanupPath = recoverable.autosavePath;
+                        self->m_pendingAutosaveCleanupMetaPath = recoverable.metaPath;
+                    },
+                    [self](const std::string &error) {
+                        // Load failed -- leave the autosave files untouched
+                        // entirely rather than destroying what may be the
+                        // only copy of that work; a later launch gets
+                        // another chance to recover them.
+                        self->showStatus("Couldn't recover: " + error);
+                    });
             } else {
                 // An affirmative "no" from the owner (doc 09: "discarded
                 // ones are deleted") -- safe to remove immediately, unlike

@@ -23,6 +23,7 @@
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "import_queue.h"
+#include "project_loader.h"
 #include "save_queue.h"
 #include "settings.h"
 #include "timeline/timeline_controller.h"
@@ -165,7 +166,17 @@ class AppWindow
     // path) and openRecentProject() (a path picked from the recent-
     // projects menu, no dialog) -- everything loadProject() success/
     // failure needs to do to the model/undo-stack/engine/UI either way.
-    bool loadProjectFromPath(const std::string &path);
+    void loadProjectFromPath(const std::string &path);
+    // doc 19 MT1: Open, Reload and Recover parse on the pool through
+    // m_projectLoader; a newer load (or New Project) drops an older one.
+    // `adopt` runs on the main thread with the parsed model -- after asking
+    // again if the user edited the current project while it parsed.
+    void loadProjectAsync(const std::string &path, std::function<void(core::Model)> adopt,
+                          std::function<void(const std::string &)> failed);
+    // The part of every project swap that's the same: cancels the old
+    // project's jobs, swaps the model in, clears undo, resets the engine
+    // and the selection. The caller sets the path and the clean point.
+    void replaceProject(core::Model model);
     // Enhancement #15: GtkRecentManager-backed "recent projects" menu, a
     // GtkMenuButton next to the header bar's Open button.
     // recordRecentProject() is called after every successful save/open
@@ -736,6 +747,7 @@ class AppWindow
     std::unique_ptr<core::concurrency::ThreadPool> m_pool;
     std::unique_ptr<ImportQueue> m_importQueue;
     std::unique_ptr<SaveQueue> m_saveQueue;
+    std::unique_ptr<ProjectLoader> m_projectLoader;
     // Bumped whenever the project is replaced (cancelProjectJobs()).
     uint64_t m_projectGeneration = 0;
     bool m_closeWhenSaved = false;

@@ -139,3 +139,12 @@ test_save_queue_exe = executable(
 )
 
 test('app-save-queue', test_save_queue_exe, timeout: 60)
+
+test_project_loader_exe = executable(
+  'test_project_loader',
+  files('test_project_loader.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+
+test('app-project-loader', test_project_loader_exe, timeout: 60)

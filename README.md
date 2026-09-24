@@ -202,7 +202,9 @@ single-track skeleton.
   immediately with no prompt at all. Discarding, or any other path that
   reaches the app's own shutdown while still dirty, still leaves a final
   autosave behind as a recovery point, the same as any other still-dirty
-  exit. Saves and autosaves write in the background, so the window never
+  exit. Opening, reloading and recovering read the project file in the
+  background too; opening another project while one is still loading
+  replaces it. Saves and autosaves write in the background, so the window never
   freezes on a big project. Closing or quitting while a save is still
   writing waits for it to finish. An edit made during a save stays marked
   unsaved, because the file doesn't have it yet.

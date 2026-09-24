@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.26.0
+
+- Opening, reloading and recovering a project read the file in the
+  background; opening another project while one is still loading replaces
+  it, and an edit made meanwhile brings back the "Discard unsaved
+  changes?" question.
+
 ## 0.25.0
 
 - Saving and autosaving write in the background, so a big project no longer

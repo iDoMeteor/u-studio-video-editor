@@ -154,7 +154,14 @@ Each lands as small reviewed commits with tests, in this order.
     - after: no main-loop iteration over 16 ms from Save onwards, and the
       write lands 187–197 ms later on the pool.
 - Project load parses on the pool; the model swap happens on the main
-  thread.
+  thread. Landed in 0.26.0 as `app/project_loader.*`:
+  - Open, Reload and Recover all go through `loadProjectAsync()`. A newer
+    load, or New Project, cancels the one in flight and drops its result.
+  - If the user edits while a load parses, the swap asks "Discard unsaved
+    changes?" again.
+  - On the 5,000-clip project the parse (264–285 ms) left the main thread.
+    The swap's iteration is now `rebuildAll` (2.0–2.2 s) plus 10–15 ms;
+    that rebuild is MT2's.
 
 ### MT2 — Engine thread (about 2 weeks; the core of this plan)
 
