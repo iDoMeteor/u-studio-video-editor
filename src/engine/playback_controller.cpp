@@ -154,10 +154,28 @@ void PlaybackController::setTractor(std::shared_ptr<Mlt::Tractor> tractor)
     m_pausedPosition.store(clamped);
     m_lastKnownFrame.store(clamped);
 
-    if (wasPlaying)
+    if (wasPlaying) {
         play(previousSpeed);
-    else
-        pause();
+        return;
+    }
+
+    // pause() minus its seek-back and purge. The consumer was started a
+    // moment ago, so its queue holds nothing to drop, and the producer is
+    // already at `clamped` (seek above). Calling mlt_consumer_purge() right
+    // after start() also races MLT itself (sanitizer report S4,
+    // 2026-09-23, TSan): consumer_read_ahead_start() inits queue_mutex on
+    // the consumer thread and then sets a plain `started` flag, which
+    // purge() reads without synchronisation before locking that mutex.
+    // Harmless on x86's store ordering, but on ARM it could lock a
+    // half-initialised mutex. Every paused edit hit that window. Covered
+    // by "an edit while paused (setTractor) keeps showing the paused
+    // frame" in test_playback_controller.
+    m_tractor->set_speed(0);
+    m_speed.store(0.0);
+    m_playing.store(false);
+    if (m_consumer)
+        m_consumer->set("refresh", 1);
+    applyResolvedScale();
 }
 
 void PlaybackController::setFrameCallback(FrameCallback cb)

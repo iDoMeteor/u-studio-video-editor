@@ -219,6 +219,54 @@ TEST_CASE("PlaybackController: pause shows the exact frame sought to, not one of
     CHECK(deliveredPositions.back() == 30);
 }
 
+TEST_CASE("PlaybackController: an edit while paused (setTractor) keeps showing the paused frame")
+{
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+
+    PlaybackController controller;
+    std::mutex mutex;
+    std::vector<int> deliveredPositions;
+    controller.setFrameCallback([&](std::vector<uint8_t>, int, int, int frameNumber) {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.push_back(frameNumber);
+    });
+    controller.setTractor(makeOneClipTractor(profile, 50));
+    controller.seek(30);
+    REQUIRE(pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return !deliveredPositions.empty() && deliveredPositions.back() == 30;
+        },
+        std::chrono::seconds(3)));
+
+    // Every ordinary edit hands PlaybackController a brand-new tractor
+    // (EngineSync::rebuildAll()); setTractor() restarts the consumer and
+    // re-enters the paused state at the preserved position without purging
+    // the fresh consumer's queue (sanitizer report S4). Whatever the fresh
+    // consumer delivers must be the preserved frame -- never a stale frame
+    // 0 from before setTractor()'s own seek.
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        deliveredPositions.clear();
+    }
+    controller.setTractor(makeOneClipTractor(profile, 50));
+    bool got = pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return !deliveredPositions.empty();
+        },
+        std::chrono::seconds(3));
+    // Let any further frames the restart produces land too.
+    pumpMainContextUntil([] { return false; }, std::chrono::milliseconds(300));
+
+    std::lock_guard<std::mutex> lock(mutex);
+    REQUIRE(got);
+    CHECK(controller.currentFrame() == 30);
+    for (int position : deliveredPositions)
+        CHECK(position == 30);
+}
+
 TEST_CASE("PlaybackController: pausing mid-playback stays on the last displayed frame")
 {
     sharedFactoryPolicy();
