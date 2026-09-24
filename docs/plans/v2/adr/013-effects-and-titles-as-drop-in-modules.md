@@ -25,8 +25,8 @@ registry. Several agents and the owner edit those files at the same time.
 - Project **data** is never optional: the model fields and XML
   persistence for effects and titles (IP1, IP2) live in `src/`, so a build
   without either drop-in still loads and saves every project losslessly.
-- A drop-in's folder is built only when its meson option (`effects`,
-  `titles`) is on. With it off, every integration point is a no-op and the
+- A drop-in's folder is built only when its meson option
+  (`dropin_effects`, `dropin_titles`, ADR-014) isn't `disabled`. With it off, every integration point is a no-op and the
   app behaves exactly as today; deleting the folder removes the feature.
 - Integration points land as small, separately reviewed commits after the
   post-M3 audit, not mixed into module work.

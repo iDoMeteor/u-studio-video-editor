@@ -75,7 +75,7 @@ drop-ins/titles/
   tests/       core/, render/, engine/, editor/
 ```
 
-The whole folder builds only with `-Dtitles=true`, and follows the same
+The whole folder builds only when `dropin_titles` isn't `disabled` (ADR-014), and follows the same
 self-containment rules as effects (dependencies point from `drop-ins/`
 into `src/`, never back; deleting the folder removes the feature).
 
@@ -88,7 +88,7 @@ into `src/`, never back; deleting the folder removes the feature).
 | IP5 | import handler for `.ustitle`; inspector page with the clip's fields; action contributions (New Title, Bake title) |
 | IP6 | none |
 
-Gating: with `-Dtitles=false`, or if the module fails to load, a title clip
+Gating: with `dropin_titles=disabled`, or if the module fails to load, a title clip
 plays as the black missing-media placeholder with a status notice, and its
 data (asset, fields, timing) still round-trips unchanged.
 

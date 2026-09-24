@@ -234,8 +234,10 @@ Rules that keep a drop-in self-contained:
 - **Dependencies point one way.** A drop-in may include headers from
   `src/`; nothing in `src/` includes anything from `drop-ins/`. The only
   link back is a file meson generates, `drop_ins.h`, listing the
-  `registerDropIn()` functions of the enabled drop-ins, which `app/main.cpp`
-  and `render/main.cpp` call at startup.
+  `registerDropIn()` functions of drop-ins built in, which `app/main.cpp`
+  and `render/main.cpp` call at startup. Drop-ins built as loadable modules
+  are found and registered at startup instead ([ADR-014](adr/014-drop-in-loading-and-distribution.md),
+  [doc 17](17-drop-in-catalogue-and-distribution.md), "Distribution").
 - **Deleting the folder removes the feature.** Removing
   `drop-ins/effects/` and its build option leaves a working editor that
   still loads and saves every project (IP1 and IP2 live in `src/`).
@@ -246,8 +248,9 @@ Rules that keep a drop-in self-contained:
   (the `Easing` type, for example) goes into `src/` through an integration
   point.
 - **Data installs per drop-in**, to `$datadir/u-studio/drop-ins/<name>/`.
-- The whole folder builds only when its option is on (`-Deffects=true`,
-  `-Dtitles=true`).
+- The whole folder builds only when its option isn't `disabled`
+  (`-Ddropin_effects=builtin|module|disabled`, likewise `dropin_titles`;
+  ADR-014).
 
 ### Integration points
 
@@ -259,13 +262,13 @@ that needs it.
 
 | IP | Where | What it is | Needed from |
 |---|---|---|---|
-| IP1 | `core/model` | Model data and mutators: `Easing` replacing `Keyframe::Interp`; `Effect::mix`, `Effect::mask`; `Sequence::effects`; `Transition::recipe` + `params`; `AdjustmentBlock` and its lane; `Look` in the bin; `Clip::sourceParams` (titles); `EffectParamChanged` event; the matching `check()` rules. Mutators stay on `Model` (doc 14); commands live in `drop-ins/effects/core/`. | FX1 |
+| IP1 | `core/model` | Model data and mutators: `Easing` replacing `Keyframe::Interp`; `Effect::mix`, `Effect::mask`; `Sequence::effects`; `Transition::recipe` + `params`; `AdjustmentBlock` and its lane; `Look` in the bin; `Clip::sourceParams` (titles); `EffectParamChanged` event; `Effect::owner` (which drop-in applies it, doc 17); the matching `check()` rules. Mutators stay on `Model` (doc 14); commands live in `drop-ins/effects/core/`. | FX1 |
 | IP2 | `core/xml` | Writer and reader handle the IP1 fields directly (`<filter>` elements, `ustudio:*` effect and field properties); format version 4. Kept in `src/` so project data never depends on a drop-in being built. | FX1 |
 | IP3 | `engine/engine_sync` | An `EngineExtension` interface, registered with `EngineSync::addExtension()`: `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), and `applyInPlace(event)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
 | IP4 | `engine/factory_policy` | Extra plugin search paths and module directories contributed before `Mlt::Factory::init()`: the curated `FREI0R_PATH` (and `OFX_PLUGIN_PATH`), and titles' `libmltustudio.so`. Because it runs before init, each drop-in also exposes `contributeFactoryPaths()`, listed in `drop_ins.h` next to `registerDropIn()`. | FX1 |
 | IP5 | `app/` | Five small hosts in the shell: an **inspector host** (collapsible right sidebar with `addInspectorPage()`); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (the action registry accepts module-supplied `ActionSpec` lists with their own target, so the Help dialog lists them automatically); a **preview overlay host** (`addPreviewOverlay()` plus a frame-to-widget coordinate mapper); a **timeline overlay/lane provider** (paint, hit-test and extra lane height, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (file type → handler, so titles can own `.ustitle` without touching the import code). | FX2 (timeline provider: FX4; import handlers: titles T1) |
 | IP6 | `render/` | `u-studio-render` dispatches subcommands registered by drop-ins; effects registers `--probe-effect`. | FX1 |
-| — | build | Top-level `meson.build` adds `subdir('drop-ins')`; `meson_options.txt` gains `effects` and `titles`; `drop_ins.h` is generated. | FX1 |
+| — | build | Top-level `meson.build` adds `subdir('drop-ins')`; `meson_options.txt` gains one `dropin_<name>` option per drop-in (ADR-014) and `titles`; `drop_ins.h` is generated. | FX1 |
 
 Target size of the wiring in `app_window.cpp`: instantiate the module,
 place its widgets in the hosts, register it. Under about 50 lines per
@@ -292,7 +295,7 @@ Three changes can't be pure drop-ins and are reviewed as such:
 
 | Situation | Behaviour |
 |---|---|
-| Built with `-Deffects=false` (the default until FX2's gate passes) | No effects engine or UI; IP3–IP6 are no-ops; projects containing effects load, save and round-trip unchanged (IP1 and IP2 are always built) and play without the effects, with a one-line status notice |
+| Built with `-Ddropin_effects=disabled` (the default until FX2's gate passes) | No effects engine or UI; IP3–IP6 are no-ops; projects containing effects load, save and round-trip unchanged (IP1 and IP2 are always built) and play without the effects, with a one-line status notice |
 | Built with effects, `frei0r-plugins` missing | frei0r entries hidden, compositing falls back to `composite` (ADR-011) |
 | Built with effects, a plugin quarantined | Hidden unless "Show unstable effects" |
 
@@ -653,7 +656,7 @@ Acceptance:
 ### FX2 — Rack, Browser and keyframes in the inspector (about 2 weeks)
 
 Integration points: IP5 (inspector host, selection signal, action
-contributions, preview overlay host). Flips `-Deffects` on by default
+contributions, preview overlay host). Flips `dropin_effects` to `builtin` by default
 when its gate passes.
 
 

@@ -30,6 +30,8 @@ either accepted or amended it; see "How to use this set" below.
 | 14 | [Conventions](14-conventions.md) | are writing C++ or GTK code in this repo. |
 | 15 | [Effects and transitions](15-effects-and-transitions.md) | are working on effects, keyframes, transitions or the plugin families (frei0r, libavfilter, LADSPA, OpenFX). Supersedes most of 08. |
 | 16 | [Titles tool](16-titles-tool.md) | are working on the separate text design and animation app or its MLT producer. |
+| 17 | [Drop-in catalogue and distribution](17-drop-in-catalogue-and-distribution.md) | are building an optional drop-in (audio polish, keying, stabilise, captions, …) or packaging core plus opt-in drop-ins. |
+| 18 | [AI generation](18-ai-generation.md) | are working on the AI image and video generation drop-in or its networked helper. |
 | — | [ADRs](adr/) | want the short rationale behind each load-bearing decision. |
 
 ## How to use this set
