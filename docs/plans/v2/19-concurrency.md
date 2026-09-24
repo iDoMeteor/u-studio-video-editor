@@ -224,6 +224,18 @@ Checks on 0.27.1:
     flat loop test uses, and didn't reproduce. Per-track
 incremental rebuild stays shelved unless the MT2 latency targets miss.
 
+**Piece 1: EngineSync builds from snapshots.** It holds the published
+`shared_ptr<const Project>` and a private `Model` over a copy of it; it no
+longer subscribes to the live Model.
+- **Publishing:** the window publishes `Model::snapshot()` from
+  `UndoStack::changed`, once per command, undo or redo, so a batch is one
+  snapshot. `setProject()` skips the rebuild when nothing the graph reads
+  changed (markers, the id allocator, settings), and ignores the same
+  snapshot twice, e.g. a save marking the stack clean.
+- **Swaps:** `reset(snapshot)` runs before `UndoStack::clear()`, so a
+  project swap is one rebuild. `renderProject()` builds from its model's
+  snapshot the same way.
+
 - `EngineSync` and `PlaybackController` move to the engine thread. The main
   thread talks to them through a small command queue (play, pause, seek,
   loop, volume, preview scale, "new snapshot") and receives state

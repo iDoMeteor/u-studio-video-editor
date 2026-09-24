@@ -57,12 +57,26 @@ class EngineSync
     // setPreviewScale()). The default, Full, is what export and tests want:
     // renderProject() builds its own EngineSync and must render at the
     // sequence's real size.
-    explicit EngineSync(core::Model &model, PreviewScale previewScale = PreviewScale::Full);
-    // Disconnects from Model::changed (audit C4): Model outlives EngineSync
-    // in every current caller, but nothing enforces that, and a dangling
-    // subscription firing into a destroyed `this` is exactly the kind of
-    // bug that only shows up once something changes that assumption.
+    //
+    // Built from an immutable project snapshot (doc 19 MT2), never the live
+    // Model: the owner publishes each new state with setProject(), so a
+    // batch of edits is one snapshot and one rebuild, and the graph can be
+    // built on another thread. The Model overload takes model.snapshot()
+    // once, for callers (render, tests) that build a graph of one state.
+    explicit EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale = PreviewScale::Full);
+    explicit EngineSync(const core::Model &model, PreviewScale previewScale = PreviewScale::Full);
     ~EngineSync();
+
+    // A new state of the same project. Rebuilds unless nothing the graph is
+    // built from changed (markers, the id allocator and settings never
+    // reach MLT); a different sequence profile rebuilds on a new profile.
+    // The same snapshot again is a no-op.
+    void setProject(std::shared_ptr<const core::Project> project);
+    // The project the current graph was built from.
+    const std::shared_ptr<const core::Project> &project() const
+    {
+        return m_project;
+    }
 
     // The profile the tractor is built on: the sequence profile scaled by
     // previewFactor(). At Full it *is* the sequence profile.
@@ -105,9 +119,9 @@ class EngineSync
         return m_tractor;
     }
 
-    // Fires synchronously, main thread only, at the end of every
-    // rebuildAll() -- whether triggered by an automatic model-event resync
-    // or by an explicit call (reset(), a test). tractorPtr() has just
+    // Fires synchronously, on the thread that called in, at the end of every
+    // rebuildAll() -- whether triggered by setProject(), reset(), a preview
+    // scale change or an explicit call (a test). tractorPtr() has just
     // changed identity; listeners that hand the tractor to a consumer
     // (PlaybackController::setTractor) connect here once instead of
     // calling it after every edit themselves.
@@ -128,23 +142,12 @@ class EngineSync
     // the transition graph from scratch.
     void rebuildAll();
 
-    // Full reset for "Open Project": rebuildAll() alone isn't enough,
-    // since master producers are cached per AssetId across incremental
-    // edits (doc 07) -- after a project load, those ids may now name
-    // entirely different assets. Re-derives the profile from the model
-    // too, in case the loaded project's differs.
-    //
-    // Also re-subscribes to Model::changed via connectToModel(), which is
-    // idempotent (disconnects its own previous connection first, audit
-    // C4) -- safe to call again here even though the subscription from
-    // construction is still perfectly valid: Model::operator=, the
-    // "Open Project" reassignment this runs after (`m_model =
-    // std::move(*loaded)`), deliberately leaves the target's existing
-    // `changed` and its subscribers untouched (Model's copy/move are
-    // hand-written for exactly this, see model.h), so nothing here is
-    // actually replacing a dropped connection any more -- it's just
-    // cheap insurance against ever assuming that in the future.
-    void reset();
+    // Full reset for "Open Project" (a different project, not a new state
+    // of this one): setProject() isn't enough, since master producers are
+    // cached per AssetId across edits (doc 07) -- after a project load,
+    // those ids may now name entirely different assets. Re-derives the
+    // profile too, in case the loaded project's differs.
+    void reset(std::shared_ptr<const core::Project> project);
 
     // Debug/test safety net (doc 05): for each model track, compares its
     // playlist's clip start/length/resource/in/out against the model, and
@@ -197,7 +200,10 @@ class EngineSync
     static ProbedMedia probeMediaFile(const core::Profile &sequenceProfile, const std::string &path);
 
   private:
-    core::Model &m_model;
+    // The snapshot the graph was built from, and a Model over a copy of it
+    // for the lookups (clip(), track(), planTrackSegments()) the build uses.
+    std::shared_ptr<const core::Project> m_project;
+    core::Model m_model;
     std::unique_ptr<Mlt::Profile> m_profile;
     std::shared_ptr<Mlt::Tractor> m_tractor;
     PreviewScale m_previewScale = PreviewScale::Full;
@@ -219,23 +225,11 @@ class EngineSync
     // black backing track, not a model track).
     std::vector<std::optional<core::TrackId>> m_mltTrackOrder;
 
-    // >0 while inside a Transaction/CompositeCommand's BatchBegin..BatchEnd
-    // (doc 04); events during that window set m_dirty instead of resyncing
-    // immediately, so the whole batch costs one rebuildAll(), not one per
-    // sub-command.
-    int m_batchDepth = 0;
-    bool m_dirty = false;
-    // 0 = not connected. Signal ids start at 1 (signal.h), so 0 is a safe
-    // sentinel; disconnect(0) is a harmless no-op (nothing to remove).
-    int m_modelConnection = 0;
-
     void applyProfile();
     // Swaps in a freshly derived profile and rebuilds everything built on
     // the old one (master producers, the black master, the tractor); shared
     // by reset() and setPreviewScale().
     void rebuildOnNewProfile();
-    void connectToModel();
-    void onModelEvent(const core::ModelEvent &event);
     Mlt::Producer &masterProducerFor(core::AssetId, bool videoEnabled, bool audioEnabled);
     void rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playlist &playlist);
 

@@ -107,6 +107,7 @@ TEST_CASE("A/V sync: the beep starts inside the flash frame, through import and 
     AssetId assetId = model.addAsset(asset);
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     model.insertClip(track, assetId, 0, 0, probed.length - 1);
+    sync.setProject(model.snapshot());
 
     Capture capture;
     capture.width = sync.profile().width();

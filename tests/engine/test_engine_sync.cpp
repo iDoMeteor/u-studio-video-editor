@@ -149,7 +149,8 @@ TEST_CASE("EngineSync: a clip whose asset file can't be opened plays as black in
     missing.info.hasVideo = true;
     missing.info.lengthInSequenceFrames = 50;
     AssetId missingId = model.addAsset(missing);
-    model.insertClip(track, missingId, 0, 0, 49); // triggers EngineSync's own auto-resync
+    model.insertClip(track, missingId, 0, 0, 49);
+    sync.setProject(model.snapshot());
 
     CHECK(unavailableCount == 1);
     CHECK(unavailablePath == missing.path);
@@ -168,6 +169,7 @@ TEST_CASE("EngineSync: a clip whose asset file can't be opened plays as black in
     // A second clip on the same (already-cached-as-unavailable) asset
     // must not re-fire the signal or re-attempt the open.
     model.insertClip(track, missingId, 100, 0, 49);
+    sync.setProject(model.snapshot());
     CHECK(unavailableCount == 1);
 }
 
@@ -328,6 +330,7 @@ TEST_CASE("EngineSync: a still image's master producer grows again after a secon
     // length instead of the clip's new, longer span.
     model.resizeClip(clip, 0, 39'999, 0); // 40,000 frames
     model.extendAssetLength(assetId, 40'000);
+    sync.setProject(model.snapshot());
 
     Mlt::Playlist playlist(*trackAt(sync.tractor(), 1));
     CHECK(playlist.get_length() == 40'000);
@@ -398,11 +401,11 @@ TEST_CASE("EngineSync: rebuildAll after a model change keeps verify() clean")
     CHECK(sync.verify().empty());
 
     model.insertClip(track, asset, 200, 0, 49);
-    sync.rebuildAll();
+    sync.setProject(model.snapshot());
     CHECK(sync.verify().empty());
 
     model.removeClip(model.track(track).clips.front());
-    sync.rebuildAll();
+    sync.setProject(model.snapshot());
     CHECK(sync.verify().empty());
 }
 
@@ -450,7 +453,7 @@ TEST_CASE("EngineSync: audio tracks sit below video tracks, video tracks are bot
     CHECK(sync.verify().empty());
 }
 
-TEST_CASE("EngineSync: automatically resyncs when the model changes, with no explicit rebuildAll() call")
+TEST_CASE("EngineSync: a published snapshot rebuilds; the same snapshot again does nothing")
 {
     sharedFactoryPolicy();
     Model model = Model::createEmpty();
@@ -458,20 +461,30 @@ TEST_CASE("EngineSync: automatically resyncs when the model changes, with no exp
     AssetId asset = addGeneratorAsset(model, "color:red");
 
     EngineSync sync(model);
+    int rebuiltCount = 0;
+    sync.rebuilt.connect([&] { ++rebuiltCount; });
     CHECK(sync.tractor().get_length() == 1); // empty sequence: length() is 0, clamped to 1
 
-    // No sync.rebuildAll() here: EngineSync subscribes to Model::changed
-    // itself (connectToModel()) and resyncs on its own.
+    // doc 19 MT2: EngineSync never watches the live Model; an edit reaches
+    // the graph only when its snapshot is published.
     model.insertClip(track, asset, 0, 0, 99);
+    CHECK(sync.tractor().get_length() == 1);
+    sync.setProject(model.snapshot());
+    CHECK(rebuiltCount == 1);
     CHECK(sync.tractor().get_length() == 100);
     CHECK(sync.verify().empty());
 
+    sync.setProject(model.snapshot()); // unchanged model: the cached snapshot
+    CHECK(rebuiltCount == 1);
+
     model.removeClip(model.track(track).clips.front());
+    sync.setProject(model.snapshot());
+    CHECK(rebuiltCount == 2);
     CHECK(sync.tractor().get_length() == 1);
     CHECK(sync.verify().empty());
 }
 
-TEST_CASE("EngineSync: Model::splitClip is one rebuild, not two (audit C5)")
+TEST_CASE("EngineSync: several edits published as one snapshot are one rebuild (audit C5)")
 {
     sharedFactoryPolicy();
     Model model = Model::createEmpty();
@@ -483,17 +496,40 @@ TEST_CASE("EngineSync: Model::splitClip is one rebuild, not two (audit C5)")
     int rebuiltCount = 0;
     sync.rebuilt.connect([&] { ++rebuiltCount; });
 
-    // splitClip() internally does an insertClip() (its own ClipInserted)
-    // plus a handful of raw field copies onto the new right-hand clip
-    // followed by a ClipResized -- without batching, each of those two
-    // notifies drives its own immediate rebuildAll().
+    // splitClip() is an insertClip() plus a resize: two model events, one
+    // published state.
     model.splitClip(clip, 40);
+    model.insertClip(track, asset, 200, 0, 9);
+    sync.setProject(model.snapshot());
     CHECK(rebuiltCount == 1);
     CHECK(sync.verify().empty());
 }
 
-TEST_CASE("EngineSync: reset() called repeatedly never accumulates duplicate Model::changed subscriptions "
-          "(audit C4)")
+TEST_CASE("EngineSync: a markers-only change doesn't rebuild; any other change does")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addGeneratorAsset(model, "color:red");
+    ClipId clip = model.insertClip(track, asset, 0, 0, 99);
+
+    EngineSync sync(model);
+    int rebuiltCount = 0;
+    sync.rebuilt.connect([&] { ++rebuiltCount; });
+
+    // Markers never reach MLT; adding one also advances the id allocator.
+    model.addMarker(10, "cue");
+    sync.setProject(model.snapshot());
+    CHECK(rebuiltCount == 0);
+    CHECK(sync.project() == model.snapshot()); // still the state it holds
+
+    model.setClipEnabled(clip, true, false);
+    sync.setProject(model.snapshot());
+    CHECK(rebuiltCount == 1);
+    CHECK(sync.verify().empty());
+}
+
+TEST_CASE("EngineSync: reset() switches to another project; later edits are one rebuild each (audit C4)")
 {
     sharedFactoryPolicy();
     Model model = Model::createEmpty();
@@ -504,18 +540,14 @@ TEST_CASE("EngineSync: reset() called repeatedly never accumulates duplicate Mod
     int rebuiltCount = 0;
     sync.rebuilt.connect([&] { ++rebuiltCount; });
 
-    // "Open Project" calls reset() once per load; simulate several loads in
-    // a row on the same EngineSync/Model pair. Before the fix, each
-    // reset() added a second, independent subscription to Model::changed
-    // on top of the one from construction (and every previous reset()),
-    // so a single model edit afterwards would fire onModelEvent() -- and
-    // therefore rebuildAll() -- once per accumulated subscription instead
-    // of once.
+    // "Open Project" calls reset() once per load; several loads in a row.
     for (int i = 0; i < 5; ++i)
-        sync.reset();
-    rebuiltCount = 0; // only care about what happens AFTER the resets
+        sync.reset(model.snapshot());
+    CHECK(rebuiltCount == 5);
+    rebuiltCount = 0;
 
     model.insertClip(track, asset, 0, 0, 9);
+    sync.setProject(model.snapshot());
     CHECK(rebuiltCount == 1);
     CHECK(sync.verify().empty());
 }
@@ -531,12 +563,12 @@ TEST_CASE("EngineSync: tractor length matches sequence length, including after g
     CHECK(sync.tractor().get_length() == 1); // empty sequence: length() is 0, clamped to 1
 
     ClipId clip = model.insertClip(track, asset, 0, 0, 99);
-    sync.rebuildAll();
+    sync.setProject(model.snapshot());
     CHECK(sync.tractor().get_length() == model.sequence().length());
     CHECK(sync.tractor().get_length() == 100);
 
     model.removeClip(clip);
-    sync.rebuildAll();
+    sync.setProject(model.snapshot());
     CHECK(sync.tractor().get_length() == 1);
 }
 
@@ -581,7 +613,7 @@ TEST_CASE("EngineSync property: verify() never fails across 50 random edits")
             }
         }
 
-        sync.rebuildAll();
+        sync.setProject(model.snapshot());
         auto problems = sync.verify();
         INFO("iteration ", i, " problems: ", problems.empty() ? std::string{"<none>"} : problems.front());
         REQUIRE(problems.empty());
@@ -666,6 +698,7 @@ TEST_CASE("EngineSync: a hidden track shows what's under it and a muted track is
     model.setTrackFlags(top, topTrack.muted, /*hidden=*/true, topTrack.locked);
     const Track &audioTrack = model.track(audio);
     model.setTrackFlags(audio, /*muted=*/true, audioTrack.hidden, audioTrack.locked);
+    sync.setProject(model.snapshot());
     sample(red, blue, rms);
     CHECK(red < 50);
     CHECK(blue > 200);

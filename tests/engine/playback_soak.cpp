@@ -141,6 +141,7 @@ int main(int argc, char **argv)
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     for (int i = 0; i < clips; ++i)
         model.insertClip(track, assetId, static_cast<FrameIndex>(i) * probed.length, 0, probed.length - 1);
+    sync.setProject(model.snapshot());
     std::printf("timeline: %d x %d frames (%s, source %dx%d @ %d/%d) in a %dx%d @ %d fps sequence; "
                 "playback profile %dx%d (preview Half)\n",
                 clips, static_cast<int>(probed.length), media.c_str(), probed.width, probed.height, probed.fps.num,

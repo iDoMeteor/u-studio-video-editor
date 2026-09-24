@@ -89,24 +89,60 @@ std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 }
 } // namespace
 
-EngineSync::EngineSync(core::Model &model, PreviewScale previewScale) : m_model(model), m_previewScale(previewScale)
+EngineSync::EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale)
+    : m_project(std::move(project)), m_model(*m_project), m_previewScale(previewScale)
 {
     applyProfile();
     rebuildAll();
-    connectToModel();
 }
 
-EngineSync::~EngineSync()
+EngineSync::EngineSync(const core::Model &model, PreviewScale previewScale) : EngineSync(model.snapshot(), previewScale)
+{}
+
+EngineSync::~EngineSync() = default;
+
+namespace {
+// Everything rebuildAll() reads: the bin and the active sequence's
+// profile, tracks, clips and transitions. Not markers (they never reach
+// MLT), the id allocator (adding a marker advances it) or settings.
+bool sameGraphInput(const core::Project &a, const core::Project &b)
 {
-    m_model.changed.disconnect(m_modelConnection);
+    if (a.bin != b.bin || a.activeSequence != b.activeSequence || a.sequences.size() != b.sequences.size())
+        return false;
+    for (size_t i = 0; i < a.sequences.size(); ++i) {
+        const core::Sequence &x = a.sequences[i];
+        const core::Sequence &y = b.sequences[i];
+        if (x.id != y.id || x.profile != y.profile || x.tracks != y.tracks || x.clips != y.clips ||
+            x.transitions != y.transitions)
+            return false;
+    }
+    return true;
+}
+} // namespace
+
+void EngineSync::setProject(std::shared_ptr<const core::Project> project)
+{
+    if (!project || project == m_project)
+        return;
+    core::trace::Scope trace("EngineSync::setProject");
+    const bool rebuild = !sameGraphInput(*m_project, *project);
+    const core::Profile profileBefore = m_model.sequence().profile;
+    m_project = std::move(project);
+    m_model = core::Model(*m_project);
+    const bool newProfile = m_model.sequence().profile != profileBefore;
+    if (newProfile)
+        rebuildOnNewProfile();
+    else if (rebuild)
+        rebuildAll();
 }
 
-void EngineSync::reset()
+void EngineSync::reset(std::shared_ptr<const core::Project> project)
 {
     Log::ScopedTimer timer("[engine] reset");
+    m_project = std::move(project);
+    m_model = core::Model(*m_project);
     m_unavailableAssets.clear(); // a reopened project's media may have come back since -- give it a fresh try
     rebuildOnNewProfile();
-    connectToModel();
 }
 
 void EngineSync::setPreviewScale(PreviewScale scale)
@@ -144,39 +180,6 @@ void EngineSync::rebuildOnNewProfile()
     std::unique_ptr<Mlt::Profile> oldProfile = std::move(m_profile);
     applyProfile();
     rebuildAll();
-}
-
-void EngineSync::connectToModel()
-{
-    // Idempotent (audit C4): disconnects whatever this EngineSync was
-    // previously subscribed with before adding a new one, so calling this
-    // twice (construction, then reset()) never leaves two live
-    // subscriptions both firing onModelEvent() for the same edit.
-    m_model.changed.disconnect(m_modelConnection);
-    m_modelConnection = m_model.changed.connect([this](const core::ModelEvent &event) { onModelEvent(event); });
-}
-
-void EngineSync::onModelEvent(const core::ModelEvent &event)
-{
-    if (std::holds_alternative<core::BatchBegin>(event)) {
-        ++m_batchDepth;
-        return;
-    }
-    if (std::holds_alternative<core::BatchEnd>(event)) {
-        if (m_batchDepth > 0)
-            --m_batchDepth;
-        if (m_batchDepth == 0 && m_dirty)
-            rebuildAll();
-        return;
-    }
-
-    // Markers never reach MLT (see MarkersChanged's comment).
-    if (std::holds_alternative<core::MarkersChanged>(event))
-        return;
-
-    m_dirty = true;
-    if (m_batchDepth == 0)
-        rebuildAll();
 }
 
 void EngineSync::applyProfile()
@@ -579,7 +582,6 @@ void EngineSync::rebuildAll()
     newTractor->refresh();
     m_tractor = std::move(newTractor);
     m_mltTrackOrder = std::move(order);
-    m_dirty = false;
     rebuilt.emit();
 }
 

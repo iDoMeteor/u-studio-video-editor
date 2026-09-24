@@ -152,14 +152,14 @@ AppWindow::AppWindow(GtkApplication *app)
     // state, not a user edit to undo back out of.
     m_model.addTrack(core::Track::Kind::Video, 0, "V1");
 
-    m_engineSync = std::make_unique<engine::EngineSync>(m_model);
+    m_engineSync = std::make_unique<engine::EngineSync>(m_model.snapshot());
 
     m_playback = std::make_unique<engine::PlaybackController>();
     m_playback->setTractor(m_engineSync->tractorPtr());
     // The one place playback gets re-pointed at a rebuilt tractor: fires on
-    // every EngineSync::rebuildAll(), whether triggered automatically by a
-    // model edit or by an explicit reset() (Open Project, recovery load) --
-    // no call site below needs its own setTractor() anymore.
+    // every EngineSync::rebuildAll(), whether triggered by a published edit
+    // (m_undoStack.changed below) or by reset() (Open Project, recovery
+    // load) -- no call site below needs its own setTractor() anymore.
     m_engineSync->rebuilt.connect([this] {
         m_playback->setTractor(m_engineSync->tractorPtr());
         m_lastEditMonotonicUsec = g_get_monotonic_time();
@@ -214,6 +214,11 @@ AppWindow::AppWindow(GtkApplication *app)
     // clear(), all of which emit `changed`, so nothing can forget to
     // refresh these after an ordinary edit the way manual call sites did.
     m_undoStack.changed.connect([this] {
+        // doc 19 MT2: the engine builds from snapshots, published here --
+        // once per command, undo or redo (a batch is one command), not per
+        // model event. A save marking the stack clean publishes the same
+        // snapshot again, which EngineSync ignores.
+        m_engineSync->setProject(m_model.snapshot());
         updateWindowTitle();
         // Any edit, undo or redo can remove clips (RemoveAsset takes every
         // clip cut from the asset): drop them from the selection here, in
@@ -1638,10 +1643,13 @@ void AppWindow::loadProjectAsync(const std::string &path, std::function<void(cor
 void AppWindow::replaceProject(core::Model model)
 {
     cancelProjectJobs();
-    m_model = std::move(model); // m_undoStack/m_engineSync hold a reference to m_model, not a copy --
-                                // reassigning its contents leaves both still pointing at the right object
+    m_model = std::move(model); // m_undoStack holds a reference to m_model, not a copy --
+                                // reassigning its contents leaves it pointing at the right object
+    // Before clear(): its `changed` publishes the same snapshot again, a
+    // no-op, rather than rebuilding the new project with the old project's
+    // cached masters and then again here.
+    m_engineSync->reset(m_model.snapshot()); // rebuilt.connect() (ctor) re-anchors playback automatically
     m_undoStack.clear();
-    m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
     m_activeTrack = 0;
     m_timelineController.selection().clear();
 }
@@ -1688,9 +1696,9 @@ void AppWindow::performNewProject()
     // back out of on a project that's just been reset.
     m_model.addTrack(core::Track::Kind::Video, 0, "V1");
     m_currentProjectPath.clear();
+    m_engineSync->reset(m_model.snapshot()); // first: see replaceProject()
     m_undoStack.clear();
     m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
-    m_engineSync->reset(); // rebuilt.connect() (ctor) re-anchors playback automatically
     m_activeTrack = 0;
     m_timelineController.selection().clear();
     // Audit A1 -- see onOpenProjectFinished's own comment.
