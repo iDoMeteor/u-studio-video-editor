@@ -22,3 +22,13 @@ test_thread_pool_exe = executable(
 )
 
 test('core-thread-pool', test_thread_pool_exe, timeout: 60)
+
+# doc 19 MT0: Model::snapshot() on a 5,000-clip project. A benchmark, not a
+# test: `meson test -C builddir --benchmark core-snapshot` (or run it).
+bench_snapshot_exe = executable(
+  'bench_snapshot',
+  files('bench_snapshot.cpp'),
+  dependencies: [libustudio_core_dep],
+  install: false,
+)
+benchmark('core-snapshot', bench_snapshot_exe)

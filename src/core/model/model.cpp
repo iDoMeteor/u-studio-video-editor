@@ -25,14 +25,20 @@ Model::Model(const Model &other) : m_project(other.m_project) {}
 Model &Model::operator=(const Model &other)
 {
     m_project = other.m_project;
+    m_snapshot.reset(); // a whole new project (Open Project)
     return *this;
 }
 
-Model::Model(Model &&other) noexcept : m_project(std::move(other.m_project)) {}
+Model::Model(Model &&other) noexcept : m_project(std::move(other.m_project))
+{
+    other.m_snapshot.reset(); // it described the moved-out project
+}
 
 Model &Model::operator=(Model &&other) noexcept
 {
     m_project = std::move(other.m_project);
+    m_snapshot.reset();
+    other.m_snapshot.reset();
     return *this;
 }
 

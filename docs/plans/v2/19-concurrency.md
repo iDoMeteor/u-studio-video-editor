@@ -53,6 +53,13 @@ snapshots, never the live `Model`, so no locks are needed on model data.
   with thousands of clips is still small next to a single video frame. If
   it ever matters, move to structural sharing (unchanged tracks shared
   between snapshots), not locks.
+- **Measured (MT0, 2026-09-24):** `Model::snapshot()` copies a generated
+  project of 5,000 clips on 8 tracks, with 1,992 dissolves and 200 markers,
+  in a median 0.55–0.62 ms (p90 about 0.9 ms, worst 1.4 ms over 101 runs;
+  plain debug build on the i7-1260P, load about 5). A cached call, with no
+  edit since the last one, costs about 0.03 µs. Well under the 5 ms line,
+  so no structural sharing for now. Benchmark: `tests/core/bench_snapshot.
+  cpp`, run with `meson test -C builddir --benchmark core-snapshot`.
 - Results come back as values (a built tractor, probed `MediaInfo`, a
   rendered thumbnail) through `MainThreadDispatcher`, and become model
   changes only through commands on the main thread.

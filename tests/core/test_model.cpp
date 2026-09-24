@@ -301,3 +301,26 @@ TEST_CASE("Model: a long random sequence of valid edits never violates an invari
         REQUIRE(problems.empty());
     }
 }
+
+TEST_CASE("Model::snapshot: an immutable copy, shared until the next edit (doc 19, MT0)")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+
+    std::shared_ptr<const Project> first = model.snapshot();
+    REQUIRE(first);
+    CHECK(*first == model.project());
+    CHECK(model.snapshot() == first); // no edit between: the same copy
+
+    model.setTrackName(track, "Renamed");
+    std::shared_ptr<const Project> second = model.snapshot();
+    CHECK(second != first); // the edit invalidated the cache
+    CHECK(second->sequences[0].tracks[0].name == "Renamed");
+    CHECK(first->sequences[0].tracks[0].name == "V1"); // the old one is untouched
+
+    // Wholesale replacement (Open Project) invalidates it too.
+    Model other = Model::createEmpty();
+    model = other;
+    CHECK(model.snapshot() != second);
+    CHECK(*model.snapshot() == other.project());
+}

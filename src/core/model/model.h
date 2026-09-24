@@ -4,6 +4,7 @@
 #include "signal.h"
 #include "types.h"
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -186,7 +187,20 @@ class Model
     // mutations in BatchBegin/BatchEnd; Model has no batching logic itself.
     void notify(ModelEvent event)
     {
+        m_snapshot.reset(); // every mutator ends here, so the cached snapshot is stale
         changed.emit(event);
+    }
+
+    // doc 19 / ADR-016: an immutable copy of the project for other threads
+    // (the engine thread, pool jobs), which never read the live Model. Built
+    // on first call after an edit and shared by every call until the next
+    // one, so it costs one copy per edit at most. Main thread only; the
+    // returned Project is safe to read from any thread.
+    std::shared_ptr<const Project> snapshot() const
+    {
+        if (!m_snapshot)
+            m_snapshot = std::make_shared<const Project>(m_project);
+        return m_snapshot;
     }
 
     // Cheap enough for debug builds after every command (doc 03).
@@ -194,6 +208,7 @@ class Model
 
   private:
     Project m_project;
+    mutable std::shared_ptr<const Project> m_snapshot; // null = none since the last edit
 
     uint64_t allocateId();
     Sequence &activeSequence();
