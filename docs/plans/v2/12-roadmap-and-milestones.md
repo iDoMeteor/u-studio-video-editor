@@ -134,11 +134,17 @@ Acceptance:
 - [ ] Pause shows the exact frame at the playhead (timecode matches the burnt
       -in `timer` filter of a test clip). (Frame index checked in
       `engine-playback-controller`; the burnt-in timer check by eye is pending.)
-- [ ] 4K60 source plays at real time with frame dropping at preview scale
+- [x] 4K60 source plays at real time with frame dropping at preview scale
       0.5 on the dev machine; no unbounded memory growth over 10 min.
-      (`playback_soak`, 2026-09-24: real time held, RSS plateaued at about
-      1.19 GB, but delivered frames fell about 450 behind after about 5.5 min.
-      Under investigation.)
+      (`playback_soak`, 2026-09-24, after "Make preview scale work by
+      shrinking the playback profile": 10 min of 4K60 H.264 in a
+      3840×2160 @ 60 sequence at preview Half; the playhead held real time
+      throughout, about 37 of 60 frames/s were shown (the rest dropped, as
+      allowed), every shown frame reached the UI, and RSS levelled off at
+      about 0.81 GB after 5 min; load 4–7, 67–73 °C. The earlier run's
+      "450 behind" came from a 30 fps sequence, a preview scale that had no
+      effect, and the soak tool's own polling loop; all three are fixed.
+      Showing all 60 frames is a throughput goal for doc 19, MT4.)
 - [x] Sanitiser run of the playback tests is clean; shutdown during playback
       is clean 100/100 runs. (`just asan`/`just tsan` 12/12 clean at 0.15.3,
       `docs/audit/2026-09-23-sanitizer-report.md`; the 100-run shutdown loop is

@@ -165,38 +165,70 @@ int main(int argc, char **argv)
     std::printf("%5s %8s %8s %6s %6s %6s %5s %6s %7s %5s %5s %6s\n", "t(s)", "playhead", "expected", "shown", "deliv",
                 "skip", "lag", "stall", "RSS(MB)", "load", "temp", "MHz");
 
-    const auto start = std::chrono::steady_clock::now();
-    auto nextReport = start + std::chrono::seconds(10);
-    const auto end = start + std::chrono::minutes(minutes);
-    long rssStart = 0, shownPrev = 0, deliveredPrev = 0, skippedPrev = 0;
-    double maxStallMs = 0;
-    auto lastIteration = start;
-    while (std::chrono::steady_clock::now() < end) {
-        while (g_main_context_iteration(nullptr, FALSE)) {
-        }
-        auto now = std::chrono::steady_clock::now();
-        maxStallMs = std::max(maxStallMs, std::chrono::duration<double, std::milli>(now - lastIteration).count());
-        lastIteration = now;
-        if (now >= nextReport) {
-            double t = std::chrono::duration<double>(now - start).count();
-            long expected = static_cast<long>(t * fps);
-            int playhead = controller.currentFrame();
+    // A real GMainLoop, like the app: frames are drained the moment their
+    // idle source is posted. (The first version polled the context and
+    // slept 5 ms between polls, which overwrote frames in the single-slot
+    // hand-off whenever two arrived within one sleep, under-counting
+    // delivery once rendering got faster.) Reports and the end of the run
+    // are timer sources; stalls are measured as the lateness of a 5 ms
+    // timer, i.e. how long the main loop was busy or starved.
+    struct State
+    {
+        PlaybackController *controller;
+        int fps;
+        std::chrono::steady_clock::time_point start, lastTick;
+        long rssStart = 0, shownPrev = 0, deliveredPrev = 0, skippedPrev = 0;
+        double maxStallMs = 0;
+        std::atomic<long> *delivered, *skipped;
+        GMainLoop *loop;
+    } state{&controller, fps, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), 0, 0, 0, 0, 0,
+            &delivered, &skipped, g_main_loop_new(nullptr, FALSE)};
+
+    g_timeout_add(
+        5,
+        [](gpointer data) -> gboolean {
+            auto *st = static_cast<State *>(data);
+            auto now = std::chrono::steady_clock::now();
+            st->maxStallMs = std::max(st->maxStallMs, std::chrono::duration<double, std::milli>(now - st->lastTick).count());
+            st->lastTick = now;
+            return G_SOURCE_CONTINUE;
+        },
+        &state);
+    g_timeout_add_seconds(
+        10,
+        [](gpointer data) -> gboolean {
+            auto *st = static_cast<State *>(data);
+            auto now = std::chrono::steady_clock::now();
+            double t = std::chrono::duration<double>(now - st->start).count();
+            long expected = static_cast<long>(t * st->fps);
+            int playhead = st->controller->currentFrame();
             long rss = rssKb();
-            if (rssStart == 0)
-                rssStart = rss;
-            long shown = controller.frameShowCount(), deliv = delivered.load(), skip = skipped.load();
+            if (st->rssStart == 0)
+                st->rssStart = rss;
+            long shown = st->controller->frameShowCount(), deliv = st->delivered->load(), skip = st->skipped->load();
             std::printf("%5.0f %8d %8ld %6ld %6ld %6ld %5ld %6.0f %7.1f %5.1f %5.0f %6.0f\n", t, playhead, expected,
-                        shown - shownPrev, deliv - deliveredPrev, skip - skippedPrev, expected - playhead, maxStallMs,
-                        static_cast<double>(rss) / 1024.0, loadAverage1(), packageTempC(), averageCpuMhz());
+                        shown - st->shownPrev, deliv - st->deliveredPrev, skip - st->skippedPrev, expected - playhead,
+                        st->maxStallMs, static_cast<double>(rss) / 1024.0, loadAverage1(), packageTempC(),
+                        averageCpuMhz());
             std::fflush(stdout);
-            shownPrev = shown;
-            deliveredPrev = deliv;
-            skippedPrev = skip;
-            maxStallMs = 0;
-            nextReport += std::chrono::seconds(10);
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
+            st->shownPrev = shown;
+            st->deliveredPrev = deliv;
+            st->skippedPrev = skip;
+            st->maxStallMs = 0;
+            return G_SOURCE_CONTINUE;
+        },
+        &state);
+    g_timeout_add_seconds(
+        static_cast<guint>(minutes * 60),
+        [](gpointer data) -> gboolean {
+            g_main_loop_quit(static_cast<State *>(data)->loop);
+            return G_SOURCE_REMOVE;
+        },
+        &state);
+    g_main_loop_run(state.loop);
+    g_main_loop_unref(state.loop);
+    const long rssStart = state.rssStart;
+
     controller.shutdown();
     std::printf("totals: shown %ld, delivered %ld, skipped positions %ld, last frame %dx%d\n",
                 controller.frameShowCount(), delivered.load(), skipped.load(), lastWidth.load(), lastHeight.load());
