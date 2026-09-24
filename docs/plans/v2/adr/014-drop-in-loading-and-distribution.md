@@ -24,9 +24,14 @@ loading.
 - Settings has a Drop-ins page: enable or disable each installed drop-in
   (applied on restart), and pointers to where to get missing ones. The app
   never downloads or installs anything itself.
-- Packaging: the core package includes effects and titles built in;
-  every other drop-in is its own package (a Flatpak extension of
-  `com.ustudio.VideoEditor.DropIn`, or an RPM subpackage).
+- Packaging (owner decision, 2026-09-24): the core package is the editor
+  and the render tool only. **Every** drop-in, effects and titles
+  included, is its own opt-in package (a Flatpak extension of
+  `com.ustudio.VideoEditor.DropIn`, or an RPM subpackage), carrying its own
+  runtime dependencies. So frei0r ships with the effects drop-in, not with
+  core, and this narrows ADR-011: frei0r is required by the effects drop-in,
+  not by the editor. Development and test builds may still build effects
+  and titles `builtin`.
 
 ## Consequences
 - Each drop-in's tests run in both builtin and module mode.

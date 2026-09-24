@@ -165,12 +165,14 @@ matching is simple and avoids C++ ABI surprises.
 
 | Package | Contains |
 |---|---|
-| Core | the editor, the render tool, and the **effects** and **titles** drop-ins built in (they are headline features), with `frei0r-plugins` bundled (ADR-011) |
-| One package per optional drop-in | its module, data and any extra runtime dependency (e.g. whisper.cpp for auto-captions) |
+| Core | the editor and the render tool; no drop-ins, no frei0r |
+| One package per drop-in | its module, data and runtime dependencies. **Effects** carries `frei0r-plugins`; **titles** carries its MLT module and the titles app; optional drop-ins carry theirs (e.g. whisper.cpp for auto-captions) |
 
-Recommendation for the owner to confirm: effects and titles are core
-features that happen to be built as drop-ins, so they ship in the core
-package; everything in the catalogue above is opt-in.
+Owner decision (2026-09-24): effects and titles are opt-in like every
+other drop-in, so frei0r is never a hard dependency of the editor
+(ADR-014 narrows ADR-011). Suggested default install for most users: core
+plus effects plus titles, offered together in GNOME Software, but each
+removable.
 
 - **Flatpak (reference artifact, M7).** The app declares an extension
   point, `com.ustudio.VideoEditor.DropIn`, mounted under the app's
@@ -219,7 +221,7 @@ package; everything in the catalogue above is opt-in.
 
 ## Decisions needed from the owner
 
-1. Effects and titles in the core package (recommended) or opt-in.
+1. ~~Effects and titles in core or opt-in~~: decided, opt-in (2026-09-24).
 2. ADRs for `whisper-cpp` (auto-captions) and `rlottie` (Lottie), when
    those drop-ins are pulled.
 3. Whether optional drop-ins appear in GNOME Software individually or as

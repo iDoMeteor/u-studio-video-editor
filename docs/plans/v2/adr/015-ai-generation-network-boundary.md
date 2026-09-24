@@ -17,7 +17,11 @@ editor.
 - The editor side of the drop-in only launches the helper with context and
   imports finished files handed back through an exported GApplication
   action.
-- libsoup 3, libsecret and json-glib are allowed in the helper only.
+- libsecret and json-glib are allowed in the helper only, and the helper
+  may run the owner's ai-animated-video provider scripts (and their tools:
+  `bash`, `curl`, `jq`, `base64`, `file`, ImageMagick, ffmpeg) as its
+  generation backend (doc 18, "Reusing ai-animated-video"). libsoup 3 is
+  allowed in the helper if an adapter is later written natively.
 - Network traffic happens only on an explicit user action, with a
   confirmation of what leaves the machine; keys live only in the keyring.
 - When accepted, CLAUDE.md's security section changes from "the app makes

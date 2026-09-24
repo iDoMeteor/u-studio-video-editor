@@ -85,6 +85,51 @@ Integration points: IP5 (action contribution, import handler, bin badge
 through the media browser host), IP1 only if provenance is later shown in
 the model (not needed for v1: provenance is a sidecar file).
 
+## Reusing ai-animated-video
+
+The owner's `~/Repos/ai-animated-video` project already talks to current
+image and video services, with models, prices and API behaviour kept up to
+date. Surveyed read-only on 2026-09-24 (no keys or `config.env` read):
+
+| What exists there | Where | How we use it |
+|---|---|---|
+| Provider scripts for OpenAI GPT-image, xAI Grok image and video, Ideogram, Stability (SD3.5 Large), Kling and Runway. Each is a CLI (`-f <prompt file>`, provider flags, `-I <seed image>` for image-to-video, output path), with its endpoint, auth, polling, error codes and verification date documented in its header | `*-retrieve-*.sh`, `gpt-image-retrieve.sh` | **Run them as the helper's generation backend** in G0–G1 instead of reimplementing each API |
+| Model catalogue: exact model ids, labels, prices in usable units, status, sunset dates and replacements, verified against each provider's docs (`VERIFIED_ON = "2026-09-23"`) | `frontend/lib/model-catalog.ts` | **Model pickers and cost estimates** in the helper's forms |
+| Settings schema: every tweakable with type, default, help text, options and secret flag | `frontend/lib/config-fields.ts` | **The per-service form schema** (doc 18's adapter description, largely already written) |
+| Capability and pricing overview across providers | `frontend/lib/model-atlas.ts` | the service picker's comparison view |
+| Prompt "art director" (text → scene prompt via GPT or Grok), narration (TTS) and transcription scripts | `get-image-prompt.sh`, `openai-stt-batch.sh`, `transcribe-openai.py` | later extras: "Improve my prompt", narration as an audio asset, cloud transcription for captions (all network, so helper-only) |
+
+How the reuse works:
+
+- **Call the scripts in place; don't copy them.** Every provider script
+  sources that repo's `functions.sh` and calls `load_config`, and its
+  AGENTS.md forbids renaming or relocating scripts. The helper runs them
+  from an ai-animated-video checkout or installed copy whose location is a
+  setting, with a scratch working directory per job.
+- **Keys never go into a file we write in the project.** `load_config`
+  accepts a `CONFIG_FILE` override. The helper writes a per-job config with
+  mode 0600 under `$XDG_RUNTIME_DIR`, filled from the keyring, and deletes
+  it when the job ends; or passes keys through the environment if G0 shows
+  the scripts honour that. Which one is G0's first question.
+- **Catalogue data is synced, not hand-copied.** A small export step in
+  ai-animated-video (it already has the TypeScript toolchain) writes
+  `model-catalog.json` with its `VERIFIED_ON` date; the drop-in keeps a
+  copy in `drop-ins/ai-generation/data/` and shows that date in the UI.
+  ai-animated-video stays the single place prices and models are
+  maintained.
+- **Their runtime needs** are `bash`, `curl`, `jq`, `base64` and `file` for
+  every provider script, plus ImageMagick for one and ffmpeg/ffprobe for
+  another. All are normal Fedora packages; the helper's Flatpak would bundle
+  them.
+- **Later, if needed:** once the helper is proven, any adapter can be
+  reimplemented natively (libsoup) using the script and its header notes as
+  the executable specification. Doing it up front would redo verified work.
+
+Owner coordination: this makes ai-animated-video an upstream of the
+drop-in. Changes it would need (the catalogue export, a stable exit-code
+and output contract for the scripts, possibly env-based keys) are made
+there, under that repo's own rules.
+
 ## Services and adapters
 
 - **Adapter description** (`adapters/<service>.json`): display name, kind
@@ -93,17 +138,20 @@ the model (not needed for v1: provenance is a sidecar file).
   form fields to the request body and from the response to result files.
   The helper builds the form from the schema, like the effect Rack builds
   parameter widgets from descriptors.
-- **Adapter code** only where needed: request signing, asynchronous jobs
-  (submit, then poll a status URL until done, as video services typically
-  work), multi-part uploads for seed images.
+- **Adapter code** only where needed. For the services ai-animated-video
+  covers, the adapter runs its provider script (see "Reusing
+  ai-animated-video") and parses its result; request signing, polling and
+  uploads are already handled there. Native code is only for services it
+  doesn't cover.
 - **Local servers are first-class**: adapters for locally run generators
   (for example ComfyUI or AUTOMATIC1111-compatible servers on
   `localhost`) cost nothing, keep footage private, and are the first
   adapter built, since they are also the easiest to test.
-- **No provider details are assumed in this plan.** Every hosted adapter is
-  written and verified against that provider's current API documentation
-  when it is built, the same rule CLAUDE.md applies to MLT property names.
-  Which hosted services come first is an owner decision.
+- **No provider details are assumed in this plan.** The first hosted
+  services are the ones ai-animated-video already supports and keeps
+  verified (OpenAI GPT-image, xAI Grok image and video, Ideogram,
+  Stability, Kling, Runway). Any other service is verified against its
+  provider's current API documentation when its adapter is built.
 
 ## Safety, privacy and cost
 
@@ -136,25 +184,33 @@ the model (not needed for v1: provenance is a sidecar file).
 
 ## Dependencies
 
-libsoup 3 (HTTP), libsecret (keyring) and json-glib (JSON), all GNOME
-platform libraries, linked **only** into the helper. They need owner
-sign-off through ADR-015.
+libsecret (keyring) and json-glib (JSON), GNOME platform libraries, linked
+**only** into the helper; plus, at runtime, an ai-animated-video checkout
+and its tools (`bash`, `curl`, `jq`, `base64`, `file`, ImageMagick,
+ffmpeg). libsoup 3 is needed only if an adapter is later written natively.
+All need owner sign-off through ADR-015.
 
 ## Phases
 
 ### G0 — Spike (about 1 week)
 
-A throwaway helper with one local adapter and one hosted image adapter:
-authentication, a synchronous image request, an asynchronous job with
-polling, streaming download, keyring round-trip, the GApplication action
-back into the editor, and the Flatpak permission model (editor without
-network, helper with).
+A throwaway helper that runs ai-animated-video's scripts: one hosted image
+job (GPT-image or Grok) and one video job with seed image (Kling or
+Runway); how keys reach the scripts without a file in the project
+(`CONFIG_FILE` pointing at a 0600 file in `$XDG_RUNTIME_DIR`, or the
+environment); the scripts' exit codes and output as a result contract;
+reading `model-catalog.json`; cancelling a running job; the GApplication
+action back into the editor; and the Flatpak permission model (editor
+without network, helper with). Plus one local-server adapter, since that
+path needs native code.
 
 ### G1 — Helper and adapter framework (about 2 weeks)
 
 The generation window, schema-driven forms, the job queue with cancel,
 keyring storage, the privacy confirmation, provenance files, atomic
-downloads, the local adapter and the first hosted image adapter.
+downloads, the local adapter, and the image services ai-animated-video
+supports, with model pickers and price estimates from its synced
+catalogue.
 
 Acceptance:
 
@@ -179,9 +235,9 @@ Acceptance:
 
 ### G3 — Video services (about 1–2 weeks)
 
-Hosted video adapters with long-running jobs, job resume after a helper
-restart (job ids persisted), frame-rate and size matching to the sequence
-on import.
+The video services ai-animated-video supports (Grok video, Kling, Runway),
+with long-running jobs, resume after a helper restart where the scripts
+allow it, and frame-rate and size matching to the sequence on import.
 
 ### G4 — Polish (about 1 week)
 
@@ -190,7 +246,8 @@ cost summary.
 
 ## Decisions needed from the owner
 
-1. Which hosted image and video services to support first.
+1. Confirm reusing ai-animated-video as the upstream for provider scripts
+   and the model catalogue, and which of its services to enable first.
 2. Confirm the separate helper process (ADR-015) rather than network code
    inside the editor.
 3. Where results go by default: the project's `generated/` folder

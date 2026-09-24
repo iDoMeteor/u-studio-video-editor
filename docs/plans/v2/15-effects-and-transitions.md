@@ -81,7 +81,7 @@ explicitly:
 
 | Family | Decision | Why |
 |---|---|---|
-| **frei0r** | **Required** (ADR-011). Bundled in the Flatpak. | Owner directive. Roughly 130 mature, GPL, CPU-only plugins (exact count confirmed in FX0) covering stylise, colour, keying, distortion, generators and blend-mode mixers. MLT already hosts it. |
+| **frei0r** | **Required by this drop-in** (ADR-011, narrowed by ADR-014). Ships in the effects package, never in core. | Owner directive. Roughly 130 mature, GPL, CPU-only plugins (exact count confirmed in FX0) covering stylise, colour, keying, distortion, generators and blend-mode mixers. MLT already hosts it. |
 | **MLT native** | Required (already are) | Zero cost; `affine`, `luma`, `mask_*`, `lift_gamma_gain`, `loudness`, `vidstab` are best-in-class for MLT. |
 | **libavfilter** | Required (already present via `avformat`) | Largest library available; the only one with `.cube` LUTs (`lut3d`), proper curves and EBU R128 loudness. |
 | **LADSPA** | Supported; plugin packs optional | Host is present. Real value comes from LSP, Calf, x42 or SWH packs; offer, don't require. |
@@ -264,7 +264,8 @@ that needs it.
 |---|---|---|---|
 | IP1 | `core/model` | Model data and mutators: `Easing` replacing `Keyframe::Interp`; `Effect::mix`, `Effect::mask`; `Sequence::effects`; `Transition::recipe` + `params`; `AdjustmentBlock` and its lane; `Look` in the bin; `Clip::sourceParams` (titles); `EffectParamChanged` event; `Effect::owner` (which drop-in applies it, doc 17); the matching `check()` rules. Mutators stay on `Model` (doc 14); commands live in `drop-ins/effects/core/`. | FX1 |
 | IP2 | `core/xml` | Writer and reader handle the IP1 fields directly (`<filter>` elements, `ustudio:*` effect and field properties); format version 4. Kept in `src/` so project data never depends on a drop-in being built. | FX1 |
-| IP3 | `engine/engine_sync` | An `EngineExtension` interface, registered with `EngineSync::addExtension()`: `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), and `applyInPlace(event)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
+| IP3 | `engine/engine_sync` | An `EngineExtension` interface, registered with `EngineSync::addExtension()`: `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), `compositor()` (replace the
+default `composite` track compositor; effects uses `frei0r.cairoblend`), and `applyInPlace(event)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
 | IP4 | `engine/factory_policy` | Extra plugin search paths and module directories contributed before `Mlt::Factory::init()`: the curated `FREI0R_PATH` (and `OFX_PLUGIN_PATH`), and titles' `libmltustudio.so`. Because it runs before init, each drop-in also exposes `contributeFactoryPaths()`, listed in `drop_ins.h` next to `registerDropIn()`. | FX1 |
 | IP5 | `app/` | Five small hosts in the shell: an **inspector host** (collapsible right sidebar with `addInspectorPage()`); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (the action registry accepts module-supplied `ActionSpec` lists with their own target, so the Help dialog lists them automatically); a **preview overlay host** (`addPreviewOverlay()` plus a frame-to-widget coordinate mapper); a **timeline overlay/lane provider** (paint, hit-test and extra lane height, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (file type → handler, so titles can own `.ustitle` without touching the import code). | FX2 (timeline provider: FX4; import handlers: titles T1) |
 | IP6 | `render/` | `u-studio-render` dispatches subcommands registered by drop-ins; effects registers `--probe-effect`. | FX1 |
@@ -383,9 +384,11 @@ effect runs, `mask_apply` composites the result back over the snapshot with
 `transition=affine` at `mix` opacity, optionally limited to a `shape` mask.
 The Qt default of `mask_apply` is overridden every time.
 
-**Blend modes.** When frei0r is present (always, after ADR-011), track
-compositing moves from `composite` to `frei0r.cairoblend`, and a per-clip
-blend mode is the `cairoblend_mode` filter's `mode` parameter. Values
+**Blend modes.** The core editor always composites tracks with
+`composite`. When the effects drop-in is loaded and frei0r is present, it
+replaces the track compositor with `frei0r.cairoblend` through IP3's
+`compositor()` hook, and a per-clip blend mode is the `cairoblend_mode`
+filter's `mode` parameter. Values
 (normal, multiply, screen, overlay, ...) are read from metadata at runtime.
 
 **Parameter changes must not rebuild.** Today every model event rebuilds the

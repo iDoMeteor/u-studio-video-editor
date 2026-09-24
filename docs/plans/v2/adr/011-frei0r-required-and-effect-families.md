@@ -4,6 +4,11 @@
 2026-09-23: "full frei0r compatibility is mandatory"). The rest of the
 family list is Proposed until the FX0 spikes in doc 15 report.
 Supersedes [ADR-006](006-compositing-without-qt-or-frei0r.md).
+**Partially superseded by [ADR-014](014-drop-in-loading-and-distribution.md)
+(2026-09-24):** frei0r is required by the effects drop-in, not by the core
+editor. "Full frei0r compatibility" still holds wherever the effects
+drop-in is installed; the core editor never depends on frei0r and keeps
+`composite` as its track compositor.
 
 ## Context
 ADR-006 treated frei0r as optional because it was not installed, and kept
