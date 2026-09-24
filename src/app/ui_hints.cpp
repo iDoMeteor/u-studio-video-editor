@@ -54,6 +54,8 @@ std::vector<HintSpec> &registry()
         {"timeline.dissolve-resize", "Timeline", "Resize a dissolve", nullptr, nullptr, "Drag either edge of the hatched region"},
         {"timeline.select-delete", "Timeline", "Delete a clip",       "Leaves a gap; nothing else moves", "delete-selected-clip", "Click the clip, then"},
         {"timeline.rename",       "Timeline", "Rename a clip or track", "Enter or click away to keep, Escape to cancel", nullptr, "Double-click the clip, or the track's name strip"},
+        {"timeline.zoom",        "Timeline", "Zoom in",           "Keeps the frame under the pointer in place. Zoom out and Zoom to Fit are under Keyboard Shortcuts", "zoom-in", "Hold Ctrl and turn the mouse wheel, or press"},
+        {"timeline.scroll",      "Timeline", "Scroll sideways",   "The playhead is followed a page at a time while playing", nullptr, "Hold Shift and turn the wheel, swipe sideways, or drag the scrollbar under the tracks"},
         {"timeline.reorder",      "Timeline", "Reorder tracks",       nullptr, nullptr, "Drag a track's handle at the left edge"},
         {"timeline.drop",         "Timeline", "Place media",          "Refused where the space isn't free or the track is locked", nullptr, "Drag from the media browser or the file manager onto a track"},
         {"timeline.menu",         "Timeline", "More actions",         "What's offered depends on what's under the pointer; see Timeline menu", nullptr, "Right-click a clip, a gap, a dissolve or empty track space"},

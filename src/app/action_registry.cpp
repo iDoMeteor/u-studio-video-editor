@@ -39,6 +39,11 @@ const std::vector<ActionSpec> &actionSpecs()
         {"delete-selected-clip", "Delete Selected Clip",       "Editing", {"Delete"},               &AppWindow::deleteSelectedClipActivated},
         {"split-at-playhead",    "Split Clip at Playhead",     "Editing", {"x"},                    &AppWindow::splitAtPlayheadActivated},
 
+        // --- Timeline view (doc 06) ---
+        {"zoom-in",              "Zoom In",                    "Timeline", {"plus", "equal", "KP_Add"}, &AppWindow::zoomInActivated},
+        {"zoom-out",             "Zoom Out",                   "Timeline", {"minus", "KP_Subtract"},   &AppWindow::zoomOutActivated},
+        {"zoom-fit",             "Zoom to Fit",                "Timeline", {"0"},                      &AppWindow::zoomFitActivated},
+
         // --- Project ---
         {"save",         "Save",              "Project", {"<Control>s"},             &AppWindow::saveActionActivated},
         {"save-as",       "Save As…",          "Project", {"<Control><Shift>s"},      &AppWindow::saveAsActivated},

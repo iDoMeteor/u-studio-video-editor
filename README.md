@@ -51,6 +51,12 @@ single-track skeleton.
   A timecode ruler runs along the top, ticking every 1/2/5/10/15/30
   seconds or whole minutes/hours — whichever keeps ticks at least ~60px
   apart at the current zoom (enhancement #12, 2026-09-23).
+  Zoom with Ctrl+mouse wheel (the frame under the pointer stays put) or
+  `+`/`-`, and `0` to fit the whole project; scroll sideways with
+  Shift+wheel, a touchpad swipe or the scrollbar under the tracks, and
+  vertically when there are more tracks than fit. The view follows the
+  playhead a page at a time. The zoom/scroll maths is
+  `src/app/timeline/viewport.{h,cpp}` (doc 06's Viewport), unit-tested.
 - **Undo/redo** for every edit (header-bar buttons, `Ctrl+Z`/`Ctrl+Shift+Z`),
   backed by a real command/undo-stack model — see "Architecture" below.
 - Playback via an MLT consumer (`sdl2_audio`, falling back to `rtaudio`,
@@ -204,8 +210,7 @@ Not yet: effects, titling, proxy/transcode, configurable export formats
 (render always uses the settings above — see "Render implementation
 notes" below), ripple/slip/copy edits and markers in the UI (the commands
 exist in `src/core/commands/timeline_edits.h`, waiting on the M3 timeline
-widget), zoom/scroll and multi-select on the timeline, a visible loop
-region.
+widget), multi-select on the timeline, a visible loop region.
 
 ## Roadmap
 

@@ -41,6 +41,12 @@ struct Viewport {
 };
 ```
 
+> REVIEW: Claude (2026-09-24): built as `app/timeline/viewport.{h,cpp}`,
+> with scroll kept in pixels (`scrollX`) rather than a frame index so it
+> scrolls smoothly, and a fit mode that follows the sequence until the user
+> zooms. Zoom keys are `+`/`=`/`-`/`0` without Ctrl (the owner's single-key
+> style); pinch is not wired yet.
+
 - Zoom keeps the frame under the cursor fixed (Ctrl+wheel, Ctrl+±, pinch).
 - "Fit" zoom = sequence length + 10% into the width.
 - The scrollable extent is `max(sequence length × 1.25, visible width)` so the

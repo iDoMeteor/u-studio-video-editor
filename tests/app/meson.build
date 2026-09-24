@@ -74,3 +74,12 @@ test_ui_hints_exe = executable(
 )
 
 test('app-ui-hints', test_ui_hints_exe)
+
+test_viewport_exe = executable(
+  'test_viewport',
+  files('test_viewport.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+
+test('app-viewport', test_viewport_exe)

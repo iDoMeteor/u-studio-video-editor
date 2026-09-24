@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -441,6 +442,19 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_size_request(GTK_WIDGET(m_timeline), -1, static_cast<int>(kTrackRowHeight));
     gtk_widget_add_css_class(GTK_WIDGET(m_timeline), "timeline-area");
     gtk_drawing_area_set_draw_func(m_timeline, &AppWindow::timelineDrawTrampoline, this, nullptr);
+    g_signal_connect(m_timeline, "resize", G_CALLBACK(&AppWindow::timelineResizeTrampoline), this);
+
+    // Ctrl+wheel zoom and sideways scrolling (onTimelineScroll). A plain
+    // vertical wheel isn't claimed, so it reaches the vertical scroller
+    // around the timeline below.
+    GtkEventController *scroll = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES);
+    g_signal_connect(scroll, "scroll", G_CALLBACK(&AppWindow::timelineScrollTrampoline), this);
+    gtk_widget_add_controller(GTK_WIDGET(m_timeline), scroll);
+    // The scroll event carries no position; Ctrl+wheel zoom anchors on the
+    // last pointer x seen here.
+    GtkEventController *motion = gtk_event_controller_motion_new();
+    g_signal_connect(motion, "motion", G_CALLBACK(&AppWindow::timelineMotionTrampoline), this);
+    gtk_widget_add_controller(GTK_WIDGET(m_timeline), motion);
 
     GtkGesture *click = gtk_gesture_click_new();
     g_signal_connect(click, "pressed", G_CALLBACK(&AppWindow::timelineClickTrampoline), this);
@@ -641,7 +655,28 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_drawing_area_set_draw_func(m_playheadOverlay, &AppWindow::playheadOverlayDrawTrampoline, this, nullptr);
     gtk_overlay_add_overlay(GTK_OVERLAY(timelineOverlay), GTK_WIDGET(m_playheadOverlay));
 
-    gtk_box_append(GTK_BOX(bottomBox), timelineOverlay);
+    // Tracks scroll vertically once there are more than fit; sideways
+    // scrolling is the Viewport's (m_timelineHAdjustment, below), so the
+    // ruler and the playhead overlay can share it without being inside
+    // this scroller.
+    GtkWidget *timelineScroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(timelineScroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(timelineScroller), TRUE);
+    // At least one row; the rest scroll, so the transport below is never
+    // pushed out of a short window. Drag the divider above to see more.
+    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(timelineScroller),
+                                               static_cast<int>(kTrackRowHeight));
+    gtk_widget_set_vexpand(timelineScroller, TRUE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(timelineScroller), timelineOverlay);
+    gtk_box_append(GTK_BOX(bottomBox), timelineScroller);
+
+    m_timelineHAdjustment = gtk_adjustment_new(0, 0, 1, 1, 1, 1);
+    g_signal_connect(m_timelineHAdjustment, "value-changed", G_CALLBACK(&AppWindow::timelineHScrollChangedTrampoline),
+                     this);
+    GtkWidget *timelineHScrollbar = gtk_scrollbar_new(GTK_ORIENTATION_HORIZONTAL, m_timelineHAdjustment);
+    setTooltip(timelineHScrollbar, "timeline.scroll");
+    gtk_widget_set_margin_start(timelineHScrollbar, static_cast<int>(kHandleWidth));
+    gtk_box_append(GTK_BOX(bottomBox), timelineHScrollbar);
 
     GtkWidget *transport = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 
@@ -1066,6 +1101,10 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
         // below are deliberately NOT in this list, same as Ctrl+Z/Shift+Z:
         // modifier combos a text entry never needs for itself.
         "play-pause", "delete-selected-clip", "split-at-playhead",
+        // + - = 0 are ordinary characters in a name entry.
+        "zoom-in",
+        "zoom-out",
+        "zoom-fit",
     };
     for (const char *name : kTransportActions) {
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
@@ -1840,12 +1879,10 @@ void AppWindow::onTimelineClicked(int nPress, double x, double y)
     m_activeTrack = std::clamp(row, 0, trackCount - 1);
 
     int total = m_playback->totalFrames();
-    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
     // The handle strip is drag-only (see onTrackDragBegin); a plain click
     // there just selects the row's track without also seeking.
-    if (x >= kHandleWidth && total > 0 && widgetWidth > 0) {
-        double fraction = std::clamp((x - kHandleWidth) / (widgetWidth - kHandleWidth), 0.0, 1.0);
-        int frame = static_cast<int>(fraction * total);
+    if (x >= kHandleWidth && total > 0) {
+        int frame = frameAtX(x);
 
         m_selectedClip = -1;
         for (size_t i = 0; i < m_clips.size(); ++i) {
@@ -1894,12 +1931,9 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     m_contextMenuAddTransitionB = core::ClipId{};
 
     int total = m_playback->totalFrames();
-    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
     int frame = -1;
-    if (total > 0 && widgetWidth > kHandleWidth && x >= kHandleWidth) {
-        double contentWidth = widgetWidth - kHandleWidth;
-        frame = static_cast<int>(((x - kHandleWidth) / contentWidth) * total);
-    }
+    if (total > 0 && x >= kHandleWidth)
+        frame = frameAtX(x);
     m_contextMenuFrame = frame;
 
     if (frame >= 0) {
@@ -1965,7 +1999,6 @@ void AppWindow::onTimelineRightClicked(double x, double y)
         // drag-trim edge grab) -- offered independent of whatever the
         // clip/gap checks above found, since a boundary sits exactly on
         // the edge of both neighbouring clips' own rectangles.
-        double contentWidth = widgetWidth - kHandleWidth;
         const core::Track &track = m_model.track(trackId);
         for (size_t i = 0; i + 1 < track.clips.size(); ++i) {
             const core::Clip &clipA = m_model.clip(track.clips[i]);
@@ -1977,7 +2010,7 @@ void AppWindow::onTimelineRightClicked(double x, double y)
                            [&](const core::Transition &t2) { return t2.a == clipA.id && t2.b == clipB.id; });
             if (alreadyLinked)
                 continue;
-            double boundaryX = kHandleWidth + (static_cast<double>(clipA.end()) / total) * contentWidth;
+            double boundaryX = xForFrame(static_cast<double>(clipA.end()));
             double distance = x > boundaryX ? x - boundaryX : boundaryX - x;
             if (distance <= kEdgeGrabWidth) {
                 m_contextMenuAddTransitionA = clipA.id;
@@ -2346,13 +2379,11 @@ bool AppWindow::onTrackDragBegin(double x, double y)
     }
 
     int total = m_playback->totalFrames();
-    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
-    if (total <= 0 || widgetWidth <= kHandleWidth)
+    if (total <= 0)
         return false;
 
-    double contentWidth = widgetWidth - kHandleWidth;
     int row = static_cast<int>(y / kTrackRowHeight);
-    int frameAtX = static_cast<int>(((x - kHandleWidth) / contentWidth) * total);
+    int pressFrame = frameAtX(x);
 
     // An existing transition's own edges sit exactly on the drawn edges
     // of the two clips it links (clipA's right edge == clipB's left edge
@@ -2368,8 +2399,8 @@ bool AppWindow::onTrackDragBegin(double x, double y)
             continue;
         const core::Clip &clipA = m_model.clip(t.a);
         const core::Clip &clipB = m_model.clip(t.b);
-        double leftX = kHandleWidth + (static_cast<double>(clipB.position) / total) * contentWidth;
-        double rightX = kHandleWidth + (static_cast<double>(clipA.end()) / total) * contentWidth;
+        double leftX = xForFrame(static_cast<double>(clipB.position));
+        double rightX = xForFrame(static_cast<double>(clipA.end()));
 
         bool nearLeft = x - leftX < kEdgeGrabWidth && leftX - x < kEdgeGrabWidth;
         bool nearRight = x - rightX < kEdgeGrabWidth && rightX - x < kEdgeGrabWidth;
@@ -2390,11 +2421,11 @@ bool AppWindow::onTrackDragBegin(double x, double y)
         const auto &clip = m_clips[i];
         if (clip.trackIndex != row)
             continue;
-        if (frameAtX < clip.startFrame || frameAtX >= clip.startFrame + clip.frames)
+        if (pressFrame < clip.startFrame || pressFrame >= clip.startFrame + clip.frames)
             continue;
 
-        double clipLeftX = kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth;
-        double clipRightX = kHandleWidth + (static_cast<double>(clip.startFrame + clip.frames) / total) * contentWidth;
+        double clipLeftX = xForFrame(clip.startFrame);
+        double clipRightX = xForFrame(clip.startFrame + clip.frames);
 
         m_dragClipId = clip.id;
         m_dragClipTrack = clip.trackIndex;
@@ -2425,7 +2456,7 @@ bool AppWindow::onTrackDragBegin(double x, double y)
     // own trivial-drag fallback also re-invokes onTimelineClicked, same
     // as every other drag mode here, so double-click-to-rename on an
     // otherwise-empty track's label strip keeps working too).
-    m_playback->seek(std::clamp(frameAtX, 0, total - 1));
+    m_playback->seek(std::clamp(pressFrame, 0, total - 1));
     m_activeTrack = std::clamp(row, 0, trackCount - 1);
     m_dragMode = TimelineDragMode::Scrub;
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
@@ -2453,27 +2484,20 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
         // the pointer directly, the same math onTimelineClicked() uses
         // for a plain click.
         int total = m_playback->totalFrames();
-        int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
-        if (total > 0 && widgetWidth > kHandleWidth) {
-            double contentWidth = widgetWidth - kHandleWidth;
-            double fraction = std::clamp((m_dragStartX + offsetX - kHandleWidth) / contentWidth, 0.0, 1.0);
-            m_playback->seek(static_cast<int>(fraction * total));
-        }
+        if (total > 0)
+            m_playback->seek(std::clamp(frameAtX(m_dragStartX + offsetX), 0, total - 1));
         return;
     }
 
-    int total = m_playback->totalFrames();
-    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
-    double contentWidth = std::max(widgetWidth - kHandleWidth, 1.0);
-    if (total <= 0)
+    if (m_playback->totalFrames() <= 0)
         return;
-    int deltaFrames = static_cast<int>(offsetX / contentWidth * total);
+    int deltaFrames = static_cast<int>(m_viewport.framesForPixels(offsetX));
 
     // Enhancement #10: snap to clip edges (on the row the drag is
     // actually over -- see cutBoundariesForTrack()'s own comment) and
     // the playhead, within kEdgeGrabWidth pixels, same threshold the
     // clip-edge grab zones already use.
-    double pixelsPerFrame = contentWidth / total;
+    double pixelsPerFrame = m_viewport.pxPerFrame();
 
     if (m_dragMode == TimelineDragMode::MoveClip) {
         m_dragPreviewTrack =
@@ -2722,8 +2746,6 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     if (trackCount <= 0)
         return;
 
-    double contentWidth = std::max(width - kHandleWidth, 1.0);
-
     // Row backgrounds: a faint tint on the active track, a stronger one on
     // the current drag drop-target row, plus separators and a grip icon in
     // the handle strip.
@@ -2798,16 +2820,31 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     if (total <= 0)
         return;
 
+    // Everything from here on is in frame space, clipped to the strip
+    // right of the track handles so zoomed or scrolled clips never paint
+    // over them.
+    cairo_save(cr);
+    cairo_rectangle(cr, kHandleWidth, 0, std::max(width - kHandleWidth, 0.0), trackCount * kTrackRowHeight);
+    cairo_clip(cr);
+    const double visibleLeft = kHandleWidth;
+    const double visibleRight = width;
+
     auto drawClipRect = [&](int trackIndex, int startFrame, int frames, const std::string &clipName, bool selected,
                             bool ghost) {
-        double x = kHandleWidth + (static_cast<double>(startFrame) / total) * contentWidth;
-        double w = (static_cast<double>(frames) / total) * contentWidth;
+        double x = xForFrame(startFrame);
+        double w = static_cast<double>(frames) * m_viewport.pxPerFrame();
+        if (x > visibleRight || x + w < visibleLeft)
+            return;
+        // Cairo copes badly with rectangles millions of pixels wide at deep
+        // zoom; only the visible part is drawn.
+        double drawLeft = std::max(x, visibleLeft - 4.0);
+        double drawRight = std::min(x + w, visibleRight + 4.0);
         double rowY = trackIndex * kTrackRowHeight;
         double clipTop = rowY + kTrackLabelHeight + 2.0;
         double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
 
         cairo_set_source_rgba(cr, kClipFillR, kClipFillG, kClipFillB, ghost ? 0.5 : 1.0);
-        cairo_rectangle(cr, x + 1, clipTop, std::max(w - 2, 1.0), clipHeight);
+        cairo_rectangle(cr, drawLeft + 1, clipTop, std::max(drawRight - drawLeft - 2, 1.0), clipHeight);
         cairo_fill_preserve(cr);
 
         if (selected)
@@ -2826,8 +2863,12 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         if (!ghost) {
             const core::Track &owningTrack = m_model.track(trackIdForRow(trackIndex));
             const std::string &label = !clipName.empty() ? clipName : owningTrack.name;
-            if (!label.empty())
-                drawLabel(cr, label, x + 4, clipTop + 1, std::max(w - 8, 1.0));
+            if (!label.empty()) {
+                // Pinned to the visible left edge so a long clip scrolled
+                // half off screen still shows its name.
+                double labelX = std::max(x, visibleLeft) + 4;
+                drawLabel(cr, label, labelX, clipTop + 1, std::max(x + w - labelX - 4, 1.0));
+            }
         }
     };
 
@@ -2852,10 +2893,14 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         double maxBarHalfHeight = (clipHeight - 4.0) / 2.0;
         size_t peakCount = peaks->size();
         int pixelWidth = std::max(static_cast<int>(w), 1);
+        // Only the columns on screen: at deep zoom a clip can be far wider
+        // than the widget.
+        int firstPx = std::clamp(static_cast<int>(visibleLeft - x), 0, pixelWidth);
+        int endPx = std::clamp(static_cast<int>(visibleRight - x) + 1, 0, pixelWidth);
 
         cairo_set_source_rgba(cr, kWaveformR, kWaveformG, kWaveformB, 0.85);
         cairo_set_line_width(cr, 1.0);
-        for (int px = 0; px < pixelWidth; ++px) {
+        for (int px = firstPx; px < endPx; ++px) {
             size_t startIdx =
                 static_cast<size_t>((static_cast<double>(px) / pixelWidth) * static_cast<double>(peakCount));
             size_t endIdx = std::min(
@@ -2888,9 +2933,10 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         drawClipRect(drawTrack, drawStart, drawFrames, clip.name, selected, false);
 
         if (!isDragged) {
-            double x = kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth;
-            double w = (static_cast<double>(clip.frames) / total) * contentWidth;
-            drawWaveform(clip, x, w);
+            double x = xForFrame(clip.startFrame);
+            double w = static_cast<double>(clip.frames) * m_viewport.pxPerFrame();
+            if (x <= visibleRight && x + w >= visibleLeft)
+                drawWaveform(clip, x, w);
         }
     }
 
@@ -2929,8 +2975,10 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
                                                              m_dragMode == TimelineDragMode::TransitionResizeRight);
         core::FrameIndex overlapStartFrame = isBeingResized ? m_dragTransitionPreviewLeftFrame : clipB.position;
         core::FrameIndex overlapEndFrame = isBeingResized ? m_dragTransitionPreviewRightFrame : clipA.end();
-        double overlapX = kHandleWidth + (static_cast<double>(overlapStartFrame) / total) * contentWidth;
-        double overlapEndX = kHandleWidth + (static_cast<double>(overlapEndFrame) / total) * contentWidth;
+        double overlapX = std::max(xForFrame(static_cast<double>(overlapStartFrame)), visibleLeft - 20.0);
+        double overlapEndX = std::min(xForFrame(static_cast<double>(overlapEndFrame)), visibleRight + 20.0);
+        if (overlapEndX <= overlapX)
+            continue;
         double rowY = row * kTrackRowHeight;
         double clipTop = rowY + kTrackLabelHeight + 2.0;
         double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
@@ -2948,6 +2996,7 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_stroke(cr);
         cairo_restore(cr);
     }
+    cairo_restore(cr);
 }
 
 void AppWindow::onPlayheadOverlayDraw(cairo_t *cr, int width, int height)
@@ -2962,9 +3011,9 @@ void AppWindow::onPlayheadOverlayDraw(cairo_t *cr, int width, int height)
     if (trackCount <= 0 || total <= 0)
         return;
 
-    double contentWidth = std::max(width - kHandleWidth, 1.0);
-    int currentFrame = m_playback->currentFrame();
-    double playheadX = kHandleWidth + (static_cast<double>(currentFrame) / total) * contentWidth;
+    double playheadX = xForFrame(m_playback->currentFrame());
+    if (playheadX < kHandleWidth || playheadX > width)
+        return; // scrolled out of view
     cairo_set_source_rgb(cr, kPlayheadR, kPlayheadG, kPlayheadB);
     cairo_set_line_width(cr, 2.0);
     cairo_move_to(cr, playheadX, 0);
@@ -2978,12 +3027,11 @@ void AppWindow::onRulerDraw(cairo_t *cr, int width, int height)
     if (total <= 0)
         return;
 
-    double contentWidth = std::max(width - kHandleWidth, 1.0);
     double fps = m_playback->fps();
     if (fps <= 0.0)
         fps = 25.0; // matches formatTimecode()'s own fallback
 
-    double pixelsPerSecond = contentWidth / total * fps;
+    double pixelsPerSecond = m_viewport.pxPerFrame() * fps;
     if (pixelsPerSecond <= 0.0)
         return;
 
@@ -3010,10 +3058,17 @@ void AppWindow::onRulerDraw(cairo_t *cr, int width, int height)
     // so ticks anchored to the constant instead of the real height came
     // out a couple of pixels short of the widget's actual bottom edge.
     double tickBottom = std::max(static_cast<double>(height), 1.0);
+    cairo_rectangle(cr, kHandleWidth, 0, std::max(width - kHandleWidth, 0.0), height);
+    cairo_clip(cr);
     cairo_set_source_rgb(cr, kClipBorderR, kClipBorderG, kClipBorderB);
     cairo_set_line_width(cr, 1.0);
-    for (int frame = 0; frame <= total; frame += intervalFrames) {
-        double x = kHandleWidth + (static_cast<double>(frame) / total) * contentWidth;
+    // Only the ticks on screen, starting one interval early so a label
+    // whose tick is just off the left edge still shows its tail.
+    int64_t firstTick = std::max<int64_t>(0, (m_viewport.firstVisibleFrame() / intervalFrames - 1) * intervalFrames);
+    int64_t lastFrame = std::min<int64_t>(m_viewport.endVisibleFrame(), static_cast<int64_t>(total) * 2);
+    for (int64_t tick = firstTick; tick <= lastFrame; tick += intervalFrames) {
+        int frame = static_cast<int>(tick);
+        double x = xForFrame(frame);
         cairo_move_to(cr, x, tickBottom - 6.0);
         cairo_line_to(cr, x, tickBottom);
         cairo_stroke(cr);
@@ -3386,14 +3441,10 @@ gboolean AppWindow::onTimelineDrop(const GValue *value, double x, double y)
         return FALSE;
     }
 
-    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
-    if (widgetWidth <= kHandleWidth || x < kHandleWidth)
+    if (x < kHandleWidth)
         return FALSE;
 
-    int total = m_playback->totalFrames();
-    double contentWidth = widgetWidth - kHandleWidth;
-    core::FrameIndex dropFrame =
-        total > 0 ? static_cast<core::FrameIndex>(((x - kHandleWidth) / contentWidth) * total) : 0;
+    core::FrameIndex dropFrame = m_viewport.frameForX(x);
 
     core::FrameIndex length =
         effectiveInsertLength(asset.info.isBoundless(), asset.info.lengthInSequenceFrames, dropFrame);
@@ -3424,14 +3475,10 @@ gboolean AppWindow::onTimelineFileDrop(GdkFileList *files, double x, double y)
         return FALSE;
     }
 
-    int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
-    if (widgetWidth <= kHandleWidth || x < kHandleWidth)
+    if (x < kHandleWidth)
         return FALSE;
 
-    int total = m_playback->totalFrames();
-    double contentWidth = widgetWidth - kHandleWidth;
-    core::FrameIndex position =
-        total > 0 ? static_cast<core::FrameIndex>(((x - kHandleWidth) / contentWidth) * total) : 0;
+    core::FrameIndex position = m_viewport.frameForX(x);
 
     GSList *list = gdk_file_list_get_files(files);
     bool anySucceeded = false;
@@ -3538,15 +3585,13 @@ void AppWindow::beginClipNameEdit(const ClipDisplay &clip)
     m_inlineEditKind = InlineEditKind::Clip;
     m_inlineEditClipId = clip.id;
 
-    int total = m_playback->totalFrames();
+    // The visible part of the clip, so the editor stays on screen when the
+    // clip is scrolled half out of view.
     int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
-    int anchorX = static_cast<int>(kHandleWidth);
-    int anchorW = 160;
-    if (total > 0 && widgetWidth > kHandleWidth) {
-        double contentWidth = widgetWidth - kHandleWidth;
-        anchorX = static_cast<int>(kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth);
-        anchorW = std::max(static_cast<int>((static_cast<double>(clip.frames) / total) * contentWidth), 40);
-    }
+    double left = std::max(xForFrame(clip.startFrame), kHandleWidth);
+    double right = std::min(xForFrame(clip.startFrame + clip.frames), static_cast<double>(widgetWidth));
+    int anchorX = static_cast<int>(left);
+    int anchorW = std::max(static_cast<int>(right - left), 40);
     double rowY = clip.trackIndex * kTrackRowHeight + kTrackLabelHeight;
     GdkRectangle anchor{anchorX, static_cast<int>(rowY), anchorW,
                         static_cast<int>(kTrackRowHeight - kTrackLabelHeight)};
@@ -3604,13 +3649,10 @@ gboolean AppWindow::onTimelineQueryTooltip(int x, int y, GtkTooltip *tooltip)
 {
     for (const auto &clip : m_clips) {
         double rowY = clip.trackIndex * kTrackRowHeight;
-        int total = m_playback->totalFrames();
-        int widgetWidth = gtk_widget_get_width(GTK_WIDGET(m_timeline));
-        if (total <= 0 || widgetWidth <= kHandleWidth)
+        if (x < kHandleWidth)
             continue;
-        double contentWidth = widgetWidth - kHandleWidth;
-        double clipX = kHandleWidth + (static_cast<double>(clip.startFrame) / total) * contentWidth;
-        double clipW = (static_cast<double>(clip.frames) / total) * contentWidth;
+        double clipX = xForFrame(clip.startFrame);
+        double clipW = static_cast<double>(clip.frames) * m_viewport.pxPerFrame();
 
         if (x < clipX || x >= clipX + clipW || y < rowY || y >= rowY + kTrackRowHeight)
             continue;
@@ -3637,6 +3679,94 @@ core::TrackId AppWindow::trackIdForRow(int row) const
     return tracks[static_cast<size_t>(row)].id;
 }
 
+void AppWindow::updateViewportGeometry()
+{
+    double fps = m_playback->fps() > 0.0 ? m_playback->fps() : 25.0;
+    m_viewport.setOriginX(kHandleWidth);
+    m_viewport.setVisibleWidth(gtk_widget_get_width(GTK_WIDGET(m_timeline)) - kHandleWidth);
+    // An empty or very short project fits 30 seconds, not a few frames
+    // stretched across the whole width.
+    m_viewport.setSequenceLength(m_playback->totalFrames(), static_cast<core::FrameIndex>(fps * 30.0));
+    syncTimelineScrollbar();
+}
+
+void AppWindow::syncTimelineScrollbar()
+{
+    m_suppressHScrollSignal = true;
+    double page = m_viewport.visibleWidth();
+    gtk_adjustment_configure(m_timelineHAdjustment, m_viewport.scrollX(), 0.0, m_viewport.extent(), page * 0.1,
+                             page * 0.9, page);
+    m_suppressHScrollSignal = false;
+}
+
+void AppWindow::onTimelineViewportChanged()
+{
+    syncTimelineScrollbar();
+    gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+    gtk_widget_queue_draw(GTK_WIDGET(m_rulerArea));
+    gtk_widget_queue_draw(GTK_WIDGET(m_playheadOverlay));
+}
+
+void AppWindow::zoomTimeline(double factor)
+{
+    // Keyboard zoom anchors on the playhead when it's on screen, else on
+    // the middle of the view.
+    double anchorX = xForFrame(m_playback->currentFrame());
+    int width = gtk_widget_get_width(GTK_WIDGET(m_timeline));
+    if (anchorX < kHandleWidth || anchorX > width)
+        anchorX = kHandleWidth + m_viewport.visibleWidth() / 2.0;
+    m_viewport.zoomAround(anchorX, factor);
+    onTimelineViewportChanged();
+}
+
+void AppWindow::onZoomIn()
+{
+    zoomTimeline(1.5);
+}
+
+void AppWindow::onZoomOut()
+{
+    zoomTimeline(1.0 / 1.5);
+}
+
+void AppWindow::onZoomFit()
+{
+    m_viewport.fit();
+    onTimelineViewportChanged();
+}
+
+gboolean AppWindow::onTimelineScroll(GtkEventControllerScroll *controller, double dx, double dy)
+{
+    GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(controller));
+    // A wheel detent is 1.0; a touchpad reports surface pixels.
+    bool wheel = gtk_event_controller_scroll_get_unit(controller) == GDK_SCROLL_UNIT_WHEEL;
+
+    if (mods & GDK_CONTROL_MASK) {
+        double anchorX = m_timelinePointerX;
+        double steps = wheel ? dy : dy / 40.0;
+        m_viewport.zoomAround(std::max(anchorX, kHandleWidth), std::pow(1.25, -steps));
+        onTimelineViewportChanged();
+        return TRUE;
+    }
+
+    double sideways = (mods & GDK_SHIFT_MASK) ? (dx != 0.0 ? dx : dy) : dx;
+    if (sideways == 0.0)
+        return FALSE; // a plain vertical wheel: the scroller's
+    m_viewport.setScrollX(m_viewport.scrollX() + sideways * (wheel ? 60.0 : 1.0));
+    onTimelineViewportChanged();
+    return TRUE;
+}
+
+void AppWindow::onTimelineHScrollChanged()
+{
+    if (m_suppressHScrollSignal)
+        return;
+    m_viewport.setScrollX(gtk_adjustment_get_value(m_timelineHAdjustment));
+    gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+    gtk_widget_queue_draw(GTK_WIDGET(m_rulerArea));
+    gtk_widget_queue_draw(GTK_WIDGET(m_playheadOverlay));
+}
+
 void AppWindow::refreshTimeline()
 {
     m_clips.clear();
@@ -3661,6 +3791,7 @@ void AppWindow::refreshTimeline()
     int trackCount = static_cast<int>(seq.tracks.size());
     int height = std::max(trackCount, 1) * static_cast<int>(kTrackRowHeight);
     gtk_widget_set_size_request(GTK_WIDGET(m_timeline), -1, height);
+    updateViewportGeometry();
 
     int total = m_playback->totalFrames();
     m_suppressSeekSignal = true;
@@ -3682,6 +3813,10 @@ void AppWindow::refreshTransport(int frameNumber)
     m_suppressSeekSignal = false;
 
     gtk_label_set_text(m_timecodeLabel, formatTimecode(frameNumber).c_str());
+    // Follow the playhead a page at a time when it leaves the view
+    // (playback, Home/End, cut jumps).
+    if (m_viewport.ensureVisible(frameNumber))
+        onTimelineViewportChanged();
     // Keeps the timeline's playhead line in sync with playback, not just
     // with edits -- this runs once per displayed frame (onFrameReady's
     // own comment), both while playing and after a seek (seek() purges
@@ -4211,6 +4346,29 @@ void AppWindow::rulerDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width, in
     static_cast<AppWindow *>(userData)->onRulerDraw(cr, width, height);
 }
 
+void AppWindow::timelineResizeTrampoline(GtkDrawingArea *, int, int, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    self->updateViewportGeometry();
+    self->onTimelineViewportChanged();
+}
+
+gboolean AppWindow::timelineScrollTrampoline(GtkEventControllerScroll *controller, double dx, double dy,
+                                             gpointer userData)
+{
+    return static_cast<AppWindow *>(userData)->onTimelineScroll(controller, dx, dy);
+}
+
+void AppWindow::timelineMotionTrampoline(GtkEventControllerMotion *, double x, double, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->m_timelinePointerX = x;
+}
+
+void AppWindow::timelineHScrollChangedTrampoline(GtkAdjustment *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onTimelineHScrollChanged();
+}
+
 void AppWindow::timelineClickTrampoline(GtkGestureClick *, int nPress, double x, double y, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onTimelineClicked(nPress, x, y);
@@ -4369,6 +4527,21 @@ void AppWindow::importActionActivated(GSimpleAction *, GVariant *, gpointer user
 void AppWindow::splitAtPlayheadActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onSplitClicked();
+}
+
+void AppWindow::zoomInActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onZoomIn();
+}
+
+void AppWindow::zoomOutActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onZoomOut();
+}
+
+void AppWindow::zoomFitActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onZoomFit();
 }
 
 void AppWindow::deleteSelectedClipActivated(GSimpleAction *, GVariant *, gpointer userData)

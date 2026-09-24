@@ -11,6 +11,12 @@ docs-only changes are not listed (CLAUDE.md).
   plays much more smoothly. The saved default preview scale is also
   applied at startup.
 
+## 0.18.0
+
+- Zoom the timeline with Ctrl+wheel or +/-, fit it with 0, and scroll it
+  sideways (Shift+wheel, touchpad, scrollbar) or vertically when tracks
+  don't fit. The view follows the playhead during playback.
+
 ## 0.17.1
 
 - The app always uses its dark theme; under a light system theme, Help

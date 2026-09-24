@@ -18,6 +18,7 @@
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "settings.h"
+#include "timeline/viewport.h"
 
 namespace ustudio::app {
 
@@ -424,6 +425,28 @@ class AppWindow
     void onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber);
 
     void refreshTimeline();
+    // Keeps m_viewport in step with the timeline's width and the sequence
+    // length, then the scrollbar with m_viewport; redraws what moved.
+    void updateViewportGeometry();
+    void syncTimelineScrollbar();
+    void onTimelineViewportChanged();
+    double xForFrame(double frame) const
+    {
+        return m_viewport.xForFrame(frame);
+    }
+    int frameAtX(double x) const
+    {
+        return static_cast<int>(m_viewport.frameForX(x));
+    }
+    void zoomTimeline(double factor);
+    void onZoomIn();
+    void onZoomOut();
+    void onZoomFit();
+    // Ctrl+wheel zooms around the pointer, Shift+wheel and horizontal
+    // wheels scroll sideways; a plain wheel is left to the vertical
+    // scroller.
+    gboolean onTimelineScroll(GtkEventControllerScroll *controller, double dx, double dy);
+    void onTimelineHScrollChanged();
     void refreshTransport(int frameNumber);
     void refreshPlayButtonIcon();
     void refreshLoopStatusLabel();
@@ -534,6 +557,14 @@ class AppWindow
     static void playheadOverlayDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height,
                                               gpointer userData);
     static void rulerDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer userData);
+    static void timelineResizeTrampoline(GtkDrawingArea *area, int width, int height, gpointer userData);
+    static gboolean timelineScrollTrampoline(GtkEventControllerScroll *controller, double dx, double dy,
+                                             gpointer userData);
+    static void timelineHScrollChangedTrampoline(GtkAdjustment *adjustment, gpointer userData);
+    static void timelineMotionTrampoline(GtkEventControllerMotion *controller, double x, double y, gpointer userData);
+    static void zoomInActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void zoomOutActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void zoomFitActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void timelineClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
     static void timelineRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
                                              gpointer userData);
@@ -627,6 +658,13 @@ class AppWindow
     // already do, since the ruler occupies its own vertical space rather
     // than the top of the track grid.
     GtkDrawingArea *m_rulerArea = nullptr;
+    // doc 06's Viewport: zoom and horizontal scroll for the timeline, the
+    // ruler and the playhead overlay alike. m_timelineHAdjustment mirrors
+    // it for the scrollbar under the timeline (in pixels).
+    timeline::Viewport m_viewport;
+    GtkAdjustment *m_timelineHAdjustment = nullptr;
+    bool m_suppressHScrollSignal = false;
+    double m_timelinePointerX = 0.0;
     GtkScale *m_seekScale = nullptr;
     GtkButton *m_playButton = nullptr;
     // Enhancement #4: the header bar's own title widget (what's actually
