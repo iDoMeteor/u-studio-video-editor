@@ -161,6 +161,25 @@ std::string buildCuratedModuleDir()
     return curated.string();
 }
 
+// MLT initialises some module state lazily, on the first producer that needs
+// it, with no lock: the loader's extension dictionary and its normalizer list
+// (static pointers checked and loaded in producer_loader.c) and avformat's
+// one-time init (factory.c's avformat_initialised). Two threads creating
+// their first producers at once -- parallel import probes (doc 19 MT1), or
+// thumbnail and waveform workers -- race on them; reproduced as a SIGSEGV in
+// attach_normalizers() in about 1 run in 7 of tests/app/test_import_queue
+// before this warm-up. Walking each path once here, on the thread that
+// called Factory::init, leaves them read-only afterwards.
+void warmUpLazyModuleState()
+{
+    Mlt::Profile profile;
+    // A bare path takes the loader's dictionary lookup, which picks avformat
+    // for .mp4; the file doesn't exist, so nothing is opened.
+    Mlt::Producer missing(profile, "loader", "/nonexistent/ustudio-mlt-warmup.mp4");
+    // A producer that opens attaches the loader's normalizers.
+    Mlt::Producer colour(profile, "loader", "color:black");
+}
+
 } // namespace
 
 FactoryPolicy::FactoryPolicy()
@@ -174,6 +193,7 @@ FactoryPolicy::FactoryPolicy()
         Mlt::Factory::init();
         m_moduleDirectoryUsed.clear();
     }
+    warmUpLazyModuleState();
 }
 
 FactoryPolicy::~FactoryPolicy()

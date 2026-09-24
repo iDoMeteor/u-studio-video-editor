@@ -152,12 +152,18 @@ void EngineSync::applyProfile()
 
 EngineSync::ProbedMedia EngineSync::probeMedia(const std::string &path)
 {
+    return probeMediaFile(m_model.sequence().profile, path);
+}
+
+EngineSync::ProbedMedia EngineSync::probeMediaFile(const core::Profile &sequenceProfile, const std::string &path)
+{
+    core::trace::Scope trace("probeMedia");
     // Its own throwaway profile, not the live *m_profile: that one backs
     // the tractor PlaybackController's Mlt::Consumer may be pulling a
     // frame from right now, on its own thread (CLAUDE.md: things that must
     // not contend with the live playback state open their own
     // Profile/Producer, same as renderProject()).
-    std::unique_ptr<Mlt::Profile> probeProfile = makeProfileFrom(m_model.sequence().profile);
+    std::unique_ptr<Mlt::Profile> probeProfile = makeProfileFrom(sequenceProfile);
     Mlt::Producer producer(*probeProfile, path.c_str());
     if (!producer.is_valid())
         return {};

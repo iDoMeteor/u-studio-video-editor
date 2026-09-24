@@ -183,6 +183,10 @@ class EngineSync
     // before reading them (absent on a still image, which never sets
     // meta.media.* at all -- fps/width/height stay at their zero default).
     ProbedMedia probeMedia(const std::string &path);
+    // The same probe, against a sequence profile passed by value: touches
+    // nothing of any EngineSync, so a worker-pool job can call it (doc 19
+    // MT1, parallel import); each call opens its own Profile and Producer.
+    static ProbedMedia probeMediaFile(const core::Profile &sequenceProfile, const std::string &path);
 
   private:
     core::Model &m_model;
