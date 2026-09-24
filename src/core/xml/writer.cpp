@@ -391,6 +391,10 @@ void writeRenderPlaylist(xmlNodePtr mlt, const Model &model, const Track &track,
 
     xmlNodePtr playlist = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
     xmlNewProp(playlist, BAD_CAST "id", BAD_CAST playlistId.c_str());
+    // Track mute/hide, as EngineSync sets it: MLT's per-track "hide".
+    int hide = (track.hidden ? 1 : 0) | (track.muted ? 2 : 0);
+    if (hide != 0)
+        addProperty(playlist, "hide", std::to_string(hide));
 
     FrameIndex cursor = 0;
     for (const TrackSegment &segment : segments) {

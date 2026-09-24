@@ -163,6 +163,14 @@ class Model
     // other mutator here.
     void retargetTransitionClip(TransitionId, ClipId oldClip, ClipId newClip);
 
+    // Sequence markers (doc 06: M adds one at the playhead). Kept sorted by
+    // `at`; ids come from the same allocator as everything else.
+    MarkerId addMarker(FrameIndex at, std::string text, std::optional<MarkerId> reuseId = std::nullopt);
+    void removeMarker(MarkerId);
+    void setMarker(MarkerId, FrameIndex at, std::string text);
+    bool hasMarker(MarkerId) const;
+    const Marker &marker(MarkerId) const;
+
     // Verbatim restore, used by Command::revert paths (core/commands) that
     // captured a full Clip/Track at apply time (e.g. RemoveClip, RemoveTrack)
     // -- unlike insertClip/addTrack, these don't derive any field, they just

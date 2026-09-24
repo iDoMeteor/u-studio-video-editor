@@ -85,6 +85,11 @@ struct AssetChanged
 };
 struct SequenceProfileChanged
 {};
+// A marker was added, removed, or changed. Markers don't reach MLT, so
+// EngineSync ignores this one instead of rebuilding (which would restart
+// playback for a timeline annotation).
+struct MarkersChanged
+{};
 struct BatchBegin
 {};
 struct BatchEnd
@@ -95,6 +100,6 @@ struct BatchEnd
 using ModelEvent = std::variant<ClipInserted, ClipRemoved, ClipMoved, ClipResized, ClipFlagsChanged, ClipRenamed,
                                 TrackAdded, TrackRemoved, TrackFlagsChanged, TrackVolumeChanged, TrackRenamed,
                                 TrackReordered, EffectChanged, TransitionAdded, TransitionRemoved, TransitionChanged,
-                                AssetChanged, SequenceProfileChanged, BatchBegin, BatchEnd>;
+                                AssetChanged, SequenceProfileChanged, MarkersChanged, BatchBegin, BatchEnd>;
 
 } // namespace ustudio::core

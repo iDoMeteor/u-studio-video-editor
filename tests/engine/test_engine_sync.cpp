@@ -580,3 +580,54 @@ TEST_CASE("EngineSync property: verify() never fails across the 10k-command undo
     CHECK(failures == 0);
     CHECK(model.sequence().clips.empty());
 }
+
+TEST_CASE("EngineSync: a hidden track shows what's under it and a muted track is silent")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId top = model.addTrack(Track::Kind::Video, 0, "V2");
+    TrackId bottom = model.addTrack(Track::Kind::Video, 1, "V1");
+    TrackId audio = model.addTrack(Track::Kind::Audio, 2, "A1");
+    model.insertClip(top, addGeneratorAsset(model, "color:red"), 0, 0, 29);
+    model.insertClip(bottom, addGeneratorAsset(model, "color:blue"), 0, 0, 29);
+    Asset toneAsset;
+    toneAsset.path = "tone:";
+    toneAsset.info.hasAudio = true;
+    toneAsset.info.lengthInSequenceFrames = 100'000;
+    ClipId tone = model.insertClip(audio, model.addAsset(toneAsset), 0, 0, 29);
+    model.setClipEnabled(tone, false, true);
+    EngineSync sync(model);
+
+    auto sample = [&](int &red, int &blue, double &rms) {
+        sync.tractor().seek(5);
+        std::unique_ptr<Mlt::Frame> frame(sync.tractor().get_frame());
+        mlt_image_format format = mlt_image_rgb;
+        int w = 64, h = 36;
+        const uint8_t *image = frame->get_image(format, w, h);
+        red = image[0];
+        blue = image[2];
+        mlt_audio_format audioFormat = mlt_audio_s16;
+        int frequency = 48000, channels = 2, samples = 1600;
+        const auto *pcm = static_cast<const int16_t *>(frame->get_audio(audioFormat, frequency, channels, samples));
+        double sum = 0;
+        for (int i = 0; pcm && i < samples * channels; ++i)
+            sum += static_cast<double>(pcm[i]) * pcm[i];
+        rms = std::sqrt(sum / (samples * channels));
+    };
+
+    int red = 0, blue = 0;
+    double rms = 0;
+    sample(red, blue, rms);
+    CHECK(red > 200);
+    CHECK(rms > 1000.0);
+
+    const Track &topTrack = model.track(top);
+    model.setTrackFlags(top, topTrack.muted, /*hidden=*/true, topTrack.locked);
+    const Track &audioTrack = model.track(audio);
+    model.setTrackFlags(audio, /*muted=*/true, audioTrack.hidden, audioTrack.locked);
+    sample(red, blue, rms);
+    CHECK(red < 50);
+    CHECK(blue > 200);
+    CHECK(rms < 1.0);
+    CHECK(sync.verify().empty());
+}

@@ -517,6 +517,11 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         }
     }
 
+    // Same canonical order Model::addTransition keeps (by id). Format 4
+    // writes dissolves track by track, which need not be id order.
+    std::sort(seq.transitions.begin(), seq.transitions.end(),
+              [](const Transition &x, const Transition &y) { return x.id < y.id; });
+
     // Untrusted input (audit C3): a missing ustudio:next_id defaults to
     // "1" above, and a hand-edited or truncated file could carry a
     // next_id that's simply wrong -- either would collide a future

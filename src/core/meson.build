@@ -5,6 +5,7 @@ libustudio_core_sources = files(
   'model/track_segments.cpp',
   'commands/primitives.cpp',
   'commands/undo_stack.cpp',
+  'commands/timeline_edits.cpp',
   'xml/writer.cpp',
   'xml/reader.cpp',
 )

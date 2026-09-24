@@ -271,6 +271,52 @@ void Model::setTrackVolume(TrackId id, double volume)
     notify(TrackVolumeChanged{id});
 }
 
+MarkerId Model::addMarker(FrameIndex at, std::string text, std::optional<MarkerId> reuseId)
+{
+    MarkerId id = reuseId ? *reuseId : MarkerId{allocateId()};
+    if (reuseId)
+        reserveId(reuseId->value);
+    auto &markers = activeSequence().markers;
+    markers.push_back(Marker{id, at, std::move(text), 0});
+    std::stable_sort(markers.begin(), markers.end(), [](const Marker &a, const Marker &b) { return a.at < b.at; });
+    notify(MarkersChanged{});
+    return id;
+}
+
+void Model::removeMarker(MarkerId id)
+{
+    auto &markers = activeSequence().markers;
+    auto it = std::find_if(markers.begin(), markers.end(), [id](const Marker &m) { return m.id == id; });
+    assert(it != markers.end() && "Model::removeMarker: unknown MarkerId");
+    markers.erase(it);
+    notify(MarkersChanged{});
+}
+
+void Model::setMarker(MarkerId id, FrameIndex at, std::string text)
+{
+    auto &markers = activeSequence().markers;
+    auto it = std::find_if(markers.begin(), markers.end(), [id](const Marker &m) { return m.id == id; });
+    assert(it != markers.end() && "Model::setMarker: unknown MarkerId");
+    it->at = at;
+    it->text = std::move(text);
+    std::stable_sort(markers.begin(), markers.end(), [](const Marker &a, const Marker &b) { return a.at < b.at; });
+    notify(MarkersChanged{});
+}
+
+bool Model::hasMarker(MarkerId id) const
+{
+    const auto &markers = activeSequence().markers;
+    return std::any_of(markers.begin(), markers.end(), [id](const Marker &m) { return m.id == id; });
+}
+
+const Marker &Model::marker(MarkerId id) const
+{
+    const auto &markers = activeSequence().markers;
+    auto it = std::find_if(markers.begin(), markers.end(), [id](const Marker &m) { return m.id == id; });
+    assert(it != markers.end() && "Model::marker: unknown MarkerId");
+    return *it;
+}
+
 void Model::setTrackName(TrackId id, std::string name)
 {
     Track &target = mutableTrack(id);
@@ -489,7 +535,13 @@ TransitionId Model::addTransition(TrackId trackId, ClipId a, ClipId b, FrameInde
     newTransition.extendA = extendA;
     newTransition.extendB = extendB;
     newTransition.length = extendA + extendB;
-    activeSequence().transitions.push_back(newTransition);
+    // Kept sorted by id (creation order), so undoing a removal puts the
+    // transition back where it was: Sequence compares this vector in order,
+    // and "revert restores the model exactly" (doc 04) must hold for it too.
+    auto &transitions = activeSequence().transitions;
+    transitions.insert(std::upper_bound(transitions.begin(), transitions.end(), newTransition,
+                                        [](const Transition &x, const Transition &y) { return x.id < y.id; }),
+                       newTransition);
 
     notify(TransitionAdded{id});
     notify(BatchEnd{});

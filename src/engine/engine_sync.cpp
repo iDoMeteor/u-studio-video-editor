@@ -101,6 +101,10 @@ void EngineSync::onModelEvent(const core::ModelEvent &event)
         return;
     }
 
+    // Markers never reach MLT (see MarkersChanged's comment).
+    if (std::holds_alternative<core::MarkersChanged>(event))
+        return;
+
     m_dirty = true;
     if (m_batchDepth == 0)
         rebuildAll();
@@ -390,6 +394,14 @@ void EngineSync::rebuildAll()
             volumeFilter.set("level", core::linearToDecibels(modelTrack.volume));
             playlist->attach(volumeFilter);
         }
+
+        // Track mute/hide: MLT's own per-track "hide" (1 = video, 2 = audio,
+        // 3 = both) on the track's producer, confirmed with a standalone
+        // repro (2026-09-24): a hidden top track showed what was under it,
+        // a muted one mixed to silence.
+        int hide = (modelTrack.hidden ? 1 : 0) | (modelTrack.muted ? 2 : 0);
+        if (hide != 0)
+            playlist->set("hide", hide);
 
         newTractor->set_track(*playlist, static_cast<int>(order.size()));
         order.emplace_back(trackId);

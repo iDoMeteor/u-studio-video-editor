@@ -5,6 +5,7 @@
 #include "portal_path.h"
 #include "core/commands/composite_command.h"
 #include "core/commands/primitives.h"
+#include "core/commands/timeline_edits.h"
 #include "core/commands/transaction.h"
 #include "core/log.h"
 #include "core/xml/reader.h"
@@ -2078,16 +2079,11 @@ void AppWindow::onCloseGapClicked()
         return;
     }
 
-    core::FrameIndex gapLength = gapEnd - gapStart;
-    std::vector<std::unique_ptr<core::Command>> moves;
-    for (core::ClipId clipId : track.clips) {
-        const core::Clip &clip = m_model.clip(clipId);
-        if (clip.position >= gapEnd)
-            moves.push_back(std::make_unique<core::MoveClip>(clipId, trackId, clip.position - gapLength));
-    }
-
-    bool ok =
-        !moves.empty() && m_undoStack.execute(std::make_unique<core::CompositeCommand>("Close gap", std::move(moves)));
+    // ShiftClips moves everything after the gap as one group, so dissolves
+    // between those clips survive (chaining MoveClip stripped every one).
+    std::vector<std::unique_ptr<core::Command>> shift;
+    shift.push_back(std::make_unique<core::ShiftClips>(trackId, gapEnd, -(gapEnd - gapStart)));
+    bool ok = m_undoStack.execute(std::make_unique<core::CompositeCommand>("Close gap", std::move(shift)));
     if (ok) {
         m_selectedClip = -1;
         refreshTimeline();

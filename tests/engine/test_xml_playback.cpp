@@ -185,6 +185,16 @@ TEST_CASE("A saved project with a dissolve, track volume and a muted clip plays 
     model.insertClip(video, green, 70, 0, 19);            // [70, 90): shifts if the dissolve is mis-written
     model.addTransition(video, a, b, 5, 5);               // overlap [25, 35)
 
+    // Hidden and muted tracks (MLT's per-track "hide"): if the saved file
+    // ignored either flag, its picture would turn white / its level rise.
+    TrackId hiddenTop = model.addTrack(Track::Kind::Video, 0, "V0 hidden");
+    model.insertClip(hiddenTop, addGenerator(model, "color:white", true, false), 0, 0, 89);
+    model.setTrackFlags(hiddenTop, false, /*hidden=*/true, false);
+    TrackId mutedAudio = model.addTrack(Track::Kind::Audio, 4, "A3 muted");
+    ClipId mutedTone = model.insertClip(mutedAudio, tone, 0, 0, 89);
+    model.setClipEnabled(mutedTone, false, true);
+    model.setTrackFlags(mutedAudio, /*muted=*/true, false, false);
+
     ClipId loud = model.insertClip(audio, tone, 0, 0, 44); // [0, 45)
     model.setClipEnabled(loud, false, true);
     model.setTrackVolume(audio, 0.5);
