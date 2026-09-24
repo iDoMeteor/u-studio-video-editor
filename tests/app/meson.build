@@ -93,6 +93,16 @@ test_timeline_controller_exe = executable(
 
 test('app-timeline-controller', test_timeline_controller_exe)
 
+test_timeline_render_exe = executable(
+  'test_timeline_render',
+  files('test_timeline_render.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+
+# doc 12, M3's snapshot budget. Prints the measured times.
+test('app-timeline-render', test_timeline_render_exe)
+
 test_timeline_fuzz_exe = executable(
   'test_timeline_fuzz',
   files('test_timeline_fuzz.cpp'),

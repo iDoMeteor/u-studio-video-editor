@@ -133,6 +133,9 @@ class TimelineController
         int reorderFromRow = -1;
         int reorderHoverRow = -1;
         std::optional<core::FrameIndex> snappedTo; // the frame an edge snapped to
+        // False while a move or copy would be refused where it is (drawn
+        // red, doc 06): overlap, a locked track, no audio for an audio track.
+        bool valid = true;
         // MoveClip with several clips selected: every selected clip is
         // drawn shifted by these.
         bool group = false;
@@ -179,6 +182,10 @@ class TimelineController
     std::vector<core::FrameIndex> snapTargets(const TimelineContext &ctx, core::ClipId exclude) const;
     std::optional<core::FrameIndex> snapDelta(const TimelineContext &ctx, core::FrameIndex position,
                                               const std::vector<core::FrameIndex> &targets) const;
+    // Whether `clips`, shifted by `delta` frames and `rowDelta` rows, would
+    // land somewhere free (a copy leaves the originals in place).
+    bool placementValid(const TimelineContext &ctx, const std::vector<core::ClipId> &clips, core::FrameIndex delta,
+                        int rowDelta, bool copy) const;
     void releaseMove(const TimelineContext &ctx, TimelineOutcome &out);
     void releaseTrim(const TimelineContext &ctx, TimelineOutcome &out);
     void releaseTransitionResize(const TimelineContext &ctx, TimelineOutcome &out);

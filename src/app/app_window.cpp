@@ -3,6 +3,7 @@
 #include "action_registry.h"
 #include "autosave.h"
 #include "portal_path.h"
+#include "timeline/us_timeline_view.h"
 #include "ui_hints.h"
 #include "core/commands/composite_command.h"
 #include "core/commands/primitives.h"
@@ -31,26 +32,16 @@ namespace ustudio::app {
 namespace Log = ustudio::core::Log;
 
 namespace {
-// Mirrors the tokens in style_css.h. Kept as plain hex here because clips
-// are drawn with cairo inside a single GtkDrawingArea, not as separate
-// widgets, so CSS selectors can't reach them.
-constexpr double kClipFillR = 0x1b / 255.0, kClipFillG = 0x12 / 255.0, kClipFillB = 0x30 / 255.0;
-constexpr double kClipBorderR = 0x34 / 255.0, kClipBorderG = 0x23 / 255.0, kClipBorderB = 0x57 / 255.0;
-constexpr double kSelectedR = 0x19 / 255.0, kSelectedG = 0xe3 / 255.0, kSelectedB = 0xff / 255.0;
-constexpr double kActiveTrackR = 0x19 / 255.0, kActiveTrackG = 0xe3 / 255.0, kActiveTrackB = 0xff / 255.0;
-// --cyan-500 (claude-design-system/tokens/colors.css) -- same token/value
-// as kSelected*/kActiveTrack* above, kept as its own named constant since
-// the playhead is a distinct element that shouldn't silently follow if
-// either of those two is ever retuned separately.
-constexpr double kPlayheadR = 0x19 / 255.0, kPlayheadG = 0xe3 / 255.0, kPlayheadB = 0xff / 255.0;
-// --warning (claude-design-system/tokens/colors.css) -- a locked track's
-// row tint; warning/caution is the closest existing token to "you can't
-// edit this", and reusing it keeps this from inventing an off-palette
-// color for a single indicator.
-constexpr double kLockedR = 0xff / 255.0, kLockedG = 0xc2 / 255.0, kLockedB = 0x4d / 255.0;
-// --magenta-500 (claude-design-system/tokens/colors.css, brand_magenta in
-// style.css) -- doc 06's snap indicator.
-constexpr double kSnapR = 0xff / 255.0, kSnapG = 0x2b / 255.0, kSnapB = 0xd6 / 255.0;
+// The timeline's geometry. Its colours come from style.css through the
+// generated tokens.h (timeline/timeline_renderer.cpp).
+constexpr double kTrackRowHeight = 60.0;
+constexpr double kHandleWidth = 22.0;
+constexpr double kEdgeGrabWidth = 8.0;
+constexpr double kDragClickThreshold = 3.0; // below this, a "drag" is really just a click
+// A slim strip at the top of each track row for the track's name; clips
+// draw below it.
+constexpr double kTrackLabelHeight = 14.0;
+constexpr double kRulerHeight = 20.0;
 
 // GTK's modifier state as the timeline controller's own flags.
 timeline::Modifiers timelineModifiers(GtkEventController *controller)
@@ -64,51 +55,6 @@ timeline::Modifiers timelineModifiers(GtkEventController *controller)
     if (state & GDK_ALT_MASK)
         mods = mods | timeline::Modifiers::Alt;
     return mods;
-}
-constexpr double kTrackRowHeight = 60.0;
-constexpr double kHandleWidth = 22.0;
-constexpr double kEdgeGrabWidth = 8.0;
-constexpr double kDragClickThreshold = 3.0; // below this, a "drag" is really just a click
-constexpr double kWaveformR = 0x9d / 255.0, kWaveformG = 0x4e / 255.0, kWaveformB = 0xff / 255.0; // brand violet
-// window_fg_color (style.css) -- the design system's main light-on-dark
-// text tone, used for every cairo-drawn label below (track names, a
-// clip's track-title corner badge) since none of this canvas's text can
-// be reached by a CSS selector (see the kClipFill* comment above).
-constexpr double kLabelTextR = 0xff / 255.0, kLabelTextG = 0xef / 255.0, kLabelTextB = 0xfb / 255.0;
-// A slim strip at the top of each track row, reserved for that track's
-// name label -- carved out of the existing row height (kTrackRowHeight
-// itself, and therefore every hit-test/drag calculation keyed on it,
-// stays untouched; only where clips draw *within* their row shrinks).
-constexpr double kTrackLabelHeight = 14.0;
-constexpr double kRulerHeight = 20.0;
-constexpr double kRulerMinTickSpacing = 60.0; // pixels -- below this, ticks get too cramped to read
-
-// Single-line text, ellipsized to fit `maxWidth`, top-left anchored at
-// (x, y) -- the one place this file draws text directly onto the cairo
-// canvas rather than through a GTK label/CSS (track names, and a clip's
-// track-title corner badge). Pango, not cairo's own "toy" text API
-// (cairo_show_text), for real font shaping/metrics; "Sans"/"Monospace"
-// are generic Pango family aliases always resolvable regardless of which
-// of the design system's actual fonts (Space Grotesk, JetBrains Mono)
-// happen to be installed (CLAUDE.md: "every rule must keep its generic
-// fallback").
-void drawLabel(cairo_t *cr, const std::string &text, double x, double y, double maxWidth, bool monospace = false)
-{
-    if (text.empty() || maxWidth <= 0)
-        return;
-
-    PangoLayout *layout = pango_cairo_create_layout(cr);
-    pango_layout_set_text(layout, text.c_str(), -1);
-    PangoFontDescription *desc = pango_font_description_from_string(monospace ? "Monospace 8" : "Sans 8");
-    pango_layout_set_font_description(layout, desc);
-    pango_font_description_free(desc);
-    pango_layout_set_width(layout, static_cast<int>(maxWidth * PANGO_SCALE));
-    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
-
-    cairo_set_source_rgba(cr, kLabelTextR, kLabelTextG, kLabelTextB, 0.85);
-    cairo_move_to(cr, x, y);
-    pango_cairo_show_layout(cr, layout);
-    g_object_unref(layout);
 }
 
 // Media-browser "length" column: an asset's own native duration, not
@@ -229,6 +175,13 @@ AppWindow::AppWindow(GtkApplication *app)
 
     m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
     m_thumbnails = std::make_unique<engine::ThumbnailCache>([this] { onThumbnailReady(); });
+    // The timeline's strips have their own worker: dozens of frames arrive
+    // while scrolling, and each only needs the timeline redrawn, not the
+    // media browser rebuilt.
+    m_timelineThumbnails = std::make_unique<engine::ThumbnailCache>([this] {
+        if (m_timeline)
+            gtk_widget_queue_draw(m_timeline);
+    });
 
     // Single source of truth for the undo/redo buttons and the title's
     // dirty mark (audit A1): every place that used to call
@@ -454,12 +407,15 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_margin_start(bottomBox, 6);
     gtk_widget_set_margin_end(bottomBox, 6);
 
-    m_timeline = GTK_DRAWING_AREA(gtk_drawing_area_new());
+    m_timeline = timeline::newTimelineView(
+        [this](GtkSnapshot *snapshot, int width, int height) { snapshotTimelineView(snapshot, width, height); },
+        [this](int, int) {
+            updateViewportGeometry();
+            onTimelineViewportChanged();
+        });
     gtk_widget_set_hexpand(GTK_WIDGET(m_timeline), TRUE);
     gtk_widget_set_size_request(GTK_WIDGET(m_timeline), -1, static_cast<int>(kTrackRowHeight));
     gtk_widget_add_css_class(GTK_WIDGET(m_timeline), "timeline-area");
-    gtk_drawing_area_set_draw_func(m_timeline, &AppWindow::timelineDrawTrampoline, this, nullptr);
-    g_signal_connect(m_timeline, "resize", G_CALLBACK(&AppWindow::timelineResizeTrampoline), this);
 
     // Ctrl+wheel zoom and sideways scrolling (onTimelineScroll). A plain
     // vertical wheel isn't claimed, so it reaches the vertical scroller
@@ -651,10 +607,10 @@ void AppWindow::buildUi(GtkApplication *app)
     // it out of every row/y-coordinate calculation onTimelineClicked()/
     // onTrackDragBegin()/onTrackDragUpdate()/onTimelineRightClicked()
     // already do (see onRulerDraw()'s own comment).
-    m_rulerArea = GTK_DRAWING_AREA(gtk_drawing_area_new());
+    m_rulerArea = timeline::newTimelineView(
+        [this](GtkSnapshot *snapshot, int width, int height) { snapshotRulerView(snapshot, width, height); });
     gtk_widget_set_size_request(GTK_WIDGET(m_rulerArea), -1, static_cast<int>(kRulerHeight));
     gtk_widget_add_css_class(GTK_WIDGET(m_rulerArea), "timeline-area");
-    gtk_drawing_area_set_draw_func(m_rulerArea, &AppWindow::rulerDrawTrampoline, this, nullptr);
     gtk_box_append(GTK_BOX(bottomBox), GTK_WIDGET(m_rulerArea));
 
     // Audit A5: the playhead line is drawn on its own overlay, stacked on
@@ -667,9 +623,9 @@ void AppWindow::buildUi(GtkApplication *app)
     GtkWidget *timelineOverlay = gtk_overlay_new();
     gtk_overlay_set_child(GTK_OVERLAY(timelineOverlay), GTK_WIDGET(m_timeline));
 
-    m_playheadOverlay = GTK_DRAWING_AREA(gtk_drawing_area_new());
+    m_playheadOverlay = timeline::newTimelineView(
+        [this](GtkSnapshot *snapshot, int width, int height) { snapshotPlayheadOverlay(snapshot, width, height); });
     gtk_widget_set_can_target(GTK_WIDGET(m_playheadOverlay), FALSE);
-    gtk_drawing_area_set_draw_func(m_playheadOverlay, &AppWindow::playheadOverlayDrawTrampoline, this, nullptr);
     gtk_overlay_add_overlay(GTK_OVERLAY(timelineOverlay), GTK_WIDGET(m_playheadOverlay));
 
     // Tracks scroll vertically once there are more than fit; sideways
@@ -2322,417 +2278,89 @@ void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
     refreshTimeline();
 }
 
-void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
+namespace {
+
+// A label layout for one snapshot, in the timeline's font (generic Pango
+// families, since the brand fonts may not be installed).
+PangoLayout *newLabelLayout(GtkWidget *widget, bool monospace)
 {
-    (void)height; // row layout is driven by kTrackRowHeight, not the widget's actual allocation
-    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
-    if (trackCount <= 0)
-        return;
-
-    // Row backgrounds: a faint tint on the active track, a stronger one on
-    // the current drag drop-target row, plus separators and a grip icon in
-    // the handle strip.
-    for (int t = 0; t < trackCount; ++t) {
-        double rowY = t * kTrackRowHeight;
-        bool locked = m_model.track(trackIdForRow(t)).locked;
-
-        if (locked) {
-            // Flat tint, not a glow (design system: glow is selection/focus
-            // only) -- just enough to notice a row is different at a glance
-            // without a per-track header widget to put a lock icon on yet.
-            cairo_set_source_rgba(cr, kLockedR, kLockedG, kLockedB, 0.08);
-            cairo_rectangle(cr, 0, rowY, width, kTrackRowHeight);
-            cairo_fill(cr);
-        }
-
-        const timeline::TimelineController::Preview &preview = m_timelineController.preview();
-        if (m_timelineController.mode() == timeline::TimelineController::Mode::TrackReorder &&
-            t == preview.reorderHoverRow) {
-            cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.12);
-            cairo_rectangle(cr, 0, rowY, width, kTrackRowHeight);
-            cairo_fill(cr);
-        } else if (t == m_activeTrack) {
-            cairo_set_source_rgba(cr, kActiveTrackR, kActiveTrackG, kActiveTrackB, 0.07);
-            cairo_rectangle(cr, 0, rowY, width, kTrackRowHeight);
-            cairo_fill(cr);
-        }
-
-        if (t > 0) {
-            cairo_set_source_rgb(cr, kClipBorderR, kClipBorderG, kClipBorderB);
-            cairo_set_line_width(cr, 1.0);
-            cairo_move_to(cr, 0, rowY);
-            cairo_line_to(cr, width, rowY);
-            cairo_stroke(cr);
-        }
-
-        // Grip icon: three short horizontal lines centered in the handle
-        // strip, signaling "drag here to reorder" -- tinted the same
-        // warning color as the row when locked, since dragging a clip is
-        // blocked there but reordering the track itself still isn't.
-        if (locked)
-            cairo_set_source_rgb(cr, kLockedR, kLockedG, kLockedB);
-        else
-            cairo_set_source_rgb(cr, kClipBorderR, kClipBorderG, kClipBorderB);
-        cairo_set_line_width(cr, 2.0);
-        double gripCenterX = kHandleWidth / 2.0;
-        double gripCenterY = rowY + kTrackRowHeight / 2.0;
-        for (int line = -1; line <= 1; ++line) {
-            double ly = gripCenterY + line * 5.0;
-            cairo_move_to(cr, gripCenterX - 5.0, ly);
-            cairo_line_to(cr, gripCenterX + 5.0, ly);
-            cairo_stroke(cr);
-        }
-        cairo_move_to(cr, kHandleWidth, rowY);
-        cairo_line_to(cr, kHandleWidth, rowY + kTrackRowHeight);
-        cairo_stroke(cr);
-
-        // Track name label, in the slim strip reserved at the top of the
-        // row (double-click to edit -- onTimelineClicked). Skipped while
-        // this exact row is mid-inline-edit: the popover positioned over
-        // it already shows (and lets you change) the text.
-        const core::Track &modelTrack = m_model.track(trackIdForRow(t));
-        std::string rowLabel = modelTrack.name;
-        for (auto [on, word] : {std::pair{modelTrack.hidden, "Hidden"}, std::pair{modelTrack.muted, "Muted"}}) {
-            if (on)
-                rowLabel += rowLabel.empty() ? word : std::string(" · ") + word;
-        }
-        if (!rowLabel.empty() && !(m_inlineEditKind == InlineEditKind::Track && m_inlineEditTrackRow == t)) {
-            drawLabel(cr, rowLabel, kHandleWidth + 4, rowY + 1, width - kHandleWidth - 8);
-        }
-    }
-
-    int total = m_playback->totalFrames();
-    if (total <= 0)
-        return;
-
-    // Everything from here on is in frame space, clipped to the strip
-    // right of the track handles so zoomed or scrolled clips never paint
-    // over them.
-    cairo_save(cr);
-    cairo_rectangle(cr, kHandleWidth, 0, std::max(width - kHandleWidth, 0.0), trackCount * kTrackRowHeight);
-    cairo_clip(cr);
-    const double visibleLeft = kHandleWidth;
-    const double visibleRight = width;
-
-    auto drawClipRect = [&](int trackIndex, int startFrame, int frames, const std::string &clipName, bool selected,
-                            bool ghost) {
-        double x = xForFrame(startFrame);
-        double w = static_cast<double>(frames) * m_viewport.pxPerFrame();
-        if (x > visibleRight || x + w < visibleLeft)
-            return;
-        // Cairo copes badly with rectangles millions of pixels wide at deep
-        // zoom; only the visible part is drawn.
-        double drawLeft = std::max(x, visibleLeft - 4.0);
-        double drawRight = std::min(x + w, visibleRight + 4.0);
-        double rowY = trackIndex * kTrackRowHeight;
-        double clipTop = rowY + kTrackLabelHeight + 2.0;
-        double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
-
-        cairo_set_source_rgba(cr, kClipFillR, kClipFillG, kClipFillB, ghost ? 0.5 : 1.0);
-        cairo_rectangle(cr, drawLeft + 1, clipTop, std::max(drawRight - drawLeft - 2, 1.0), clipHeight);
-        cairo_fill_preserve(cr);
-
-        if (selected)
-            cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, ghost ? 0.7 : 1.0);
-        else
-            cairo_set_source_rgba(cr, kClipBorderR, kClipBorderG, kClipBorderB, ghost ? 0.7 : 1.0);
-        cairo_set_line_width(cr, selected ? 2.0 : 1.0);
-        cairo_stroke(cr);
-
-        // Corner badge: the clip's own name if it has one (the more
-        // specific identifier once set), else the owning track's name, so
-        // which track a clip belongs to is still visible without looking
-        // back at the row label (e.g. once scrolled) when the clip has no
-        // name of its own. Skipped for the drag-preview ghost outline,
-        // where it would just be clutter.
-        if (!ghost) {
-            const core::Track &owningTrack = m_model.track(trackIdForRow(trackIndex));
-            const std::string &label = !clipName.empty() ? clipName : owningTrack.name;
-            if (!label.empty()) {
-                // Pinned to the visible left edge so a long clip scrolled
-                // half off screen still shows its name.
-                double labelX = std::max(x, visibleLeft) + 4;
-                drawLabel(cr, label, labelX, clipTop + 1, std::max(x + w - labelX - 4, 1.0));
-            }
-        }
-    };
-
-    // Waveform: fetches cached peaks (kicking off async computation if not
-    // yet available — see WaveformCache) and draws a vertical-bar envelope
-    // across the clip's rectangle. Skipped for the actively-dragged clip
-    // (its in/out are changing every frame during a trim, which would just
-    // thrash the cache) — reasonable to not bother re-drawing a waveform
-    // for the ~second a drag lasts.
-    auto drawWaveform = [&](const ClipDisplay &clip, double x, double w) {
-        if (clip.resource.empty())
-            return;
-        const std::vector<float> *peaks =
-            m_waveforms->peaksFor(clip.resource, clip.in, clip.out, m_model.sequence().profile.fps);
-        if (!peaks || peaks->empty())
-            return;
-
-        double rowY = clip.trackIndex * kTrackRowHeight;
-        double clipTop = rowY + kTrackLabelHeight + 2.0;
-        double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
-        double midY = clipTop + clipHeight / 2.0;
-        double maxBarHalfHeight = (clipHeight - 4.0) / 2.0;
-        size_t peakCount = peaks->size();
-        int pixelWidth = std::max(static_cast<int>(w), 1);
-        // Only the columns on screen: at deep zoom a clip can be far wider
-        // than the widget.
-        int firstPx = std::clamp(static_cast<int>(visibleLeft - x), 0, pixelWidth);
-        int endPx = std::clamp(static_cast<int>(visibleRight - x) + 1, 0, pixelWidth);
-
-        cairo_set_source_rgba(cr, kWaveformR, kWaveformG, kWaveformB, 0.85);
-        cairo_set_line_width(cr, 1.0);
-        for (int px = firstPx; px < endPx; ++px) {
-            size_t startIdx =
-                static_cast<size_t>((static_cast<double>(px) / pixelWidth) * static_cast<double>(peakCount));
-            size_t endIdx = std::min(
-                peakCount, std::max(startIdx + 1, static_cast<size_t>((static_cast<double>(px + 1) / pixelWidth) *
-                                                                      static_cast<double>(peakCount))));
-
-            float peak = 0.0f;
-            for (size_t k = startIdx; k < endIdx; ++k)
-                peak = std::max(peak, (*peaks)[k]);
-
-            double barHalf = std::max(static_cast<double>(peak) * maxBarHalfHeight, 1.0);
-            double colX = x + px + 0.5;
-            cairo_move_to(cr, colX, midY - barHalf);
-            cairo_line_to(cr, colX, midY + barHalf);
-            cairo_stroke(cr);
-        }
-    };
-
-    using Mode = timeline::TimelineController::Mode;
-    const Mode mode = m_timelineController.mode();
-    const timeline::TimelineController::Preview &preview = m_timelineController.preview();
-    // Modes that draw the dragged clip at its preview geometry. A copy
-    // leaves the original where it is and adds a ghost below.
-    const bool clipDrag = mode == Mode::MoveClip || mode == Mode::TrimClipStart || mode == Mode::TrimClipEnd ||
-                          mode == Mode::RippleTrimStart || mode == Mode::RippleTrimEnd || mode == Mode::Slip;
-
-    for (const ClipDisplay &clip : m_clips) {
-        bool isDragged = clipDrag && clip.id == preview.clip;
-        bool selected = m_timelineController.selection().contains(clip.id);
-
-        if (isDragged && mode == Mode::MoveClip)
-            continue; // drawn as a ghost at the preview position instead, below
-        if (mode == Mode::MoveClip && preview.group && selected)
-            continue; // the rest of a dragged group, ghosted below too
-
-        int drawTrack = isDragged ? preview.row : clip.trackIndex;
-        int drawStart = isDragged ? static_cast<int>(preview.start) : clip.startFrame;
-        int drawFrames = isDragged ? static_cast<int>(preview.length) : clip.frames;
-        drawClipRect(drawTrack, drawStart, drawFrames, clip.name, selected, false);
-
-        if (!isDragged) {
-            double x = xForFrame(clip.startFrame);
-            double w = static_cast<double>(clip.frames) * m_viewport.pxPerFrame();
-            if (x <= visibleRight && x + w >= visibleLeft)
-                drawWaveform(clip, x, w);
-        }
-    }
-
-    if (mode == Mode::MoveClip && preview.group) {
-        for (const ClipDisplay &clip : m_clips) {
-            if (m_timelineController.selection().contains(clip.id)) {
-                drawClipRect(clip.trackIndex + preview.groupRowDelta,
-                             clip.startFrame + static_cast<int>(preview.groupDelta), clip.frames, std::string{}, true,
-                             true);
-            }
-        }
-    } else if (mode == Mode::MoveClip || mode == Mode::CopyClip) {
-        drawClipRect(preview.row, static_cast<int>(preview.start), static_cast<int>(preview.length), std::string{},
-                     true, true);
-    }
-    if (mode == Mode::Slip) {
-        std::string text =
-            "Slip " + std::string(preview.slipDelta > 0 ? "+" : "") + std::to_string(preview.slipDelta) + " frames";
-        double sx = std::max(xForFrame(static_cast<double>(preview.start)), visibleLeft) + 4;
-        drawLabel(cr, text, sx, preview.row * kTrackRowHeight + kTrackRowHeight - 18, 200.0);
-    }
-
-    if (mode == Mode::RubberBand) {
-        double bx = std::min(preview.bandX0, preview.bandX1), by = std::min(preview.bandY0, preview.bandY1);
-        double bw = std::abs(preview.bandX1 - preview.bandX0), bh = std::abs(preview.bandY1 - preview.bandY0);
-        cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.12);
-        cairo_rectangle(cr, bx, by, bw, bh);
-        cairo_fill_preserve(cr);
-        cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.8);
-        cairo_set_line_width(cr, 1.0);
-        cairo_stroke(cr);
-    }
-
-    // Markers run down through the tracks as faint lines.
-    for (const core::Marker &marker : m_model.sequence().markers) {
-        double mx = std::floor(xForFrame(static_cast<double>(marker.at))) + 0.5;
-        if (mx < visibleLeft || mx > visibleRight)
-            continue;
-        cairo_set_source_rgba(cr, kSnapR, kSnapG, kSnapB, 0.35);
-        cairo_set_line_width(cr, 1.0);
-        cairo_move_to(cr, mx, 0);
-        cairo_line_to(cr, mx, trackCount * kTrackRowHeight);
-        cairo_stroke(cr);
-    }
-
-    // doc 06: a 1 px brand-magenta line where a dragged edge snapped.
-    if (preview.snappedTo) {
-        double snapX = std::floor(xForFrame(static_cast<double>(*preview.snappedTo))) + 0.5;
-        cairo_set_source_rgb(cr, kSnapR, kSnapG, kSnapB);
-        cairo_set_line_width(cr, 1.0);
-        cairo_move_to(cr, snapX, 0);
-        cairo_line_to(cr, snapX, trackCount * kTrackRowHeight);
-        cairo_stroke(cr);
-    }
-
-    // Dissolve transitions: a diagonal-hatch overlay on the overlap
-    // region between the two clips a transition links -- geometry keyed
-    // off the CURRENT (already-extended) clip state, same source as
-    // drawClipRect/drawWaveform above, not the transition's own
-    // extendA/extendB (those only matter to AddTransition/
-    // RemoveTransition, not drawing). A transition being CREATED by a
-    // drag (TrimClipStart/End overlapping a neighbour) isn't drawn here
-    // -- it doesn't exist until AddTransition runs at drag-end, and the
-    // live resize ghost already shows the overlap forming. A transition
-    // being RESIZED (TransitionResizeLeft/Right) DOES already exist, so
-    // its hatch is drawn live at the drag preview position instead of
-    // its last-committed one.
-    for (const core::Transition &t : m_model.sequence().transitions) {
-        if (!m_model.hasClip(t.a) || !m_model.hasClip(t.b))
-            continue; // mid-undo-step transient state; refreshTimeline() will catch up
-        const core::Track &owningTrack = m_model.track(t.track);
-        int row = -1;
-        for (int r = 0; r < trackCount; ++r) {
-            if (trackIdForRow(r) == owningTrack.id) {
-                row = r;
-                break;
-            }
-        }
-        if (row < 0)
-            continue;
-
-        const core::Clip &clipA = m_model.clip(t.a);
-        const core::Clip &clipB = m_model.clip(t.b);
-        bool isBeingResized =
-            t.id == preview.transition && (mode == Mode::TransitionResizeLeft || mode == Mode::TransitionResizeRight);
-        core::FrameIndex overlapStartFrame = isBeingResized ? preview.transitionLeft : clipB.position;
-        core::FrameIndex overlapEndFrame = isBeingResized ? preview.transitionRight : clipA.end();
-        double overlapX = std::max(xForFrame(static_cast<double>(overlapStartFrame)), visibleLeft - 20.0);
-        double overlapEndX = std::min(xForFrame(static_cast<double>(overlapEndFrame)), visibleRight + 20.0);
-        if (overlapEndX <= overlapX)
-            continue;
-        double rowY = row * kTrackRowHeight;
-        double clipTop = rowY + kTrackLabelHeight + 2.0;
-        double clipHeight = kTrackRowHeight - kTrackLabelHeight - 6.0;
-
-        cairo_save(cr);
-        cairo_rectangle(cr, overlapX, clipTop, std::max(overlapEndX - overlapX, 1.0), clipHeight);
-        cairo_clip(cr);
-        cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.6);
-        cairo_set_line_width(cr, 1.5);
-        constexpr double kHatchSpacing = 7.0;
-        for (double sx = overlapX - clipHeight; sx < overlapEndX; sx += kHatchSpacing) {
-            cairo_move_to(cr, sx, clipTop + clipHeight);
-            cairo_line_to(cr, sx + clipHeight, clipTop);
-        }
-        cairo_stroke(cr);
-        cairo_restore(cr);
-    }
-    cairo_restore(cr);
+    PangoLayout *layout = gtk_widget_create_pango_layout(widget, nullptr);
+    PangoFontDescription *font = pango_font_description_from_string(monospace ? "Monospace 8" : "Sans 8");
+    pango_layout_set_font_description(layout, font);
+    pango_font_description_free(font);
+    return layout;
 }
 
-void AppWindow::onPlayheadOverlayDraw(cairo_t *cr, int width, int height)
-{
-    (void)height;
-    // Same geometry onTimelineDraw() itself uses -- kept in sync by
-    // construction, not by sharing state, since both are cheap to
-    // recompute and this one runs far more often (audit A5: this is the
-    // whole point of splitting it out -- see this method's declaration).
-    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
-    int total = m_playback->totalFrames();
-    if (trackCount <= 0 || total <= 0)
-        return;
+} // namespace
 
-    double playheadX = xForFrame(m_playback->currentFrame());
-    if (playheadX < kHandleWidth || playheadX > width)
-        return; // scrolled out of view
-    cairo_set_source_rgb(cr, kPlayheadR, kPlayheadG, kPlayheadB);
-    cairo_set_line_width(cr, 2.0);
-    cairo_move_to(cr, playheadX, 0);
-    cairo_line_to(cr, playheadX, trackCount * kTrackRowHeight);
-    cairo_stroke(cr);
+void AppWindow::addTimelineOverlay(const timeline::TimelineOverlayProvider *overlay)
+{
+    m_timelineOverlays.push_back(overlay);
+    gtk_widget_queue_draw(m_timeline);
 }
 
-void AppWindow::onRulerDraw(cairo_t *cr, int width, int height)
+void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int height)
 {
-    int total = m_playback->totalFrames();
-    if (total <= 0)
+    PangoLayout *layout = newLabelLayout(m_timeline, false);
+    timeline::TimelineScene scene{
+        .model = m_model,
+        .viewport = m_viewport,
+        .controller = m_timelineController,
+        .layout = timeline::RowLayout{kTrackRowHeight, kTrackLabelHeight},
+        .handleWidth = kHandleWidth,
+        .activeRow = m_activeTrack,
+        .nameEditRow = m_inlineEditKind == InlineEditKind::Track ? m_inlineEditTrackRow : -1,
+        // Cached peaks, or null (and a worker started) until they're ready.
+        .waveformFor = [this](const core::Clip &clip) -> const std::vector<float> * {
+            if (!m_model.hasAsset(clip.asset) || m_model.asset(clip.asset).path.empty())
+                return nullptr;
+            return m_waveforms->peaksFor(m_model.asset(clip.asset).path, static_cast<int>(clip.in),
+                                         static_cast<int>(clip.out), m_model.sequence().profile.fps);
+        },
+        .thumbnailFor = [this](const core::Clip &clip, core::FrameIndex frame) -> GdkTexture * {
+            if (!m_model.hasAsset(clip.asset) || m_model.asset(clip.asset).path.empty())
+                return nullptr;
+            const std::string &path = m_model.asset(clip.asset).path;
+            core::Rational fps = m_model.sequence().profile.fps;
+            const engine::ThumbnailCache::Data *data =
+                m_timelineThumbnails->frameThumbnail(path, static_cast<int>(frame), fps.num, fps.den);
+            if (!data)
+                return nullptr;
+            return m_thumbnailTextures.get(path + '\n' + std::to_string(frame) + '@' + std::to_string(fps.num) + '/' +
+                                               std::to_string(fps.den),
+                                           data->rgba, data->width, data->height);
+        },
+        .overlays = m_timelineOverlays,
+        .labelLayout = layout,
+    };
+    timeline::snapshotTimeline(snapshot, scene, width, height);
+    g_object_unref(layout);
+}
+
+void AppWindow::snapshotPlayheadOverlay(GtkSnapshot *snapshot, int width, int height)
+{
+    int trackCount = static_cast<int>(m_model.sequence().tracks.size());
+    if (trackCount <= 0 || m_playback->totalFrames() <= 0)
         return;
+    timeline::snapshotPlayhead(snapshot, m_viewport, m_playback->currentFrame(), kHandleWidth, width,
+                               std::min(static_cast<double>(height), trackCount * kTrackRowHeight));
+}
 
-    double fps = m_playback->fps();
-    if (fps <= 0.0)
-        fps = 25.0; // matches formatTimecode()'s own fallback
-
-    double pixelsPerSecond = m_viewport.pxPerFrame() * fps;
-    if (pixelsPerSecond <= 0.0)
+void AppWindow::snapshotRulerView(GtkSnapshot *snapshot, int width, int height)
+{
+    if (m_playback->totalFrames() <= 0)
         return;
-
-    // Whole seconds up through whole hours -- the smallest of these that
-    // keeps ticks at least kRulerMinTickSpacing pixels apart at the
-    // current zoom, so a short, zoomed-in project gets per-second ticks
-    // and a long one falls back to whole minutes (or more) instead of an
-    // unreadable, overlapping label every frame's worth of pixels.
-    static const double kNiceIntervalsSeconds[] = {1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600};
-    constexpr size_t kNumIntervals = sizeof(kNiceIntervalsSeconds) / sizeof(kNiceIntervalsSeconds[0]);
-    double intervalSeconds = kNiceIntervalsSeconds[kNumIntervals - 1];
-    for (double candidate : kNiceIntervalsSeconds) {
-        if (candidate * pixelsPerSecond >= kRulerMinTickSpacing) {
-            intervalSeconds = candidate;
-            break;
-        }
-    }
-    int intervalFrames = std::max(1, static_cast<int>(intervalSeconds * fps));
-    double tickSpacingPixels = intervalSeconds * pixelsPerSecond;
-
-    // The actual allocated height, not the kRulerHeight request passed to
-    // gtk_widget_set_size_request() -- found live that the two aren't
-    // exactly equal (CSS padding from the shared "timeline-area" class),
-    // so ticks anchored to the constant instead of the real height came
-    // out a couple of pixels short of the widget's actual bottom edge.
-    double tickBottom = std::max(static_cast<double>(height), 1.0);
-    cairo_rectangle(cr, kHandleWidth, 0, std::max(width - kHandleWidth, 0.0), height);
-    cairo_clip(cr);
-    cairo_set_source_rgb(cr, kClipBorderR, kClipBorderG, kClipBorderB);
-    cairo_set_line_width(cr, 1.0);
-    // Only the ticks on screen, starting one interval early so a label
-    // whose tick is just off the left edge still shows its tail.
-    int64_t firstTick = std::max<int64_t>(0, (m_viewport.firstVisibleFrame() / intervalFrames - 1) * intervalFrames);
-    int64_t lastFrame = std::min<int64_t>(m_viewport.endVisibleFrame(), static_cast<int64_t>(total) * 2);
-    for (int64_t tick = firstTick; tick <= lastFrame; tick += intervalFrames) {
-        int frame = static_cast<int>(tick);
-        double x = xForFrame(frame);
-        cairo_move_to(cr, x, tickBottom - 6.0);
-        cairo_line_to(cr, x, tickBottom);
-        cairo_stroke(cr);
-        drawLabel(cr, formatTimecode(frame), x + 2.0, 2.0, std::max(tickSpacingPixels - 4.0, 1.0), true);
-    }
-
-    // Markers (M adds one at the playhead): a small brand-magenta flag
-    // hanging from the ruler's bottom edge, with its text if it has any.
-    for (const core::Marker &marker : m_model.sequence().markers) {
-        double mx = xForFrame(static_cast<double>(marker.at));
-        if (mx < kHandleWidth - 6 || mx > width + 6)
-            continue;
-        cairo_set_source_rgb(cr, kSnapR, kSnapG, kSnapB);
-        cairo_move_to(cr, mx - 5, tickBottom - 8);
-        cairo_line_to(cr, mx + 5, tickBottom - 8);
-        cairo_line_to(cr, mx, tickBottom);
-        cairo_close_path(cr);
-        cairo_fill(cr);
-        if (!marker.text.empty())
-            drawLabel(cr, marker.text, mx + 6, 2.0, 120.0);
-    }
+    PangoLayout *layout = newLabelLayout(m_rulerArea, true);
+    timeline::RulerScene scene{
+        .model = m_model,
+        .viewport = m_viewport,
+        .handleWidth = kHandleWidth,
+        .fps = m_playback->fps(),
+        .formatTimecode = [this](core::FrameIndex frame) { return formatTimecode(static_cast<int>(frame)); },
+        .labelLayout = layout,
+    };
+    timeline::snapshotRuler(snapshot, scene, width, height);
+    g_object_unref(layout);
 }
 
 void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber)
@@ -3988,28 +3616,6 @@ void AppWindow::seekChangedTrampoline(GtkRange *, gpointer userData)
 void AppWindow::splitClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onSplitClicked();
-}
-
-void AppWindow::timelineDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width, int height, gpointer userData)
-{
-    static_cast<AppWindow *>(userData)->onTimelineDraw(cr, width, height);
-}
-
-void AppWindow::playheadOverlayDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width, int height, gpointer userData)
-{
-    static_cast<AppWindow *>(userData)->onPlayheadOverlayDraw(cr, width, height);
-}
-
-void AppWindow::rulerDrawTrampoline(GtkDrawingArea *, cairo_t *cr, int width, int height, gpointer userData)
-{
-    static_cast<AppWindow *>(userData)->onRulerDraw(cr, width, height);
-}
-
-void AppWindow::timelineResizeTrampoline(GtkDrawingArea *, int, int, gpointer userData)
-{
-    auto *self = static_cast<AppWindow *>(userData);
-    self->updateViewportGeometry();
-    self->onTimelineViewportChanged();
 }
 
 gboolean AppWindow::timelineScrollTrampoline(GtkEventControllerScroll *controller, double dx, double dy,

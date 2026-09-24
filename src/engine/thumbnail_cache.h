@@ -55,16 +55,30 @@ class ThumbnailCache
     // once inserted, is never mutated again).
     const Data *thumbnailFor(const std::string &resource);
 
+    // The timeline's thumbnail strips (doc 06): the picture at `frame` of
+    // `resource`, counted at `fpsNum/fpsDen` (the sequence's rate, which
+    // clip in/out points use). Null until computed, like thumbnailFor(),
+    // and newest requests are served first, so what's on screen now comes
+    // before what was scrolled past. At most kMaxFrameThumbnails are kept;
+    // the oldest go first, so a returned pointer is only valid until the
+    // next call to this function (main thread only).
+    const Data *frameThumbnail(const std::string &resource, int frame, int fpsNum, int fpsDen);
+    static constexpr size_t kMaxFrameThumbnails = 800;
+
   private:
     struct Job
     {
         std::string resource;
+        int frame = -1; // -1: a representative frame, for thumbnailFor()
+        int fpsNum = 0, fpsDen = 1;
+        std::string key;
     };
 
     void workerMain();
 
     mutable std::mutex m_mutex;
     std::map<std::string, Data> m_cache;
+    std::deque<std::string> m_frameOrder; // frame-thumbnail keys, oldest first
     std::set<std::string> m_inFlight;
     std::deque<Job> m_queue;
     std::condition_variable m_cv;

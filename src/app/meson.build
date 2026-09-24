@@ -76,11 +76,22 @@ app_timeline_dep = declare_dependency(
   dependencies: [libustudio_core_dep],
 )
 
+# The timeline's colours, generated from style.css so the C++-drawn
+# timeline and the CSS-styled chrome share one set of tokens.
+app_tokens_h = custom_target(
+  'app-tokens-h',
+  input: 'style' / 'style.css',
+  output: 'tokens.h',
+  command: [find_program('python3'), meson.project_source_root() / 'tools' / 'gen_tokens.py', '@INPUT@', '@OUTPUT@'],
+)
+
 # Everything but main.cpp, as a library, so tests/app/ can check the real
 # hint and action tables against each other (test_ui_hints.cpp).
 app_window_lib = static_library(
   'ustudio_app_window',
-  files('action_registry.cpp', 'app_window.cpp', 'ui_hints.cpp'),
+  files('action_registry.cpp', 'app_window.cpp', 'ui_hints.cpp', 'timeline/timeline_renderer.cpp',
+        'timeline/us_timeline_view.cpp'),
+  app_tokens_h,
   dependencies: [libustudio_engine_dep, app_timeline_dep, app_autosave_dep, app_settings_dep, app_portal_dep, gtk4_dep, adwaita_dep, gio_dep],
   cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
   install: false,

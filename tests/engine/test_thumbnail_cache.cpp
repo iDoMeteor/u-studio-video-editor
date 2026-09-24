@@ -5,10 +5,12 @@
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "engine/thumbnail_cache.h"
+#include "sync_clip.h"
 
 #include <glib.h>
 #include <mlt++/Mlt.h>
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <mutex>
@@ -206,4 +208,33 @@ TEST_CASE("ThumbnailCache: a real 16:9 video decodes at its own aspect, not MLT'
     CHECK(data->rgba[0] > 200); // R
     CHECK(data->rgba[1] < 50);  // G
     CHECK(data->rgba[2] < 50);  // B
+}
+
+TEST_CASE("ThumbnailCache: frame thumbnails show the frame asked for, at the sequence's rate")
+{
+    sharedFactoryPolicy();
+    // The A/V sync clip: white on frame 0 of every second, black between.
+    ustudio::core::Model model = ustudio::core::Model::createEmpty();
+    EngineSync sync(model);
+    int fps = ustudio::testing::framesPerSecond(sync.profile());
+    std::random_device rd;
+    std::filesystem::path media =
+        std::filesystem::temp_directory_path() / ("ustudio-frame-thumbs-" + std::to_string(rd()) + ".mp4");
+    RemoveOnExit cleanup{media};
+    ustudio::testing::renderSyncClip(sync.profile(), media.string(), 3);
+
+    std::atomic<int> ready{0};
+    ThumbnailCache cache([&] { ++ready; });
+    auto brightness = [&](int frame) -> int {
+        const ThumbnailCache::Data *data = nullptr;
+        pumpMainContextUntil([&] { return (data = cache.frameThumbnail(media.string(), frame, fps, 1)) != nullptr; },
+                             std::chrono::seconds(10));
+        REQUIRE(data);
+        REQUIRE(!data->rgba.empty());
+        const uint8_t *centre = data->rgba.data() + ((data->height / 2) * data->width + data->width / 2) * 4;
+        return centre[0];
+    };
+    CHECK(brightness(fps) > 200);          // second 1's flash
+    CHECK(brightness(fps + fps / 2) < 50); // half a second later
+    CHECK(brightness(2 * fps) > 200);
 }

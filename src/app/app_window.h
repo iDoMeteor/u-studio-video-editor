@@ -19,6 +19,8 @@
 #include "engine/waveform_cache.h"
 #include "settings.h"
 #include "timeline/timeline_controller.h"
+#include "timeline/texture_cache.h"
+#include "timeline/timeline_renderer.h"
 #include "timeline/viewport.h"
 
 namespace ustudio::app {
@@ -73,6 +75,9 @@ class AppWindow
     friend const std::vector<ActionSpec> &actionSpecs();
 
   public:
+    // ADR-013 / doc 15 IP5: a drop-in's timeline overlay, painted over the
+    // tracks on every timeline redraw. Not owned; must outlive the window.
+    void addTimelineOverlay(const timeline::TimelineOverlayProvider *overlay);
     explicit AppWindow(GtkApplication *app);
 
     GtkWidget *widget() const
@@ -372,24 +377,12 @@ class AppWindow
     // Runs a controller outcome: the first attempt the undo stack accepts,
     // its status or the failure status, the seek, the active row, a rename.
     void applyTimelineOutcome(timeline::TimelineOutcome &outcome);
-    void onTimelineDraw(cairo_t *cr, int width, int height);
-    // Audit A5: the playhead line used to be the last few lines of
-    // onTimelineDraw() itself, so refreshTransport() -- which runs once
-    // per displayed frame, ~30/sec during playback -- had to queue a
-    // full timeline redraw (every track's Pango label layout, every
-    // clip's cached waveform lookup) just to move one line. Drawn here
-    // instead, on its own transparent, non-interactive GtkDrawingArea
-    // (m_playheadOverlay, click-through via gtk_widget_set_can_target)
-    // stacked on top of m_timeline in a GtkOverlay, so the per-frame
-    // redraw touches only this -- geometry math and a single cairo_stroke.
-    void onPlayheadOverlayDraw(cairo_t *cr, int width, int height);
-    // Enhancement #12: a timecode tick every "nice" interval (1/2/5/10/…
-    // seconds up to whole minutes/hours, whichever is the smallest that
-    // keeps ticks at least kRulerMinTickSpacing pixels apart at the
-    // current zoom) along m_rulerArea, using the same total-frames/
-    // contentWidth mapping onTimelineDraw() itself uses so ticks line up
-    // exactly with the clips underneath.
-    void onRulerDraw(cairo_t *cr, int width, int height);
+    // The three UsTimelineViews' snapshot callbacks (timeline/
+    // timeline_renderer.h does the drawing). The playhead is its own
+    // overlay widget so playback redraws only the line (audit A5).
+    void snapshotTimelineView(GtkSnapshot *snapshot, int width, int height);
+    void snapshotPlayheadOverlay(GtkSnapshot *snapshot, int width, int height);
+    void snapshotRulerView(GtkSnapshot *snapshot, int width, int height);
     void onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber);
 
     void refreshTimeline();
@@ -521,11 +514,6 @@ class AppWindow
     static void playToggledTrampoline(GtkButton *button, gpointer userData);
     static void seekChangedTrampoline(GtkRange *range, gpointer userData);
     static void splitClickedTrampoline(GtkButton *button, gpointer userData);
-    static void timelineDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer userData);
-    static void playheadOverlayDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height,
-                                              gpointer userData);
-    static void rulerDrawTrampoline(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer userData);
-    static void timelineResizeTrampoline(GtkDrawingArea *area, int width, int height, gpointer userData);
     static gboolean timelineScrollTrampoline(GtkEventControllerScroll *controller, double dx, double dy,
                                              gpointer userData);
     static void timelineHScrollChangedTrampoline(GtkAdjustment *adjustment, gpointer userData);
@@ -618,19 +606,21 @@ class AppWindow
     GtkWidget *m_removeAssetButton = nullptr;
     GtkWidget *m_deleteAssetFileButton = nullptr;
     core::AssetId m_contextMenuAssetId;
-    GtkDrawingArea *m_timeline = nullptr;
+    GtkWidget *m_timeline = nullptr; // a UsTimelineView (ADR-008)
     // Audit A5: see onPlayheadOverlayDraw()'s own comment. Stacked on top
     // of m_timeline inside a GtkOverlay (buildUi()); not a target for
     // pointer events, so every click/drag/drop/tooltip controller stays
     // exactly where it already was, on m_timeline itself.
-    GtkDrawingArea *m_playheadOverlay = nullptr;
+    GtkWidget *m_playheadOverlay = nullptr;
     // Enhancement #12: a separate, fixed-height widget stacked ABOVE
     // m_timeline in the layout (buildUi()), not overlapping it -- avoids
     // touching any of the row/y-coordinate math onTimelineClicked()/
     // onTrackDragBegin()/onTrackDragUpdate()/onTimelineRightClicked()
     // already do, since the ruler occupies its own vertical space rather
     // than the top of the track grid.
-    GtkDrawingArea *m_rulerArea = nullptr;
+    GtkWidget *m_rulerArea = nullptr;
+    // ADR-013's timeline hook: drop-ins' overlays, painted after the clips.
+    std::vector<const timeline::TimelineOverlayProvider *> m_timelineOverlays;
     // doc 06's Viewport: zoom and horizontal scroll for the timeline, the
     // ruler and the playhead overlay alike. m_timelineHAdjustment mirrors
     // it for the scrollbar under the timeline (in pixels).
@@ -686,6 +676,10 @@ class AppWindow
     std::unique_ptr<engine::PlaybackController> m_playback;
     std::unique_ptr<engine::WaveformCache> m_waveforms;
     std::unique_ptr<engine::ThumbnailCache> m_thumbnails;
+    // The timeline's thumbnail strips (their own worker; see the constructor)
+    // and the textures made from them.
+    std::unique_ptr<engine::ThumbnailCache> m_timelineThumbnails;
+    timeline::TextureCache m_thumbnailTextures{600};
     std::vector<ClipDisplay> m_clips;
     // doc 06's TimelineController: gesture state, drag preview and the
     // clip selection.

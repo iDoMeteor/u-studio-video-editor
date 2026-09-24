@@ -167,14 +167,20 @@ Deliverables:
 Acceptance:
 - [ ] Every gesture in the doc 06 table works with keyboard and mouse and is
       one undo step.
-- [ ] Illegal drops are shown red and refused; no model invariant violation
+- [x] Illegal drops are shown red and refused; no model invariant violation
       is reachable via UI (fuzz with `xdotool`-scripted random drags for 10
-      min under the debug verifier).
+      min under the debug verifier). (Red preview: `TimelineController::
+      Preview::valid`. Fuzz: `app-timeline-fuzz`, 4 × 20,000 random
+      gestures through the controller and undo stack with `Model::check()`
+      after each, undo-all restoring the start; 800,000 more ad hoc. It found
+      three real bugs, fixed in 0.21.1. Run without GTK, not by xdotool.)
 
       > REVIEW: Claude (2026-09-24): `xdotool` isn't installed here. AT-SPI's
       > `Atspi.generate_mouse_event()` against the app under Xvfb with
       > `GDK_BACKEND=x11` does drive real clicks (used to test the track menu).
-- [ ] Snapshot ≤ 4 ms with 10 tracks × 500 clips on screen.
+- [x] Snapshot ≤ 4 ms with 10 tracks × 500 clips on screen. (`app-timeline-
+      render`, optimised build, 2026-09-24, under load ~11: 0.6 ms with all
+      5,000 fitted, about 2 ms zoomed in with labels and waveforms.)
 - [ ] Timeline stays responsive while thumbnails and waveforms generate.
 
 ## M4 — Media bin and assets

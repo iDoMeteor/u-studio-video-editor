@@ -72,10 +72,12 @@ src/app/                  GTK4/libadwaita shell, built imperatively (no .ui file
   app_window.*            Header bar, preview, timeline, transport, media browser, dialogs
   action_registry.*       Every window action and its default shortcut (one table)
   ui_hints.*              Tooltip and Help text for every control; drop-ins register theirs
+  timeline/               Viewport, TimelineController, UsTimelineView widget, renderer (doc 06)
   autosave.*              Autosave and crash recovery (doc 09)
   style/style.css         Unicorn Tears tokens on libadwaita named colours (GResource)
 src/render/               u-studio-render headless CLI (placeholder until M6)
 tests/                    doctest suites: core/, engine/, app/
+tools/                    Build-time scripts (gen_tokens.py: style.css -> tokens.h)
 data/                     Desktop file, metainfo, icons, GResource manifest
 drop-ins/                 (planned, ADR-013) one self-contained folder per drop-in
                           (effects, titles): own code, data, tests, meson.build.
@@ -213,10 +215,11 @@ shell reskins from one place.
   tokens next to the existing `@define-color` lines.
 - Glow is a *selection/focus* treatment only; this app is looked at for
   hours. No glowing static chrome, no animated decoration in the editor.
-- Cairo/snapshot-drawn items (clips, playhead) currently duplicate hex
-  values in `app_window.cpp`; if you add one, keep it adjacent to the
-  existing `kClip*` constants with a comment naming the token. M3 generates
-  both from one source.
+- The timeline (clips, playhead, ruler) is drawn in C++, where CSS can't
+  reach, but takes its colours from the same tokens: `tools/gen_tokens.py`
+  turns `style.css`'s `@define-color` lines into a generated `tokens.h`
+  (`tokens::kBrandCyan`, ...). Add a colour as a token in `style.css`,
+  never as hex in C++.
 - Fonts (Space Grotesk, JetBrains Mono, Anton) are not bundled and may not be
   installed; every rule must keep its generic fallback.
 - Icons: symbolic GNOME icon names (`media-playback-start-symbolic`), never

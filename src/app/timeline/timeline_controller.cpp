@@ -221,6 +221,7 @@ TimelineOutcome TimelineController::motion(const TimelineContext &ctx, double of
     double y = m_pressY + offsetY;
     core::FrameIndex delta = ctx.viewport.framesForPixels(offsetX);
     m_preview.snappedTo.reset();
+    m_preview.valid = true;
 
     switch (m_mode) {
     case Mode::None:
@@ -253,6 +254,8 @@ TimelineOutcome TimelineController::motion(const TimelineContext &ctx, double of
         }
         m_preview.start = std::max<core::FrameIndex>(0, start);
         m_preview.length = m_originLength;
+        m_preview.valid =
+            placementValid(ctx, {m_preview.clip}, m_preview.start - m_originStart, m_preview.row - m_originRow, true);
         break;
     }
     case Mode::RippleTrimStart: {
@@ -333,6 +336,13 @@ TimelineOutcome TimelineController::motion(const TimelineContext &ctx, double of
         m_preview.start = std::max<core::FrameIndex>(0, start);
         m_preview.length = m_originLength;
         m_preview.groupDelta = m_preview.start - m_originStart;
+        if (m_preview.group) {
+            std::vector<core::ClipId> clips(m_selection.clips().begin(), m_selection.clips().end());
+            m_preview.valid = placementValid(ctx, clips, m_preview.groupDelta, m_preview.groupRowDelta, false);
+        } else if (!(m_preview.row == m_originRow && m_preview.start == m_originStart)) {
+            m_preview.valid = placementValid(ctx, {m_preview.clip}, m_preview.start - m_originStart,
+                                             m_preview.row - m_originRow, false);
+        }
         break;
     }
     case Mode::TrimClipStart: {
@@ -580,6 +590,48 @@ void TimelineController::cancel()
     m_originRow = -1;
     m_originStart = 0;
     m_originLength = 0;
+}
+
+bool TimelineController::placementValid(const TimelineContext &ctx, const std::vector<core::ClipId> &clips,
+                                        core::FrameIndex delta, int rowDelta, bool copy) const
+{
+    // What the move leaves behind doesn't block it: every moving clip,
+    // and (C2) any dissolve partner whose extended span overlaps it.
+    std::vector<core::ClipId> ignore;
+    if (!copy) {
+        ignore = clips;
+        for (const core::Transition &t : ctx.model.sequence().transitions) {
+            for (core::ClipId id : clips) {
+                if (t.a == id)
+                    ignore.push_back(t.b);
+                if (t.b == id)
+                    ignore.push_back(t.a);
+            }
+        }
+    }
+    for (core::ClipId id : clips) {
+        if (!ctx.model.hasClip(id))
+            return false;
+        const core::Clip &clip = ctx.model.clip(id);
+        int row = -1;
+        for (int r = 0; r < trackCount(ctx); ++r) {
+            if (trackAtRow(ctx, r) == clip.track)
+                row = r;
+        }
+        int to = row + rowDelta;
+        if (!rowInRange(ctx, to))
+            return false;
+        const core::Track &dest = ctx.model.track(trackAtRow(ctx, to));
+        if (dest.locked || (!copy && ctx.model.track(clip.track).locked))
+            return false;
+        if (dest.kind == core::Track::Kind::Audio &&
+            !(clip.audioEnabled && ctx.model.hasAsset(clip.asset) && ctx.model.asset(clip.asset).info.hasAudio))
+            return false;
+        core::FrameIndex start = clip.position + delta;
+        if (start < 0 || !ctx.model.isRangeFree(dest.id, start, start + clip.length(), ignore))
+            return false;
+    }
+    return true;
 }
 
 std::vector<core::FrameIndex> TimelineController::snapTargets(const TimelineContext &ctx, core::ClipId exclude) const

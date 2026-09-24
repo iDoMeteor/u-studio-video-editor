@@ -2,6 +2,14 @@
 
 **Status:** Proposed
 
+> REVIEW: Claude (2026-09-24): built as `app/timeline/us_timeline_view.*`
+> (widget), `timeline_renderer.*` (snapshot) and `timeline_controller.*`.
+> Two deviations: it doesn't implement GtkScrollable (the Viewport keeps the
+> horizontal scroll and drives a separate scrollbar; tracks scroll in a
+> plain GtkScrolledWindow), and the playhead overlay and ruler are two more
+> UsTimelineViews rather than ordinary widgets. Waveforms use a GskPath
+> fill where GTK >= 4.14, cairo below that. Budget met: see doc 12, M3.
+
 ## Context
 Two ways to draw a timeline in GTK4: a widget per clip inside a custom
 layout manager, or one widget that paints everything in `snapshot`. Per-clip

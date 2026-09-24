@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.22.0
+
+- The timeline draws with GTK's scene graph (a custom widget) and stays
+  fast with thousands of clips on screen; video clips show a strip of
+  thumbnails; a move or copy that would be refused shows red while you
+  drag.
+
 ## 0.21.1
 
 - Fixed: a head trim could push a clip past the clip it dissolves into,

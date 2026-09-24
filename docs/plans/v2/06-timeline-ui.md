@@ -86,6 +86,13 @@ Colours come from `style/tokens.h`, generated from the same values as
 `style.css` by a script (`tools/gen_tokens.py`) so they never drift again
 (the review noted `app_window.cpp:10-12` duplicating CSS hex by hand).
 
+> REVIEW: Claude (2026-09-24): built as described (the generated header is
+> `tokens.h` in the build tree). Also as built: clips under 4 px draw as a
+> tick without an outline, waveforms need 24 px, and thumbnails tile edge
+> to edge at the source's aspect rather than every 96 px, which left gaps.
+> The drop-in hook is `TimelineOverlayProvider` (paint over the tracks);
+> extra lane height waits for per-track row heights.
+
 ## Interaction (TimelineController)
 
 > REVIEW: Claude (2026-09-24): built as `app/timeline/timeline_controller.

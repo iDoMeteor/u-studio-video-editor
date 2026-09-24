@@ -408,3 +408,20 @@ TEST_CASE("TimelineController: a slip stops at the start of the source")
     f.controller.motion(f.ctx(), 5000.0, 0.0);
     CHECK(f.controller.preview().slipDelta == -3000);
 }
+
+TEST_CASE("TimelineController: a move or copy onto something shows as invalid while dragging")
+{
+    Fixture f;
+    f.controller.press(f.ctx(), Fixture::x(350), Fixture::bodyY(0), Modifiers::None);
+    f.controller.motion(f.ctx(), 100.0, 0.0); // c into the free space after it
+    CHECK(f.controller.preview().valid);
+    f.controller.motion(f.ctx(), -180.0, 0.0); // c onto b
+    CHECK_FALSE(f.controller.preview().valid);
+    f.controller.cancel();
+
+    f.controller.press(f.ctx(), Fixture::x(550), Fixture::bodyY(1), Modifiers::Ctrl);
+    f.controller.motion(f.ctx(), -500.0, -60.0); // a copy of d onto a
+    CHECK_FALSE(f.controller.preview().valid);
+    f.controller.motion(f.ctx(), 200.0, -60.0); // onto free V1 space at 700
+    CHECK(f.controller.preview().valid);
+}

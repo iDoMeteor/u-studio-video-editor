@@ -48,7 +48,31 @@ const ThumbnailCache::Data *ThumbnailCache::thumbnailFor(const std::string &reso
 
     if (m_inFlight.find(resource) == m_inFlight.end()) {
         m_inFlight.insert(resource);
-        m_queue.push_back(Job{resource});
+        m_queue.push_back(Job{resource, -1, 0, 1, resource});
+        m_cv.notify_one();
+    }
+    return nullptr;
+}
+
+const ThumbnailCache::Data *ThumbnailCache::frameThumbnail(const std::string &resource, int frame, int fpsNum,
+                                                           int fpsDen)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    // Evicted here, on the main thread, never by the worker: a pointer this
+    // returned is used before the next call, so eviction can't pull an entry
+    // out from under a caller.
+    while (m_frameOrder.size() > kMaxFrameThumbnails) {
+        m_cache.erase(m_frameOrder.front());
+        m_frameOrder.pop_front();
+    }
+
+    std::string key =
+        resource + '\n' + std::to_string(frame) + '@' + std::to_string(fpsNum) + '/' + std::to_string(fpsDen);
+    auto it = m_cache.find(key);
+    if (it != m_cache.end())
+        return &it->second;
+    if (m_inFlight.insert(key).second) {
+        m_queue.push_front(Job{resource, frame, fpsNum, fpsDen, key}); // newest first
         m_cv.notify_one();
     }
     return nullptr;
@@ -56,6 +80,14 @@ const ThumbnailCache::Data *ThumbnailCache::thumbnailFor(const std::string &reso
 
 void ThumbnailCache::workerMain()
 {
+    // The last file opened, kept open: a thumbnail strip asks for many
+    // frames of the same file in a row, and opening a producer costs far
+    // more than decoding one frame.
+    std::string openResource;
+    int openFpsNum = -1, openFpsDen = -1;
+    std::unique_ptr<Mlt::Profile> openProfile;
+    std::unique_ptr<Mlt::Producer> openProducer;
+
     while (true) {
         Job job;
         {
@@ -71,7 +103,7 @@ void ThumbnailCache::workerMain()
         }
 
         Data data;
-        Log::ScopedTimer timer("[thumbnail] job " + job.resource);
+        Log::ScopedTimer timer("[thumbnail] job " + job.key);
 
         // Independent Profile/Producer per job, same as WaveformCache --
         // never touches EngineSync's own objects or the live
@@ -92,25 +124,38 @@ void ThumbnailCache::workerMain()
         // sample-aspect before decoding the real thumbnail frame --
         // confirmed empirically that this is enough on its own; the
         // producer does not need to be reopened.
-        Mlt::Profile profile;
-        Mlt::Producer producer(profile, job.resource.c_str());
-        if (producer.is_valid()) {
-            std::unique_ptr<Mlt::Frame> primeFrame(producer.get_frame());
-            int metaWidth = producer.get_int("meta.media.width");
-            int metaHeight = producer.get_int("meta.media.height");
-            if (metaWidth > 0 && metaHeight > 0) {
-                profile.set_width(metaWidth);
-                profile.set_height(metaHeight);
-                profile.set_sample_aspect(1, 1);
+        if (!openProducer || openResource != job.resource || openFpsNum != job.fpsNum || openFpsDen != job.fpsDen) {
+            openProducer.reset();
+            openProfile = std::make_unique<Mlt::Profile>();
+            // A frame job counts frames at the sequence's rate; set it
+            // before opening, so the producer's positions use it.
+            if (job.frame >= 0 && job.fpsNum > 0 && job.fpsDen > 0)
+                openProfile->set_frame_rate(job.fpsNum, job.fpsDen);
+            openProducer = std::make_unique<Mlt::Producer>(*openProfile, job.resource.c_str());
+            openResource = job.resource;
+            openFpsNum = job.fpsNum;
+            openFpsDen = job.fpsDen;
+            if (openProducer->is_valid()) {
+                std::unique_ptr<Mlt::Frame> primeFrame(openProducer->get_frame());
+                int metaWidth = openProducer->get_int("meta.media.width");
+                int metaHeight = openProducer->get_int("meta.media.height");
+                if (metaWidth > 0 && metaHeight > 0) {
+                    openProfile->set_width(metaWidth);
+                    openProfile->set_height(metaHeight);
+                    openProfile->set_sample_aspect(1, 1);
+                }
             }
-
+        }
+        Mlt::Producer &producer = *openProducer;
+        if (producer.is_valid()) {
             int length = producer.get_length();
             // A representative frame, not necessarily the first: many
             // real clips fade in from or open on black, which makes a
             // frame-0 thumbnail useless for telling clips apart at a
             // glance. 10% in is a cheap, reasonable stand-in for "past
             // the open" without needing real content-aware selection.
-            int targetFrame = std::clamp(length / 10, 0, std::max(length - 1, 0));
+            int targetFrame = job.frame >= 0 ? std::clamp(job.frame, 0, std::max(length - 1, 0))
+                                             : std::clamp(length / 10, 0, std::max(length - 1, 0));
             producer.seek(targetFrame);
 
             std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
@@ -145,12 +190,15 @@ void ThumbnailCache::workerMain()
             }
         } else {
             Log::warn("[thumbnail] could not open " + job.resource);
+            openProducer.reset(); // try again next time
         }
 
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_cache.emplace(job.resource, std::move(data));
-            m_inFlight.erase(job.resource);
+            m_cache.emplace(job.key, std::move(data));
+            m_inFlight.erase(job.key);
+            if (job.frame >= 0)
+                m_frameOrder.push_back(job.key);
         }
 
         // Through MainThreadDispatcher rather than a raw g_idle_add(): one

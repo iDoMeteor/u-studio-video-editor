@@ -51,10 +51,10 @@ window {
   border-radius: 6px;
 }
 
-/* Individual clips are cairo-drawn inside .timeline-area (a single
-   GtkDrawingArea), not separate widgets, so their colors are hardcoded to
-   match these same tokens directly in app_window.cpp rather than styled
-   here. */
+/* Individual clips are drawn by the timeline widget (UsTimelineView), not
+   separate widgets, so CSS can't reach them. tools/gen_tokens.py turns the
+   @define-color tokens above into tokens.h at build time, which is where
+   the timeline takes its colours from: change a token here and both follow. */
 
 .timecode-label {
   font-family: "JetBrains Mono", monospace;

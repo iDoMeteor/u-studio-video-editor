@@ -121,7 +121,19 @@ single-track skeleton.
   available. Locked rows get a subtle tint so you can tell at a glance.
 - Per-clip audio waveforms, drawn on every clip that has audio (video or
   audio-only), computed on a background thread so the UI never stalls —
-  see `src/engine/waveform_cache.{h,cpp}`.
+  see `src/engine/waveform_cache.{h,cpp}`. Video clips carry a strip of
+  thumbnails edge to edge, frame-accurate, from their own worker (newest
+  requests first; `ThumbnailCache::frameThumbnail`), with the waveform in
+  the bottom 40% under them.
+- The timeline is one custom widget (`UsTimelineView`, ADR-008) drawn in
+  `snapshot` with GSK nodes by `src/app/timeline/timeline_renderer.
+  {h,cpp}`: 10 tracks × 500 clips on screen snapshot in about 0.6 ms, and
+  about 2 ms zoomed in with labels and waveforms (optimised build;
+  `tests/app/test_timeline_render.cpp`). Its colours come from
+  `style.css` through `tools/gen_tokens.py` (a generated `tokens.h`), so
+  the drawn timeline and the CSS chrome share one set of tokens. A move or
+  copy that would be refused draws red while you drag. Drop-ins can paint
+  over the tracks through `AppWindow::addTimelineOverlay()` (ADR-013).
 - Dissolve transitions between two adjacent clips on the same track,
   shown as a diagonal-hatch region on the timeline. Create one by
   dragging a clip's edge past its exactly-touching neighbor (the same
