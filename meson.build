@@ -1,6 +1,6 @@
 project(
   'u-studio-video-editor', 'cpp',
-  version: '0.23.1',
+  version: '0.23.2',
   license: 'GPL-3.0-or-later',
   default_options: [
     'cpp_std=c++23',
@@ -35,6 +35,11 @@ extra_warning_flags = cpp.get_supported_arguments(
   '-Wnon-virtual-dtor',
 )
 add_project_arguments(extra_warning_flags, language: 'cpp')
+
+# 1 for debug and debugoptimized builds, 0 for release and plain. Not
+# NDEBUG: this project leaves b_ndebug at meson's default (false), so NDEBUG
+# is never defined, even in a release build.
+add_project_arguments('-DUSTUDIO_DEBUG_BUILD=' + (get_option('debug') ? '1' : '0'), language: 'cpp')
 
 # -Werror itself is meson's own built-in option (-Dwerror=true); no need to
 # add it manually -- meson already does when that's set. CI sets it; local

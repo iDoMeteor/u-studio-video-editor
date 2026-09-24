@@ -36,18 +36,28 @@ const char *levelName(LogLevel level)
     return "?";
 }
 
-LogLevel levelFromEnv()
+} // namespace
+
+namespace Log {
+
+LogLevel defaultLevel()
 {
-    const char *env = std::getenv("USTUDIO_LOG_LEVEL");
-    // Default raised from Info to Debug (2026-09-20): a real crash and a
-    // "playback stopped working" report both turned out hard to diagnose
-    // from what Info-level logging alone had captured. Until this app is
-    // past its current run of active bug-hunting, debug output is worth
-    // more than the extra log volume by default -- USTUDIO_LOG_LEVEL still
-    // overrides it either way (info/warn/error/none) for anyone who wants
-    // the quieter behavior back.
+    // Debug in debug builds (raised from Info on 2026-09-20: a real crash
+    // and a "playback stopped working" report were both hard to diagnose
+    // from Info-level logs alone). Info in release builds, which the owner
+    // runs day to day: Debug there wrote a 218 KB log per session.
+    // USTUDIO_LOG_LEVEL overrides either way.
+#if USTUDIO_DEBUG_BUILD
+    return LogLevel::Debug;
+#else
+    return LogLevel::Info;
+#endif
+}
+
+LogLevel levelFromValue(const char *env)
+{
     if (!env)
-        return LogLevel::Debug;
+        return defaultLevel();
     std::string v(env);
     for (auto &c : v)
         c = static_cast<char>(std::tolower(c));
@@ -61,8 +71,12 @@ LogLevel levelFromEnv()
         return LogLevel::Error;
     if (v == "none" || v == "off")
         return LogLevel::None;
-    return LogLevel::Debug;
+    return defaultLevel();
 }
+
+} // namespace Log
+
+namespace {
 
 std::string timestampForLine()
 {
@@ -120,7 +134,7 @@ namespace Log {
 void init(const std::string &appName)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
-    g_level = levelFromEnv();
+    g_level = levelFromValue(std::getenv("USTUDIO_LOG_LEVEL"));
 
     std::filesystem::path dir = logDirectory();
     std::error_code ec;

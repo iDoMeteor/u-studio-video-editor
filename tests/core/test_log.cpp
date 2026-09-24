@@ -18,6 +18,22 @@ TEST_CASE("Log level get/set round-trips without touching the filesystem")
     Log::setLevel(original); // leave global state as found
 }
 
+TEST_CASE("The default log level follows the build type; USTUDIO_LOG_LEVEL overrides it")
+{
+#if USTUDIO_DEBUG_BUILD
+    CHECK(Log::defaultLevel() == LogLevel::Debug);
+#else
+    CHECK(Log::defaultLevel() == LogLevel::Info);
+#endif
+    CHECK(Log::levelFromValue(nullptr) == Log::defaultLevel());
+    CHECK(Log::levelFromValue("bogus") == Log::defaultLevel());
+    CHECK(Log::levelFromValue("DEBUG") == LogLevel::Debug);
+    CHECK(Log::levelFromValue("info") == LogLevel::Info);
+    CHECK(Log::levelFromValue("Warning") == LogLevel::Warn);
+    CHECK(Log::levelFromValue("error") == LogLevel::Error);
+    CHECK(Log::levelFromValue("off") == LogLevel::None);
+}
+
 TEST_CASE("ScopedTimer logs on destruction and nests safely, at any log level")
 {
     LogLevel original = Log::level();

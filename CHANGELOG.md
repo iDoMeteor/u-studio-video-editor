@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.23.2
+
+- Release builds log at Info by default instead of Debug (debug builds are
+  unchanged); `USTUDIO_LOG_LEVEL` still overrides either way.
+
 ## 0.23.1
 
 - Fixed: Shift+Delete crashed after removing a media file whose clips were
