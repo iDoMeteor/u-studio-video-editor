@@ -1,5 +1,7 @@
 #pragma once
 
+#include "dispatcher.h"
+
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -69,6 +71,12 @@ class ThumbnailCache
     std::thread m_worker;
     std::atomic<bool> m_quit{false};
     std::function<void()> m_onReady;
+    // Guards the ready callbacks posted through MainThreadDispatcher: if
+    // this cache is destroyed first, a still-pending callback is dropped
+    // instead of calling a copied m_onReady whose captures may be gone.
+    // Declared last, so it's destroyed first, after the destructor has
+    // already joined the worker.
+    MainThreadDispatcher::LifetimeToken m_lifetime = MainThreadDispatcher::makeToken();
 };
 
 } // namespace ustudio::engine

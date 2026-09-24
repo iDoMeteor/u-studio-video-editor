@@ -2,7 +2,6 @@
 
 #include "core/log.h"
 
-#include <glib.h>
 #include <mlt++/Mlt.h>
 
 #include <algorithm>
@@ -154,18 +153,11 @@ void ThumbnailCache::workerMain()
             m_inFlight.erase(job.resource);
         }
 
-        // AppWindow (the usual onReady target) is never destroyed during
-        // normal operation -- see main.cpp's "leaked intentionally" note,
-        // and WaveformCache's identical comment -- so capturing/calling
-        // back into it from here is safe for the process's lifetime.
-        auto *cb = new std::function<void()>(m_onReady);
-        g_idle_add(
-            [](gpointer cbData) -> gboolean {
-                std::unique_ptr<std::function<void()>> fn(static_cast<std::function<void()> *>(cbData));
-                (*fn)();
-                return G_SOURCE_REMOVE;
-            },
-            cb);
+        // Through MainThreadDispatcher rather than a raw g_idle_add(): one
+        // hand-off mechanism for every worker-to-main-thread post, with a
+        // lifetime guard, and the one place the TSan annotations for that
+        // hand-off live (sanitizer report S5).
+        MainThreadDispatcher::post(m_lifetime, m_onReady);
     }
 }
 
