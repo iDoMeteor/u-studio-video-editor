@@ -106,6 +106,8 @@ Idle
  ├─ press on fade handle      → FadeDragging
  ├─ press on transition       → TransitionResizing
  ├─ press on empty            → RubberBand (marquee select) or, with Alt, playhead scrub
+ │    (REVIEW: Claude, 2026-09-24: as built, a plain drag on empty space
+ │     scrubs, as the owner already used it, and Shift+drag is the marquee)
  ├─ press on ruler            → Scrubbing (seek per motion, coalesced)
  └─ external drag enters      → InsertingFromBin
 Moving/Trimming/…  ─ motion → compute candidate; snap; dry-run validate; redraw overlay
@@ -160,13 +162,14 @@ shipped bindings are the owner's and are the source of truth
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
 | + / − / 0 | zoom in / out / fit (M3) |
 | M | add marker (M3) |
-| Ctrl+A | select all (M3) |
+| Ctrl+A / Escape | select all / clear selection |
 | Ctrl+G / Ctrl+Shift+G | group / ungroup (M3.5) |
 
 ## Selection model
 
 `Selection` (app layer): `std::set<ClipId>` + optional `TransitionId` +
-current track. Emitted as a signal; the effects panel and actions follow it.
+current track. (Built as `app/timeline/selection.h`, clips only so far;
+dragging a selected clip moves the whole set via `core::MoveClips`.) Emitted as a signal; the effects panel and actions follow it.
 Selection is cleared when a selected clip is removed. Linked audio/video from
 the same asset move together by default (v2.0 treats a video clip with
 `audioEnabled` as one clip on the video track carrying audio; "Split

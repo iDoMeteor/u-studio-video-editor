@@ -525,6 +525,8 @@ class AppWindow
                                              gpointer userData);
     static void timelineHScrollChangedTrampoline(GtkAdjustment *adjustment, gpointer userData);
     static void timelineMotionTrampoline(GtkEventControllerMotion *controller, double x, double y, gpointer userData);
+    static void selectAllActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void clearSelectionActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void zoomInActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void zoomOutActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void zoomFitActivated(GSimpleAction *, GVariant *, gpointer userData);

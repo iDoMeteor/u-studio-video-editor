@@ -2,6 +2,7 @@
 
 #include "core/commands/composite_command.h"
 #include "core/commands/primitives.h"
+#include "core/commands/timeline_edits.h"
 #include "core/model/model.h"
 
 #include <algorithm>
@@ -46,7 +47,7 @@ bool near(double a, double b, double within)
 
 } // namespace
 
-TimelineOutcome TimelineController::click(const TimelineContext &ctx, int nPress, double x, double y, Modifiers)
+TimelineOutcome TimelineController::click(const TimelineContext &ctx, int nPress, double x, double y, Modifiers mods)
 {
     TimelineOutcome out;
     if (trackCount(ctx) <= 0)
@@ -79,12 +80,25 @@ TimelineOutcome TimelineController::click(const TimelineContext &ctx, int nPress
         }
     }
 
+    // Shift and Ctrl clicks only change the selection, which press()
+    // already did; they don't move the playhead.
+    if (has(mods, Modifiers::Shift) || has(mods, Modifiers::Ctrl))
+        return out;
     if (clip.isValid())
         m_selection.selectOnly(clip);
     else
         m_selection.clear();
     out.seek = std::clamp<core::FrameIndex>(frame, 0, ctx.sequenceLength - 1);
     return out;
+}
+
+void TimelineController::selectAll(const core::Model &model)
+{
+    m_selection.clear();
+    for (const core::Track &track : model.sequence().tracks) {
+        for (core::ClipId id : track.clips)
+            m_selection.add(id);
+    }
 }
 
 TimelineOutcome TimelineController::press(const TimelineContext &ctx, double x, double y, Modifiers mods)
@@ -143,9 +157,21 @@ TimelineOutcome TimelineController::press(const TimelineContext &ctx, double x, 
             m_preview.row = row;
             m_preview.start = clip.position;
             m_preview.length = clip.length();
-            if (!m_selection.contains(id))
-                m_selection.selectOnly(id);
             out.activeRow = row;
+            // Shift adds, Ctrl toggles; a plain press on an unselected clip
+            // selects just it, and on a selected one keeps the selection so
+            // the whole group can be dragged.
+            if (has(mods, Modifiers::Ctrl)) {
+                m_selection.toggle(id);
+                if (!m_selection.contains(id)) {
+                    m_mode = Mode::None; // toggled off: nothing to drag
+                    return out;
+                }
+            } else if (has(mods, Modifiers::Shift)) {
+                m_selection.add(id);
+            } else if (!m_selection.contains(id)) {
+                m_selection.selectOnly(id);
+            }
 
             double left = ctx.viewport.xForFrame(static_cast<double>(clip.position));
             double right = ctx.viewport.xForFrame(static_cast<double>(clip.end()));
@@ -157,6 +183,13 @@ TimelineOutcome TimelineController::press(const TimelineContext &ctx, double x, 
                 m_mode = Mode::MoveClip;
             return out;
         }
+    }
+
+    if (has(mods, Modifiers::Shift)) {
+        m_mode = Mode::RubberBand;
+        m_preview.bandX0 = m_preview.bandX1 = x;
+        m_preview.bandY0 = m_preview.bandY1 = y;
+        return out;
     }
 
     // Empty space scrubs: seek now, so a press-release that never moves
@@ -186,8 +219,34 @@ TimelineOutcome TimelineController::motion(const TimelineContext &ctx, double of
         if (ctx.sequenceLength > 0)
             out.seek = std::clamp<core::FrameIndex>(ctx.viewport.frameForX(x), 0, ctx.sequenceLength - 1);
         break;
+    case Mode::RubberBand:
+        m_preview.bandX1 = x;
+        m_preview.bandY1 = y;
+        break;
     case Mode::MoveClip: {
         m_preview.row = ctx.layout.clampedRowAt(y, count);
+        m_preview.group = m_selection.clips().size() > 1;
+        if (m_preview.group) {
+            // Keep every selected clip on a real track, and none before 0.
+            int lowest = count, highest = -1;
+            core::FrameIndex earliest = m_originStart;
+            for (core::ClipId id : m_selection.clips()) {
+                if (!ctx.model.hasClip(id))
+                    continue;
+                const core::Clip &clip = ctx.model.clip(id);
+                for (int r = 0; r < count; ++r) {
+                    if (trackAtRow(ctx, r) == clip.track) {
+                        lowest = std::min(lowest, r);
+                        highest = std::max(highest, r);
+                    }
+                }
+                earliest = std::min(earliest, clip.position);
+            }
+            int rowDelta = std::clamp(m_preview.row - m_originRow, -lowest, count - 1 - highest);
+            m_preview.row = m_originRow + rowDelta;
+            m_preview.groupRowDelta = rowDelta;
+            delta = std::max(delta, -earliest);
+        }
         core::FrameIndex start = std::max<core::FrameIndex>(0, m_originStart + delta);
         // Whichever edge of the clip is nearer a target snaps, and the
         // whole clip moves by that one delta.
@@ -203,6 +262,7 @@ TimelineOutcome TimelineController::motion(const TimelineContext &ctx, double of
         }
         m_preview.start = std::max<core::FrameIndex>(0, start);
         m_preview.length = m_originLength;
+        m_preview.groupDelta = m_preview.start - m_originStart;
         break;
     }
     case Mode::TrimClipStart: {
@@ -276,6 +336,25 @@ TimelineOutcome TimelineController::release(const TimelineContext &ctx, double o
     case Mode::MoveClip:
         releaseMove(ctx, out);
         break;
+    case Mode::RubberBand: {
+        double left = std::min(m_preview.bandX0, m_preview.bandX1);
+        double right = std::max(m_preview.bandX0, m_preview.bandX1);
+        double top = std::min(m_preview.bandY0, m_preview.bandY1);
+        double bottom = std::max(m_preview.bandY0, m_preview.bandY1);
+        for (int r = 0; r < trackCount(ctx); ++r) {
+            double rowTop = ctx.layout.clipTop(r);
+            if (rowTop + ctx.layout.clipHeight() < top || rowTop > bottom)
+                continue;
+            for (core::ClipId id : ctx.model.track(trackAtRow(ctx, r)).clips) {
+                const core::Clip &clip = ctx.model.clip(id);
+                double clipLeft = ctx.viewport.xForFrame(static_cast<double>(clip.position));
+                double clipRight = ctx.viewport.xForFrame(static_cast<double>(clip.end()));
+                if (clipRight >= left && clipLeft <= right)
+                    m_selection.add(id);
+            }
+        }
+        break;
+    }
     case Mode::TrimClipStart:
     case Mode::TrimClipEnd:
         releaseTrim(ctx, out);
@@ -299,6 +378,14 @@ void TimelineController::releaseMove(const TimelineContext &ctx, TimelineOutcome
     // dissolves for nothing (audit C3).
     if (dest == clip.track && m_preview.start == clip.position)
         return;
+    if (m_preview.group) {
+        std::vector<core::ClipId> clips(m_selection.clips().begin(), m_selection.clips().end());
+        out.attempts.push_back(
+            {std::make_unique<core::MoveClips>(std::move(clips), m_preview.groupDelta, m_preview.groupRowDelta), ""});
+        out.activeRowOnSuccess = m_preview.row;
+        out.failureStatus = "Can't move those clips there — something is in the way, or a track is locked.";
+        return;
+    }
     out.attempts.push_back({std::make_unique<core::MoveClip>(m_preview.clip, dest, m_preview.start), ""});
     out.activeRowOnSuccess = m_preview.row;
     out.failureStatus = "Can't move the clip there — that space is occupied.";

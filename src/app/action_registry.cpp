@@ -38,6 +38,8 @@ const std::vector<ActionSpec> &actionSpecs()
         {"active-track-down",    "Active Track Down",          "Editing", {"d"},                    &AppWindow::activeTrackDownActivated},
         {"delete-selected-clip", "Delete Selected Clip",       "Editing", {"Delete"},               &AppWindow::deleteSelectedClipActivated},
         {"split-at-playhead",    "Split Clip at Playhead",     "Editing", {"x"},                    &AppWindow::splitAtPlayheadActivated},
+        {"select-all",           "Select All Clips",           "Editing", {"<Control>a"},           &AppWindow::selectAllActivated},
+        {"clear-selection",      "Clear Selection",            "Editing", {"Escape"},               &AppWindow::clearSelectionActivated},
 
         // --- Timeline view (doc 06) ---
         {"zoom-in",              "Zoom In",                    "Timeline", {"plus", "equal", "KP_Add"}, &AppWindow::zoomInActivated},

@@ -80,6 +80,114 @@ void ShiftClips::revert(Model &model)
     model.notify(BatchEnd{});
 }
 
+// --- MoveClips --------------------------------------------------------------
+
+MoveClips::MoveClips(std::vector<ClipId> clips, FrameIndex delta, int rowDelta)
+    : m_clips(std::move(clips)), m_delta(delta), m_rowDelta(rowDelta)
+{
+    std::sort(m_clips.begin(), m_clips.end());
+    m_clips.erase(std::unique(m_clips.begin(), m_clips.end()), m_clips.end());
+}
+
+bool MoveClips::perform(Model &model, std::vector<Moved> &moved, std::vector<Transition> &stripped) const
+{
+    const std::vector<Track> &tracks = model.sequence().tracks;
+    auto indexOf = [&](TrackId id) {
+        for (size_t i = 0; i < tracks.size(); ++i) {
+            if (tracks[i].id == id)
+                return static_cast<int>(i);
+        }
+        return -1;
+    };
+    auto isMoved = [&](ClipId id) { return std::binary_search(m_clips.begin(), m_clips.end(), id); };
+
+    // Dissolves that can't come along: one clip stays, or the pair changes
+    // track. Removing them un-extends both clips first.
+    for (const Transition &t : model.sequence().transitions) {
+        bool aMoves = isMoved(t.a), bMoves = isMoved(t.b);
+        if ((aMoves || bMoves) && !(aMoves && bMoves && m_rowDelta == 0))
+            stripped.push_back(t);
+    }
+    for (const Transition &t : stripped)
+        model.removeTransition(t.id);
+
+    for (ClipId id : m_clips) {
+        const Clip &clip = model.clip(id);
+        int to = indexOf(clip.track) + m_rowDelta;
+        if (to < 0 || to >= static_cast<int>(tracks.size()))
+            return false;
+        TrackId dest = tracks[static_cast<size_t>(to)].id;
+        moved.push_back({id, clip.track, clip.position, clip.videoEnabled});
+        model.moveClip(id, dest, clip.position + m_delta);
+        if (model.track(dest).kind == Track::Kind::Audio && model.clip(id).videoEnabled)
+            model.setClipEnabled(id, /*videoEnabled=*/false, model.clip(id).audioEnabled);
+    }
+    return true;
+}
+
+bool MoveClips::apply(Model &model)
+{
+    if (m_clips.empty() || (m_delta == 0 && m_rowDelta == 0))
+        return false;
+    const std::vector<Track> &tracks = model.sequence().tracks;
+    for (ClipId id : m_clips) {
+        if (!model.hasClip(id))
+            return false;
+        const Clip &clip = model.clip(id);
+        if (model.track(clip.track).locked)
+            return false;
+        int from = -1;
+        for (size_t i = 0; i < tracks.size(); ++i) {
+            if (tracks[i].id == clip.track)
+                from = static_cast<int>(i);
+        }
+        int to = from + m_rowDelta;
+        if (to < 0 || to >= static_cast<int>(tracks.size()))
+            return false;
+        const Track &dest = tracks[static_cast<size_t>(to)];
+        if (dest.locked)
+            return false;
+        // As MoveClip: a clip with nothing to hear doesn't go on an audio track.
+        if (dest.kind == Track::Kind::Audio &&
+            !(clip.audioEnabled && model.hasAsset(clip.asset) && model.asset(clip.asset).info.hasAudio))
+            return false;
+    }
+
+    // The dry run: the move must not add a single invariant violation
+    // (overlap, negative position, ...) to what the model already has.
+    std::vector<std::string> before = model.check();
+    Model scratch = model;
+    std::vector<Moved> scratchMoved;
+    std::vector<Transition> scratchStripped;
+    if (!perform(scratch, scratchMoved, scratchStripped))
+        return false;
+    for (const std::string &problem : scratch.check()) {
+        if (std::find(before.begin(), before.end(), problem) == before.end())
+            return false;
+    }
+
+    model.notify(BatchBegin{});
+    m_moved.clear();
+    m_stripped.clear();
+    perform(model, m_moved, m_stripped);
+    model.notify(BatchEnd{});
+    return true;
+}
+
+void MoveClips::revert(Model &model)
+{
+    model.notify(BatchBegin{});
+    for (auto it = m_moved.rbegin(); it != m_moved.rend(); ++it) {
+        model.moveClip(it->clip, it->oldTrack, it->oldPosition);
+        const Clip &clip = model.clip(it->clip);
+        if (clip.videoEnabled != it->oldVideoEnabled)
+            model.setClipEnabled(it->clip, it->oldVideoEnabled, clip.audioEnabled);
+    }
+    for (const Transition &t : m_stripped)
+        model.addTransition(t.track, t.a, t.b, t.extendA, t.extendB, t.id);
+    model.notify(BatchEnd{});
+}
+
 // --- Step lists ------------------------------------------------------------
 
 namespace {

@@ -1122,6 +1122,9 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
         "zoom-in",
         "zoom-out",
         "zoom-fit",
+        // Ctrl+A selects the entry's text; Escape cancels the rename.
+        "select-all",
+        "clear-selection",
     };
     for (const char *name : kTransportActions) {
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
@@ -2508,6 +2511,8 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
 
         if (isDragged && mode == Mode::MoveClip)
             continue; // drawn as a ghost at the preview position instead, below
+        if (mode == Mode::MoveClip && preview.group && selected)
+            continue; // the rest of a dragged group, ghosted below too
 
         int drawTrack = isDragged ? preview.row : clip.trackIndex;
         int drawStart = isDragged ? static_cast<int>(preview.start) : clip.startFrame;
@@ -2522,9 +2527,28 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         }
     }
 
-    if (mode == Mode::MoveClip) {
+    if (mode == Mode::MoveClip && preview.group) {
+        for (const ClipDisplay &clip : m_clips) {
+            if (m_timelineController.selection().contains(clip.id)) {
+                drawClipRect(clip.trackIndex + preview.groupRowDelta,
+                             clip.startFrame + static_cast<int>(preview.groupDelta), clip.frames, std::string{}, true,
+                             true);
+            }
+        }
+    } else if (mode == Mode::MoveClip) {
         drawClipRect(preview.row, static_cast<int>(preview.start), static_cast<int>(preview.length), std::string{},
                      true, true);
+    }
+
+    if (mode == Mode::RubberBand) {
+        double bx = std::min(preview.bandX0, preview.bandX1), by = std::min(preview.bandY0, preview.bandY1);
+        double bw = std::abs(preview.bandX1 - preview.bandX0), bh = std::abs(preview.bandY1 - preview.bandY0);
+        cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.12);
+        cairo_rectangle(cr, bx, by, bw, bh);
+        cairo_fill_preserve(cr);
+        cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.8);
+        cairo_set_line_width(cr, 1.0);
+        cairo_stroke(cr);
     }
 
     // doc 06: a 1 px brand-magenta line where a dragged edge snapped.
@@ -4122,6 +4146,21 @@ void AppWindow::importActionActivated(GSimpleAction *, GVariant *, gpointer user
 void AppWindow::splitAtPlayheadActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onSplitClicked();
+}
+
+void AppWindow::selectAllActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    self->m_timelineController.selectAll(self->m_model);
+    gtk_widget_queue_draw(GTK_WIDGET(self->m_timeline));
+}
+
+void AppWindow::clearSelectionActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    self->m_timelineController.cancel();
+    self->m_timelineController.selection().clear();
+    gtk_widget_queue_draw(GTK_WIDGET(self->m_timeline));
 }
 
 void AppWindow::zoomInActivated(GSimpleAction *, GVariant *, gpointer userData)

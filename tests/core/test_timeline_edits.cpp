@@ -311,3 +311,54 @@ TEST_CASE("Markers: add, edit (merged while dragging), remove, all undoable")
         REQUIRE(undo.undo());
     CHECK(equalIgnoringIdAllocator(model, before));
 }
+
+TEST_CASE("MoveClips moves a group sideways and keeps a dissolve inside it")
+{
+    Fixture f;
+    Model before = f.model;
+    MoveClips move({f.c, f.d}, 100, 0); // c+d (dissolved) right by 100
+    REQUIRE(move.apply(f.model));
+    CHECK(f.model.clip(f.c).position == before.clip(f.c).position + 100);
+    CHECK(f.model.clip(f.d).position == before.clip(f.d).position + 100);
+    CHECK(f.model.hasTransition(f.cd));
+    CHECK(f.model.hasTransition(f.ab));
+    checkRoundTrip(f.model, move, before);
+}
+
+TEST_CASE("MoveClips removes a dissolve whose partner stays behind, and undo brings it back")
+{
+    Fixture f;
+    Model before = f.model;
+    MoveClips move({f.b, f.c}, 50, 0); // b leaves a behind (their dissolve goes); c leaves d behind too
+    // c moving right by 50 would overlap d, which stays: refused.
+    CHECK_FALSE(move.apply(f.model));
+    CHECK(equalIgnoringIdAllocator(f.model, before));
+
+    MoveClips alone({f.b}, 50, 0); // b alone into the gap after it
+    REQUIRE(alone.apply(f.model));
+    CHECK_FALSE(f.model.hasTransition(f.ab));
+    checkRoundTrip(f.model, alone, before);
+}
+
+TEST_CASE("MoveClips moves across tracks together and refuses what MoveClip would")
+{
+    Fixture f;
+    TrackId v2 = f.model.addTrack(Track::Kind::Video, 1, "V2");
+    ClipId e = f.model.insertClip(v2, f.asset, 1000, 0, 49);
+    Model before = f.model;
+
+    MoveClips down({f.c, f.d}, 0, 1); // onto V2, dissolve doesn't come along
+    REQUIRE(down.apply(f.model));
+    CHECK(f.model.clip(f.c).track == v2);
+    CHECK(f.model.clip(f.d).track == v2);
+    CHECK_FALSE(f.model.hasTransition(f.cd));
+    checkRoundTrip(f.model, down, before);
+
+    CHECK_FALSE(MoveClips({f.a}, 0, 5).apply(f.model));    // no such track
+    CHECK_FALSE(MoveClips({f.a}, -10, 0).apply(f.model));  // before frame 0
+    CHECK_FALSE(MoveClips({e}, -1000, -1).apply(f.model)); // onto a at 0..
+    CHECK_FALSE(MoveClips({f.a}, 0, 0).apply(f.model));    // not a move
+    CHECK(equalIgnoringIdAllocator(f.model, before));
+    f.model.setTrackFlags(v2, false, false, /*locked=*/true);
+    CHECK_FALSE(MoveClips({f.c}, 0, 1).apply(f.model));
+}

@@ -91,6 +91,11 @@ single-track skeleton.
   edge of the dragged clip is closer; a magenta line shows the snap. The
   gesture logic is `src/app/timeline/timeline_controller.{h,cpp}` (doc
   06's TimelineController), tested without GTK.
+- Select several clips: Shift+click adds one, Ctrl+click toggles one,
+  Shift+drag across empty track space selects everything the box touches,
+  `Ctrl+A` selects all and `Escape` clears. Drag any selected clip to move
+  the whole selection together (one undo step, `core::MoveClips`); `Delete`
+  removes every selected clip.
   Right-click a clip, or click to select it then press `Delete`, to
   delete it (leaves a gap — "lift", nothing else moves); right-click a
   clip that has audio and isn't already audio-only
@@ -212,7 +217,7 @@ Not yet: effects, titling, proxy/transcode, configurable export formats
 (render always uses the settings above — see "Render implementation
 notes" below), ripple/slip/copy edits and markers in the UI (the commands
 exist in `src/core/commands/timeline_edits.h`, waiting on the M3 timeline
-widget), multi-select on the timeline, a visible loop region.
+widget), a visible loop region.
 
 ## Roadmap
 

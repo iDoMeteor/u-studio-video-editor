@@ -40,6 +40,44 @@ class ShiftClips : public Command
     std::vector<ClipId> m_moved; // in apply order
 };
 
+// Moves a set of clips together, `delta` frames along the timeline and
+// `rowDelta` tracks down (negative: up), keeping their relative places
+// (doc 06: dragging a multi-selection). A dissolve between two moved clips
+// on the same track survives a sideways move; any other dissolve on a moved
+// clip is removed, as MoveClip does. Refused if a track is locked, a clip
+// would leave the track list or land before frame 0, anything would
+// overlap, or a clip with no audio would land on an audio track. Validated
+// by a dry run on a copy of the model, so it can't half-apply.
+class MoveClips : public Command
+{
+  public:
+    MoveClips(std::vector<ClipId> clips, FrameIndex delta, int rowDelta);
+    std::string label() const override
+    {
+        return m_clips.size() == 1 ? "Move clip" : "Move clips";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    struct Moved
+    {
+        ClipId clip;
+        TrackId oldTrack;
+        FrameIndex oldPosition = 0;
+        bool oldVideoEnabled = true;
+    };
+    // Performs the move on `model` (the real one or a scratch copy),
+    // recording what revert() needs. False if a clip or track is missing.
+    bool perform(Model &model, std::vector<Moved> &moved, std::vector<Transition> &stripped) const;
+
+    std::vector<ClipId> m_clips;
+    FrameIndex m_delta;
+    int m_rowDelta;
+    std::vector<Moved> m_moved;
+    std::vector<Transition> m_stripped;
+};
+
 // Removes a clip and closes the hole it leaves: every later clip on its
 // track moves left by the clip's length (doc 06: Shift+Delete). Any
 // dissolve on the removed clip goes with it, as with a plain delete.

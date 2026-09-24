@@ -279,3 +279,67 @@ TEST_CASE("TimelineController: what a right-click lands on")
     CHECK(inDissolve.transition.isValid());
     CHECK_FALSE(inDissolve.addTransitionA.isValid());
 }
+
+TEST_CASE("TimelineController: Shift adds to the selection, Ctrl toggles, neither seeks")
+{
+    Fixture f;
+    f.drag(Fixture::x(50), Fixture::bodyY(0), Fixture::x(50), Fixture::bodyY(0));
+    TimelineOutcome shift =
+        f.drag(Fixture::x(350), Fixture::bodyY(0), Fixture::x(350), Fixture::bodyY(0), Modifiers::Shift);
+    CHECK_FALSE(shift.seek);
+    CHECK(f.controller.selection().clips() == std::set<ClipId>{f.a, f.c});
+
+    f.drag(Fixture::x(50), Fixture::bodyY(0), Fixture::x(50), Fixture::bodyY(0), Modifiers::Ctrl);
+    CHECK(f.controller.selection().clips() == std::set<ClipId>{f.c});
+    f.drag(Fixture::x(550), Fixture::bodyY(1), Fixture::x(550), Fixture::bodyY(1), Modifiers::Ctrl);
+    CHECK(f.controller.selection().clips() == std::set<ClipId>{f.c, f.d});
+
+    // A plain click on one of them narrows the selection to it.
+    f.drag(Fixture::x(350), Fixture::bodyY(0), Fixture::x(350), Fixture::bodyY(0));
+    CHECK(f.controller.selection().clips() == std::set<ClipId>{f.c});
+}
+
+TEST_CASE("TimelineController: dragging one of several selected clips moves them all")
+{
+    Fixture f;
+    f.controller.selection().add(f.c);
+    f.controller.selection().add(f.d);
+    TimelineOutcome out = f.drag(Fixture::x(350), Fixture::bodyY(0), Fixture::x(400), Fixture::bodyY(0));
+    CHECK(f.apply(out) == 0);
+    CHECK(f.model.clip(f.c).position == 350);
+    CHECK(f.model.clip(f.d).position == 550);
+    CHECK(f.model.clip(f.a).position == 0);
+    CHECK(f.undo.undo());
+    CHECK(f.model.clip(f.c).position == 300);
+    CHECK(f.model.clip(f.d).position == 500);
+}
+
+TEST_CASE("TimelineController: a group can't be dragged off the track list or before frame 0")
+{
+    Fixture f;
+    f.controller.selection().add(f.c);
+    f.controller.selection().add(f.d);
+    f.controller.press(f.ctx(), Fixture::x(350), Fixture::bodyY(0), Modifiers::None);
+    f.controller.motion(f.ctx(), -900.0, 300.0); // far left and far down
+    CHECK(f.controller.preview().group);
+    CHECK(f.controller.preview().groupRowDelta == 0); // d is already on the last track
+    CHECK(f.controller.preview().groupDelta == -300); // c stops at frame 0
+}
+
+TEST_CASE("TimelineController: Shift+drag on empty space selects what the box touches")
+{
+    Fixture f;
+    // From the gap on V1 (frame 250) down-right into V2 past d's start.
+    TimelineOutcome out =
+        f.drag(Fixture::x(250), Fixture::bodyY(0), Fixture::x(520), Fixture::bodyY(1), Modifiers::Shift);
+    CHECK(out.attempts.empty());
+    CHECK_FALSE(out.seek);
+    CHECK(f.controller.selection().clips() == std::set<ClipId>{f.c, f.d});
+}
+
+TEST_CASE("TimelineController: select all")
+{
+    Fixture f;
+    f.controller.selectAll(f.model);
+    CHECK(f.controller.selection().clips().size() == 4);
+}

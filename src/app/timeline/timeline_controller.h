@@ -104,6 +104,10 @@ class TimelineController
         // extendA/extendB (both clips keep their combined span).
         TransitionResizeLeft,
         TransitionResizeRight,
+        // Shift+drag on empty space: a marquee that adds every clip it
+        // touches to the selection. (doc 06 puts the marquee on a plain drag
+        // and scrubbing on Alt; the owner's plain drag already scrubs.)
+        RubberBand,
     };
 
     // The live drag, for drawing: a ghost at the candidate position, a
@@ -120,6 +124,13 @@ class TimelineController
         int reorderFromRow = -1;
         int reorderHoverRow = -1;
         std::optional<core::FrameIndex> snappedTo; // the frame an edge snapped to
+        // MoveClip with several clips selected: every selected clip is
+        // drawn shifted by these.
+        bool group = false;
+        core::FrameIndex groupDelta = 0;
+        int groupRowDelta = 0;
+        // RubberBand, in widget coordinates.
+        double bandX0 = 0, bandY0 = 0, bandX1 = 0, bandY1 = 0;
     };
 
     Mode mode() const
@@ -147,6 +158,7 @@ class TimelineController
     TimelineOutcome release(const TimelineContext &ctx, double offsetX, double offsetY);
     // Escape, or the model changed under the drag: drop the drag, no edit.
     void cancel();
+    void selectAll(const core::Model &model);
 
     ContextTarget contextTargetAt(const TimelineContext &ctx, double x, double y) const;
 
