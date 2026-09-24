@@ -1063,6 +1063,7 @@ void AppWindow::showSettingsDialog()
 
     AdwSpinRow *autosaveRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(1.0, 30.0, 1.0));
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(autosaveRow), "Autosave delay (minutes)");
+    setTooltip(GTK_WIDGET(autosaveRow), "settings.autosave-delay");
     adw_action_row_set_subtitle(ADW_ACTION_ROW(autosaveRow),
                                 "Minutes of inactivity after the last edit before an autosave is written");
     adw_spin_row_set_digits(autosaveRow, 0);
@@ -1073,6 +1074,7 @@ void AppWindow::showSettingsDialog()
 
     AdwSpinRow *recentRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(1.0, 50.0, 1.0));
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(recentRow), "Recent projects list size");
+    setTooltip(GTK_WIDGET(recentRow), "settings.recent-projects");
     adw_action_row_set_subtitle(ADW_ACTION_ROW(recentRow), "Entries shown in the header bar's recent-projects popover");
     adw_spin_row_set_digits(recentRow, 0);
     adw_spin_row_set_value(recentRow, static_cast<double>(m_settings->recentProjectsMax()));
@@ -1121,6 +1123,7 @@ void AppWindow::showSettingsDialog()
     AdwComboRow *scaleRow = ADW_COMBO_ROW(adw_combo_row_new());
     adw_combo_row_set_model(scaleRow, G_LIST_MODEL(scaleModel));
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(scaleRow), "Default preview scale");
+    setTooltip(GTK_WIDGET(scaleRow), "settings.preview-scale");
     adw_action_row_set_subtitle(
         ADW_ACTION_ROW(scaleRow),
         "Used when the app starts -- the transport bar's own dropdown can still be changed per-session "
@@ -1143,6 +1146,7 @@ void AppWindow::showSettingsDialog()
 
     AdwSpinRow *shuttleRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(2.0, 32.0, 1.0));
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(shuttleRow), "Maximum shuttle speed");
+    setTooltip(GTK_WIDGET(shuttleRow), "settings.shuttle-speed");
     adw_action_row_set_subtitle(ADW_ACTION_ROW(shuttleRow),
                                 "Upper bound (x normal speed) the J/K/L shuttle ramps up to");
     adw_spin_row_set_digits(shuttleRow, 0);

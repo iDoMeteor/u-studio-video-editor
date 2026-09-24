@@ -96,6 +96,10 @@ std::vector<HintSpec> &registry()
         {"media.trash",        "Media browser", "Move file to Trash…", "Removes it from the project and moves the file to the desktop Trash", nullptr, nullptr},
 
         // --- Settings ---
+        {"settings.autosave-delay",  "Settings", "Autosave delay",          "Minutes idle after an edit before an autosave is written; also written when the oldest unsaved edit reaches that age", nullptr, nullptr},
+        {"settings.recent-projects", "Settings", "Recent projects list size", "How many projects the header bar's recent-projects menu lists", nullptr, nullptr},
+        {"settings.preview-scale",   "Settings", "Default preview scale",   "The preview resolution the app starts with; the transport bar's own dropdown changes it for this session only", nullptr, nullptr},
+        {"settings.shuttle-speed",   "Settings", "Maximum shuttle speed",   "The fastest the J/K/L shuttle ramps up to, in multiples of normal speed", nullptr, nullptr},
         {"settings.worker-threads", "Settings", "Worker threads", "Background threads for probing imports and loading and saving projects; Automatic uses half the CPU cores. Applies after restart", nullptr, nullptr},
     };
     // clang-format on
