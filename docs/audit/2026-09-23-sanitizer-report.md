@@ -7,6 +7,40 @@ owner and the code team. Runtimes: `libasan`, `libubsan`, `libtsan`
 Nothing in `src/` was changed; the scripts used are in
 [`2026-09-23-sanitizer-run/`](2026-09-23-sanitizer-run/).
 
+## Resolution status (2026-09-23, v0.15.3)
+
+| Finding | Status | Commit |
+|---|---|---|
+| S1 transition-graph leak | **Fixed.** Owned `Field` per tractor, and `Tractor::track()` owned in `verify()` and the tests. The repro reproduced here before the fix: RSS 89 → 110 MB over 300 rebuilds leaked, flat at 104 MB when deleted | `9866137` |
+| S2 SIGTERM ignored | **Fixed.** `SDL_NO_SIGNAL_HANDLERS=1` plus `g_unix_signal_add()` → `g_application_quit()`, so shutdown autosaves first. Exits in about 1 s | `29cf3c7` |
+| — (found while verifying S2) | **Fixed.** Once SIGTERM reached shutdown, the app segfaulted there: `refreshRecentProjectsMenu()` unreffed `gtk_recent_info_get_modified()`'s transfer-none `GDateTime`, and GTK then serialised `recently-used.xbel` from freed dates. Normal window close took the same path | `60c7e81` |
+| S3 loader leaks | **Partly fixed.** The black backing track is now one cached loader master, cut per rebuild. **The report's suggested fix (the explicit `colour` service) was rejected**: without the loader's normalisers, `engine-render` hits a deterministic heap-buffer-overflow in avformat's `sample_fifo_append` under ASan. The remaining per-edit leak is MLT's own `mlt_playlist` blank producer, created through the loader internally, one per track per edit. That's upstream | `9866137` |
+| S4 purge race | **Worked around.** The redundant purge after a fresh consumer start is skipped. A new test shows a paused edit keeps showing the paused frame. The race itself didn't reproduce under TSan here, before or after | `4e9c602` |
+| S5 TSan false positives | **Done.** `MainThreadDispatcher` hand-off is annotated (324 → 0 reports with frames in `dispatcher.cpp`). Both caches post through it with a lifetime token | `06bf0a5` |
+| Rec. 4 routine runs | **Done.** `just asan` and `just tsan` are both 12/12 clean. See `tests/sanitizers/lsan.supp` and the `justfile` comments. A reintroduced wrapper leak fails `just asan` (negative control) | `4940e66` |
+
+**App session rerun after the fixes** (same scripts and ASan build settings,
+no suppressions, run under `env -i` with scratch XDG dirs):
+
+- Exit leak **18.6 MB → 0.88 MB**. No ASan errors and no UB. 28 plays and
+  27 consumer starts: every edit rebuilt the tractor.
+- The rerun did not cover the two in-app confirmations. After "New project"
+  and after "Close", `drive.py` could not find the "Discard" button. The
+  `AdwAlertDialog` does appear ("Discard unsaved changes?"), but AT-SPI
+  exposes its content panel with zero children, even after clearing the
+  client cache.
+  - So New Project → `EngineSync::reset()` and the close-confirmation path
+    were not exercised. The Close click could do nothing while the first
+    alert was still open (modal).
+  - The same probe against a `bb0026f` build (the version this report ran
+    on) behaves identically, so this is not a regression. It is also why
+    the original run's coverage of those two steps should not be relied
+    on.
+- The session ended with the driver's SIGTERM fallback. That went through
+  the S2 path (log: "Received SIGTERM/SIGINT", "Preparing for shutdown",
+  final autosave, "Exiting with status 0"). Exit code 1 there is
+  LeakSanitizer reporting the remaining leaks.
+
 ## Bottom line
 
 - **No memory-safety errors and no undefined behaviour anywhere**: not in
