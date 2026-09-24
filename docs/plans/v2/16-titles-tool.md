@@ -361,10 +361,11 @@ Acceptance:
 
 ## Decisions needed from the owner
 
-1. Separate process (recommended) versus a second window inside the editor.
-2. The name "u Studio Titles".
-3. Whether brand fonts may be bundled in the Flatpak (licensing check on
-   Space Grotesk, JetBrains Mono and Anton, all believed to be OFL).
-4. Priority order between the titles track and the FX track if only one
-   engineer is available (suggested: FX0 and T0 spikes first, then
-   alternate).
+All decided by the owner on 2026-09-24:
+
+1. **A separate process**, integrated as described under "Editor
+   integration".
+2. The name **u Studio Titles** (`u-studio-titles`, `com.ustudio.Titles`).
+3. The brand fonts **may be bundled** in the Flatpak once their licences
+   are checked (Space Grotesk, JetBrains Mono and Anton, all believed OFL).
+4. **FX0 and T0 spikes first, then alternate** between the two tracks.

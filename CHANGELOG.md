@@ -4,12 +4,17 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
-## 0.17.1
+## 0.17.2
 
 - The preview scale setting now takes effect: Half and Quarter (and Auto
   on 4K projects) render playback at the smaller size, so large media
   plays much more smoothly. The saved default preview scale is also
   applied at startup.
+
+## 0.17.1
+
+- The app always uses its dark theme; under a light system theme, Help
+  and Settings showed white lists.
 
 ## 0.17.0
 

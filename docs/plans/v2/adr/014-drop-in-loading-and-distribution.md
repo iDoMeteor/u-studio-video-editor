@@ -1,6 +1,6 @@
 # ADR-014: Drop-ins build built-in or as loadable modules; core ships with opt-in extras
 
-**Status:** Proposed (2026-09-24, owner: "ship core & have opt-in plugs").
+**Status:** Accepted (owner, 2026-09-24; direction: "ship core & have opt-in plugs").
 Extends [ADR-013](013-effects-and-titles-as-drop-in-modules.md).
 
 ## Context

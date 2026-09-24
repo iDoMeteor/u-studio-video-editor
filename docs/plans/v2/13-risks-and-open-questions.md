@@ -44,10 +44,8 @@ Resolved 2026-09-17 (team decision, questions reviewed one by one):
    `DocumentSession` each); just don't reintroduce the leaked-singleton
    pattern from the current v1 `AppWindow`.
 6. **Effect panel placement**: right sidebar (docs) vs. below the preview.
-   **Still open — deferred to M5 with a mockup**, as the doc originally
-   specified. Not decided now. Doc 15 (2026-09-23) recommends a
-   collapsible right sidebar (the Effect Rack) and lists it under
-   "Decisions needed from the owner".
+   ✅ **Decided (owner, 2026-09-24): a collapsible right sidebar**, the
+   Effect Rack of doc 15, which is also IP5's inspector host.
 7. **Timecode**: NDF only in v2.0. ✅ **Decided: NDF only, DF explicitly out
    of scope** for v2.0.
 8. **Proxy default**: auto-generate for sources > 1080p? ✅ **Decided: ask

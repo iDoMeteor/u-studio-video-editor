@@ -1,6 +1,6 @@
 # ADR-013: Effects and titles are drop-in modules behind named integration points
 
-**Status:** Proposed (2026-09-24, owner direction: "implement our effects
+**Status:** Accepted (owner, 2026-09-24; proposed the same day on owner direction: "implement our effects
 & text work as drop-ins")
 
 ## Context

@@ -719,11 +719,15 @@ OpenFX behind an experimental preference, LUT library management (import
 
 ## Decisions needed from the owner
 
-1. Approve installing `frei0r-plugins` on the dev machine and adding it as a
-   package dependency (and to the Flatpak manifest in M7).
-2. Which audio plugin pack, if any, to recommend by default (LSP is the
-   strongest candidate; none is required).
-3. Whether OpenFX should be explored in FX5 or dropped.
-4. Confirm the right-sidebar Rack (closes doc 13, question 6).
-5. Who owns the FX track and who owns the titles track (doc 16), since both
-   are proposed to run alongside M3.
+All decided by the owner on 2026-09-24:
+
+1. `frei0r-plugins`: installed on the dev machine (2.5.6); a dependency of
+   the effects drop-in only (ADR-011 as narrowed by ADR-014), added to its
+   Flatpak extension in M7.
+2. Audio plugin pack: **recommend LSP** (Linux Studio Plugins), detected at
+   runtime, never required.
+3. OpenFX: **explore in FX5**, behind the same health probe as frei0r;
+   dropped if it proves unstable.
+4. The **right-sidebar Rack** is confirmed (closes doc 13, question 6).
+5. FX and titles tracks: **the FX0 and T0 spikes first, then alternate**
+   milestones between the two tracks.

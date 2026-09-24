@@ -224,5 +224,5 @@ removable.
 1. ~~Effects and titles in core or opt-in~~: decided, opt-in (2026-09-24).
 2. ADRs for `whisper-cpp` (auto-captions) and `rlottie` (Lottie), when
    those drop-ins are pulled.
-3. Whether optional drop-ins appear in GNOME Software individually or as
-   one "extras" bundle.
+3. ~~Individually or as one "extras" bundle~~: decided, **individually**,
+   one Flatpak extension per drop-in (owner, 2026-09-24).
