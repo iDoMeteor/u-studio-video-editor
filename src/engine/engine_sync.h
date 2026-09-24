@@ -239,4 +239,11 @@ class EngineSync
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int currentFrame, int totalFrames)> onProgress = {});
 
+// The H.264 encoder renderProject uses: libx264 where ffmpeg has it,
+// otherwise libopenh264 (stock Fedora's ffmpeg-free ships only that one;
+// given an unknown vcodec, avformat writes an MP4 with no video stream at
+// all). Empty if neither is present. Asked of MLT once per process; needs
+// the Factory initialised.
+const std::string &h264Encoder();
+
 } // namespace ustudio::engine

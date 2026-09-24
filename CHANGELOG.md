@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.16.5
+
+- Rendering works on stock Fedora, which has no libx264: it falls back to
+  OpenH264. Before, the MP4 had no video.
+- Images import as stills even where the system image loaders can't run.
+
 ## 0.16.4
 
 - Closing a gap no longer removes the dissolves between the clips it moves.

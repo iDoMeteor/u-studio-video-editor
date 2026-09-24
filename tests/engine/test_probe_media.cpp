@@ -109,7 +109,7 @@ TEST_CASE("EngineSync::probeMedia reads real fps/width/height from an actual med
         producer.set_in_and_out(0, 4);
         std::unique_ptr<Mlt::Profile> consumerProfile(producer.profile());
         Mlt::Consumer consumer(*consumerProfile, "avformat", path.string().c_str());
-        consumer.set("vcodec", "libx264");
+        consumer.set("vcodec", h264Encoder().c_str());
         consumer.connect(producer);
         consumer.run();
     }
@@ -141,7 +141,7 @@ TEST_CASE("EngineSync::probeMedia reports hasAudio=false for a real video with n
         producer.set_in_and_out(0, 4);
         std::unique_ptr<Mlt::Profile> consumerProfile(producer.profile());
         Mlt::Consumer consumer(*consumerProfile, "avformat", path.string().c_str());
-        consumer.set("vcodec", "libx264");
+        consumer.set("vcodec", h264Encoder().c_str());
         consumer.set("an", 1); // no audio track in the muxed output
         consumer.connect(producer);
         consumer.run();
@@ -181,7 +181,7 @@ TEST_CASE("EngineSync::probeMedia reports hasAudio=true for a real video with an
 
         std::unique_ptr<Mlt::Profile> consumerProfile(tractor.profile());
         Mlt::Consumer consumer(*consumerProfile, "avformat", path.string().c_str());
-        consumer.set("vcodec", "libx264");
+        consumer.set("vcodec", h264Encoder().c_str());
         consumer.set("acodec", "aac");
         consumer.connect(tractor);
         consumer.run();

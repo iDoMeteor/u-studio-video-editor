@@ -3,9 +3,11 @@
 // The A/V sync test clip from doc 12's M2 box: black, with a one-frame
 // white flash on frame 0 of every second and a one-frame 1 kHz beep on
 // exactly the same frames, silence elsewhere. Rendered from MLT generators
-// (no binary media in the repo) through the same avformat/libx264/AAC path
+// (no binary media in the repo) through the same avformat/H.264/AAC path
 // renderProject() uses. Shared by tests/engine/test_av_sync.cpp and the
 // make_sync_clip tool (for checking it by eye in the editor).
+
+#include "engine/engine_sync.h"
 
 #include <mlt++/Mlt.h>
 
@@ -102,7 +104,7 @@ inline int renderSyncClip(Mlt::Profile &profile, const std::string &path, int se
     field->plant_transition(mix, 0, 1);
 
     Mlt::Consumer consumer(profile, "avformat", path.c_str());
-    consumer.set("vcodec", "libx264");
+    consumer.set("vcodec", ustudio::engine::h264Encoder().c_str());
     consumer.set("acodec", "aac");
     consumer.set("ar", 48000);
     consumer.set("channels", 2);

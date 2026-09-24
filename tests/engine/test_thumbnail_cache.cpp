@@ -170,7 +170,7 @@ TEST_CASE("ThumbnailCache: a real 16:9 video decodes at its own aspect, not MLT'
         producer.set_in_and_out(0, 4);
         std::unique_ptr<Mlt::Profile> consumerProfile(producer.profile());
         Mlt::Consumer consumer(*consumerProfile, "avformat", path.string().c_str());
-        consumer.set("vcodec", "libx264");
+        consumer.set("vcodec", h264Encoder().c_str());
         consumer.connect(producer);
         consumer.run();
     }

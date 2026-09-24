@@ -47,6 +47,11 @@ Curated, user-facing, each a `.properties` file (MLT preset format):
 | `GIF` | | fun; short ranges |
 | `Image sequence (PNG)` | | |
 
+> REVIEW: Claude (2026-09-24): stock Fedora's `ffmpeg-free` has no libx264,
+> only `libopenh264`, and an unknown `vcodec` gives an MP4 with no video
+> stream. The default preset needs the same fallback `renderProject()` now
+> uses (`engine::h264Encoder()`).
+
 Hardware encoders (`h264_vaapi`, `h264_nvenc`) as presets that are shown only
 if `avformat` reports the encoder (`Mlt::Properties` from
 `repository->metadata(consumer_type, "avformat")` → `vcodec` list, or a probe

@@ -41,7 +41,16 @@ test_playback_controller_exe = executable(
 
 # Runs a live sdl2_audio/rtaudio/null consumer and repeats a 100-iteration
 # shutdown loop -- slower than the other engine tests, hence its own timeout.
-test('engine-playback-controller', test_playback_controller_exe, timeout: 60)
+#
+# SDL's dummy audio driver: silent, but paced at the profile fps like a real
+# device, so the test behaves the same with or without one (and plays nothing
+# through the owner's speakers). Without it, on a machine with no audio
+# device (a clean Fedora 44 container, 2026-09-24): the first sdl2_audio
+# start succeeds but fails to open audio, every later SDL init in the process
+# fails, rtaudio's start() returns 0 but never shows a frame, and the test
+# times out.
+test('engine-playback-controller', test_playback_controller_exe, timeout: 60,
+     env: ['SDL_AUDIODRIVER=dummy'])
 
 test_probe_media_exe = executable(
   'test_probe_media',

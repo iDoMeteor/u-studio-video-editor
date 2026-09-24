@@ -839,6 +839,12 @@ profile, yuv420p, 1920×1080, 30fps, ~923kbps video / AAC-LC 48kHz stereo
 validated with a standalone render-then-reprobe round-trip that confirmed
 an exact match before any of it was wired into the engine.
 
+The H.264 encoder is `libx264` where ffmpeg has it, otherwise
+`libopenh264` (`engine::h264Encoder()`, which asks avformat for its encoder list
+once). Stock Fedora's `ffmpeg-free` ships only the latter. Given an unknown
+`vcodec`, avformat logs "unrecognised - ignoring" and writes an MP4 with **no
+video stream**, and `run()` still returns 0.
+
 It renders from a completely separate, throwaway `EngineSync` (its own
 `Profile`/`Tractor`) built from a deep copy of the `core::Model` taken
 synchronously on the main thread before the render thread starts — not a

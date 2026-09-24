@@ -10,8 +10,11 @@ namespace Log = ustudio::core::Log;
 
 namespace {
 // Tried in order (ADR-002); the first one whose Mlt::Consumer construction
-// reports valid wins. `null` paces to the profile fps with no sound, so it
-// always succeeds and playback stays usable even with no audio backend.
+// reports valid wins. `null` always succeeds, but it does not pace: in a
+// device-less container it showed 9,000+ frames a second (2026-09-24). And
+// with no audio device rtaudio's start() returns 0 and then never shows a
+// frame, so it is picked and playback stalls. SDL_AUDIODRIVER=dummy is the
+// working setup there (tests/engine/meson.build).
 constexpr const char *kConsumerBackends[] = {"sdl2_audio", "rtaudio", "null"};
 } // namespace
 

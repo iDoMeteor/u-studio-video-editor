@@ -78,7 +78,7 @@ void renderToneClip(Mlt::Profile &profile, const std::filesystem::path &path, in
     mix.set("always_active", 1);
     field->plant_transition(mix, 0, 1);
     Mlt::Consumer consumer(profile, "avformat", path.string().c_str());
-    consumer.set("vcodec", "libx264");
+    consumer.set("vcodec", h264Encoder().c_str());
     consumer.set("acodec", "aac");
     consumer.set("real_time", -1);
     consumer.connect(tractor);

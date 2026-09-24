@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <limits>
 #include <system_error>
 #include <variant>
 
@@ -131,6 +132,14 @@ EngineSync::ProbedMedia EngineSync::probeMedia(const std::string &path)
     result.length = producer.get_length();
     const char *service = producer.get("mlt_service");
     result.isStillImage = service && (std::string(service) == "pixbuf" || std::string(service) == "qimage");
+    // Where gdk-pixbuf can't load the image (Fedora 44's pixbuf loaders go
+    // through glycin, whose sandbox fails to start in a container), MLT
+    // falls back to avformat. Standalone repro, MLT 7.40 (2026-09-24):
+    // avformat opens a single PNG or JPEG with length INT_MAX and
+    // seekable=0, whereas a one-second PNG .mov or MJPEG .avi reports a
+    // finite length and seekable=1.
+    if (!result.isStillImage && service && std::string(service) == "avformat")
+        result.isStillImage = result.length == std::numeric_limits<int>::max() && producer.get_int("seekable") == 0;
 
     if (!result.isStillImage) {
         // audit E3: previously guessed as "not a still image" -- verified
@@ -600,6 +609,36 @@ void renderProgressTrampoline(mlt_properties /*owner*/, void *self, mlt_event_da
 }
 } // namespace
 
+const std::string &h264Encoder()
+{
+    static const std::string encoder = [] {
+        // avformat's documented "list" value (consumer_avformat.yml):
+        // start() fills the consumer's "vcodec" data with every encoder
+        // name, and also prints them to stdout -- once per process.
+        Mlt::Profile profile;
+        Mlt::Consumer consumer(profile, "avformat");
+        consumer.set("vcodec", "list");
+        consumer.start();
+        consumer.stop();
+        auto *list = static_cast<mlt_properties>(consumer.get_data("vcodec"));
+        std::string found;
+        if (!list) {
+            Log::warn("[engine] avformat returned no encoder list");
+            return found;
+        }
+        Mlt::Properties codecs(list);
+        for (const char *preferred : {"libx264", "libopenh264"}) {
+            for (int i = 0; found.empty() && i < codecs.count(); ++i) {
+                if (const char *name = codecs.get(i); name && std::string(name) == preferred)
+                    found = preferred;
+            }
+        }
+        Log::info("[engine] H.264 encoder: " + (found.empty() ? std::string("none") : found));
+        return found;
+    }();
+    return encoder;
+}
+
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int, int)> onProgress)
 {
@@ -627,7 +666,12 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // Profile): h264 High/yuv420p, AAC 48kHz stereo, MP4 — verified
     // against a real reference file's ffprobe output and confirmed via a
     // standalone render+reprobe round-trip before wiring this in (v1).
-    consumer.set("vcodec", "libx264");
+    if (h264Encoder().empty()) {
+        error = "No H.264 encoder available (ffmpeg has neither libx264 nor libopenh264)";
+        Log::error("[engine] " + error);
+        return false;
+    }
+    consumer.set("vcodec", h264Encoder().c_str());
     consumer.set("acodec", "aac");
     consumer.set("f", "mp4");
     consumer.set("vb", "922698");
