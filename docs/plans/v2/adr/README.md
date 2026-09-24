@@ -17,3 +17,4 @@ All are **Proposed** as of 2026-09-12 pending team review.
 | [010](010-doctest-vendored.md) | doctest, vendored, as the test framework |
 | [011](011-frei0r-required-and-effect-families.md) | frei0r is a required runtime dependency; effects come from frei0r, MLT, libavfilter and audio plugin hosts, health-checked out of process |
 | [012](012-titles-mlt-module.md) | Titles render through our own MLT module (Pango + Cairo) and are authored in a separate `u-studio-titles` app |
+| [013](013-effects-and-titles-as-drop-in-modules.md) | Effects and titles are drop-in modules behind named integration points, optional at build time; their project data never is |
