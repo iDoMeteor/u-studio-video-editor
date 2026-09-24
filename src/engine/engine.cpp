@@ -362,15 +362,16 @@ void Engine::onFrame(std::vector<uint8_t> rgba, int width, int height, int posit
         m_frameCallback(std::move(rgba), width, height, position);
 }
 
-void Engine::syncForTesting()
+bool Engine::syncForTesting()
 {
     uint64_t target = send([](Thread &) {});
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
     while (m_applied < target && std::chrono::steady_clock::now() < deadline) {
         while (g_main_context_iteration(nullptr, FALSE)) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+    return m_applied >= target;
 }
 
 } // namespace ustudio::engine

@@ -75,7 +75,7 @@ TEST_CASE("Engine: starts on its own thread and mirrors the graph's length and r
     sharedFactoryPolicy();
     Model model = makeModel(5);
     Engine engine(model.snapshot(), PreviewScale::Full);
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     CHECK(engine.totalFrames() == 50);
     CHECK(engine.fps() > 0.0);
     CHECK_FALSE(engine.backendName().empty());
@@ -89,7 +89,7 @@ TEST_CASE("Engine: pause shows the exact frame sought to, not one off")
     Engine engine(model.snapshot(), PreviewScale::Full);
     Frames frames;
     frames.attach(engine);
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     pumpUntil([&] { return !frames.positions.empty(); }, std::chrono::seconds(2));
 
     frames.positions.clear();
@@ -97,7 +97,7 @@ TEST_CASE("Engine: pause shows the exact frame sought to, not one off")
     CHECK(engine.currentFrame() == 30); // mirrored at call time
     REQUIRE(
         pumpUntil([&] { return !frames.positions.empty() && frames.positions.back() == 30; }, std::chrono::seconds(3)));
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     CHECK(engine.currentFrame() == 30);
     CHECK(frames.positions.back() == 30);
 }
@@ -107,7 +107,7 @@ TEST_CASE("Engine: back-to-back frame steps while paused each count, before and 
     sharedFactoryPolicy();
     Model model = makeModel(5);
     Engine engine(model.snapshot(), PreviewScale::Full);
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
 
     // No pumping between steps: each must advance from the previous step's
     // target, not from a frame or state report that hasn't arrived yet.
@@ -117,7 +117,7 @@ TEST_CASE("Engine: back-to-back frame steps while paused each count, before and 
     CHECK(engine.currentFrame() == 3);
     engine.stepFrame(-1);
     CHECK(engine.currentFrame() == 2);
-    engine.syncForTesting(); // the engine's own reports agree
+    REQUIRE(engine.syncForTesting()); // the engine's own reports agree
     CHECK(engine.currentFrame() == 2);
 }
 
@@ -128,7 +128,7 @@ TEST_CASE("Engine: a loop range wraps playback back to loop-in at loop-out")
     Engine engine(model.snapshot(), PreviewScale::Full);
     Frames frames;
     frames.attach(engine);
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     engine.setLoopRange(std::make_pair(5, 15));
     engine.seek(5);
     engine.play(1.0);
@@ -155,14 +155,14 @@ TEST_CASE("Engine: an edit while paused keeps showing the paused frame")
     frames.attach(engine);
     int rebuilds = 0;
     engine.rebuilt.connect([&] { ++rebuilds; });
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     engine.seek(23);
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     rebuilds = 0;
 
     model.insertClip(model.sequence().tracks.front().id, model.project().bin.front().id, 100, 0, 9);
     engine.publish(model.snapshot());
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     CHECK(rebuilds == 1);
     CHECK(engine.totalFrames() == 110);
     CHECK(engine.currentFrame() == 23);
@@ -176,11 +176,11 @@ TEST_CASE("Engine: a seek sent after an edit lands on the new, longer graph")
     sharedFactoryPolicy();
     Model model = makeModel(2); // 20 frames
     Engine engine(model.snapshot(), PreviewScale::Full);
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     model.insertClip(model.sequence().tracks.front().id, model.project().bin.front().id, 90, 0, 9);
     engine.publish(model.snapshot());
     engine.seek(95); // the mirror still says 20 frames; the engine must not clamp to it
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     CHECK(engine.totalFrames() == 100);
     CHECK(engine.currentFrame() == 95);
 }
@@ -188,11 +188,17 @@ TEST_CASE("Engine: a seek sent after an edit lands on the new, longer graph")
 TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread never waits on a build")
 {
     sharedFactoryPolicy();
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    constexpr bool kSanitized = true;
+    Model model = makeModel(300); // builds are several times slower here
+#else
+    constexpr bool kSanitized = false;
     Model model = makeModel(2000); // a build long enough to queue behind
+#endif
     Engine engine(model.snapshot(), PreviewScale::Full);
     int rebuilds = 0;
     engine.rebuilt.connect([&] { ++rebuilds; });
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     rebuilds = 0;
 
     TrackId track = model.sequence().tracks.front().id;
@@ -206,7 +212,7 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         slowestCallMs = std::max(slowestCallMs, ms);
     }
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     CAPTURE(rebuilds);
     CAPTURE(slowestCallMs);
     // Each publish is followed by a seek, so snapshots don't sit next to
@@ -215,7 +221,10 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
     CHECK(rebuilds >= 1);
     CHECK(rebuilds <= 20);
     CHECK(engine.totalFrames() == 30'000 + 19 * 10 + 10);
-    CHECK(slowestCallMs < 16.0);
+    if (kSanitized)
+        MESSAGE("sanitizer build: slowest publish+seek " << slowestCallMs << " ms, reported, not checked");
+    else
+        CHECK(slowestCallMs < 16.0);
 
     // Back to back with nothing between, twenty publishes collapse to at
     // most one build beyond the one already running.
@@ -229,7 +238,7 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
     rebuilds = 0;
     for (const auto &snapshot : burst)
         engine.publish(snapshot);
-    engine.syncForTesting();
+    REQUIRE(engine.syncForTesting());
     CAPTURE(rebuilds);
     CHECK(rebuilds <= 2);
     CHECK(engine.totalFrames() == 40'000 + 19 * 10 + 10);
@@ -243,7 +252,7 @@ TEST_CASE("Engine: shutdown during playback is clean, repeated")
         Engine engine(model.snapshot(), PreviewScale::Full);
         engine.play(1.0);
         if (i % 3 == 0)
-            engine.syncForTesting();
+            REQUIRE(engine.syncForTesting());
         engine.shutdown();
         CHECK(engine.totalFrames() >= 0);
     }

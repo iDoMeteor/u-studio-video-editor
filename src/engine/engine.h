@@ -113,8 +113,9 @@ class Engine
 
     // Tests only: blocks until the engine thread has run everything sent so
     // far and its state reports have been applied here (it pumps the GLib
-    // main context while waiting). Never called by the app.
-    void syncForTesting();
+    // main context while waiting). False if that took over two minutes.
+    // Never called by the app.
+    [[nodiscard]] bool syncForTesting();
 
   private:
     struct State
