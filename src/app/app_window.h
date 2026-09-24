@@ -18,8 +18,8 @@
 #include "core/concurrency/thread_pool.h"
 #include "core/model/model.h"
 #include "engine/dispatcher.h"
+#include "engine/engine.h"
 #include "engine/engine_sync.h"
-#include "engine/playback_controller.h"
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "import_queue.h"
@@ -68,12 +68,11 @@ struct ClipDisplay
 // avoid an extra resource-compile step for this first milestone.
 //
 // Edit flow: a UI gesture builds a core::Command, UndoStack::execute()
-// applies it to the model. Model::changed then drives the rest
-// automatically (doc 02: "Model -> engine -> screen, never backwards"):
-// EngineSync is subscribed to it and resyncs the tractor on its own
-// (engine_sync.h), and its `rebuilt` signal (connected once, in this
-// class's constructor) is what points PlaybackController at the new
-// tractor -- no call site here needs to remember to do either.
+// applies it to the model, and UndoStack::changed publishes the model's
+// snapshot to the engine thread (doc 02: "Model -> engine -> screen, never
+// backwards"; doc 19 MT2). The engine thread rebuilds the graph and swaps
+// it into playback on its own; this window only ever talks to
+// engine::Engine, whose state it reads from a main-thread mirror.
 class AppWindow
 {
     // action_registry.cpp's table stores pointers to the private static
@@ -257,7 +256,7 @@ class AppWindow
     void onSeekEnd();
     // Jumps the playhead to the nearest clip boundary (a clip's start or
     // end) on the active track before/after the current frame -- the
-    // timeline's own start (0) and end (m_playback->totalFrames()) count
+    // timeline's own start (0) and end (sequenceFrames()) count
     // as boundaries too, so there's always somewhere to land even on an
     // otherwise-empty or single-clip track. Doesn't pause playback,
     // matching onSeekHome/onSeekEnd's own precedent (a mid-playback jump
@@ -735,8 +734,13 @@ class AppWindow
 
     core::Model m_model = core::Model::createEmpty();
     core::UndoStack m_undoStack{m_model};
-    std::unique_ptr<engine::EngineSync> m_engineSync;
-    std::unique_ptr<engine::PlaybackController> m_playback;
+    std::unique_ptr<engine::Engine> m_engine;
+    // The playback graph's length and rate, from the model rather than the
+    // engine's mirror (ADR-003): right after an edit the engine thread may
+    // not have rebuilt yet, but the tractor is always max(sequence length,
+    // 1) long (EngineSync::verify()) at the sequence profile's rate.
+    int sequenceFrames() const;
+    double sequenceFps() const;
     std::unique_ptr<engine::WaveformCache> m_waveforms;
     std::unique_ptr<engine::ThumbnailCache> m_thumbnails;
     // The timeline's thumbnail strips (their own worker; see the constructor)

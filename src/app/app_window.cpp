@@ -152,25 +152,20 @@ AppWindow::AppWindow(GtkApplication *app)
     // state, not a user edit to undo back out of.
     m_model.addTrack(core::Track::Kind::Video, 0, "V1");
 
-    m_engineSync = std::make_unique<engine::EngineSync>(m_model.snapshot());
-
-    m_playback = std::make_unique<engine::PlaybackController>();
-    m_playback->setTractor(m_engineSync->tractorPtr());
-    // The one place playback gets re-pointed at a rebuilt tractor: fires on
-    // every EngineSync::rebuildAll(), whether triggered by a published edit
-    // (m_undoStack.changed below) or by reset() (Open Project, recovery
-    // load) -- no call site below needs its own setTractor() anymore.
-    m_engineSync->rebuilt.connect([this] {
-        m_playback->setTractor(m_engineSync->tractorPtr());
+    m_engine = std::make_unique<engine::Engine>(m_model.snapshot(), engine::PreviewScale::Full);
+    // Fires on the main thread after the engine thread has swapped in a
+    // rebuilt graph, whether from a published edit (m_undoStack.changed
+    // below) or a reset() (Open Project, recovery load).
+    m_engine->rebuilt.connect([this] {
         m_lastEditMonotonicUsec = g_get_monotonic_time();
         if (m_unsavedSinceMonotonicUsec == 0)
             m_unsavedSinceMonotonicUsec = m_lastEditMonotonicUsec;
     });
-    m_engineSync->mediaUnavailable.connect([this](const std::string &path) {
+    m_engine->mediaUnavailable.connect([this](const std::string &path) {
         showStatus("Couldn't open \"" + path + "\" — showing black in its place. The file may have moved or been "
                    "deleted.");
     });
-    m_playback->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
+    m_engine->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
 
@@ -218,7 +213,7 @@ AppWindow::AppWindow(GtkApplication *app)
         // once per command, undo or redo (a batch is one command), not per
         // model event. A save marking the stack clean publishes the same
         // snapshot again, which EngineSync ignores.
-        m_engineSync->setProject(m_model.snapshot());
+        m_engine->publish(m_model.snapshot());
         updateWindowTitle();
         // Any edit, undo or redo can remove clips (RemoveAsset takes every
         // clip cut from the asset): drop them from the selection here, in
@@ -290,8 +285,8 @@ void AppWindow::prepareForShutdown()
     m_projectLoader.reset();
     m_saveQueue.reset();
     m_pool.reset();
-    if (m_playback)
-        m_playback->shutdown();
+    if (m_engine)
+        m_engine->shutdown();
 }
 
 void AppWindow::buildUi(GtkApplication *app)
@@ -1640,6 +1635,17 @@ void AppWindow::loadProjectAsync(const std::string &path, std::function<void(cor
         });
 }
 
+int AppWindow::sequenceFrames() const
+{
+    return static_cast<int>(std::max<core::FrameIndex>(m_model.sequence().length(), 1));
+}
+
+double AppWindow::sequenceFps() const
+{
+    const core::Rational &fps = m_model.sequence().profile.fps;
+    return fps.den > 0 ? static_cast<double>(fps.num) / fps.den : 0.0;
+}
+
 void AppWindow::replaceProject(core::Model model)
 {
     cancelProjectJobs();
@@ -1648,7 +1654,7 @@ void AppWindow::replaceProject(core::Model model)
     // Before clear(): its `changed` publishes the same snapshot again, a
     // no-op, rather than rebuilding the new project with the old project's
     // cached masters and then again here.
-    m_engineSync->reset(m_model.snapshot()); // rebuilt.connect() (ctor) re-anchors playback automatically
+    m_engine->reset(m_model.snapshot());
     m_undoStack.clear();
     m_activeTrack = 0;
     m_timelineController.selection().clear();
@@ -1696,7 +1702,7 @@ void AppWindow::performNewProject()
     // back out of on a project that's just been reset.
     m_model.addTrack(core::Track::Kind::Video, 0, "V1");
     m_currentProjectPath.clear();
-    m_engineSync->reset(m_model.snapshot()); // first: see replaceProject()
+    m_engine->reset(m_model.snapshot()); // first: see replaceProject()
     m_undoStack.clear();
     m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
     m_activeTrack = 0;
@@ -1847,7 +1853,7 @@ void AppWindow::onRedo()
 
 void AppWindow::onPlayToggled()
 {
-    m_playback->togglePlay();
+    m_engine->togglePlay();
     refreshPlayButtonIcon();
 }
 
@@ -1856,52 +1862,52 @@ void AppWindow::onSeekChanged()
     if (m_suppressSeekSignal)
         return;
     int frame = static_cast<int>(gtk_range_get_value(GTK_RANGE(m_seekScale)));
-    m_playback->seek(frame);
+    m_engine->seek(frame);
 }
 
 void AppWindow::onShuttleForward()
 {
-    double current = m_playback->speed();
+    double current = m_engine->speed();
     double next = (current <= 0.0) ? 1.0 : std::min(current * 2.0, m_settings->shuttleMaxSpeed());
-    m_playback->play(next);
+    m_engine->play(next);
     refreshPlayButtonIcon();
 }
 
 void AppWindow::onShuttleReverse()
 {
-    double current = m_playback->speed();
+    double current = m_engine->speed();
     double next = (current >= 0.0) ? -1.0 : std::max(current * 2.0, -m_settings->shuttleMaxSpeed());
-    m_playback->play(next);
+    m_engine->play(next);
     refreshPlayButtonIcon();
 }
 
 void AppWindow::onShuttleStop()
 {
-    m_playback->pause();
+    m_engine->pause();
     refreshPlayButtonIcon();
 }
 
 void AppWindow::onStepForward()
 {
-    m_playback->stepFrame(1);
+    m_engine->stepFrame(1);
     refreshPlayButtonIcon();
 }
 
 void AppWindow::onStepBackward()
 {
-    m_playback->stepFrame(-1);
+    m_engine->stepFrame(-1);
     refreshPlayButtonIcon();
 }
 
 void AppWindow::onStepForward10()
 {
-    m_playback->stepFrame(10);
+    m_engine->stepFrame(10);
     refreshPlayButtonIcon();
 }
 
 void AppWindow::onStepBackward10()
 {
-    m_playback->stepFrame(-10);
+    m_engine->stepFrame(-10);
     refreshPlayButtonIcon();
 }
 
@@ -1911,30 +1917,30 @@ void AppWindow::onStepBackward10()
 // the brief window before any project/tractor exists.
 int AppWindow::oneMinuteInFrames() const
 {
-    double fps = m_playback->fps();
+    double fps = sequenceFps();
     return fps > 0.0 ? static_cast<int>(fps * 60.0 + 0.5) : 25 * 60;
 }
 
 void AppWindow::onStepForwardMinute()
 {
-    m_playback->stepFrame(oneMinuteInFrames());
+    m_engine->stepFrame(oneMinuteInFrames());
     refreshPlayButtonIcon();
 }
 
 void AppWindow::onStepBackwardMinute()
 {
-    m_playback->stepFrame(-oneMinuteInFrames());
+    m_engine->stepFrame(-oneMinuteInFrames());
     refreshPlayButtonIcon();
 }
 
 void AppWindow::onSeekHome()
 {
-    m_playback->toHome();
+    m_engine->toHome();
 }
 
 void AppWindow::onSeekEnd()
 {
-    m_playback->toEnd();
+    m_engine->toEnd();
 }
 
 // Every clip boundary (start and end) on the active track, plus the
@@ -1954,7 +1960,7 @@ std::vector<int> AppWindow::cutBoundariesForTrack(int row) const
     // so using the raw total here would make "next cut" silently re-seek
     // to the same already-clamped frame forever once at the end, instead
     // of ever reporting "no later cut".
-    int lastFrame = std::max(m_playback->totalFrames() - 1, 0);
+    int lastFrame = std::max(sequenceFrames() - 1, 0);
     std::vector<int> boundaries{0, lastFrame};
     for (core::ClipId clipId : track.clips) {
         const core::Clip &clip = m_model.clip(clipId);
@@ -1984,12 +1990,12 @@ void AppWindow::onSeekPreviousCut()
     // finds the first boundary >= current (which, if current sits exactly
     // on one, is that same boundary, not the one before it), so the
     // previous distinct cut is always one step back from there.
-    auto it = std::lower_bound(boundaries.begin(), boundaries.end(), m_playback->currentFrame());
+    auto it = std::lower_bound(boundaries.begin(), boundaries.end(), m_engine->currentFrame());
     if (it == boundaries.begin()) {
         showStatus("No earlier cut on this track.");
         return;
     }
-    m_playback->seek(*(it - 1));
+    m_engine->seek(*(it - 1));
 }
 
 void AppWindow::onSeekNextCut()
@@ -1998,12 +2004,12 @@ void AppWindow::onSeekNextCut()
         return;
     std::vector<int> boundaries = cutBoundariesOnActiveTrack();
 
-    auto it = std::upper_bound(boundaries.begin(), boundaries.end(), m_playback->currentFrame());
+    auto it = std::upper_bound(boundaries.begin(), boundaries.end(), m_engine->currentFrame());
     if (it == boundaries.end()) {
         showStatus("No later cut on this track.");
         return;
     }
-    m_playback->seek(*it);
+    m_engine->seek(*it);
 }
 
 void AppWindow::onActiveTrackUp()
@@ -2026,39 +2032,39 @@ void AppWindow::onActiveTrackDown()
 
 void AppWindow::onSetLoopIn()
 {
-    int frame = m_playback->currentFrame();
-    auto range = m_playback->loopRange();
-    int out = range ? range->second : std::max(m_playback->totalFrames() - 1, 0);
+    int frame = m_engine->currentFrame();
+    auto range = m_engine->loopRange();
+    int out = range ? range->second : std::max(sequenceFrames() - 1, 0);
     if (frame >= out) {
         showStatus("Loop in must be before loop out.");
         return;
     }
-    m_playback->setLoopRange(std::make_pair(frame, out));
+    m_engine->setLoopRange(std::make_pair(frame, out));
     refreshLoopStatusLabel();
 }
 
 void AppWindow::onSetLoopOut()
 {
-    int frame = m_playback->currentFrame();
-    auto range = m_playback->loopRange();
+    int frame = m_engine->currentFrame();
+    auto range = m_engine->loopRange();
     int in = range ? range->first : 0;
     if (frame <= in) {
         showStatus("Loop out must be after loop in.");
         return;
     }
-    m_playback->setLoopRange(std::make_pair(in, frame));
+    m_engine->setLoopRange(std::make_pair(in, frame));
     refreshLoopStatusLabel();
 }
 
 void AppWindow::onClearLoopClicked()
 {
-    m_playback->setLoopRange(std::nullopt);
+    m_engine->setLoopRange(std::nullopt);
     refreshLoopStatusLabel();
 }
 
 void AppWindow::onVolumeChanged()
 {
-    m_playback->setVolume(gtk_range_get_value(GTK_RANGE(m_volumeScale)));
+    m_engine->setVolume(gtk_range_get_value(GTK_RANGE(m_volumeScale)));
 }
 
 void AppWindow::onPreviewScaleChanged()
@@ -2068,23 +2074,23 @@ void AppWindow::onPreviewScaleChanged()
     // via `rebuilt` -- only when the resolved factor actually changes.
     switch (gtk_drop_down_get_selected(m_previewScaleDropdown)) {
     case 1:
-        m_engineSync->setPreviewScale(engine::PreviewScale::Full);
+        m_engine->setPreviewScale(engine::PreviewScale::Full);
         break;
     case 2:
-        m_engineSync->setPreviewScale(engine::PreviewScale::Half);
+        m_engine->setPreviewScale(engine::PreviewScale::Half);
         break;
     case 3:
-        m_engineSync->setPreviewScale(engine::PreviewScale::Quarter);
+        m_engine->setPreviewScale(engine::PreviewScale::Quarter);
         break;
     default:
-        m_engineSync->setPreviewScale(engine::PreviewScale::Auto);
+        m_engine->setPreviewScale(engine::PreviewScale::Auto);
         break;
     }
 }
 
 void AppWindow::onSplitClicked()
 {
-    int frame = m_playback->currentFrame();
+    int frame = m_engine->currentFrame();
     for (const auto &clip : m_clips) {
         if (clip.trackIndex == m_activeTrack && frame > clip.startFrame && frame < clip.startFrame + clip.frames) {
             if (m_undoStack.execute(std::make_unique<core::SplitClip>(clip.id, frame))) {
@@ -2114,8 +2120,8 @@ timeline::TimelineContext AppWindow::timelineContext() const
                                      .handleWidth = kHandleWidth,
                                      .edgeGrabPx = kEdgeGrabWidth,
                                      .dragThresholdPx = kDragClickThreshold,
-                                     .playhead = m_playback->currentFrame(),
-                                     .sequenceLength = m_playback->totalFrames(),
+                                     .playhead = m_engine->currentFrame(),
+                                     .sequenceLength = sequenceFrames(),
                                      .rippleMode = rippleMode()};
 }
 
@@ -2139,7 +2145,7 @@ void AppWindow::applyTimelineOutcome(timeline::TimelineOutcome &outcome)
         m_activeTrack = *outcome.activeRowOnSuccess;
 
     if (outcome.seek)
-        m_playback->seek(static_cast<int>(*outcome.seek));
+        m_engine->seek(static_cast<int>(*outcome.seek));
 
     if (outcome.rename == timeline::TimelineOutcome::Rename::Track) {
         beginTrackNameEdit(outcome.renameRow);
@@ -2414,7 +2420,7 @@ void AppWindow::onAddTransitionClicked()
     // single side to prefer here, so try half from each, and hand
     // whatever one side can't use to the other (clamped again there).
     core::FrameIndex targetLength =
-        std::max<core::FrameIndex>(1, static_cast<core::FrameIndex>(m_playback->fps() * 0.5 + 0.5));
+        std::max<core::FrameIndex>(1, static_cast<core::FrameIndex>(sequenceFps() * 0.5 + 0.5));
     core::FrameIndex handleA = 0;
     if (m_model.hasAsset(clipA.asset)) {
         const core::Asset &asset = m_model.asset(clipA.asset);
@@ -2605,22 +2611,22 @@ void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int heigh
 void AppWindow::snapshotPlayheadOverlay(GtkSnapshot *snapshot, int width, int height)
 {
     int trackCount = static_cast<int>(m_model.sequence().tracks.size());
-    if (trackCount <= 0 || m_playback->totalFrames() <= 0)
+    if (trackCount <= 0 || sequenceFrames() <= 0)
         return;
-    timeline::snapshotPlayhead(snapshot, m_viewport, m_playback->currentFrame(), kHandleWidth, width,
+    timeline::snapshotPlayhead(snapshot, m_viewport, m_engine->currentFrame(), kHandleWidth, width,
                                std::min(static_cast<double>(height), trackCount * kTrackRowHeight));
 }
 
 void AppWindow::snapshotRulerView(GtkSnapshot *snapshot, int width, int height)
 {
-    if (m_playback->totalFrames() <= 0)
+    if (sequenceFrames() <= 0)
         return;
     PangoLayout *layout = newLabelLayout(m_rulerArea, true);
     timeline::RulerScene scene{
         .model = m_model,
         .viewport = m_viewport,
         .handleWidth = kHandleWidth,
-        .fps = m_playback->fps(),
+        .fps = sequenceFps(),
         .formatTimecode = [this](core::FrameIndex frame) { return formatTimecode(static_cast<int>(frame)); },
         .labelLayout = layout,
     };
@@ -2630,6 +2636,7 @@ void AppWindow::snapshotRulerView(GtkSnapshot *snapshot, int width, int height)
 
 void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, int frameNumber)
 {
+    core::trace::Scope trace("frame: present");
     if (!rgba.empty() && width > 0 && height > 0) {
         GBytes *bytes = g_bytes_new(rgba.data(), rgba.size());
         GdkTexture *texture = gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8, bytes, width * 4);
@@ -3099,7 +3106,7 @@ void AppWindow::onMediaBrowserRowActivated(core::AssetId assetId)
     if (trackCount <= 0)
         return;
     core::TrackId trackId = trackIdForRow(m_activeTrack);
-    insertAssetAtPosition(assetId, trackId, m_playback->currentFrame());
+    insertAssetAtPosition(assetId, trackId, m_engine->currentFrame());
 }
 
 core::FrameIndex AppWindow::effectiveInsertLength(bool isBoundless, core::FrameIndex knownLength,
@@ -3231,12 +3238,12 @@ core::TrackId AppWindow::trackIdForRow(int row) const
 
 void AppWindow::updateViewportGeometry()
 {
-    double fps = m_playback->fps() > 0.0 ? m_playback->fps() : 25.0;
+    double fps = sequenceFps() > 0.0 ? sequenceFps() : 25.0;
     m_viewport.setOriginX(kHandleWidth);
     m_viewport.setVisibleWidth(gtk_widget_get_width(GTK_WIDGET(m_timeline)) - kHandleWidth);
     // An empty or very short project fits 30 seconds, not a few frames
     // stretched across the whole width.
-    m_viewport.setSequenceLength(m_playback->totalFrames(), static_cast<core::FrameIndex>(fps * 30.0));
+    m_viewport.setSequenceLength(sequenceFrames(), static_cast<core::FrameIndex>(fps * 30.0));
     syncTimelineScrollbar();
 }
 
@@ -3261,7 +3268,7 @@ void AppWindow::zoomTimeline(double factor)
 {
     // Keyboard zoom anchors on the playhead when it's on screen, else on
     // the middle of the view.
-    double anchorX = xForFrame(m_playback->currentFrame());
+    double anchorX = xForFrame(m_engine->currentFrame());
     int width = gtk_widget_get_width(GTK_WIDGET(m_timeline));
     if (anchorX < kHandleWidth || anchorX > width)
         anchorX = kHandleWidth + m_viewport.visibleWidth() / 2.0;
@@ -3343,7 +3350,7 @@ void AppWindow::refreshTimeline()
     gtk_widget_set_size_request(GTK_WIDGET(m_timeline), -1, height);
     updateViewportGeometry();
 
-    int total = m_playback->totalFrames();
+    int total = sequenceFrames();
     m_suppressSeekSignal = true;
     gtk_range_set_range(GTK_RANGE(m_seekScale), 0, std::max(total - 1, 0));
     m_suppressSeekSignal = false;
@@ -3379,13 +3386,13 @@ void AppWindow::refreshTransport(int frameNumber)
 
 void AppWindow::refreshPlayButtonIcon()
 {
-    const char *icon = m_playback->isPlaying() ? "media-playback-pause-symbolic" : "media-playback-start-symbolic";
+    const char *icon = m_engine->isPlaying() ? "media-playback-pause-symbolic" : "media-playback-start-symbolic";
     gtk_button_set_icon_name(m_playButton, icon);
 }
 
 void AppWindow::refreshLoopStatusLabel()
 {
-    auto range = m_playback->loopRange();
+    auto range = m_engine->loopRange();
     if (!range) {
         gtk_label_set_text(m_loopStatusLabel, "");
         return;
@@ -3445,7 +3452,7 @@ void AppWindow::showStatus(const std::string &text)
 
 std::string AppWindow::formatTimecode(int frame) const
 {
-    double fps = m_playback->fps();
+    double fps = sequenceFps();
     int fpsInt = fps > 0.0 ? static_cast<int>(fps + 0.5) : 25;
     if (fpsInt <= 0)
         fpsInt = 25;
@@ -4194,7 +4201,7 @@ void AppWindow::selectAdjacentClip(bool forward)
     }
     // From the selected clip if it's on this track, else from the playhead.
     core::ClipId current = m_timelineController.selection().single();
-    core::FrameIndex from = m_playback->currentFrame();
+    core::FrameIndex from = m_engine->currentFrame();
     bool fromClip = current.isValid() && m_model.hasClip(current) &&
                     m_model.clip(current).track == tracks[static_cast<size_t>(m_activeTrack)].id;
     if (fromClip)
@@ -4221,7 +4228,7 @@ void AppWindow::selectAdjacentClip(bool forward)
         return;
     }
     m_timelineController.selection().selectOnly(pick);
-    m_playback->seek(static_cast<int>(m_model.clip(pick).position));
+    m_engine->seek(static_cast<int>(m_model.clip(pick).position));
     gtk_widget_queue_draw(m_timeline);
 }
 
@@ -4242,7 +4249,7 @@ void AppWindow::nudgeSelection(core::FrameIndex frames)
 
 void AppWindow::onAddMarker()
 {
-    int frame = m_playback->currentFrame();
+    int frame = m_engine->currentFrame();
     for (const core::Marker &marker : m_model.sequence().markers) {
         if (marker.at == frame) {
             showStatus("There's already a marker here.");
@@ -4260,7 +4267,7 @@ void AppWindow::onRemoveMarker()
 {
     // The marker at the playhead, or failing that the nearest one within
     // the snap distance, so it can be removed without landing exactly on it.
-    int frame = m_playback->currentFrame();
+    int frame = m_engine->currentFrame();
     const core::Marker *best = nullptr;
     double bestPx = kEdgeGrabWidth + 1;
     for (const core::Marker &marker : m_model.sequence().markers) {

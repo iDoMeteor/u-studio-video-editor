@@ -439,6 +439,20 @@ milestone M6). Full rationale in
 
 ### Playback engine notes
 
+**Playback and graph builds run on their own thread (0.28.0, doc 19 MT2).**
+`engine::Engine` owns one engine thread, which holds `EngineSync`, the
+tractor and `PlaybackController`. The window publishes a model snapshot per
+edit, undo or redo; the engine thread rebuilds and restarts the consumer
+without blocking the window. The window reads position, length and fps from
+a mirror, and a seek or step moves that mirror immediately, so quick steps
+still count. Consecutive snapshots collapse (latest wins), and a seek after
+an edit lands on the new graph. The consumer's frame hand-off runs on the
+engine thread, so loop wraps can seek; frames reach the window through a
+one-slot hand-off. `Engine::shutdown()` stops the consumer and drops the
+graph before `Factory::close()`. The engine thread logs its own entries over
+50 ms at debug ("engine thread busy"); the main-thread stall monitor doesn't
+see them.
+
 **The playback consumer prerolls one frame (`prefill` = 1).** With a larger
 preroll, MLT 7.40's consumer thread (waiting in `mlt_consumer_rt_frame()` for
 min(prefill, buffer) frames) and its read-ahead thread (which stops at one

@@ -100,7 +100,9 @@ Stopped ──start()──▶ Paused ◀──────────┐
    Playing ──end reached──▶ Paused at last frame (or loops if loop range set)
 ```
 
-Implementation notes (all main thread):
+Implementation notes (all on the engine thread since 0.28.0, doc 19 MT2;
+the main thread calls `engine::Engine`, which queues these and mirrors
+position, playing, speed, length and fps back):
 
 - `play(speed)`: `tractor.set_speed(speed)`; if consumer not started, `start()`.
   Speed ∈ {±0.25, ±0.5, ±1, ±2, ±4, ±8} for J/K/L shuttle; `sdl2_audio`
@@ -147,7 +149,9 @@ static void onFrameShow(mlt_consumer, PlaybackController* self, mlt_event_data d
 }
 ```
 
-`drainSlot()` on the main thread takes the frame, wraps the buffer with
+`drainSlot()` (on the engine thread since 0.28.0, where the loop wrap can
+seek the tractor; the frame then goes to the main thread through
+`engine::Engine`'s one-slot hand-off) takes the frame, wraps the buffer with
 `g_bytes_new_with_free_func`, builds a `GdkMemoryTexture`, hands it to the
 preview, and emits `positionChanged(pos)`. Cost per 1080p frame: one 8 MB
 memcpy plus GTK's upload. GTK's own upload can be avoided later with

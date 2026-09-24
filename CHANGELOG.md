@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.28.0
+
+- Edits no longer freeze the window while playback catches up: rebuilding
+  the playback timeline and restarting playback run on their own thread.
+
 ## 0.27.1
 
 - Edits on large projects rebuild playback much faster: 5,000 clips on

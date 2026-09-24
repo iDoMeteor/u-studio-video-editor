@@ -123,17 +123,17 @@ subprojects/doctest/     vendored single header (wrap-file)
 
 ## Threading model
 
-> **Planned change (2026-09-24):** [ADR-016](adr/016-concurrency-model.md)
-> and [doc 19](19-concurrency.md) move `EngineSync` and
-> `PlaybackController` off the main thread onto a dedicated engine thread,
-> add model snapshots, and make the worker pool real. The table below
-> describes the current design until that lands.
+As of 0.28.0 ([ADR-016](adr/016-concurrency-model.md), [doc 19](19-concurrency.md) MT2),
+`EngineSync` and `PlaybackController` live on a dedicated engine thread
+behind `engine::Engine`. The main thread publishes immutable model
+snapshots and never touches an MLT object.
 
-Four kinds of threads, each with a fixed set of things it may touch.
+Five kinds of threads, each with a fixed set of things it may touch.
 
 | Thread | Owns | May touch | May not touch |
 |--------|------|-----------|---------------|
-| **GTK main** | Model, Document, UndoStack, all widgets, EngineSync, PlaybackController API | MLT services *under `Mlt::Service::lock()`* (tractor, playlists, filters) | nothing off-limits, but must never block > 5 ms (no sync IO, no probing) |
+| **GTK main** | Model, UndoStack, all widgets, `engine::Engine` (the facade and its state mirror) | the engine's command queue; `Model::snapshot()` | any MLT object; must never block > 16 ms (the stall monitor watches) |
+| **Engine thread** (`engine::Engine`, one `std::jthread`) | EngineSync, the master producers, the tractor, PlaybackController | its own MLT graph; the dispatcher | the live Model (it gets snapshots), any widget |
 | **MLT consumer threads** (created by `Mlt::Consumer::start`) | frame pulling, decoding, audio device | reads the tractor graph (MLT locks internally) | anything of ours except the `consumer-frame-show` handler, which only posts to the dispatcher |
 | **Worker pool** (`std::jthread`s behind `engine::Workers`) | their own `Mlt::Producer`s, file IO, caches | the dispatcher | the shared tractor, the model, any widget |
 | **Render child process** | everything in its own process | the project file, stdout | the editor's memory |
@@ -175,9 +175,9 @@ queued. Frame memory is handed to `GdkMemoryTexture` via
   change event*, then releases.
 
 > REVIEW: Claude (2026-09-24): not what shipped. `EngineSync::rebuildAll()` builds a new
-> tractor on the main thread with no lock, and `PlaybackController::setTractor()`
-> stops the consumer, swaps the tractor in and restarts it (CLAUDE.md,
-> "Threading rules").
+> tractor with no lock (on the engine thread since 0.28.0), and
+> `PlaybackController::setTractor()` stops the consumer, swaps the tractor in
+> and restarts it, on the same thread (CLAUDE.md, "Threading rules").
 - `PlaybackController` never touches the tractor structure; it only seeks and
   reads position.
 - Workers never touch the shared tractor. They open their own producer for

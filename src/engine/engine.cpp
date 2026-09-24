@@ -123,6 +123,10 @@ class Engine::Thread
                 sync.reset();
                 return;
             }
+            // The stall monitor only watches the main thread; this is the
+            // engine thread's own over-budget log (doc 19 MT2).
+            auto started = std::chrono::steady_clock::now();
+            const char *what = entry.command ? "command" : entry.reset ? "reset" : "new snapshot";
             if (entry.command) {
                 entry.command(*this);
             } else if (entry.reset) {
@@ -130,6 +134,9 @@ class Engine::Thread
             } else {
                 sync->setProject(std::move(entry.snapshot));
             }
+            double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+            if (ms > kSlowEntryMs)
+                Log::debug("[engine] engine thread busy " + std::to_string(static_cast<int>(ms)) + " ms: " + what);
             if (entry.seq != kInternal)
                 postState(entry.seq);
             else if (m_rebuilt)
@@ -184,6 +191,7 @@ class Engine::Thread
         int height = 0;
         int position = 0;
     };
+    static constexpr double kSlowEntryMs = 50.0;
     static constexpr uint64_t kInternal = UINT64_MAX; // engine-originated work, not a main-thread command
 
     Engine *m_owner;
