@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.21.0
+
+- Ripple trim (Alt+drag an edge), slip (Shift+drag an edge), copy
+  (Ctrl+drag), ripple delete (Shift+Delete), and markers (M adds one at
+  the playhead, Shift+M removes it).
+
 ## 0.20.0
 
 - Select several clips (Shift+click, Ctrl+click, Shift+drag a box, Ctrl+A;

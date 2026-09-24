@@ -158,26 +158,39 @@ TimelineOutcome TimelineController::press(const TimelineContext &ctx, double x, 
             m_preview.start = clip.position;
             m_preview.length = clip.length();
             out.activeRow = row;
-            // Shift adds, Ctrl toggles; a plain press on an unselected clip
-            // selects just it, and on a selected one keeps the selection so
-            // the whole group can be dragged.
-            if (has(mods, Modifiers::Ctrl)) {
-                m_selection.toggle(id);
-                if (!m_selection.contains(id)) {
-                    m_mode = Mode::None; // toggled off: nothing to drag
-                    return out;
-                }
-            } else if (has(mods, Modifiers::Shift)) {
-                m_selection.add(id);
-            } else if (!m_selection.contains(id)) {
-                m_selection.selectOnly(id);
-            }
-
             double left = ctx.viewport.xForFrame(static_cast<double>(clip.position));
             double right = ctx.viewport.xForFrame(static_cast<double>(clip.end()));
-            if (x - left < ctx.edgeGrabPx)
+            bool onHead = x - left < ctx.edgeGrabPx;
+            bool onTail = !onHead && right - x < ctx.edgeGrabPx;
+
+            // Ctrl: a drag copies, a click toggles the selection (decided
+            // at release, so a copy never changes the selection).
+            if (has(mods, Modifiers::Ctrl)) {
+                m_mode = Mode::CopyClip;
+                return out;
+            }
+            if ((onHead || onTail) && has(mods, Modifiers::Alt)) {
+                m_selection.selectOnly(id);
+                m_mode = onHead ? Mode::RippleTrimStart : Mode::RippleTrimEnd;
+                return out;
+            }
+            if ((onHead || onTail) && has(mods, Modifiers::Shift)) {
+                m_selection.selectOnly(id);
+                m_mode = Mode::Slip;
+                return out;
+            }
+
+            // Shift adds; a plain press on an unselected clip selects just
+            // it, and on a selected one keeps the selection so the whole
+            // group can be dragged.
+            if (has(mods, Modifiers::Shift))
+                m_selection.add(id);
+            else if (!m_selection.contains(id))
+                m_selection.selectOnly(id);
+
+            if (onHead)
                 m_mode = Mode::TrimClipStart;
-            else if (right - x < ctx.edgeGrabPx)
+            else if (onTail)
                 m_mode = Mode::TrimClipEnd;
             else
                 m_mode = Mode::MoveClip;
@@ -222,6 +235,63 @@ TimelineOutcome TimelineController::motion(const TimelineContext &ctx, double of
     case Mode::RubberBand:
         m_preview.bandX1 = x;
         m_preview.bandY1 = y;
+        break;
+    case Mode::CopyClip: {
+        m_preview.row = ctx.layout.clampedRowAt(y, count);
+        core::FrameIndex start = std::max<core::FrameIndex>(0, m_originStart + delta);
+        // The original stays, so its own edges are fair snap targets too
+        // (drop the copy right after it).
+        std::vector<core::FrameIndex> targets = snapTargets(ctx, core::ClipId{});
+        std::optional<core::FrameIndex> head = snapDelta(ctx, start, targets);
+        std::optional<core::FrameIndex> tail = snapDelta(ctx, start + m_originLength, targets);
+        std::optional<core::FrameIndex> chosen = head;
+        if (tail && (!head || std::abs(*tail) < std::abs(*head)))
+            chosen = tail;
+        if (chosen) {
+            start += *chosen;
+            m_preview.snappedTo = chosen == head ? start : start + m_originLength;
+        }
+        m_preview.start = std::max<core::FrameIndex>(0, start);
+        m_preview.length = m_originLength;
+        break;
+    }
+    case Mode::RippleTrimStart: {
+        // The clip's start stays put; its head is cut (or restored) and
+        // everything after it follows, so the preview only shortens.
+        core::FrameIndex cut = std::min(delta, m_originLength - 1);
+        m_preview.row = m_originRow;
+        m_preview.start = m_originStart;
+        m_preview.length = m_originLength - cut;
+        break;
+    }
+    case Mode::RippleTrimEnd: {
+        core::FrameIndex end = std::max(m_originStart + 1, m_originStart + m_originLength + delta);
+        if (auto d = snapDelta(ctx, end, snapTargets(ctx, m_preview.clip))) {
+            end = std::max(m_originStart + 1, end + *d);
+            m_preview.snappedTo = end;
+        }
+        m_preview.row = m_originRow;
+        m_preview.start = m_originStart;
+        m_preview.length = end - m_originStart;
+        break;
+    }
+    case Mode::Slip:
+        // Dragging right reveals earlier source frames, the way the
+        // footage would move if pulled along under the clip.
+        m_preview.row = m_originRow;
+        m_preview.start = m_originStart;
+        m_preview.length = m_originLength;
+        m_preview.slipDelta = -delta;
+        // Stop at the ends of the source instead of refusing at release.
+        if (ctx.model.hasClip(m_preview.clip)) {
+            const core::Clip &clip = ctx.model.clip(m_preview.clip);
+            core::FrameIndex earliest = -clip.in;
+            core::FrameIndex latest = 0;
+            if (ctx.model.hasAsset(clip.asset))
+                latest = std::max<core::FrameIndex>(0, ctx.model.asset(clip.asset).info.lengthInSequenceFrames - 1 -
+                                                           clip.out);
+            m_preview.slipDelta = std::clamp(m_preview.slipDelta, earliest, latest);
+        }
         break;
     case Mode::MoveClip: {
         m_preview.row = ctx.layout.clampedRowAt(y, count);
@@ -313,6 +383,12 @@ TimelineOutcome TimelineController::release(const TimelineContext &ctx, double o
     bool trivial = std::abs(offsetX) < ctx.dragThresholdPx && std::abs(offsetY) < ctx.dragThresholdPx;
     Mode mode = m_mode;
 
+    if (trivial && mode == Mode::CopyClip) {
+        core::ClipId clip = m_preview.clip;
+        cancel();
+        m_selection.toggle(clip);
+        return click(ctx, 1, m_pressX, m_pressY, m_pressMods);
+    }
     if (trivial && mode != Mode::TrackReorder) {
         cancel();
         return click(ctx, 1, m_pressX, m_pressY, m_pressMods);
@@ -358,6 +434,35 @@ TimelineOutcome TimelineController::release(const TimelineContext &ctx, double o
     case Mode::TrimClipStart:
     case Mode::TrimClipEnd:
         releaseTrim(ctx, out);
+        break;
+    case Mode::RippleTrimStart:
+    case Mode::RippleTrimEnd: {
+        using Edge = core::RippleTrim::Edge;
+        bool head = mode == Mode::RippleTrimStart;
+        // Head: frames cut from the front. Tail: frames added at the end.
+        core::FrameIndex d = head ? m_originLength - m_preview.length : m_preview.length - m_originLength;
+        if (d != 0) {
+            out.attempts.push_back(
+                {std::make_unique<core::RippleTrim>(m_preview.clip, head ? Edge::Head : Edge::Tail, d), ""});
+            out.failureStatus = "Can't ripple trim that far — the source has no more frames, or a track is locked.";
+        }
+        break;
+    }
+    case Mode::Slip:
+        if (m_preview.slipDelta != 0) {
+            out.attempts.push_back({std::make_unique<core::SlipClip>(m_preview.clip, m_preview.slipDelta),
+                                    "Slipped the clip " + std::to_string(m_preview.slipDelta) + " frames."});
+            out.failureStatus = "Can't slip that far — the source has no more frames there.";
+        }
+        break;
+    case Mode::CopyClip:
+        if (rowInRange(ctx, m_preview.row)) {
+            out.attempts.push_back(
+                {std::make_unique<core::CopyClip>(m_preview.clip, trackAtRow(ctx, m_preview.row), m_preview.start),
+                 "Copied the clip."});
+            out.activeRowOnSuccess = m_preview.row;
+            out.failureStatus = "Can't copy the clip there — that space is occupied.";
+        }
         break;
     case Mode::TransitionResizeLeft:
     case Mode::TransitionResizeRight:

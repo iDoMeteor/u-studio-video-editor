@@ -108,6 +108,15 @@ class TimelineController
         // touches to the selection. (doc 06 puts the marquee on a plain drag
         // and scrubbing on Alt; the owner's plain drag already scrubs.)
         RubberBand,
+        // doc 06's modifier gestures on a single clip: Alt+drag an edge to
+        // ripple trim (later clips follow), Shift+drag an edge to slip
+        // (same place and length, different source frames), Ctrl+drag the
+        // body to copy. A Ctrl press that never moves toggles the clip's
+        // selection instead.
+        RippleTrimStart,
+        RippleTrimEnd,
+        Slip,
+        CopyClip,
     };
 
     // The live drag, for drawing: a ghost at the candidate position, a
@@ -129,6 +138,8 @@ class TimelineController
         bool group = false;
         core::FrameIndex groupDelta = 0;
         int groupRowDelta = 0;
+        // Slip: how far the source window moves (source frames, +later).
+        core::FrameIndex slipDelta = 0;
         // RubberBand, in widget coordinates.
         double bandX0 = 0, bandY0 = 0, bandX1 = 0, bandY1 = 0;
     };

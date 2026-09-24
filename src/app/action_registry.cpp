@@ -38,6 +38,9 @@ const std::vector<ActionSpec> &actionSpecs()
         {"active-track-down",    "Active Track Down",          "Editing", {"d"},                    &AppWindow::activeTrackDownActivated},
         {"delete-selected-clip", "Delete Selected Clip",       "Editing", {"Delete"},               &AppWindow::deleteSelectedClipActivated},
         {"split-at-playhead",    "Split Clip at Playhead",     "Editing", {"x"},                    &AppWindow::splitAtPlayheadActivated},
+        {"ripple-delete-selected", "Ripple Delete Selected",   "Editing", {"<Shift>Delete"},        &AppWindow::rippleDeleteSelectedActivated},
+        {"add-marker",           "Add Marker at Playhead",     "Editing", {"m"},                    &AppWindow::addMarkerActivated},
+        {"remove-marker",        "Remove Marker at Playhead",  "Editing", {"<Shift>m"},             &AppWindow::removeMarkerActivated},
         {"select-all",           "Select All Clips",           "Editing", {"<Control>a"},           &AppWindow::selectAllActivated},
         {"clear-selection",      "Clear Selection",            "Editing", {"Escape"},               &AppWindow::clearSelectionActivated},
 

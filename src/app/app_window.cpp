@@ -1125,6 +1125,10 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
         // Ctrl+A selects the entry's text; Escape cancels the rename.
         "select-all",
         "clear-selection",
+        // Shift+Delete cuts text; m and M are letters.
+        "ripple-delete-selected",
+        "add-marker",
+        "remove-marker",
     };
     for (const char *name : kTransportActions) {
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
@@ -2503,7 +2507,10 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
     using Mode = timeline::TimelineController::Mode;
     const Mode mode = m_timelineController.mode();
     const timeline::TimelineController::Preview &preview = m_timelineController.preview();
-    const bool clipDrag = mode == Mode::MoveClip || mode == Mode::TrimClipStart || mode == Mode::TrimClipEnd;
+    // Modes that draw the dragged clip at its preview geometry. A copy
+    // leaves the original where it is and adds a ghost below.
+    const bool clipDrag = mode == Mode::MoveClip || mode == Mode::TrimClipStart || mode == Mode::TrimClipEnd ||
+                          mode == Mode::RippleTrimStart || mode == Mode::RippleTrimEnd || mode == Mode::Slip;
 
     for (const ClipDisplay &clip : m_clips) {
         bool isDragged = clipDrag && clip.id == preview.clip;
@@ -2535,9 +2542,15 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
                              true);
             }
         }
-    } else if (mode == Mode::MoveClip) {
+    } else if (mode == Mode::MoveClip || mode == Mode::CopyClip) {
         drawClipRect(preview.row, static_cast<int>(preview.start), static_cast<int>(preview.length), std::string{},
                      true, true);
+    }
+    if (mode == Mode::Slip) {
+        std::string text =
+            "Slip " + std::string(preview.slipDelta > 0 ? "+" : "") + std::to_string(preview.slipDelta) + " frames";
+        double sx = std::max(xForFrame(static_cast<double>(preview.start)), visibleLeft) + 4;
+        drawLabel(cr, text, sx, preview.row * kTrackRowHeight + kTrackRowHeight - 18, 200.0);
     }
 
     if (mode == Mode::RubberBand) {
@@ -2548,6 +2561,18 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         cairo_fill_preserve(cr);
         cairo_set_source_rgba(cr, kSelectedR, kSelectedG, kSelectedB, 0.8);
         cairo_set_line_width(cr, 1.0);
+        cairo_stroke(cr);
+    }
+
+    // Markers run down through the tracks as faint lines.
+    for (const core::Marker &marker : m_model.sequence().markers) {
+        double mx = std::floor(xForFrame(static_cast<double>(marker.at))) + 0.5;
+        if (mx < visibleLeft || mx > visibleRight)
+            continue;
+        cairo_set_source_rgba(cr, kSnapR, kSnapG, kSnapB, 0.35);
+        cairo_set_line_width(cr, 1.0);
+        cairo_move_to(cr, mx, 0);
+        cairo_line_to(cr, mx, trackCount * kTrackRowHeight);
         cairo_stroke(cr);
     }
 
@@ -2691,6 +2716,22 @@ void AppWindow::onRulerDraw(cairo_t *cr, int width, int height)
         cairo_line_to(cr, x, tickBottom);
         cairo_stroke(cr);
         drawLabel(cr, formatTimecode(frame), x + 2.0, 2.0, std::max(tickSpacingPixels - 4.0, 1.0), true);
+    }
+
+    // Markers (M adds one at the playhead): a small brand-magenta flag
+    // hanging from the ruler's bottom edge, with its text if it has any.
+    for (const core::Marker &marker : m_model.sequence().markers) {
+        double mx = xForFrame(static_cast<double>(marker.at));
+        if (mx < kHandleWidth - 6 || mx > width + 6)
+            continue;
+        cairo_set_source_rgb(cr, kSnapR, kSnapG, kSnapB);
+        cairo_move_to(cr, mx - 5, tickBottom - 8);
+        cairo_line_to(cr, mx + 5, tickBottom - 8);
+        cairo_line_to(cr, mx, tickBottom);
+        cairo_close_path(cr);
+        cairo_fill(cr);
+        if (!marker.text.empty())
+            drawLabel(cr, marker.text, mx + 6, 2.0, 120.0);
     }
 }
 
@@ -4146,6 +4187,86 @@ void AppWindow::importActionActivated(GSimpleAction *, GVariant *, gpointer user
 void AppWindow::splitAtPlayheadActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onSplitClicked();
+}
+
+void AppWindow::onRippleDeleteSelected()
+{
+    std::vector<core::ClipId> selected(m_timelineController.selection().clips().begin(),
+                                       m_timelineController.selection().clips().end());
+    if (selected.empty()) {
+        showStatus("No clip selected to ripple delete.");
+        return;
+    }
+    // Latest first, so each close-up never moves a clip still to go.
+    std::sort(selected.begin(), selected.end(),
+              [&](core::ClipId a, core::ClipId b) { return m_model.clip(a).position > m_model.clip(b).position; });
+    std::vector<std::unique_ptr<core::Command>> steps;
+    for (core::ClipId id : selected)
+        steps.push_back(std::make_unique<core::RippleDelete>(id));
+    if (m_undoStack.execute(std::make_unique<core::CompositeCommand>("Ripple delete", std::move(steps)))) {
+        m_timelineController.selection().clear();
+        refreshTimeline();
+        showStatus(selected.size() == 1 ? "Deleted the clip and closed the gap."
+                                        : "Deleted " + std::to_string(selected.size()) + " clips and closed the gaps.");
+    } else {
+        showStatus("Couldn't ripple delete — a track is locked, or a dissolve crosses the gap.");
+    }
+}
+
+void AppWindow::onAddMarker()
+{
+    int frame = m_playback->currentFrame();
+    for (const core::Marker &marker : m_model.sequence().markers) {
+        if (marker.at == frame) {
+            showStatus("There's already a marker here.");
+            return;
+        }
+    }
+    if (m_undoStack.execute(std::make_unique<core::AddMarker>(frame, std::string{}))) {
+        showStatus("Marker added at " + formatTimecode(frame) + ".");
+        gtk_widget_queue_draw(GTK_WIDGET(m_rulerArea));
+        gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+    }
+}
+
+void AppWindow::onRemoveMarker()
+{
+    // The marker at the playhead, or failing that the nearest one within
+    // the snap distance, so it can be removed without landing exactly on it.
+    int frame = m_playback->currentFrame();
+    const core::Marker *best = nullptr;
+    double bestPx = kEdgeGrabWidth + 1;
+    for (const core::Marker &marker : m_model.sequence().markers) {
+        double px = std::abs(static_cast<double>(marker.at - frame)) * m_viewport.pxPerFrame();
+        if (marker.at == frame || px < bestPx) {
+            best = &marker;
+            bestPx = marker.at == frame ? -1 : px;
+        }
+    }
+    if (best == nullptr) {
+        showStatus("No marker at the playhead.");
+        return;
+    }
+    if (m_undoStack.execute(std::make_unique<core::RemoveMarker>(best->id))) {
+        showStatus("Marker removed.");
+        gtk_widget_queue_draw(GTK_WIDGET(m_rulerArea));
+        gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+    }
+}
+
+void AppWindow::rippleDeleteSelectedActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRippleDeleteSelected();
+}
+
+void AppWindow::addMarkerActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onAddMarker();
+}
+
+void AppWindow::removeMarkerActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onRemoveMarker();
 }
 
 void AppWindow::selectAllActivated(GSimpleAction *, GVariant *, gpointer userData)

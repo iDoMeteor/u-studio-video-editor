@@ -141,6 +141,12 @@ Modifiers, matching GNOME/kdenlive habits where they agree:
 | Ctrl+drag | copy |
 | Alt+drag on edge | ripple trim |
 | Shift+drag on edge | slip (moves in/out together, clip stays) |
+
+> REVIEW: Claude (2026-09-24): built as in this table, with two
+> refinements. Ctrl on a clip means copy only when it drags; a Ctrl click
+> toggles the selection. Shift on a clip's body adds it to the selection
+> (and drags the group); only Shift on an edge slips. The "Ripple mode"
+> toggle is not built.
 | drag with `Ripple` mode on | ripple move (later clips follow) |
 | drag between tracks | moves track; audio-only clips can only land on audio tracks |
 
@@ -157,11 +163,11 @@ shipped bindings are the owner's and are the source of truth
 | A / F | previous / next cut on the active track |
 | S / D | active track up / down |
 | X | split the active track's clip at the playhead |
-| Delete / Shift+Delete | delete / ripple delete (M3) |
+| Delete / Shift+Delete | delete / ripple delete |
 | I / O | set loop in / out |
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
 | + / − / 0 | zoom in / out / fit (M3) |
-| M | add marker (M3) |
+| M / Shift+M | add marker / remove the marker at the playhead |
 | Ctrl+A / Escape | select all / clear selection |
 | Ctrl+G / Ctrl+Shift+G | group / ungroup (M3.5) |
 

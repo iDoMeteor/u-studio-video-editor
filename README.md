@@ -96,6 +96,14 @@ single-track skeleton.
   `Ctrl+A` selects all and `Escape` clears. Drag any selected clip to move
   the whole selection together (one undo step, `core::MoveClips`); `Delete`
   removes every selected clip.
+- Ripple, slip and copy: Alt+drag a clip's edge to ripple trim (later
+  clips on the track follow), Shift+drag an edge to slip (same place and
+  length, different source frames; stops at the ends of the source),
+  Ctrl+drag a clip to copy it (a Ctrl+click only toggles the selection),
+  and `Shift+Delete` to ripple delete the selection. `M` adds a marker at
+  the playhead and `Shift+M` removes it; markers show on the ruler and
+  edges snap to them. The commands are in `src/core/commands/
+  timeline_edits.h`.
   Right-click a clip, or click to select it then press `Delete`, to
   delete it (leaves a gap — "lift", nothing else moves); right-click a
   clip that has audio and isn't already audio-only
@@ -215,9 +223,8 @@ single-track skeleton.
 
 Not yet: effects, titling, proxy/transcode, configurable export formats
 (render always uses the settings above — see "Render implementation
-notes" below), ripple/slip/copy edits and markers in the UI (the commands
-exist in `src/core/commands/timeline_edits.h`, waiting on the M3 timeline
-widget), a visible loop region.
+notes" below), marker names (markers are unnamed for now), a visible loop
+region.
 
 ## Roadmap
 

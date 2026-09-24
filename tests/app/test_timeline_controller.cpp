@@ -343,3 +343,68 @@ TEST_CASE("TimelineController: select all")
     f.controller.selectAll(f.model);
     CHECK(f.controller.selection().clips().size() == 4);
 }
+
+TEST_CASE("TimelineController: Alt+drag on a tail ripple trims; later clips follow")
+{
+    Fixture f;
+    TimelineOutcome out = f.drag(Fixture::x(99), Fixture::bodyY(0), Fixture::x(109), Fixture::bodyY(0), Modifiers::Alt);
+    CHECK(f.apply(out) == 0);
+    CHECK(f.model.clip(f.a).end() == 110);
+    CHECK(f.model.clip(f.b).position == 110);
+    CHECK(f.model.clip(f.c).position == 310);
+    CHECK(f.model.clip(f.d).position == 500); // other tracks don't move
+}
+
+TEST_CASE("TimelineController: Alt+drag on a head cuts the front; the clip stays put, later ones close up")
+{
+    Fixture f;
+    f.controller.press(f.ctx(), Fixture::x(101), Fixture::bodyY(0), Modifiers::Alt);
+    CHECK(f.controller.mode() == TimelineController::Mode::RippleTrimStart);
+    f.controller.motion(f.ctx(), 10.0, 0.0);
+    CHECK(f.controller.preview().start == 100);
+    CHECK(f.controller.preview().length == 90);
+    TimelineOutcome out = f.controller.release(f.ctx(), 10.0, 0.0);
+    CHECK(f.apply(out) == 0);
+    CHECK(f.model.clip(f.b).position == 100);
+    CHECK(f.model.clip(f.b).length() == 90);
+    CHECK(f.model.clip(f.b).in == 2010);
+    CHECK(f.model.clip(f.c).position == 290);
+}
+
+TEST_CASE("TimelineController: Shift+drag on an edge slips the source, not the clip")
+{
+    Fixture f;
+    TimelineOutcome out =
+        f.drag(Fixture::x(399), Fixture::bodyY(0), Fixture::x(414), Fixture::bodyY(0), Modifiers::Shift);
+    CHECK(f.apply(out) == 0);
+    CHECK(f.model.clip(f.c).position == 300);
+    CHECK(f.model.clip(f.c).length() == 100);
+    CHECK(f.model.clip(f.c).in == 2985); // dragged right: earlier frames
+}
+
+TEST_CASE("TimelineController: Ctrl+drag copies; Ctrl+click still only toggles")
+{
+    Fixture f;
+    TimelineOutcome out =
+        f.drag(Fixture::x(550), Fixture::bodyY(1), Fixture::x(750), Fixture::bodyY(0), Modifiers::Ctrl);
+    CHECK(f.apply(out) == 0);
+    CHECK(f.model.clip(f.d).position == 500); // the original stays
+    const Track &v1 = f.model.track(f.v1);
+    REQUIRE(v1.clips.size() == 4);
+    const Clip &copy = f.model.clip(v1.clips.back());
+    CHECK(copy.position == 700);
+    CHECK(copy.in == 4000);
+    CHECK(f.controller.selection().empty()); // a copy doesn't change the selection
+
+    f.drag(Fixture::x(550), Fixture::bodyY(1), Fixture::x(550), Fixture::bodyY(1), Modifiers::Ctrl);
+    CHECK(f.controller.selection().clips() == std::set<ClipId>{f.d});
+}
+
+TEST_CASE("TimelineController: a slip stops at the start of the source")
+{
+    Fixture f;
+    // c's source starts at 3000; asking for 5000 earlier frames stops at 0.
+    f.controller.press(f.ctx(), Fixture::x(399), Fixture::bodyY(0), Modifiers::Shift);
+    f.controller.motion(f.ctx(), 5000.0, 0.0);
+    CHECK(f.controller.preview().slipDelta == -3000);
+}

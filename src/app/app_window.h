@@ -258,6 +258,11 @@ class AppWindow
     // acts on whichever clip a right-click's context menu was opened
     // over -- a different, independently-tracked selection.
     void onDeleteSelectedClip();
+    // Shift+Delete: removes the selected clips and closes each gap (doc 06).
+    void onRippleDeleteSelected();
+    // M / Shift+M: a marker at the playhead, or remove the one there.
+    void onAddMarker();
+    void onRemoveMarker();
     void onSplitAudioClicked();
     void onCloseGapClicked();
     void onRemoveTrackClicked();
@@ -525,6 +530,9 @@ class AppWindow
                                              gpointer userData);
     static void timelineHScrollChangedTrampoline(GtkAdjustment *adjustment, gpointer userData);
     static void timelineMotionTrampoline(GtkEventControllerMotion *controller, double x, double y, gpointer userData);
+    static void rippleDeleteSelectedActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void addMarkerActivated(GSimpleAction *, GVariant *, gpointer userData);
+    static void removeMarkerActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void selectAllActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void clearSelectionActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void zoomInActivated(GSimpleAction *, GVariant *, gpointer userData);
