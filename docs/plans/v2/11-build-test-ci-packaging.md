@@ -110,6 +110,6 @@ Debug builds enable `Model::check()` after every command and
 `EngineSync::verify()` after every engine event (behind `USTUDIO_VERIFY=0` to
 turn off when profiling).
 
-> REVIEW: Claude (2026-09-24): not built yet. Today `verify()` runs in tests only (including
-> the `slow` suite's `engine-sync-property-10k`), `check()` runs before save,
+> REVIEW: Claude (2026-09-24): not built yet. Today `verify()` runs in tests only (`engine-sync`
+> runs it after each of 500 commands and their undos), `check()` runs before save,
 > and `USTUDIO_VERIFY` doesn't exist.

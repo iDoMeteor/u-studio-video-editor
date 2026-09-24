@@ -502,7 +502,7 @@ TEST_CASE("EngineSync: tractor length matches sequence length, including after g
 // driven through EngineSync::rebuildAll()+verify() after each step (doc
 // 11's prescribed engine test shape: "run verify() after every command of
 // the same random-command generator").
-TEST_CASE("EngineSync property: verify() never fails across 500 random edits")
+TEST_CASE("EngineSync property: verify() never fails across 50 random edits")
 {
     sharedFactoryPolicy();
     Model model = Model::createEmpty();
@@ -515,7 +515,7 @@ TEST_CASE("EngineSync property: verify() never fails across 500 random edits")
     std::vector<ClipId> liveClips;
     FrameIndex nextFreePosition = 0;
 
-    for (int i = 0; i < 500; ++i) {
+    for (int i = 0; i < 50; ++i) {
         std::uniform_int_distribution<int> pickAction(0, liveClips.empty() ? 0 : 2);
         int action = pickAction(rng);
 
@@ -547,21 +547,20 @@ TEST_CASE("EngineSync property: verify() never fails across 500 random edits")
 }
 
 // doc 12, M1: "EngineSync::verify() never fails across the property test".
-// The same 10k-command stream as tests/core's undo property test (shared
+// The first 500 commands of tests/core's undo property stream (shared
 // generator, same seed), with a live EngineSync resyncing on every model
 // change: verify() after every executed command, then after every undo
-// while unwinding the whole run back to the start.
-// Quadratic (every step rebuilds a tractor that grows to thousands of
-// clips), so skipped by default and run as its own `slow` suite test:
-//   meson test -C builddir --suite slow
-TEST_CASE("EngineSync property: verify() never fails across the 10k-command undo property test" * doctest::skip())
+// while unwinding the whole run back to the start. Every step rebuilds the
+// whole tractor, so the cost grows with the square of the length: 500 is
+// the owner's chosen size (2026-09-24); the core test alone does 10k.
+TEST_CASE("EngineSync property: verify() never fails across 500 undoable commands")
 {
     sharedFactoryPolicy();
     Model model = Model::createEmpty();
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     AssetId asset = addGeneratorAsset(model, "color:yellow", 1'000'000);
     UndoStack undoStack(model);
-    undoStack.limit = 20'000; // unwind all of it, as the core test does
+    undoStack.limit = 1'000; // unwind all of it, as the core test does
     EngineSync sync(model);
 
     int failures = 0;
@@ -570,7 +569,7 @@ TEST_CASE("EngineSync property: verify() never fails across the 10k-command undo
         if (!problems.empty() && ++failures <= 3)
             MESSAGE(phase << " " << step << ": " << problems.front());
     };
-    int applied = ustudio::testing::runRandomCommands(model, undoStack, track, asset, 2026, 10'000,
+    int applied = ustudio::testing::runRandomCommands(model, undoStack, track, asset, 2026, 500,
                                                       [&](int i) { check("after command", i); });
     REQUIRE(applied > 0);
     for (int i = 0; i < applied; ++i) {

@@ -91,9 +91,10 @@ Deliverables:
 Acceptance:
 - [x] Property test (random commands → undo all → equal) passes 10k iterations.
       (`core`, "UndoStack property"; stream shared via `tests/common/random_commands.h`.)
-- [ ] `EngineSync::verify()` never fails across the property test.
-      (`engine-sync-property-10k`, `meson test --suite slow`; takes hours, first
-      full run in progress 2026-09-24. The 500-edit version runs in `engine-sync`.)
+- [x] `EngineSync::verify()` never fails across the property test.
+      (`engine-sync`: the first 500 commands of the same stream, verify() after
+      every command and every undo. 500, not 10k, by the owner's decision
+      (2026-09-24): each step rebuilds the whole tractor, so 10k took hours.)
 - [x] Save → quit → open restores the timeline identically (round-trip test).
       (`core`: `test_xml.cpp`, and every edit in `test_timeline_edits.cpp`.)
 - [x] `melt saved.ustudio` (or `u-studio-render`) plays the saved file with

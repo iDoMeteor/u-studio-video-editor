@@ -17,12 +17,6 @@ test_engine_sync_exe = executable(
 
 test('engine-sync', test_engine_sync_exe)
 
-# doc 12, M1: verify() across the whole 10k-command property test. Takes
-# tens of minutes, so it's the `slow` suite, excluded by tests/meson.build's
-# default setup: run it with `meson test -C builddir --suite slow`.
-test('engine-sync-property-10k', test_engine_sync_exe, args: ['--no-skip', '--test-case=*10k-command*'],
-     suite: 'slow', timeout: 0)
-
 test_xml_playback_exe = executable(
   'test_xml_playback',
   files('test_xml_playback.cpp'),

@@ -1433,8 +1433,8 @@ TEST_CASE("UndoStack property: random commands, undo all, model restored exactly
     Model snapshot = model; // the state the whole sequence must revert back to
 
     // tests/common/random_commands.h, shared with tests/engine's "verify()
-    // never fails across the property test" -- the same seed, so the same
-    // 10k-command stream.
+    // never fails across 500 undoable commands" -- the same seed, so that
+    // test runs the first 500 commands of this stream.
     int appliedCount = ustudio::testing::runRandomCommands(model, undoStack, track, asset, 2026, 10'000);
 
     REQUIRE(appliedCount > 0);
