@@ -54,6 +54,43 @@ Dependencies: Pango, PangoCairo, Cairo and fontconfig are already loaded
 via GTK4, but linking them into non-GTK layers is new, so ADR-012 records
 it.
 
+## Drop-in structure
+
+Titles follow the same drop-in rules as effects
+([ADR-013](adr/013-effects-and-titles-as-drop-in-modules.md); the
+integration points IP1–IP6 are defined in
+[doc 15](15-effects-and-transitions.md), "Drop-in structure"). The titles
+*app* is already separate by design; this section is about the editor side.
+
+```
+src/core/titles/      TitleDocument, XML, evaluator          (always built)
+src/titles/render/    titlerender (Pango/Cairo)              (-Dtitles=true)
+src/mltmodule/        libmltustudio.so, `ustudio_title`      (-Dtitles=true)
+src/titles/app/       u-studio-titles executable             (-Dtitles=true)
+src/app/titles/       editor side: .ustitle import, file watch, fields page,
+                      New Title / Bake title actions         (-Dtitles=true)
+tests/core/titles/  tests/titles/  tests/engine/titles/
+```
+
+| IP | Titles use |
+|---|---|
+| IP1 | `Clip::sourceParams` (per-clip field values); a title asset is an ordinary `Asset` whose path ends in `.ustitle` |
+| IP2 | `ustudio:field.*` on clip entries; the `ustudio_title` producer written like any other resource |
+| IP3 | `makeProducer()` returns a per-clip `ustudio_title` producer with `length` and `field.*` set |
+| IP4 | `libmltustudio.so` linked into the curated module directory |
+| IP5 | import handler for `.ustitle`; inspector page with the clip's fields; action contributions (New Title, Bake title) |
+| IP6 | none |
+
+Gating: with `-Dtitles=false`, or if the module fails to load, a title clip
+plays as the black missing-media placeholder with a status notice, and its
+data (asset, fields, timing) still round-trips unchanged.
+
+Sequencing matches effects: `core/titles`, `titlerender`, the MLT module
+and the titles app are all new files and can be built and tested now
+(T0–T3 need no integration point). Editor-side integration (T1's editor
+import, T4) waits for the integration points that land after the post-M3
+audit.
+
 ## The document: `.ustitle`
 
 XML via libxml2, like projects (ADR-004), versioned from 1. A title is a
@@ -224,10 +261,14 @@ Interactions that make it easy:
 
 ## Phases
 
-The titles track depends only on what has landed (core model, FactoryPolicy,
-EngineSync) and can run alongside M3 and the FX track.
+The titles track runs alongside the M3 wrap-up, M4 and the FX track.
+Everything up to T3 is module-internal; only the editor-side parts need
+integration points (listed per phase).
 
 ### T0 — Spikes (about 3–5 days)
+
+Integration points: none.
+
 
 - A custom MLT module loaded from the curated directory, with YAML metadata
   that `Mlt::Repository::metadata()` returns.
@@ -241,6 +282,11 @@ EngineSync) and can run alongside M3 and the FX track.
 Acceptance: each item has a recorded finding and a kept repro.
 
 ### T1 — Format, renderer, producer (about 2 weeks)
+
+Integration points: IP1, IP2, IP3 `makeProducer()`, IP4, IP5 import
+handler. The format, renderer and producer can be built and tested before
+those land; only "the editor imports a `.ustitle`" waits for them.
+
 
 `core/titles` model, XML reader/writer, evaluator (keyframes only, no
 animators yet); `titlerender` with text, shapes, fills, stroke, shadow;
@@ -256,6 +302,9 @@ Acceptance:
 
 ### T2 — The titles app (about 2–3 weeks)
 
+Integration points: none (separate executable).
+
+
 Canvas with backdrop, guides and snapping; layers; inspector; on-canvas
 typing; shapes and images; brand kit; save and open; launch from the
 editor on a file.
@@ -268,6 +317,9 @@ Acceptance:
 
 ### T3 — Animation (about 2 weeks)
 
+Integration points: none.
+
+
 Keyframes with the shared easing set, text animators, the behaviour
 library, the animation strip with elastic zones, loop preview, animated
 behaviour thumbnails.
@@ -279,6 +331,9 @@ Acceptance:
 - [ ] Evaluator unit tests cover every easing and every animator order.
 
 ### T4 — Templates and editor workflow (about 1–2 weeks)
+
+Integration points: IP5 inspector page and action contributions.
+
 
 Fields and dynamic fields, the template gallery, fields in the editor's
 Rack, New Title and insert-at-playhead over D-Bus, Bake title.

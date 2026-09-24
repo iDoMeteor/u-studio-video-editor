@@ -26,6 +26,23 @@ timeline widget. Both tracks need an owner; with one engineer, do FX0 and
 T0 first (they are short and de-risk everything after them), then
 alternate.
 
+**2026-09-24: effects and titles are drop-in modules**
+([ADR-013](adr/013-effects-and-titles-as-drop-in-modules.md)). The order
+from here:
+
+1. Wrap up everything through M3 (in progress).
+2. Audit (bugs plus sanitizers) before starting M4.
+3. Land the integration points IP1–IP6 (doc 15, "Drop-in structure") as
+   small reviewed commits, each a no-op with the `effects` / `titles`
+   build options off, so M4's bin and import work builds on them.
+4. M4, with the FX and titles tracks continuing in parallel and wiring into
+   those integration points phase by phase.
+
+Module-internal work (FX0 and T0 spikes; new files under
+`src/core/effects`, `src/engine/effects`, `src/core/titles`,
+`src/titles/`, `src/mltmodule/`) may start at any time, because it changes
+nothing outside its own directories.
+
 ## M0 — Foundation (no behaviour change)
 
 **Effort:** ~1 week. **Coordination:** the only milestone that moves existing

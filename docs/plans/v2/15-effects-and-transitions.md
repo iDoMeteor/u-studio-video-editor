@@ -196,6 +196,91 @@ effects are hidden unless "Show unstable effects" is on. Cost feeds the
 UI's cost badges. This pulls a small, well-defined piece of the M6 render
 CLI forward; the full CLI stays in M6.
 
+## Drop-in structure
+
+Effects are built as a drop-in module ([ADR-013](adr/013-effects-and-titles-as-drop-in-modules.md)):
+self-contained code that plugs into the editor through a short, named list
+of integration points, can be developed while M3 and M4 are in flight, and
+can be switched off at build time without changing anything else. The
+titles tool follows the same rules ([doc 16](16-titles-tool.md), "Drop-in
+structure").
+
+### Where the code lives
+
+```
+src/core/effects/     descriptor, easing, look, effect commands, XML (de)serialisers
+src/engine/effects/   EffectRegistry, overlay loader, EngineExtension impl, probe
+src/app/effects/      Effect Rack, Effect Browser, parameter widgets, keyframe UI
+data/effects/  data/transitions/  data/lumas/
+tests/core/effects/  tests/engine/effects/  tests/app/effects/
+```
+
+Each directory is its own meson `static_library`. `src/engine/effects/`
+and `src/app/effects/` build only when `-Deffects=true`; `src/core/effects/`
+always builds (see IP1 and IP2).
+
+### Integration points
+
+These are the only places effects code touches files outside its own
+directories. A new one is added to this table in the same change that
+needs it.
+
+| IP | Where | What it is | Needed from |
+|---|---|---|---|
+| IP1 | `core/model` | Model data and mutators: `Easing` replacing `Keyframe::Interp`; `Effect::mix`, `Effect::mask`; `Sequence::effects`; `Transition::recipe` + `params`; `AdjustmentBlock` and its lane; `Look` in the bin; `Clip::sourceParams` (titles); `EffectParamChanged` event; the matching `check()` rules. Mutators stay on `Model` (doc 14), commands live in `core/effects`. | FX1 |
+| IP2 | `core/xml` | Writer and reader call `core/effects` (and `core/titles`) serialisers for `<filter>` elements and `ustudio:*` effect properties; format version 4. | FX1 |
+| IP3 | `engine/engine_sync` | An `EngineExtension` interface, registered with `EngineSync::addExtension()`: `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), and `applyInPlace(event)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
+| IP4 | `engine/factory_policy` | Extra plugin search paths and module directories contributed before `Mlt::Factory::init()`: the curated `FREI0R_PATH` (and `OFX_PLUGIN_PATH`), and titles' `libmltustudio.so`. | FX1 |
+| IP5 | `app/` | Five small hosts in the shell: an **inspector host** (collapsible right sidebar with `addInspectorPage()`); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (the action registry accepts module-supplied `ActionSpec` lists with their own target, so the Help dialog lists them automatically); a **preview overlay host** (`addPreviewOverlay()` plus a frame-to-widget coordinate mapper); a **timeline overlay/lane provider** (paint, hit-test and extra lane height, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (file type → handler, so titles can own `.ustitle` without touching the import code). | FX2 (timeline provider: FX4; import handlers: titles T1) |
+| IP6 | `render/` | `u-studio-render` dispatches subcommands registered by modules; effects registers `--probe-effect`. | FX1 |
+
+Target size of the wiring in `app_window.cpp`: instantiate the module,
+place its widgets in the hosts, register it. Under about 50 lines per
+module; anything bigger is a missing host in IP5.
+
+The timeline provider in IP5 is ideally part of M3's timeline widget (doc
+06, ADR-008). If M3 closes without it, FX4 adds it as its own integration
+commit.
+
+### Not purely additive
+
+Three changes can't be pure drop-ins and are reviewed as such:
+
+- **IP1** changes shared model types, so it lands once, early, with its
+  own property tests (random effect commands, undo all, equal).
+- **IP2** bumps the project format; old files still load (doc 09's
+  migration rule).
+- **Adjustment blocks** (FX4) change the tractor's shape (lower tracks move
+  into a sub-tractor). If `decorateTractor()` proves insufficient in the
+  FX0 spike, FX4 adds a graph-level hook to IP3 rather than editing
+  `rebuildAll()` ad hoc.
+
+### Gating
+
+| Situation | Behaviour |
+|---|---|
+| Built with `-Deffects=false` (the default until FX2's gate passes) | No effects engine or UI; IP3–IP6 are no-ops; projects containing effects load, save and round-trip unchanged (IP1 and IP2 are always built) and play without the effects, with a one-line status notice |
+| Built with effects, `frei0r-plugins` missing | frei0r entries hidden, compositing falls back to `composite` (ADR-011) |
+| Built with effects, a plugin quarantined | Hidden unless "Show unstable effects" |
+
+Both configurations run the full test suite: a `just` recipe per
+configuration is added with IP1. The effects tests also run on their own,
+without the app.
+
+### Sequencing around the M3 wrap-up
+
+1. **Now, module-internal only.** FX0 spikes (standalone repros), and new
+   files only: `core/effects` descriptors and easing,
+   `engine/effects` registry and probe logic (testable against
+   `Mlt::Repository` without EngineSync), overlay and recipe data, the luma
+   generator. Nothing outside the module directories changes.
+2. **After the post-M3 audit.** Land IP1 and IP2, then IP4, IP3, IP6 and
+   IP5, one reviewed commit each, each a no-op with the option off. These go
+   before or at the very start of M4 so M4's bin and import work builds on
+   them rather than colliding with them.
+3. **Per phase gate.** Wire the module to its integration points behind
+   the option; flip the default to on once FX2's acceptance criteria pass.
+
 ## Model changes (core)
 
 The model already has `Effect { id, service, displayName, enabled, params }`
@@ -478,11 +563,16 @@ the capture phase before a focused entry.
 
 ## Phases
 
-FX0 to FX3 depend only on what has already landed (model, commands,
-EngineSync, playback) and the current timeline, so they can start now.
-Only FX4 waits for M3's timeline widget.
+Each phase lists the integration points (IP, see "Drop-in structure") it
+needs. Module-internal work for FX0 and FX1 can start now; integration
+points land after the post-M3 audit. Only FX4 depends on M3's timeline
+widget, through IP5's timeline provider.
 
 ### FX0 — Spikes and packaging (about 1 week)
+
+Integration points: none (standalone repros only). Add one spike item:
+whether `decorateTractor()` is enough for adjustment blocks.
+
 
 Each item ends with a written finding in this doc or the README's
 implementation notes, per CLAUDE.md's empirical-knowledge rule.
@@ -508,6 +598,10 @@ changes the plan.
 
 ### FX1 — Engine and model (about 2 weeks)
 
+Integration points: IP1, IP2, IP3 (without `makeTransitionSegment`),
+IP4, IP6.
+
+
 `EffectRegistry`, descriptor cache, overlays loader, `FactoryPolicy`
 plugin curation, health and cost probe (`--probe-effect`), model and
 command changes, EngineSync attachment (clip, dissolve cuts, track, master),
@@ -524,6 +618,11 @@ Acceptance:
 
 ### FX2 — Rack, Browser and keyframes in the inspector (about 2 weeks)
 
+Integration points: IP5 (inspector host, selection signal, action
+contributions, preview overlay host). Flips `-Deffects` on by default
+when its gate passes.
+
+
 Effect Rack, Effect Browser with frame thumbnails and live audition,
 generic parameter widgets, drag and drop onto clips, tracks and preview,
 multi-select editing, copy/paste stacks, Looks, pins and feel chips,
@@ -538,6 +637,10 @@ Acceptance:
 
 ### FX3 — Transitions library (about 2 weeks)
 
+Integration points: IP3 `makeTransitionSegment()`; IP1's
+`Transition::recipe` fields.
+
+
 Recipe loader, generated luma library, wipe, motion, blend and audio-curve
 recipes, seam shelf with live previews, `T` shortcut, blend-mode track
 compositing, and the writer emitting dissolve and wipe sub-tractors so
@@ -551,6 +654,10 @@ Acceptance:
 
 ### FX4 — Timeline and preview manipulation (about 2–3 weeks, needs M3)
 
+Integration points: IP5 timeline overlay/lane provider; possibly a
+graph-level IP3 hook for adjustment blocks (see "Not purely additive").
+
+
 Curve lanes, touch-record, FX lane with adjustment blocks and fade handles,
 on-preview handles for `Point`/`Rect`/mask parameters, eyedropper.
 
@@ -562,6 +669,9 @@ Acceptance:
       its range, in preview and export.
 
 ### FX5 — Optional families (about 1–2 weeks, any time after FX2)
+
+Integration points: none new (IP4 for `OFX_PLUGIN_PATH`).
+
 
 LADSPA and VST2 audio effects in the Rack (with the same health probe),
 OpenFX behind an experimental preference, LUT library management (import
