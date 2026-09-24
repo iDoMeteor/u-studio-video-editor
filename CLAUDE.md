@@ -278,6 +278,10 @@ half-written files. So each agent session works in its own git worktree:
   non-fast-forward: `git fetch origin && git merge origin/main` (a merge
   commit is fine), rebuild, retest, push again. Never rebase, cherry-pick,
   or force. A pull request is the alternative when the owner asks for review.
+- **Clean up after yourself:** once your branch is landed and the owner's
+  checkout is fast-forwarded, remove your own worktree (`git worktree
+  remove`, `--force` only for experiments you mean to discard) and delete
+  its merged branch (`git branch -d`). No permission needed for your own.
 - Never `git worktree remove`/`prune` another agent's tree and never pop,
   apply, or drop a stash you did not create. Report a stray worktree or stash
   to the owner instead.
@@ -381,7 +385,8 @@ Permission **is required** before:
 
 - Anything destructive or irreversible: `rm -rf` outside `builddir/` and
   the scratchpad, `git reset --hard`, `git clean`, `git branch -D`,
-  worktree removal, overwriting or moving the owner's media or project files.
+  removing another agent's worktree, overwriting or moving the owner's media
+  or project files.
 - Installing or removing system packages (`dnf`), or changing `meson.build`
   dependencies.
 - Pushing to any branch other than your own `agent/<name>` branch or the
