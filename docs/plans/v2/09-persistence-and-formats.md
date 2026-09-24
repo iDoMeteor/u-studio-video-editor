@@ -67,7 +67,15 @@ resources.
 
 ### Versioning
 
-`<property name="ustudio:format_version">2</property>` on the root tractor.
+`<property name="ustudio:format_version">4</property>` on the root tractor.
+
+> REVIEW: (Claude, 2026-09-24) Current version is 4. Format 4 writes each track
+> twice: a render playlist the tractor plays, identical to EngineSync's
+> graph (dissolve sub-tractors, stream-switch variant producers, volume
+> filters), and an unreferenced record playlist holding the model. That
+> makes `melt` playback of a saved project exact (doc 12, M1). The reader
+> still opens format 3 directly; no migration function was needed because
+> the record data is unchanged.
 The reader refuses newer versions with a clear message and migrates older
 ones in code (`core/xml/migrations.cpp`, one function per version bump).
 Every migration has a fixture file in `tests/fixtures/projects/`.

@@ -1,6 +1,8 @@
 #include "writer.h"
 
+#include "core/model/audio_level.h"
 #include "core/model/mlt_order.h"
+#include "core/model/track_segments.h"
 
 #include <libxml/tree.h>
 
@@ -10,9 +12,12 @@
 #include <array>
 #include <charconv>
 #include <filesystem>
+#include <optional>
+#include <set>
 #include <sstream>
 #include <system_error>
 #include <unordered_map>
+#include <utility>
 
 // libxml2's BAD_CAST is a C-style cast (used throughout this file to
 // satisfy its const xmlChar* API from our const char*/std::string data).
@@ -28,7 +33,10 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kFormatVersion = 3; // doc 09; 3 adds ustudio:position (below) and transitions
+// doc 09; 3 adds ustudio:position (below) and transitions; 4 splits each
+// track into a render playlist (what the tractor plays, matching EngineSync
+// exactly) and a record playlist (the model, what the reader reads).
+constexpr int kFormatVersion = 4;
 
 xmlNodePtr addProperty(xmlNodePtr parent, const std::string &name, const std::string &value)
 {
@@ -108,6 +116,18 @@ std::string settingsToJson(const std::map<std::string, std::string> &settings)
     return out.str();
 }
 
+// "service:argument" for an MLT generator shorthand, split into its two
+// halves; nullopt for a filesystem path. Same shape test EngineSync's
+// verify() uses: a colon before any '/' (an absolute or relative file path
+// has no colon before its first slash).
+std::optional<std::pair<std::string, std::string>> splitGeneratorShorthand(const std::string &path)
+{
+    size_t colon = path.find(':');
+    if (colon == std::string::npos || colon == 0 || path.find('/') < colon)
+        return std::nullopt;
+    return std::make_pair(path.substr(0, colon), path.substr(colon + 1));
+}
+
 // Relative to `projectDir` when the asset lives under it (doc 09), else
 // left absolute.
 std::string relativizePath(const std::string &assetPath, const fs::path &projectDir)
@@ -122,6 +142,23 @@ std::string relativizePath(const std::string &assetPath, const fs::path &project
     return relative.string();
 }
 
+// What MLT needs to open an asset's media. A generator shorthand
+// ("color:red", "tone:") only loads through MLT's xml producer as an
+// explicit mlt_service plus its argument as the resource -- written as a
+// bare "resource" it loads as black/silence (confirmed with a standalone
+// repro against MLT 7.40, 2026-09-24; a real media path loads fine either
+// way). The original path is kept in ustudio:path, which the reader prefers.
+void writeMediaSource(xmlNodePtr producer, const Asset &asset, const fs::path &projectDir)
+{
+    if (std::optional<std::pair<std::string, std::string>> generator = splitGeneratorShorthand(asset.path)) {
+        addProperty(producer, "mlt_service", generator->first);
+        addProperty(producer, "resource", generator->second);
+        addProperty(producer, "ustudio:path", asset.path);
+    } else {
+        addProperty(producer, "resource", relativizePath(asset.path, projectDir));
+    }
+}
+
 void writeAssetProducer(xmlNodePtr mlt, const Asset &asset, const fs::path &projectDir, const std::string &nodeId)
 {
     xmlNodePtr producer = xmlNewChild(mlt, nullptr, BAD_CAST "producer", nullptr);
@@ -130,7 +167,7 @@ void writeAssetProducer(xmlNodePtr mlt, const Asset &asset, const fs::path &proj
     FrameIndex out = asset.info.lengthInSequenceFrames > 0 ? asset.info.lengthInSequenceFrames - 1 : 0;
     xmlNewProp(producer, BAD_CAST "out", BAD_CAST std::to_string(out).c_str());
 
-    addProperty(producer, "resource", relativizePath(asset.path, projectDir));
+    writeMediaSource(producer, asset, projectDir);
 
     addProperty(producer, "ustudio:asset_id", std::to_string(asset.id.value));
     addProperty(producer, "ustudio:display_name", asset.displayName);
@@ -172,14 +209,10 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
 
     addProperty(entry, "ustudio:clip_id", std::to_string(clip.id.value));
     // The track's own position, not derived from this entry's place in
-    // the flat <playlist> (blank/entry cumulative length): a dissolve
-    // transition (AddTransition) legitimately overlaps two clips, which a
-    // flat MLT playlist has no way to represent structurally (entries are
-    // strictly sequential) -- the reader reads this directly instead of
-    // reconstructing position from a running cursor, so an overlapping
-    // pair round-trips correctly even though the raw <playlist> element
-    // itself isn't standalone-melt-CLI-accurate for such a track (see the
-    // README's "Engine sync notes" and writeTrackTransition below).
+    // the record playlist (blank/entry cumulative length): a dissolve
+    // legitimately overlaps two clips, which a flat playlist can't
+    // represent -- the reader reads this directly. The record playlist is
+    // never played; writeRenderPlaylist() below writes what is.
     addProperty(entry, "ustudio:position", std::to_string(clip.position));
     addProperty(entry, "ustudio:name", clip.name);
     addProperty(entry, "ustudio:speed", doubleToString(clip.speed));
@@ -191,7 +224,7 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
         addProperty(entry, "ustudio:fade_out", std::to_string(clip.fadeOut->length));
 }
 
-void writeTrackPlaylist(xmlNodePtr mlt, const Model &model, const Track &track, const std::string &playlistId,
+void writeRecordPlaylist(xmlNodePtr mlt, const Model &model, const Track &track, const std::string &playlistId,
                         size_t visualIndex, const std::unordered_map<uint64_t, std::string> &producerIdByAsset)
 {
     xmlNodePtr playlist = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
@@ -227,29 +260,161 @@ void writeTrackPlaylist(xmlNodePtr mlt, const Model &model, const Track &track, 
     }
 }
 
-// One <transition> per core::Transition (dissolve), written as plain
-// ustudio: metadata alongside the composite/mix <transition> elements
-// below -- NOT a literal MLT sub-tractor structure (EngineSync builds
-// that at the Mlt::Tractor level, see engine_sync.cpp's
-// buildTransitionSubTractor); reconstructing it here would mean this
-// hand-rolled libxml2 writer duplicating that same nested-tractor-in-
-// playlist-entry logic with no mlt++ access to verify it against (core/
-// links no MLT headers, ADR-003). This app's own reader/Model round-trip
-// (the tested, actually-used path -- see writeClipEntry's comment) is
-// fully correct; a saved project opened directly with the `melt` CLI
-// (bypassing this app) plays the two clips as a hard cut, not a
-// dissolve, until a future change teaches the writer the nested
-// structure too.
-void writeTrackTransition(xmlNodePtr tractor, const Transition &t)
+// One cut of an asset inside a render playlist: an <entry> with the
+// segment's own source range.
+void writeRenderCut(xmlNodePtr playlist, const std::string &producerId, FrameIndex in, FrameIndex out)
 {
-    xmlNodePtr node = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
-    addProperty(node, "ustudio:transition_id", std::to_string(t.id.value));
-    addProperty(node, "ustudio:transition_track", std::to_string(t.track.value));
-    addProperty(node, "ustudio:transition_a", std::to_string(t.a.value));
-    addProperty(node, "ustudio:transition_b", std::to_string(t.b.value));
-    addProperty(node, "ustudio:transition_extend_a", std::to_string(t.extendA));
-    addProperty(node, "ustudio:transition_extend_b", std::to_string(t.extendB));
-    addProperty(node, "ustudio:transition_service", t.service);
+    xmlNodePtr entry = xmlNewChild(playlist, nullptr, BAD_CAST "entry", nullptr);
+    xmlNewProp(entry, BAD_CAST "producer", BAD_CAST producerId.c_str());
+    xmlNewProp(entry, BAD_CAST "in", BAD_CAST std::to_string(in).c_str());
+    xmlNewProp(entry, BAD_CAST "out", BAD_CAST std::to_string(out).c_str());
+}
+
+// The producer a clip's cuts come from, mirroring EngineSync's
+// masterProducerFor(): the asset's own <producer> when both streams are
+// on, else a variant <producer> of the same media with video_index and/or
+// audio_index = -1 ("off", per avformat's YAML). Set on the producer, not
+// the entry: MLT ignores both on a cut (see masterProducerFor()). Variants
+// carry no ustudio:asset_id, so the reader skips them. Emitted on first use,
+// which writeRenderPlaylist() arranges to happen before any playlist
+// references them.
+class ProducerVariants
+{
+  public:
+    ProducerVariants(xmlNodePtr mlt, const Model &model, const fs::path &projectDir,
+                     const std::unordered_map<uint64_t, std::string> &producerIdByAsset)
+        : m_mlt(mlt), m_model(model), m_projectDir(projectDir), m_producerIdByAsset(producerIdByAsset)
+    {}
+
+    std::string idFor(const Clip &clip)
+    {
+        const std::string &base = m_producerIdByAsset.at(clip.asset.value);
+        if (clip.videoEnabled && clip.audioEnabled)
+            return base;
+        std::string id = base + (clip.videoEnabled ? "" : "_novideo") + (clip.audioEnabled ? "" : "_noaudio");
+        if (m_written.insert(id).second) {
+            const Asset &asset = m_model.asset(clip.asset);
+            xmlNodePtr producer = xmlNewChild(m_mlt, nullptr, BAD_CAST "producer", nullptr);
+            xmlNewProp(producer, BAD_CAST "id", BAD_CAST id.c_str());
+            writeMediaSource(producer, asset, m_projectDir);
+            if (!clip.videoEnabled)
+                addProperty(producer, "video_index", "-1");
+            if (!clip.audioEnabled)
+                addProperty(producer, "audio_index", "-1");
+        }
+        return id;
+    }
+
+  private:
+    xmlNodePtr m_mlt;
+    const Model &m_model;
+    fs::path m_projectDir;
+    const std::unordered_map<uint64_t, std::string> &m_producerIdByAsset;
+    std::set<std::string> m_written;
+};
+
+// The MLT form of one dissolve, mirroring EngineSync's
+// buildTransitionSubTractor(): a 2-track tractor, `a`'s tail on track 0
+// and `b`'s head on track 1, joined by the dissolve service (luma) and an
+// audio crossfade (mix, start=-1), both with explicit in/out over the
+// sub-tractor's local range (see that function for why both matter). The
+// transition's model record rides on the luma <transition> as ustudio:
+// properties, which is where the reader looks for it.
+std::string writeDissolveTractor(xmlNodePtr mlt, const Model &model, const TrackSegment &segment,
+                                 ProducerVariants &producers)
+{
+    const Transition &t = model.transition(segment.transition);
+    const Clip &clipA = model.clip(segment.a);
+    const Clip &clipB = model.clip(segment.b);
+    std::string id = "dissolve_" + std::to_string(t.id.value);
+
+    xmlNodePtr tailA = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
+    xmlNewProp(tailA, BAD_CAST "id", BAD_CAST(id + "_a").c_str());
+    writeRenderCut(tailA, producers.idFor(clipA), clipA.out - t.length + 1, clipA.out);
+
+    xmlNodePtr headB = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
+    xmlNewProp(headB, BAD_CAST "id", BAD_CAST(id + "_b").c_str());
+    writeRenderCut(headB, producers.idFor(clipB), clipB.in, clipB.in + t.length - 1);
+
+    xmlNodePtr tractor = xmlNewChild(mlt, nullptr, BAD_CAST "tractor", nullptr);
+    xmlNewProp(tractor, BAD_CAST "id", BAD_CAST id.c_str());
+    xmlNewProp(tractor, BAD_CAST "in", BAD_CAST "0");
+    xmlNewProp(tractor, BAD_CAST "out", BAD_CAST std::to_string(t.length - 1).c_str());
+    xmlNodePtr trackA = xmlNewChild(tractor, nullptr, BAD_CAST "track", nullptr);
+    xmlNewProp(trackA, BAD_CAST "producer", BAD_CAST(id + "_a").c_str());
+    xmlNodePtr trackB = xmlNewChild(tractor, nullptr, BAD_CAST "track", nullptr);
+    xmlNewProp(trackB, BAD_CAST "producer", BAD_CAST(id + "_b").c_str());
+
+    xmlNodePtr luma = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
+    xmlNewProp(luma, BAD_CAST "in", BAD_CAST "0");
+    xmlNewProp(luma, BAD_CAST "out", BAD_CAST std::to_string(t.length - 1).c_str());
+    addProperty(luma, "mlt_service", t.service);
+    addProperty(luma, "a_track", "0");
+    addProperty(luma, "b_track", "1");
+    addProperty(luma, "ustudio:transition_id", std::to_string(t.id.value));
+    addProperty(luma, "ustudio:transition_track", std::to_string(t.track.value));
+    addProperty(luma, "ustudio:transition_a", std::to_string(t.a.value));
+    addProperty(luma, "ustudio:transition_b", std::to_string(t.b.value));
+    addProperty(luma, "ustudio:transition_extend_a", std::to_string(t.extendA));
+    addProperty(luma, "ustudio:transition_extend_b", std::to_string(t.extendB));
+    addProperty(luma, "ustudio:transition_service", t.service);
+
+    xmlNodePtr mix = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
+    xmlNewProp(mix, BAD_CAST "in", BAD_CAST "0");
+    xmlNewProp(mix, BAD_CAST "out", BAD_CAST std::to_string(t.length - 1).c_str());
+    addProperty(mix, "mlt_service", "mix");
+    addProperty(mix, "a_track", "0");
+    addProperty(mix, "b_track", "1");
+    addProperty(mix, "start", "-1");
+    return id;
+}
+
+// The playlist the sequence tractor actually plays for one track: the same
+// segments EngineSync::rebuildTrackPlaylist() appends (core::
+// planTrackSegments(), shared), and the same track-level volume filter. No
+// ustudio: properties -- the model lives in the record playlist.
+void writeRenderPlaylist(xmlNodePtr mlt, const Model &model, const Track &track, const std::string &playlistId,
+                         ProducerVariants &producers)
+{
+    // Everything this playlist references is written before it: MLT's xml
+    // producer resolves ids as it parses, so forward references fail.
+    std::vector<TrackSegment> segments = planTrackSegments(model, track);
+    std::unordered_map<uint64_t, std::string> dissolveIdByTransition;
+    std::unordered_map<uint64_t, std::string> producerIdByClip;
+    for (const TrackSegment &segment : segments) {
+        if (segment.kind == TrackSegment::Kind::Transition)
+            dissolveIdByTransition.emplace(segment.transition.value,
+                                           writeDissolveTractor(mlt, model, segment, producers));
+        else
+            producerIdByClip.emplace(segment.clip.value, producers.idFor(model.clip(segment.clip)));
+    }
+
+    xmlNodePtr playlist = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
+    xmlNewProp(playlist, BAD_CAST "id", BAD_CAST playlistId.c_str());
+
+    FrameIndex cursor = 0;
+    for (const TrackSegment &segment : segments) {
+        if (segment.start > cursor) {
+            xmlNodePtr blank = xmlNewChild(playlist, nullptr, BAD_CAST "blank", nullptr);
+            xmlNewProp(blank, BAD_CAST "length", BAD_CAST std::to_string(segment.start - cursor).c_str());
+        }
+        if (segment.kind == TrackSegment::Kind::Clip) {
+            writeRenderCut(playlist, producerIdByClip.at(segment.clip.value), segment.in, segment.out);
+        } else {
+            xmlNodePtr entry = xmlNewChild(playlist, nullptr, BAD_CAST "entry", nullptr);
+            xmlNewProp(entry, BAD_CAST "producer",
+                       BAD_CAST dissolveIdByTransition.at(segment.transition.value).c_str());
+            xmlNewProp(entry, BAD_CAST "in", BAD_CAST "0");
+            xmlNewProp(entry, BAD_CAST "out", BAD_CAST std::to_string(segment.length - 1).c_str());
+        }
+        cursor = segment.start + segment.length;
+    }
+
+    if (track.volume != 1.0) {
+        xmlNodePtr filter = xmlNewChild(playlist, nullptr, BAD_CAST "filter", nullptr);
+        addProperty(filter, "mlt_service", "volume");
+        addProperty(filter, "level", doubleToString(linearToDecibels(track.volume)));
+    }
 }
 
 } // namespace
@@ -303,11 +468,17 @@ std::string saveProject(const Model &model, const std::string &path)
 
     std::vector<TrackId> order = mltTrackOrder(seq);
     std::unordered_map<uint64_t, std::string> playlistIdByTrack;
+    ProducerVariants producers(mlt, model, projectDir, producerIdByAsset);
     for (TrackId trackId : order) {
         const Track &track = model.track(trackId);
         std::string playlistId = "track_" + std::to_string(trackId.value);
         playlistIdByTrack.emplace(trackId.value, playlistId);
-        writeTrackPlaylist(mlt, model, track, playlistId, visualIndexByTrack.at(trackId.value), producerIdByAsset);
+        // Record first, render second: the record playlist is never
+        // referenced by the tractor, so MLT loads it standalone and ignores
+        // it (same as main_bin), while the reader only reads it.
+        writeRecordPlaylist(mlt, model, track, "record_" + std::to_string(trackId.value),
+                            visualIndexByTrack.at(trackId.value), producerIdByAsset);
+        writeRenderPlaylist(mlt, model, track, playlistId, producers);
     }
 
     xmlNodePtr blackProducer = xmlNewChild(mlt, nullptr, BAD_CAST "producer", nullptr);
@@ -356,9 +527,6 @@ std::string saveProject(const Model &model, const std::string &path)
         addProperty(mix, "sum", "1");
         addProperty(mix, "always_active", "1");
     }
-
-    for (const Transition &t : seq.transitions)
-        writeTrackTransition(tractor, t);
 
     std::string tmpPath = path + ".tmp";
     int written = xmlSaveFormatFileEnc(tmpPath.c_str(), doc, "UTF-8", 1);

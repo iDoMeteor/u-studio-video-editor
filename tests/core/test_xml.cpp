@@ -351,3 +351,84 @@ TEST_CASE("XML property: save/open round trip stays exact across 300 random edit
         REQUIRE(loaded->check().empty());
     }
 }
+
+// Format 4 (2026-09-24) moved the render structure and the dissolve
+// metadata; every project saved before that is format 3. Hand-written in
+// the old writer's exact shape -- one playlist per track holding the model
+// clips, the dissolve as a bare ustudio:-only <transition> child of the
+// sequence tractor -- so the owner's existing projects keep opening.
+TEST_CASE("XML: a format-3 project with a dissolve still opens")
+{
+    TempProjectFile file("format3");
+    Model expected = Model::createEmpty();
+    TrackId track = expected.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(expected, "/home/user/videos/clip.mp4");
+    ClipId a = expected.insertClip(track, asset, 0, 0, 49);
+    ClipId b = expected.insertClip(track, asset, 50, 10, 59);
+    TransitionId t = expected.addTransition(track, a, b, 6, 4);
+    const Clip &clipA = expected.clip(a);
+    const Clip &clipB = expected.clip(b);
+
+    auto entry = [](const Clip &clip) {
+        return "<entry producer=\"asset" + std::to_string(clip.asset.value) + "\" in=\"" + std::to_string(clip.in) +
+               "\" out=\"" + std::to_string(clip.out) + "\"><property name=\"ustudio:clip_id\">" +
+               std::to_string(clip.id.value) + "</property><property name=\"ustudio:position\">" +
+               std::to_string(clip.position) + "</property></entry>";
+    };
+    std::string xml =
+        "<?xml version=\"1.0\"?>\n<mlt LC_NUMERIC=\"C\" producer=\"main_bin\" root=\"/tmp\">"
+        "<profile width=\"1920\" height=\"1080\" frame_rate_num=\"30\" frame_rate_den=\"1\" sample_aspect_num=\"1\" "
+        "sample_aspect_den=\"1\" display_aspect_num=\"16\" display_aspect_den=\"9\" progressive=\"1\" "
+        "colorspace=\"709\"/>"
+        "<producer id=\"asset" +
+        std::to_string(asset.value) +
+        "\" in=\"0\" out=\"99999\">"
+        "<property name=\"resource\">/home/user/videos/clip.mp4</property>"
+        "<property name=\"ustudio:asset_id\">" +
+        std::to_string(asset.value) +
+        "</property>"
+        "<property name=\"ustudio:has_video\">1</property><property name=\"ustudio:has_audio\">1</property>"
+        "<property name=\"ustudio:length_in_sequence_frames\">100000</property></producer>"
+        "<playlist id=\"track_" +
+        std::to_string(track.value) +
+        "\">"
+        "<property name=\"ustudio:track_id\">" +
+        std::to_string(track.value) +
+        "</property>"
+        "<property name=\"ustudio:visual_index\">0</property><property name=\"ustudio:kind\">video</property>" +
+        entry(clipA) + entry(clipB) +
+        "</playlist>"
+        "<tractor id=\"seq1\" in=\"0\" out=\"59\">"
+        "<property name=\"ustudio:format_version\">3</property>"
+        "<property name=\"ustudio:next_id\">100</property>"
+        "<track producer=\"track_" +
+        std::to_string(track.value) +
+        "\"/>"
+        "<transition><property name=\"ustudio:transition_id\">" +
+        std::to_string(t.value) +
+        "</property>"
+        "<property name=\"ustudio:transition_track\">" +
+        std::to_string(track.value) +
+        "</property>"
+        "<property name=\"ustudio:transition_a\">" +
+        std::to_string(a.value) +
+        "</property>"
+        "<property name=\"ustudio:transition_b\">" +
+        std::to_string(b.value) +
+        "</property>"
+        "<property name=\"ustudio:transition_extend_a\">6</property>"
+        "<property name=\"ustudio:transition_extend_b\">4</property>"
+        "<property name=\"ustudio:transition_service\">luma</property></transition>"
+        "</tractor></mlt>\n";
+    writeWholeFile(file.path, xml);
+
+    auto loaded = loadProject(file.path.string());
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->check().empty());
+    REQUIRE(loaded->sequence().transitions.size() == 1);
+    CHECK(loaded->sequence().transitions[0].length == 10);
+    CHECK(loaded->clip(a).position == clipA.position);
+    CHECK(loaded->clip(a).out == clipA.out);
+    CHECK(loaded->clip(b).position == clipB.position);
+    CHECK(loaded->clip(b).in == clipB.in);
+}

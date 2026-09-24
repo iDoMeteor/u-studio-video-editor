@@ -22,7 +22,11 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kFormatVersion = 3; // must match writer.cpp
+constexpr int kFormatVersion = 4; // must match writer.cpp
+// Oldest version this reader still opens. Format 3 differs from 4 only in
+// where the render structure and dissolve metadata live (see writer.cpp);
+// the record playlists and every ustudio: property it reads are identical.
+constexpr int kOldestReadableFormatVersion = 3;
 
 std::string attr(xmlNodePtr node, const char *name)
 {
@@ -283,7 +287,19 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         return std::unexpected(path + ": not an MLT XML file");
     }
 
-    xmlNodePtr tractor = firstChildNamed(mlt, "tractor");
+    // The sequence tractor is the one carrying ustudio:format_version. From
+    // format 4, each dissolve's own sub-tractor is also a top-level
+    // <tractor>, written before it, so "first <tractor>" is not enough.
+    // Falls back to the first one so a foreign file still gets the specific
+    // "not a ustudio project" error below.
+    xmlNodePtr tractor = nullptr;
+    for (xmlNodePtr node = mlt->children; node && !tractor; node = node->next) {
+        if (node->type == XML_ELEMENT_NODE && xmlStrcmp(node->name, BAD_CAST "tractor") == 0 &&
+            getProperty(node, "ustudio:format_version"))
+            tractor = node;
+    }
+    if (!tractor)
+        tractor = firstChildNamed(mlt, "tractor");
     if (!tractor) {
         xmlFreeDoc(doc);
         return std::unexpected(path + ": no <tractor> element");
@@ -296,7 +312,7 @@ std::expected<Model, std::string> loadProject(const std::string &path)
             path + ": not a ustudio project (no ustudio:format_version) -- kdenlive import is a separate path (M7)");
     }
     int formatVersion = static_cast<int>(toI64(*formatVersionStr));
-    if (formatVersion != kFormatVersion) {
+    if (formatVersion < kOldestReadableFormatVersion || formatVersion > kFormatVersion) {
         xmlFreeDoc(doc);
         return std::unexpected(path + ": unsupported ustudio:format_version " + std::to_string(formatVersion) +
                                " (this build writes " + std::to_string(kFormatVersion) + ")");
@@ -352,7 +368,12 @@ std::expected<Model, std::string> loadProject(const std::string &path)
 
         Asset asset;
         asset.id = AssetId{toU64(*assetIdStr)};
-        asset.path = resolveResource(prop(node, "resource"), projectDir);
+        // ustudio:path (format 4) holds a generator shorthand verbatim; the
+        // MLT-facing mlt_service/resource pair beside it is for melt.
+        if (std::optional<std::string> generatorPath = getProperty(node, "ustudio:path"))
+            asset.path = *generatorPath;
+        else
+            asset.path = resolveResource(prop(node, "resource"), projectDir);
         asset.displayName = prop(node, "ustudio:display_name");
         asset.folder = prop(node, "ustudio:folder");
         asset.fileFingerprint = prop(node, "ustudio:fingerprint");
@@ -462,32 +483,38 @@ std::expected<Model, std::string> loadProject(const std::string &path)
     for (ParsedTrack &parsed : parsedTracks)
         seq.tracks.push_back(std::move(parsed.track));
 
-    // Dissolve transitions: any <transition> child of <tractor> with an
-    // ustudio:transition_id property. The composite/mix <transition>
-    // elements EngineSync itself regenerates every rebuild (writer.cpp's
-    // saveProject) have no such property, so this filters them out
-    // naturally -- same pattern as the asset-producer filter above.
-    // model.check() below is what actually validates `a`/`b` resolve to
-    // real clips on `track` and that extendA+extendB==length; a
-    // hand-edited or truncated file that gets this wrong fails the load
-    // there rather than here.
-    for (xmlNodePtr node = tractor->children; node; node = node->next) {
-        if (node->type != XML_ELEMENT_NODE || xmlStrcmp(node->name, BAD_CAST "transition") != 0)
+    // Dissolve transitions: any <transition> with an ustudio:transition_id
+    // property, in any top-level <tractor>. Format 4 keeps them on the luma
+    // <transition> inside each dissolve's own sub-tractor (writer.cpp's
+    // writeDissolveTractor); format 3 kept them as bare children of the
+    // sequence tractor -- scanning every tractor covers both. The
+    // composite/mix <transition> elements EngineSync regenerates have no
+    // such property, so this filters them out naturally, same pattern as
+    // the asset-producer filter above. model.check() below is what actually
+    // validates `a`/`b` resolve to real clips on `track` and that
+    // extendA+extendB==length; a hand-edited or truncated file that gets
+    // this wrong fails the load there rather than here.
+    for (xmlNodePtr tractorNode = mlt->children; tractorNode; tractorNode = tractorNode->next) {
+        if (tractorNode->type != XML_ELEMENT_NODE || xmlStrcmp(tractorNode->name, BAD_CAST "tractor") != 0)
             continue;
-        std::optional<std::string> transitionIdStr = getProperty(node, "ustudio:transition_id");
-        if (!transitionIdStr)
-            continue;
+        for (xmlNodePtr node = tractorNode->children; node; node = node->next) {
+            if (node->type != XML_ELEMENT_NODE || xmlStrcmp(node->name, BAD_CAST "transition") != 0)
+                continue;
+            std::optional<std::string> transitionIdStr = getProperty(node, "ustudio:transition_id");
+            if (!transitionIdStr)
+                continue;
 
-        Transition t;
-        t.id = TransitionId{toU64(*transitionIdStr)};
-        t.track = TrackId{toU64(prop(node, "ustudio:transition_track"))};
-        t.a = ClipId{toU64(prop(node, "ustudio:transition_a"))};
-        t.b = ClipId{toU64(prop(node, "ustudio:transition_b"))};
-        t.extendA = toI64(prop(node, "ustudio:transition_extend_a"));
-        t.extendB = toI64(prop(node, "ustudio:transition_extend_b"));
-        t.length = t.extendA + t.extendB;
-        t.service = prop(node, "ustudio:transition_service", "luma");
-        seq.transitions.push_back(std::move(t));
+            Transition t;
+            t.id = TransitionId{toU64(*transitionIdStr)};
+            t.track = TrackId{toU64(prop(node, "ustudio:transition_track"))};
+            t.a = ClipId{toU64(prop(node, "ustudio:transition_a"))};
+            t.b = ClipId{toU64(prop(node, "ustudio:transition_b"))};
+            t.extendA = toI64(prop(node, "ustudio:transition_extend_a"));
+            t.extendB = toI64(prop(node, "ustudio:transition_extend_b"));
+            t.length = t.extendA + t.extendB;
+            t.service = prop(node, "ustudio:transition_service", "luma");
+            seq.transitions.push_back(std::move(t));
+        }
     }
 
     // Untrusted input (audit C3): a missing ustudio:next_id defaults to

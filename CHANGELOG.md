@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.16.2
+
+- Saved projects now play exactly as in the editor when opened by other
+  MLT tools (melt): dissolves, track volume and split audio included.
+  Previously everything after a dissolve played late and the dissolve was
+  a hard cut. Older project files still open normally.
+
 ## 0.16.1
 
 - Fixed Split Audio doubling the sound: the video half of a split clip kept
