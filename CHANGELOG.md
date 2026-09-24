@@ -4,6 +4,18 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.23.1
+
+- Fixed: Shift+Delete crashed after removing a media file whose clips were
+  selected.
+- Fixed: quitting while a render ran crashed and left a `.part` file; the
+  app now asks, stops the render and cleans up.
+- Fixed: playback could freeze for good when a consumer was stopped just
+  after it started.
+- Fixed: a ripple or plain move that put a clip back where it was deleted
+  its dissolves; a dissolve could no longer be made as long as a whole clip.
+- Zooming no longer leaves thumbnails decoding for levels already left.
+
 ## 0.23.0
 
 - Ripple mode (R, or the Ripple button): moving a clip closes the gap it

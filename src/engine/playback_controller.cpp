@@ -73,6 +73,17 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
         consumer->set("channels", 2);
         consumer->set("frequency", 48000);
         consumer->set("buffer", 25);
+        // Start after one queued frame, not `buffer` (post-M3 audit P3).
+        // mlt_consumer_rt_frame() waits for a preroll of min(prefill,
+        // buffer) frames, while the read-ahead thread stops at 1 queued
+        // frame once it reads a paused (speed 0) frame (MLT 7.40
+        // mlt_consumer.c). With a preroll above 1 the two could both wait
+        // on each other; stop() then broadcasts once, before the sdl2
+        // consumer joins its thread, and that join hung. With prefill 1 the
+        // consumer only waits on an empty queue and the read-ahead only on
+        // a non-empty one, so they can't. The read-ahead still fills to
+        // `buffer` behind playback.
+        consumer->set("prefill", 1);
         consumer->set("terminate_on_pause", 0); // stay alive across pause; we pause via speed 0
         consumer->set("volume", m_volume.load());
 

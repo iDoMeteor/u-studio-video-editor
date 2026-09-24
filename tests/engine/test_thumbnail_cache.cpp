@@ -274,5 +274,42 @@ TEST_CASE("ThumbnailCache and WaveformCache never block the caller while their w
         }
     }
     MESSAGE("slowest request while decoding: " << worstMs << " ms");
+#if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__) // timings mean nothing there
     CHECK(worstMs < 5.0); // a frame at 60 Hz is 16 ms; a request must be a small part of one
+#endif
+}
+
+TEST_CASE("ThumbnailCache: frame requests the view stopped asking for are dropped, not decoded (post-M3 audit P5)")
+{
+    sharedFactoryPolicy();
+    ustudio::core::Model model = ustudio::core::Model::createEmpty();
+    EngineSync sync(model);
+    int fps = ustudio::testing::framesPerSecond(sync.profile());
+    std::random_device rd;
+    std::filesystem::path media =
+        std::filesystem::temp_directory_path() / ("ustudio-stale-thumbs-" + std::to_string(rd()) + ".mp4");
+    RemoveOnExit cleanup{media};
+    ustudio::testing::renderSyncClip(sync.profile(), media.string(), 4);
+
+    ThumbnailCache cache([] {});
+    // A zoom sweep: 30 rounds, each asking for a different set of 4 frames.
+    for (int round = 0; round < 30; ++round) {
+        cache.newFrameGeneration();
+        for (int k = 0; k < 4; ++k)
+            cache.frameThumbnail(media.string(), round + k * 30, fps, 1);
+    }
+    // Then the view settles: only the last round is still wanted.
+    const ThumbnailCache::Data *settled = nullptr;
+    pumpMainContextUntil(
+        [&] {
+            cache.newFrameGeneration();
+            settled = cache.frameThumbnail(media.string(), 29 + 3 * 30, fps, 1);
+            for (int k = 0; k < 3; ++k)
+                cache.frameThumbnail(media.string(), 29 + k * 30, fps, 1);
+            return settled != nullptr;
+        },
+        std::chrono::seconds(20));
+    CHECK(settled);
+    MESSAGE("decoded " << cache.frameThumbnailsDecoded() << " of 120 requested");
+    CHECK(cache.frameThumbnailsDecoded() < 20);
 }

@@ -4,6 +4,9 @@
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 
+#include <atomic>
+#include <thread>
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -133,4 +136,40 @@ TEST_CASE("renderProject: onProgress fires with the tractor's real total length 
         CHECK(currentFrame >= 0);
         CHECK(currentFrame < totalFrames);
     }
+}
+
+TEST_CASE("renderProject: a cancelled render stops promptly and leaves nothing behind (post-M3 audit P2)")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset asset;
+    asset.path = "noise:"; // costs real encode time, unlike a flat colour
+    asset.displayName = "noise";
+    asset.info.hasVideo = true;
+    asset.info.lengthInSequenceFrames = 100'000;
+    model.insertClip(track, model.addAsset(asset), 0, 0, 30 * 60 - 1); // a minute
+
+    fs::path outputPath = fs::temp_directory_path() / "ustudio-render-test-cancel.mp4";
+    RemoveOnExit guard{outputPath};
+    std::atomic<bool> cancel{false};
+    std::atomic<bool> started{false};
+    std::string error;
+    bool ok = true;
+    auto begin = std::chrono::steady_clock::now();
+    std::thread render(
+        [&] { ok = renderProject(model, outputPath.string(), error, [&](int, int) { started = true; }, &cancel); });
+    while (!started && std::chrono::steady_clock::now() - begin < std::chrono::seconds(20))
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    cancel = true;
+    auto cancelledAt = std::chrono::steady_clock::now();
+    render.join();
+    double stopMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - cancelledAt).count();
+
+    CHECK(started);
+    CHECK_FALSE(ok);
+    CHECK(error == "Render cancelled");
+    CHECK(stopMs < 2000.0);
+    CHECK_FALSE(fs::exists(outputPath));
+    CHECK_FALSE(fs::exists(outputPath.string() + ".part"));
 }

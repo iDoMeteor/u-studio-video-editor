@@ -3,6 +3,8 @@
 #include <adwaita.h>
 #include <gtk/gtk.h>
 
+#include <thread>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -523,6 +525,7 @@ class AppWindow
     static gboolean timelineScrollTrampoline(GtkEventControllerScroll *controller, double dx, double dy,
                                              gpointer userData);
     static void timelineHScrollChangedTrampoline(GtkAdjustment *adjustment, gpointer userData);
+    static void unparentPopoverTrampoline(GtkWidget *parent, gpointer popover);
     static void timelineMotionTrampoline(GtkEventControllerMotion *controller, double x, double y, gpointer userData);
     static void rippleDeleteSelectedActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void addMarkerActivated(GSimpleAction *, GVariant *, gpointer userData);
@@ -778,6 +781,13 @@ class AppWindow
     // so a save the user triggers manually in between never accidentally
     // closes the window.
     bool m_closeAfterSave = false;
+
+    // The render thread (onRenderFinished), owned so shutdown can cancel
+    // and join it before MLT closes (post-M3 audit P2).
+    std::thread m_renderThread;
+    std::atomic<bool> m_renderCancel{false};
+    std::atomic<bool> m_renderRunning{false};
+    bool m_stopRenderConfirmed = false; // "Stop and Quit" was chosen
 
     void onAutosaveHeartbeat();
     void performAutosave();

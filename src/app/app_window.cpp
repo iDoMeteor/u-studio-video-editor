@@ -190,7 +190,20 @@ AppWindow::AppWindow(GtkApplication *app)
     // goes through UndoStack::execute()/undo()/redo()/setCleanPoint()/
     // clear(), all of which emit `changed`, so nothing can forget to
     // refresh these after an ordinary edit the way manual call sites did.
-    m_undoStack.changed.connect([this] { updateWindowTitle(); });
+    m_undoStack.changed.connect([this] {
+        updateWindowTitle();
+        // Any edit, undo or redo can remove clips (RemoveAsset takes every
+        // clip cut from the asset): drop them from the selection here, in
+        // one place (post-M3 audit P1: a stale id aborted Shift+Delete).
+        // And a drag in progress was measured against the old model, so it
+        // ends (P8).
+        m_timelineController.selection().prune(m_model);
+        if (m_timelineController.mode() != timeline::TimelineController::Mode::None) {
+            m_timelineController.cancel();
+            if (m_timeline)
+                gtk_widget_queue_draw(m_timeline);
+        }
+    });
 
     gchar *sessionUuid = g_uuid_string_random();
     m_autosaveSessionId = sessionUuid;
@@ -225,6 +238,13 @@ void AppWindow::prepareForShutdown()
     // reaches shutdown without going through onCloseRequest at all.
     if (!m_undoStack.isClean())
         performAutosave();
+    // A render still running would be inside MLT when main() closes the
+    // factory (post-M3 audit P2: 3/3 crashes). Stop it and wait for it;
+    // renderProject() removes its .part file when cancelled.
+    if (m_renderThread.joinable()) {
+        m_renderCancel = true;
+        m_renderThread.join();
+    }
     if (m_playback)
         m_playback->shutdown();
 }
@@ -387,6 +407,11 @@ void AppWindow::buildUi(GtkApplication *app)
                       this);
     gtk_box_append(GTK_BOX(mediaContextBox), m_deleteAssetFileButton);
     gtk_popover_set_child(m_mediaBrowserContextMenu, mediaContextBox);
+    // A popover parented with gtk_widget_set_parent() has to be unparented
+    // by hand before its parent goes (post-M3 audit P10: GTK warned on every
+    // close). The timeline's popovers are handled by UsTimelineView's dispose.
+    g_signal_connect(m_mediaBrowserPanel, "destroy", G_CALLBACK(&AppWindow::unparentPopoverTrampoline),
+                     m_mediaBrowserContextMenu);
 
     GtkWidget *previewFrame = gtk_frame_new(nullptr);
     gtk_widget_add_css_class(previewFrame, "preview-frame");
@@ -1516,21 +1541,28 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
         return;
     }
 
+    if (m_renderRunning) {
+        showStatus("A render is already running; wait for it to finish.");
+        return;
+    }
+    if (m_renderThread.joinable())
+        m_renderThread.join(); // the last one, already finished
+    m_renderCancel = false;
+    m_renderRunning = true;
     showStatus("Rendering to " + path + " … (this can take a while — the window will stay responsive)");
 
-    // AppWindow itself is never destroyed during normal operation (see
-    // main.cpp) — capturing `this` in this detached thread is safe on that
-    // basis. `snapshot` is a deep copy of m_model taken HERE, synchronously
-    // on the main thread, before the thread starts: core::Model has no
-    // internal synchronization, so handing the render thread a reference to
-    // the live m_model (which UndoStack::execute()/undo()/redo() mutate in
+    // Owned and joined, not detached (post-M3 audit P2): prepareForShutdown()
+    // cancels and joins it before MLT is torn down. AppWindow itself is never
+    // destroyed (see main.cpp), so capturing `this` is safe. `snapshot` is a deep copy of m_model taken HERE,
+    // synchronously on the main thread, before the thread starts: core::Model has no internal synchronization, so
+    // handing the render thread a reference to the live m_model (which UndoStack::execute()/undo()/redo() mutate in
     // place on the main thread, with no lock) would be an unsynchronized
     // concurrent read/write the moment an edit happens mid-render. Copying
     // once up front instead means the render thread only ever touches its
     // own independent Model after this point -- a real render *queue* that
     // could serialize renders against edits is M6 territory, out of scope
     // here, but this closes the actual data race.
-    std::thread([this, path, snapshot = m_model]() mutable {
+    m_renderThread = std::thread([this, path, snapshot = m_model]() mutable {
         std::string err;
         // Enhancement #13: renderProject() calls this from the SAME
         // thread its own consumer.run() blocks on (this detached
@@ -1538,23 +1570,27 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
         // Marshals to the main thread the same way the final result
         // below already does, via g_idle_add and a heap-allocated
         // struct the idle callback takes ownership of.
-        bool ok = engine::renderProject(snapshot, path, err, [this](int currentFrame, int totalFrames) {
-            struct Progress
-            {
-                AppWindow *self;
-                int currentFrame;
-                int totalFrames;
-            };
-            auto *progress = new Progress{this, currentFrame, totalFrames};
-            g_idle_add(
-                [](gpointer data) -> gboolean {
-                    std::unique_ptr<Progress> p(static_cast<Progress *>(data));
-                    int percent = p->totalFrames > 0 ? (p->currentFrame * 100) / p->totalFrames : 0;
-                    p->self->showStatus("Rendering… " + std::to_string(std::clamp(percent, 0, 100)) + "%");
-                    return G_SOURCE_REMOVE;
-                },
-                progress);
-        });
+        bool ok = engine::renderProject(
+            snapshot, path, err,
+            [this](int currentFrame, int totalFrames) {
+                struct Progress
+                {
+                    AppWindow *self;
+                    int currentFrame;
+                    int totalFrames;
+                };
+                auto *progress = new Progress{this, currentFrame, totalFrames};
+                g_idle_add(
+                    [](gpointer data) -> gboolean {
+                        std::unique_ptr<Progress> p(static_cast<Progress *>(data));
+                        int percent = p->totalFrames > 0 ? (p->currentFrame * 100) / p->totalFrames : 0;
+                        p->self->showStatus("Rendering… " + std::to_string(std::clamp(percent, 0, 100)) + "%");
+                        return G_SOURCE_REMOVE;
+                    },
+                    progress);
+            },
+            &m_renderCancel);
+        m_renderRunning = false;
 
         struct Result
         {
@@ -1569,12 +1605,14 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
                 std::unique_ptr<Result> r(static_cast<Result *>(data));
                 if (r->ok)
                     r->self->showStatus("Rendered: " + r->path);
+                else if (r->err == "Render cancelled")
+                    r->self->showStatus("Render stopped; nothing was written.");
                 else
                     r->self->showStatus("Render failed: " + r->err);
                 return G_SOURCE_REMOVE;
             },
             renderResult);
-    }).detach();
+    });
 }
 
 void AppWindow::onAddTrackClicked()
@@ -1902,8 +1940,6 @@ void AppWindow::applyTimelineOutcome(timeline::TimelineOutcome &outcome)
         showStatus(outcome.failureStatus);
     if (succeeded && outcome.activeRowOnSuccess)
         m_activeTrack = *outcome.activeRowOnSuccess;
-    if (succeeded)
-        m_timelineController.selection().prune(m_model);
 
     if (outcome.seek)
         m_playback->seek(static_cast<int>(*outcome.seek));
@@ -2331,6 +2367,7 @@ void AppWindow::addTimelineOverlay(const timeline::TimelineOverlayProvider *over
 
 void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int height)
 {
+    m_timelineThumbnails->newFrameGeneration(); // older requests the view no longer shows can be dropped
     PangoLayout *layout = newLabelLayout(m_timeline, false);
     timeline::TimelineScene scene{
         .model = m_model,
@@ -3313,6 +3350,29 @@ void AppWindow::confirmDiscardIfDirty(std::function<void()> onConfirmed)
 
 gboolean AppWindow::onCloseRequest()
 {
+    // Quitting stops a running render (prepareForShutdown), so ask first.
+    if (m_renderRunning && !m_stopRenderConfirmed) {
+        AdwDialog *dialog =
+            adw_alert_dialog_new("A render is running", "Quitting now stops it, and the file isn't finished.");
+        adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Keep Rendering");
+        adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "stop", "Stop and Quit");
+        adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "stop", ADW_RESPONSE_DESTRUCTIVE);
+        adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "cancel");
+        adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
+        adw_alert_dialog_choose(
+            ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+            [](GObject *source, GAsyncResult *result, gpointer userData) {
+                auto *self = static_cast<AppWindow *>(userData);
+                const char *response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+                if (response && std::string(response) == "stop") {
+                    self->m_stopRenderConfirmed = true;
+                    gtk_window_close(GTK_WINDOW(self->m_window)); // on to the unsaved-changes check
+                }
+            },
+            this);
+        return GDK_EVENT_STOP;
+    }
+
     if (m_undoStack.isClean())
         return GDK_EVENT_PROPAGATE;
 
@@ -3654,6 +3714,11 @@ gboolean AppWindow::timelineScrollTrampoline(GtkEventControllerScroll *controlle
     return static_cast<AppWindow *>(userData)->onTimelineScroll(controller, dx, dy);
 }
 
+void AppWindow::unparentPopoverTrampoline(GtkWidget *, gpointer popover)
+{
+    gtk_widget_unparent(GTK_WIDGET(popover));
+}
+
 void AppWindow::timelineMotionTrampoline(GtkEventControllerMotion *, double x, double, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->m_timelinePointerX = x;
@@ -3827,8 +3892,11 @@ void AppWindow::splitAtPlayheadActivated(GSimpleAction *, GVariant *, gpointer u
 
 void AppWindow::onRippleDeleteSelected()
 {
-    std::vector<core::ClipId> selected(m_timelineController.selection().clips().begin(),
-                                       m_timelineController.selection().clips().end());
+    std::vector<core::ClipId> selected;
+    for (core::ClipId id : m_timelineController.selection().clips()) {
+        if (m_model.hasClip(id))
+            selected.push_back(id);
+    }
     if (selected.empty()) {
         showStatus("No clip selected to ripple delete.");
         return;

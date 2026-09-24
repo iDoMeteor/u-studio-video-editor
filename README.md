@@ -431,6 +431,14 @@ milestone M6). Full rationale in
 
 ### Playback engine notes
 
+**The playback consumer prerolls one frame (`prefill` = 1).** With a larger
+preroll, MLT 7.40's consumer thread (waiting in `mlt_consumer_rt_frame()` for
+min(prefill, buffer) frames) and its read-ahead thread (which stops at one
+queued frame once it reads a paused frame) could both wait, and stopping
+that consumer then hung the main thread in the sdl2 consumer's join
+(post-M3 audit P3; 2/64 stress runs before, 0/256 after). The read-ahead
+still fills to `buffer` behind playback.
+
 **Preview scale works by shrinking the playback profile.** Setting the
 consumer's `scale` property had no effect on what MLT renders (4K60 at
 "Half" still delivered 3840×2160 frames and showed only 20–23 of 60 frames
@@ -890,6 +898,14 @@ covers all three cases (real video with audio, real video without,
 generator).
 
 ### Render implementation notes
+
+**A render can be cancelled.** `renderProject()` starts the avformat
+consumer and waits on it itself (`Consumer::run()` is just `start()` plus a
+wait for "consumer-stopped"), so a cancel flag can stop it from the render
+thread; the `.part` is removed. The app owns the render thread, asks before
+quitting mid-render, and cancels and joins it before MLT is closed (post-M3
+audit P2: quitting mid-render used to crash). A finished render reads
+stopped only after avformat has written the trailer and closed the file.
 
 `renderProject()` uses MLT's `avformat` consumer, with properties confirmed
 against its actual YAML metadata rather than guessed from ffmpeg CLI-flag

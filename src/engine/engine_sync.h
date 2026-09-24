@@ -8,6 +8,7 @@
 
 #include <mlt++/Mlt.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -270,8 +271,14 @@ class EngineSync
 // frame -- a 30fps hour-long render is 108,000
 // frames, and every one of those hitting the caller's own dispatch would
 // be pointless churn for a status label).
+//
+// `cancel`, if set, is polled while the render runs; once it reads true the
+// consumer is stopped, the .part file removed, and this returns false with
+// `error` "Render cancelled". The app sets it to quit mid-render (post-M3
+// audit P2: MLT must not be torn down under a running render).
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
-                   std::function<void(int currentFrame, int totalFrames)> onProgress = {});
+                   std::function<void(int currentFrame, int totalFrames)> onProgress = {},
+                   const std::atomic<bool> *cancel = nullptr);
 
 // The H.264 encoder renderProject uses: libx264 where ffmpeg has it,
 // otherwise libopenh264 (stock Fedora's ffmpeg-free ships only that one;

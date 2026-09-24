@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <limits>
 #include <system_error>
+#include <thread>
 #include <variant>
 
 namespace ustudio::engine {
@@ -672,7 +673,7 @@ const std::string &h264Encoder()
 }
 
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
-                   std::function<void(int, int)> onProgress)
+                   std::function<void(int, int)> onProgress, const std::atomic<bool> *cancel)
 {
     Log::ScopedTimer timer("[engine] renderProject total");
     EngineSync renderSync(model); // its own Profile/Tractor, independent of any live one
@@ -725,7 +726,31 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
         progressEvent.reset(consumer.listen("consumer-frame-render", &progressContext, renderProgressTrampoline));
 
     Log::info("[engine] Rendering project to " + outputPath + " (via " + partPath + ") ...");
-    int result = consumer.run();
+    // Consumer::run() is start() plus a wait for "consumer-stopped" (mlt++'s
+    // MltConsumer.cpp). Doing the wait here instead lets a cancel stop the
+    // consumer from this thread, which is not the consumer's own.
+    int result = consumer.start();
+    bool cancelled = false;
+    while (result == 0 && !consumer.is_stopped()) {
+        if (cancel && cancel->load()) {
+            consumer.stop();
+            cancelled = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    // A finished render reads stopped only after avformat's thread has
+    // written the trailer and closed the file (consumer_avformat.c ends with
+    // mlt_consumer_stopped(), which clears "running"; MLT 7.40 source).
+    // stop() then just joins that thread, before the .part is renamed.
+    consumer.stop();
+    if (cancelled) {
+        error = "Render cancelled";
+        Log::info("[engine] Render to " + outputPath + " cancelled");
+        std::error_code ec;
+        std::filesystem::remove(partPath, ec);
+        return false;
+    }
     if (result != 0) {
         error = "Render failed (consumer returned " + std::to_string(result) + ")";
         Log::error("[engine] " + error);

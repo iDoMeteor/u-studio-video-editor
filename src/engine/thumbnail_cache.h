@@ -63,6 +63,13 @@ class ThumbnailCache
     // the oldest go first, so a returned pointer is only valid until the
     // next call to this function (main thread only).
     const Data *frameThumbnail(const std::string &resource, int frame, int fpsNum, int fpsDen);
+    // Starts a new round of frame requests (one timeline snapshot). A queued
+    // frame job that isn't requested again in the latest round is dropped
+    // before decoding: the view has moved on (post-M3 audit P5: 24 zoom
+    // steps queued 102 decodes, none ever cancelled).
+    void newFrameGeneration();
+    // Frame thumbnails decoded so far (for tests).
+    size_t frameThumbnailsDecoded() const;
     static constexpr size_t kMaxFrameThumbnails = 800;
 
   private:
@@ -79,6 +86,9 @@ class ThumbnailCache
     mutable std::mutex m_mutex;
     std::map<std::string, Data> m_cache;
     std::deque<std::string> m_frameOrder; // frame-thumbnail keys, oldest first
+    uint64_t m_generation = 0;
+    std::map<std::string, uint64_t> m_requestedIn; // queued frame key -> latest round that asked for it
+    size_t m_framesDecoded = 0;
     std::set<std::string> m_inFlight;
     std::deque<Job> m_queue;
     std::condition_variable m_cv;

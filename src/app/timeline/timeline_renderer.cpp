@@ -131,11 +131,19 @@ void drawThumbnails(GtkSnapshot *s, const TimelineScene &scene, const core::Clip
     graphene_rect_t area = rect(left, box.top, right - left, box.height);
     gtk_snapshot_push_clip(s, &area);
     int first = std::max(0, static_cast<int>((left - box.x) / step));
+    const double framesPerTile = step / scene.viewport.pxPerFrame();
+    core::FrameIndex grid = 1;
+    while (static_cast<double>(grid * 2) <= framesPerTile)
+        grid *= 2;
     for (int k = first;; ++k) {
         double tx = box.x + k * step;
         if (tx > right || tx >= box.x + box.w)
             break;
         auto offset = static_cast<core::FrameIndex>(k * step / scene.viewport.pxPerFrame());
+        // Snapped to a power-of-two grid a little finer than the tile
+        // spacing, so zoom levels within a factor of two ask for the same
+        // frames instead of a fresh set each (post-M3 audit P5).
+        offset = offset / grid * grid;
         GdkTexture *texture = scene.thumbnailFor(clip, clip.in + offset);
         if (!texture)
             continue; // still being made: the plain fill shows meanwhile

@@ -71,11 +71,24 @@ const ThumbnailCache::Data *ThumbnailCache::frameThumbnail(const std::string &re
     auto it = m_cache.find(key);
     if (it != m_cache.end())
         return &it->second;
+    m_requestedIn[key] = m_generation;
     if (m_inFlight.insert(key).second) {
         m_queue.push_front(Job{resource, frame, fpsNum, fpsDen, key}); // newest first
         m_cv.notify_one();
     }
     return nullptr;
+}
+
+void ThumbnailCache::newFrameGeneration()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ++m_generation;
+}
+
+size_t ThumbnailCache::frameThumbnailsDecoded() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_framesDecoded;
 }
 
 void ThumbnailCache::workerMain()
@@ -100,6 +113,19 @@ void ThumbnailCache::workerMain()
             }
             job = m_queue.front();
             m_queue.pop_front();
+            // A frame job the latest round didn't ask for again: the view
+            // has moved on, so skip the decode. If it's wanted later it is
+            // simply requested again.
+            if (job.frame >= 0) {
+                auto requested = m_requestedIn.find(job.key);
+                bool stale = requested == m_requestedIn.end() || requested->second + 1 < m_generation;
+                if (requested != m_requestedIn.end())
+                    m_requestedIn.erase(requested);
+                if (stale) {
+                    m_inFlight.erase(job.key);
+                    continue;
+                }
+            }
         }
 
         Data data;
@@ -197,8 +223,10 @@ void ThumbnailCache::workerMain()
             std::lock_guard<std::mutex> lock(m_mutex);
             m_cache.emplace(job.key, std::move(data));
             m_inFlight.erase(job.key);
-            if (job.frame >= 0)
+            if (job.frame >= 0) {
                 m_frameOrder.push_back(job.key);
+                ++m_framesDecoded;
+            }
         }
 
         // Through MainThreadDispatcher rather than a raw g_idle_add(): one

@@ -32,6 +32,30 @@ Nothing in `src/` was changed. The scripts and repros are in
 - The fuzz test, the new core commands, and format 4 all came through
   clean.
 
+## Resolution status (2026-09-24, v0.23.1)
+
+All ten fixed. Each has a test except P10 (checked in an app session).
+
+| Finding | Fix | Checked by |
+|---|---|---|
+| P1 stale selection | The selection is pruned, and a live drag cancelled, whenever the undo stack changes (one place, `m_undoStack.changed`); ripple delete also skips ids the model lacks | `stale_selection.py` rerun: alive after Shift+Delete, Delete and nudge |
+| P2 quit during render | The render thread is owned and joined; `renderProject()` takes a cancel flag (it now waits on the consumer itself, so it can stop it) and removes the `.part`; closing mid-render asks "Stop and Quit?"; `prepareForShutdown()` cancels and joins before MLT closes | `engine-render`'s new cancel test (stops within 2 s, nothing left); `render_quit.py`: render cancelled 161 ms into shutdown, exit 0, no `.part` |
+| P3 consumer-stop deadlock | `prefill` = 1 on the playback consumer. From MLT 7.40's source: `mlt_consumer_rt_frame()` waits for a preroll of min(prefill, buffer) frames while the read-ahead stops at one queued frame once it reads a paused frame; with preroll > 1 both can wait, and `mlt_consumer_stop()` broadcasts once before the sdl2 consumer joins its thread. With a preroll of 1 they can't both wait | The P3 case, 16 in parallel: 2/64 hangs before, 0/256 after; TSan 0/8 hangs, 0 warnings |
+| P4 no-op ripple move | `RippleMove` refuses a landing equal to the clip's un-extended position; the controller skips the drop on the clip's own trailing cut | Core test; the fuzz test now fails any edit that leaves every clip where it was but loses a dissolve |
+| P5 thumbnail churn | Requested frames snap to a power-of-two grid chosen from the zoom; each snapshot starts a request generation and the worker drops queued frames the view stopped asking for | Engine test: 2 of 120 swept frames decoded; `zoom.py`: no decodes after the zoom ends |
+| P6 short ripple drag | In ripple mode, a drop inside the clip's own old span is no move (preview and release agree) | Controller test |
+| P7 `EditMarker` merge | Merges only within one gesture id; a merge that ends as a no-op drops its entry (`Command::isNoOp()`) | Core test |
+| P8 undo mid-drag | Covered by P1's fix: the drag is cancelled when the undo stack changes | By construction |
+| P9 `just asan` red | Timing checks are reported, not checked, under ASan/TSan (`__SANITIZE_ADDRESS__`/`__SANITIZE_THREAD__`) | Code |
+| P10 popover warnings | The media browser's menu is unparented when its panel is destroyed (the timeline's are, by `UsTimelineView`'s dispose) | App session: 0 warnings on close |
+
+Found while fixing, by the fuzz test with the P4 invariant and undo/redo checks:
+
+- `MoveClip` had P4's bug too: landing on its own un-extended position only lost the dissolve. Refused now.
+- `AddTransition` allowed a dissolve as long as a whole clip, which started both clips on the same frame; a later re-sort could then flip them. Refused now (strictly shorter), and `Model` breaks sort ties by end then id, so a project saved with one still orders stably.
+
+Worth reporting upstream (MLT 7.40, `consumer_sdl2_audio.c`): besides P3, the consumer thread's paused path checks `running` outside `refresh_mutex` and then waits on `refresh_cond` without re-checking it, so a stop that lands between the two is a lost wake-up. Not reproduced here.
+
 ## What was run
 
 | Run | Result |
