@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.17.1
+
+- The app always uses its dark theme; under a light system theme, Help
+  and Settings showed white lists.
+
 ## 0.17.0
 
 - Hide or mute a track from its right-click menu; the row's name strip

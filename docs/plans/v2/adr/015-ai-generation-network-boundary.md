@@ -1,6 +1,6 @@
 # ADR-015: AI generation runs in a separate, networked helper; the editor stays network-free
 
-**Status:** Proposed (2026-09-24)
+**Status:** Accepted (owner, 2026-09-24)
 
 ## Context
 The owner wants AI image and video generation (doc 18) as a drop-in.

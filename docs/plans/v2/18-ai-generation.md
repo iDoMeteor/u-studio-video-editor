@@ -246,11 +246,14 @@ cost summary.
 
 ## Decisions needed from the owner
 
-1. Confirm reusing ai-animated-video as the upstream for provider scripts
-   and the model catalogue, and which of its services to enable first.
-2. Confirm the separate helper process (ADR-015) rather than network code
-   inside the editor.
-3. Where results go by default: the project's `generated/` folder
-   (recommended) or a user-chosen folder.
-4. Whether the helper should also run standalone (from the app grid) for
-   generating assets outside a project.
+All decided by the owner on 2026-09-24:
+
+1. **Reuse ai-animated-video** as the upstream for provider scripts and the
+   model catalogue. **gpt-image image generation is enabled first.**
+   Generated music beds and sound effects are an idea for later: they would
+   be new work in ai-animated-video, which today only mixes in an uploaded
+   or library music bed (with ducking) and generates no audio.
+2. **The separate helper process** (ADR-015, now Accepted).
+3. Results go to the project's **`generated/` folder** by default.
+4. **Editor-only for now**; standalone use from the app grid can come
+   later.

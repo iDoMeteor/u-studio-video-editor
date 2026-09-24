@@ -51,6 +51,11 @@ void onActivate(GtkApplication *app, gpointer /*userData*/)
     }
 
     core::Log::info("[app] Application activated");
+
+    // The Unicorn Tears palette (style.css) is dark-only: under a light
+    // system theme libadwaita's own light cards and dialogs showed through
+    // it (white Help/Settings lists, 2026-09-24).
+    adw_style_manager_set_color_scheme(adw_style_manager_get_default(), ADW_COLOR_SCHEME_FORCE_DARK);
     applyStyle(app);
 
     // Leaked intentionally: the app has exactly one window for its whole
