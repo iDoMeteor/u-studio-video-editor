@@ -132,7 +132,9 @@ Each lands as small reviewed commits with tests, in this order.
     command whose `rebuildAll` costs 110–210 ms with a dozen real clips.
     Applying every ready result in one go blocked the main loop 2.4 s, so
     results apply one per main-loop iteration: the worst stall is now one
-    rebuild (212 ms). Getting under 16 ms needs MT2.
+    rebuild (212 ms). Getting under 16 ms needs MT2, so the 50-file
+    import criterion below is MT2's acceptance, not MT1's (Strategist,
+    2026-09-24).
 - Save and autosave serialise a snapshot on the pool (the atomic temp file
   and rename stay); the dirty flag is cleared only when the write that
   matches the current undo depth succeeds.
@@ -198,8 +200,10 @@ threads; it submits jobs to the pool.
 ## Acceptance
 
 - [ ] During each of these, no main-loop iteration exceeds 16 ms (stall
-      monitor): importing 50 files; saving a 5,000-clip project; 100 edits
-      in 10 s while playing 4K.
+      monitor): importing 50 files (checked at MT2: MT1 moved the probing
+      off, but each apply's `rebuildAll` stays on the main thread until
+      then); saving a 5,000-clip project; 100 edits in 10 s while playing
+      4K.
 - [ ] Edits while playing never block input; playback picks up the newest
       graph within one rebuild.
 - [ ] `just tsan` and `just asan` pass on every suite.
