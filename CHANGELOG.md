@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.15.1
+
+- Fixed memory growing with every edit: each edit leaked the previous
+  timeline's transitions (roughly 100–330 KB per edit), plus a smaller
+  per-edit leak in the black background track.
+
 ## 0.15.0
 
 - Added a Help dialog (header bar `?` button) with Keyboard Shortcuts and

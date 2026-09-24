@@ -14,6 +14,14 @@ using namespace ustudio::engine;
 
 namespace {
 
+// Mlt::Tractor::track() returns a new, caller-owned wrapper despite
+// mlt++'s header comment (sanitizer report S1) -- own it so the test
+// itself is leak-clean under ASan.
+std::unique_ptr<Mlt::Producer> trackAt(Mlt::Tractor &tractor, int index)
+{
+    return std::unique_ptr<Mlt::Producer>(tractor.track(index));
+}
+
 // color: is an MLT generator producer -- synthetic, no file, happy to
 // supply any in/out range -- so tests never touch real media (project
 // rule: no binary media in the repo, doc 11).
@@ -67,7 +75,7 @@ TEST_CASE("EngineSync: one clip on one video track lands in the playlist at the 
 
     // Index 0 = black; index 1 = the one video track (no audio tracks).
     REQUIRE(sync.tractor().count() == 2);
-    Mlt::Producer *raw = sync.tractor().track(1);
+    std::unique_ptr<Mlt::Producer> raw = trackAt(sync.tractor(), 1);
     REQUIRE(raw != nullptr);
     Mlt::Playlist playlist(*raw);
     CHECK(playlist.get_length() == 60); // 10 blank + 50 clip
@@ -91,13 +99,13 @@ TEST_CASE("EngineSync: a clip with video/audio disabled gets video_index/audio_i
     EngineSync sync(model);
     CHECK(sync.verify().empty()); // verify() doesn't check these properties, but the graph shape must still hold
 
-    Mlt::Playlist videoPlaylist(*sync.tractor().track(2)); // index 0=black, 1=audio (lowest), 2=video
+    Mlt::Playlist videoPlaylist(*trackAt(sync.tractor(), 2)); // index 0=black, 1=audio (lowest), 2=video
     std::unique_ptr<Mlt::Producer> videoCut(videoPlaylist.get_clip(0));
     REQUIRE(videoCut != nullptr);
     CHECK(videoCut->get_int("audio_index") == -1);
     CHECK(videoCut->get_int("video_index") != -1);
 
-    Mlt::Playlist audioPlaylist(*sync.tractor().track(1));
+    Mlt::Playlist audioPlaylist(*trackAt(sync.tractor(), 1));
     std::unique_ptr<Mlt::Producer> audioCut(audioPlaylist.get_clip(0));
     REQUIRE(audioCut != nullptr);
     CHECK(audioCut->get_int("video_index") == -1);
@@ -169,7 +177,7 @@ TEST_CASE("EngineSync: a dissolve transition actually cross-fades, and the pair'
     // this in isolation -- see test_model.cpp): both clips grew using
     // their own handles, so the track's total length is still exactly
     // A's original 10 + B's original 10, not shorter.
-    Mlt::Playlist playlist(*sync.tractor().track(1)); // 0 = black, 1 = video
+    Mlt::Playlist playlist(*trackAt(sync.tractor(), 1)); // 0 = black, 1 = video
     CHECK(playlist.get_length() == 20);
 
     // Sample the actual composited frame through the tractor (so the
@@ -223,7 +231,7 @@ TEST_CASE("EngineSync: a clip entirely consumed by its own outgoing transition g
     EngineSync sync(model);
     CHECK(sync.verify().empty());
 
-    Mlt::Playlist playlist(*sync.tractor().track(1));
+    Mlt::Playlist playlist(*trackAt(sync.tractor(), 1));
     CHECK(playlist.get_length() == 20); // unchanged, same invariant as the test above
     CHECK(playlist.count() == 2);       // the transition sub-tractor, then b's exclusive tail -- no leading blank/clip
 }
@@ -255,7 +263,7 @@ TEST_CASE("EngineSync: a still image's master producer grows again after a secon
     EngineSync sync(model);
     REQUIRE(sync.verify().empty());
     {
-        Mlt::Playlist playlist(*sync.tractor().track(1));
+        Mlt::Playlist playlist(*trackAt(sync.tractor(), 1));
         CHECK(playlist.get_length() == 20'000);
     }
 
@@ -269,7 +277,7 @@ TEST_CASE("EngineSync: a still image's master producer grows again after a secon
     model.resizeClip(clip, 0, 39'999, 0); // 40,000 frames
     model.extendAssetLength(assetId, 40'000);
 
-    Mlt::Playlist playlist(*sync.tractor().track(1));
+    Mlt::Playlist playlist(*trackAt(sync.tractor(), 1));
     CHECK(playlist.get_length() == 40'000);
 }
 
@@ -320,8 +328,8 @@ TEST_CASE("EngineSync: Track::volume attaches a volume filter that actually scal
 
     // Index 0 = black, 1 = fullVolume (audio tracks come first, model
     // order), 2 = quietTrack.
-    double loud = peakAmplitude(*sync.tractor().track(1));
-    double quiet = peakAmplitude(*sync.tractor().track(2));
+    double loud = peakAmplitude(*trackAt(sync.tractor(), 1));
+    double quiet = peakAmplitude(*trackAt(sync.tractor(), 2));
     REQUIRE(loud > 0.0);
     CHECK(quiet / loud == doctest::Approx(0.1).epsilon(0.02));
 }
@@ -373,7 +381,7 @@ TEST_CASE("EngineSync: audio tracks sit below video tracks, video tracks are bot
     CHECK(sync.verify().empty());
 
     auto resourceAt = [&](int index) -> std::string {
-        Mlt::Producer *raw = sync.tractor().track(index);
+        std::unique_ptr<Mlt::Producer> raw = trackAt(sync.tractor(), index);
         REQUIRE(raw != nullptr);
         Mlt::Playlist playlist(*raw);
         std::unique_ptr<Mlt::ClipInfo> info(playlist.clip_info(0));

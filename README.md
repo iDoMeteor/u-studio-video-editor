@@ -433,6 +433,17 @@ milestone M6). Full rationale in
 
 ### Engine sync notes
 
+**mlt++ accessors that return a pointer allocate a new wrapper — delete
+it, whatever the header says.** `Mlt::Tractor::field()` and
+`Mlt::Tractor::track(int)` are documented "caller does not own the
+result", but each call returns a fresh wrapper holding its own reference on
+the underlying MLT object. Calling `field()` inline without deleting it
+leaked every transition planted in every rebuilt tractor, ~100–330 KB per
+edit (sanitizer report S1, 2026-09-23; confirmed with
+`docs/audit/2026-09-23-sanitizer-run/rebuildrepro.cpp`: RSS +10 MB per 100
+rebuilds leaked, flat when deleted, and ASan-clean either way). Hold these
+in a `std::unique_ptr`.
+
 `EngineSync` rebuilds a track's whole MLT playlist from the model on any
 change (clear it, re-append blanks and cuts in position order) rather than
 doing incremental playlist surgery (ADR-005) — simpler and always

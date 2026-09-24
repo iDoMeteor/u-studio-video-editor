@@ -159,6 +159,11 @@ class EngineSync
     std::unique_ptr<Mlt::Profile> m_profile;
     std::shared_ptr<Mlt::Tractor> m_tractor;
     std::unordered_map<uint64_t, std::shared_ptr<Mlt::Producer>> m_masterProducers; // keyed by AssetId::value
+    // The black backing track's master (rebuildAll()), created once through
+    // MLT's loader and cut per rebuild -- see rebuildAll()'s comment for why
+    // neither "a new loader producer per rebuild" nor "the explicit colour
+    // service" works. Dropped with the other masters in reset().
+    std::unique_ptr<Mlt::Producer> m_blackMaster;
     // AssetId::value of every asset masterProducerFor() had to substitute
     // a black placeholder for (its real file couldn't be opened) --
     // verify() skips its resource check for these, since the mismatch

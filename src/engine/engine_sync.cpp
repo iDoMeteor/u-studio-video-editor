@@ -16,6 +16,9 @@ namespace Log = ustudio::core::Log;
 
 namespace {
 constexpr const char *kBlackResource = "color:black";
+// ~3.8 days at 30 fps: longer than any sequence this app will hold, so the
+// black master (rebuildAll()) never needs resizing after creation.
+constexpr int kBlackMasterLength = 10'000'000;
 
 // MLT's "volume" filter takes its "level" property in dB (verified against
 // the module's own YAML metadata: "level"/"The animated value of the gain
@@ -67,6 +70,8 @@ void EngineSync::reset()
     Log::ScopedTimer timer("[engine] reset");
     Log::debug("[engine] reset: dropping " + std::to_string(m_masterProducers.size()) + " cached master producer(s)");
     m_masterProducers.clear();
+    // Built from the old profile, which applyProfile() below may replace.
+    m_blackMaster.reset();
     m_unavailableAssets.clear(); // a reopened project's media may have come back since -- give it a fresh try
 
     // Keep the OLD profile alive across applyProfile()+rebuildAll(), not
@@ -338,9 +343,17 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // presumably the transition deriving its own progress ratio from the
     // frame's absolute position when its own in/out aren't set, which is
     // wrong once track 0's producer isn't itself zero-based.
+    // Tractor::field() allocates a NEW Mlt::Field wrapper holding its own
+    // reference on the field on every call, despite mlt++'s header saying
+    // "caller does not own the result" -- leaking it leaks every transition
+    // planted in this tractor (sanitizer report S1, 2026-09-23, confirmed
+    // with docs/audit/2026-09-23-sanitizer-run/rebuildrepro.cpp: RSS grows
+    // ~10 MB per 100 rebuilds leaked, flat when deleted). Own it, once.
+    std::unique_ptr<Mlt::Field> field(sub->field());
+
     Mlt::Transition luma(*m_profile, t.service.c_str());
     luma.set_in_and_out(0, static_cast<int>(t.length - 1));
-    sub->field()->plant_transition(luma, 0, 1);
+    field->plant_transition(luma, 0, 1);
 
     // start=-1 ("automatic linear crossfade from 0 to 1", per the mix
     // module's own YAML) is the crossfade mode, NOT the sum=1/
@@ -356,7 +369,7 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     Mlt::Transition mix(*m_profile, "mix");
     mix.set("start", -1);
     mix.set_in_and_out(0, static_cast<int>(t.length - 1));
-    sub->field()->plant_transition(mix, 0, 1);
+    field->plant_transition(mix, 0, 1);
 
     sub->refresh();
     return sub;
@@ -413,10 +426,30 @@ void EngineSync::rebuildAll()
 
     // Index 0: black backing track (doc 03), not a model track -- gaps on
     // every real track composite over black instead of over nothing.
-    Mlt::Producer black(*m_profile, kBlackResource);
+    // Cut from one cached master rather than a fresh "color:black" per
+    // rebuild: a producer created through MLT's loader leaks the normaliser
+    // filters the loader attaches, ~4.6 KB each, and this one used to be
+    // recreated on every edit (sanitizer report S3, 2026-09-23; LSan's
+    // largest remaining per-rebuild leak once S1 was fixed). The report's
+    // other suggestion, naming the service directly (Mlt::Producer(profile,
+    // "colour", "black")) to skip the loader, is NOT safe: without the
+    // loader's normalisers, engine-render hits a deterministic
+    // heap-buffer-overflow in avformat's sample_fifo_append under ASan (3/3
+    // runs; 3/3 clean through the loader) -- so the loader stays, once.
+    // Created with a fixed, very long length and never mutated afterwards:
+    // a running consumer may still be pulling from an older tractor's cut
+    // of it while this rebuild runs, so resizing it per rebuild would race.
+    if (!m_blackMaster) {
+        m_blackMaster = std::make_unique<Mlt::Producer>(*m_profile, kBlackResource);
+        m_blackMaster->set("length", kBlackMasterLength);
+        m_blackMaster->set_in_and_out(0, kBlackMasterLength - 1);
+    }
     core::FrameIndex sequenceLength = std::max<core::FrameIndex>(seq.length(), 1);
-    black.set_in_and_out(0, static_cast<int>(sequenceLength - 1));
-    newTractor->set_track(black, 0);
+    // Mlt::Producer::cut() returns a new, caller-owned wrapper (README's
+    // "mlt++ accessors" note); set_track() takes its own reference.
+    std::unique_ptr<Mlt::Producer> black(
+        m_blackMaster->cut(0, static_cast<int>(std::min<core::FrameIndex>(sequenceLength, kBlackMasterLength) - 1)));
+    newTractor->set_track(*black, 0);
     order.emplace_back(std::nullopt);
 
     // core::mltTrackOrder: audio tracks first (model order), then video
@@ -453,15 +486,18 @@ void EngineSync::rebuildAll()
     // Chain composite (video) + mix (audio) across every adjacent index --
     // matches v1's proven-working MltEngine::plantTrackTransitions exactly
     // (see the class comment for why this is simpler than doc 05's graph).
+    // One owned Field wrapper for the whole tractor -- see
+    // buildTransitionSubTractor()'s comment (sanitizer report S1).
+    std::unique_ptr<Mlt::Field> field(newTractor->field());
     for (int index = 1; index < newTractor->count(); ++index) {
         Mlt::Transition composite(*m_profile, "composite");
-        newTractor->field()->plant_transition(composite, index - 1, index);
+        field->plant_transition(composite, index - 1, index);
 
         Mlt::Transition mix(*m_profile, "mix");
         mix.set("start", 1.0);
         mix.set("sum", 1);
         mix.set("always_active", 1);
-        newTractor->field()->plant_transition(mix, index - 1, index);
+        field->plant_transition(mix, index - 1, index);
     }
 
     newTractor->refresh();
@@ -488,7 +524,9 @@ std::vector<std::string> EngineSync::verify() const
         core::TrackId trackId = *m_mltTrackOrder[mltIndex];
         const core::Track &modelTrack = m_model.track(trackId);
 
-        Mlt::Producer *raw = m_tractor->track(static_cast<int>(mltIndex));
+        // Same new-wrapper-per-call behaviour as Tractor::field() (report
+        // S1, and the 2026-09-20 audit's E7): owned, not borrowed.
+        std::unique_ptr<Mlt::Producer> raw(m_tractor->track(static_cast<int>(mltIndex)));
         if (!raw) {
             problems.push_back("track " + std::to_string(trackId.value) + ": no MLT producer at index");
             continue;
