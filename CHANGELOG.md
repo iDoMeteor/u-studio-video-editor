@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.16.1
+
+- Fixed Split Audio doubling the sound: the video half of a split clip kept
+  playing its audio underneath the new audio clip.
+
 ## 0.16.0
 
 - Full transport controls next to the play button: go to start, shuttle

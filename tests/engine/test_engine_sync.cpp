@@ -81,7 +81,7 @@ TEST_CASE("EngineSync: one clip on one video track lands in the playlist at the 
     CHECK(playlist.get_length() == 60); // 10 blank + 50 clip
 }
 
-TEST_CASE("EngineSync: a clip with video/audio disabled gets video_index/audio_index=-1 on its cut")
+TEST_CASE("EngineSync: a clip with video/audio disabled plays from a producer with video_index/audio_index=-1")
 {
     sharedFactoryPolicy();
     Model model = Model::createEmpty();
@@ -99,17 +99,24 @@ TEST_CASE("EngineSync: a clip with video/audio disabled gets video_index/audio_i
     EngineSync sync(model);
     CHECK(sync.verify().empty()); // verify() doesn't check these properties, but the graph shape must still hold
 
+    // On the cut's parent, not the cut: MLT ignores both properties on a
+    // cut (see EngineSync::masterProducerFor()), so each clip must play
+    // from its own variant of the asset's master producer.
     Mlt::Playlist videoPlaylist(*trackAt(sync.tractor(), 2)); // index 0=black, 1=audio (lowest), 2=video
     std::unique_ptr<Mlt::Producer> videoCut(videoPlaylist.get_clip(0));
     REQUIRE(videoCut != nullptr);
-    CHECK(videoCut->get_int("audio_index") == -1);
-    CHECK(videoCut->get_int("video_index") != -1);
+    CHECK(videoCut->parent().get_int("audio_index") == -1);
+    CHECK(videoCut->parent().get_int("video_index") != -1);
 
     Mlt::Playlist audioPlaylist(*trackAt(sync.tractor(), 1));
     std::unique_ptr<Mlt::Producer> audioCut(audioPlaylist.get_clip(0));
     REQUIRE(audioCut != nullptr);
-    CHECK(audioCut->get_int("video_index") == -1);
-    CHECK(audioCut->get_int("audio_index") != -1);
+    CHECK(audioCut->parent().get_int("video_index") == -1);
+    CHECK(audioCut->parent().get_int("audio_index") != -1);
+
+    // Two different producers, so one clip's switch never leaks into the
+    // other's.
+    CHECK(videoCut->get_parent() != audioCut->get_parent());
 }
 
 TEST_CASE("EngineSync: a clip whose asset file can't be opened plays as black instead of crashing")

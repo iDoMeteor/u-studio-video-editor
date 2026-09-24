@@ -1,7 +1,9 @@
 #include "engine_sync.h"
 
 #include "core/log.h"
+#include "core/model/audio_level.h"
 #include "core/model/mlt_order.h"
+#include "core/model/track_segments.h"
 
 #include <algorithm>
 #include <chrono>
@@ -19,25 +21,6 @@ constexpr const char *kBlackResource = "color:black";
 // ~3.8 days at 30 fps: longer than any sequence this app will hold, so the
 // black master (rebuildAll()) never needs resizing after creation.
 constexpr int kBlackMasterLength = 10'000'000;
-
-// MLT's "volume" filter takes its "level" property in dB (verified against
-// the module's own YAML metadata: "level"/"The animated value of the gain
-// adjustment in dB" -- "gain" is the deprecated linear/string form).
-// Track::volume is a plain linear scale (1.0 = unity) for a simpler slider
-// UI, so this is the conversion point. Standard 20*log10 amplitude-ratio
-// formula; empirically confirmed with a standalone repro (a 440Hz tone
-// through a playlist with this filter attached at -20dB measured 0.1x peak
-// amplitude, exactly the expected ratio). Treats anything at or below a
-// small linear threshold as a fixed silence floor rather than computing
-// log10(0) = -inf.
-double linearToDecibels(double linear)
-{
-    constexpr double kSilenceFloorDb = -60.0;
-    constexpr double kMinLinear = 0.0001;
-    if (linear <= kMinLinear)
-        return kSilenceFloorDb;
-    return 20.0 * std::log10(linear);
-}
 
 std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 {
@@ -178,11 +161,21 @@ EngineSync::ProbedMedia EngineSync::probeMedia(const std::string &path)
     return result;
 }
 
-Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId)
+Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEnabled, bool audioEnabled)
 {
     const core::Asset &asset = m_model.asset(assetId);
 
-    auto it = m_masterProducers.find(assetId.value);
+    // One master per (asset, stream switches). MLT ignores video_index/
+    // audio_index set on a *cut*: they only take effect on the producer
+    // itself, and every cut of it inherits them. Confirmed with a
+    // standalone repro against MLT 7.40 (2026-09-24): a cut with
+    // audio_index=-1 still played at full level, and one with
+    // video_index=-1 still showed its picture, while the same property on
+    // the master silenced / blanked it and every cut taken from it. Until
+    // this was fixed, a Split Audio clip's video half kept playing its
+    // sound under the new audio clip.
+    const uint64_t key = (assetId.value << 2) | (videoEnabled ? 1u : 0u) | (audioEnabled ? 2u : 0u);
+    auto it = m_masterProducers.find(key);
     if (it == m_masterProducers.end()) {
         auto producer = std::make_shared<Mlt::Producer>(*m_profile, asset.path.c_str());
         if (!producer->is_valid()) {
@@ -202,16 +195,24 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId)
             // recorded length, so the clip's span keeps its correct
             // duration and every other clip's timing is unaffected --
             // only its own frames show black instead of crashing the app.
-            Log::error("[engine] could not open asset " + std::to_string(assetId.value) + " (" + asset.path +
-                      ") -- showing black in its place");
-            mediaUnavailable.emit(asset.path);
-            m_unavailableAssets.insert(assetId.value);
+            // Once per asset, not once per stream-switch variant.
+            if (m_unavailableAssets.insert(assetId.value).second) {
+                Log::error("[engine] could not open asset " + std::to_string(assetId.value) + " (" + asset.path +
+                           ") -- showing black in its place");
+                mediaUnavailable.emit(asset.path);
+            }
             producer = std::make_shared<Mlt::Producer>(*m_profile, kBlackResource);
             core::FrameIndex placeholderLength = std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1);
             producer->set("length", static_cast<int>(placeholderLength));
             producer->set_in_and_out(0, static_cast<int>(placeholderLength - 1));
         }
-        it = m_masterProducers.emplace(assetId.value, std::move(producer)).first;
+        // "Off" per avformat's own YAML (-1); harmless on producers that
+        // have no such streams (generators, stills).
+        if (!videoEnabled)
+            producer->set("video_index", -1);
+        if (!audioEnabled)
+            producer->set("audio_index", -1);
+        it = m_masterProducers.emplace(key, std::move(producer)).first;
     }
     Mlt::Producer &producer = *it->second;
 
@@ -234,75 +235,6 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId)
     return producer;
 }
 
-std::vector<EngineSync::TrackSegment> EngineSync::planTrackSegments(const core::Track &modelTrack) const
-{
-    std::vector<TrackSegment> segments;
-    const core::Sequence &seq = m_model.sequence();
-    const auto &clips = modelTrack.clips; // sorted by position (Model invariant)
-
-    for (size_t i = 0; i < clips.size(); ++i) {
-        core::ClipId clipId = clips[i];
-        const core::Clip &clip = m_model.clip(clipId);
-
-        // Is this clip the `b` side of a transition with the PREVIOUS
-        // clip? If so, its head is already spoken for by that
-        // transition's sub-tractor segment (appended below when the
-        // previous clip was processed) -- only its own exclusive tail
-        // (if any) needs a segment here.
-        const core::Transition *incoming = nullptr;
-        if (i > 0) {
-            core::ClipId previous = clips[i - 1];
-            for (const auto &t : seq.transitions) {
-                if (t.track == modelTrack.id && t.a == previous && t.b == clipId) {
-                    incoming = &t;
-                    break;
-                }
-            }
-        }
-        const core::Transition *outgoing = nullptr;
-        if (i + 1 < clips.size()) {
-            core::ClipId next = clips[i + 1];
-            for (const auto &t : seq.transitions) {
-                if (t.track == modelTrack.id && t.a == clipId && t.b == next) {
-                    outgoing = &t;
-                    break;
-                }
-            }
-        }
-
-        // Trimmed at the head if a transition already consumed it (that
-        // clip was `incoming`'s `a`) and/or at the tail if this clip
-        // starts one of its own (`outgoing`) -- either, both, or neither.
-        core::FrameIndex segStart = incoming ? clip.position + incoming->length : clip.position;
-        core::FrameIndex segIn = incoming ? clip.in + incoming->length : clip.in;
-        core::FrameIndex segEnd = outgoing ? clip.end() - outgoing->length : clip.end();
-        core::FrameIndex segOut = outgoing ? clip.out - outgoing->length : clip.out;
-        if (segStart < segEnd) { // omitted entirely if transition(s) consumed the whole clip
-            TrackSegment seg;
-            seg.kind = TrackSegment::Kind::Clip;
-            seg.start = segStart;
-            seg.length = segEnd - segStart;
-            seg.clip = clipId;
-            seg.in = segIn;
-            seg.out = segOut;
-            segments.push_back(seg);
-        }
-
-        if (outgoing) {
-            TrackSegment seg;
-            seg.kind = TrackSegment::Kind::Transition;
-            seg.start = segEnd; // == the next clip's (already-adjusted) position
-            seg.length = outgoing->length;
-            seg.transition = outgoing->id;
-            seg.a = clipId;
-            seg.b = clips[i + 1];
-            segments.push_back(seg);
-        }
-    }
-
-    return segments;
-}
-
 std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackSegment &segment)
 {
     const core::Transition &t = m_model.transition(segment.transition);
@@ -311,21 +243,13 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
 
     auto sub = std::make_unique<Mlt::Tractor>(*m_profile);
 
-    Mlt::Producer &masterA = masterProducerFor(clipA.asset);
+    Mlt::Producer &masterA = masterProducerFor(clipA.asset, clipA.videoEnabled, clipA.audioEnabled);
     std::unique_ptr<Mlt::Producer> tailA(
         masterA.cut(static_cast<int>(clipA.out - t.length + 1), static_cast<int>(clipA.out)));
-    if (!clipA.videoEnabled)
-        tailA->set("video_index", -1);
-    if (!clipA.audioEnabled)
-        tailA->set("audio_index", -1);
 
-    Mlt::Producer &masterB = masterProducerFor(clipB.asset);
+    Mlt::Producer &masterB = masterProducerFor(clipB.asset, clipB.videoEnabled, clipB.audioEnabled);
     std::unique_ptr<Mlt::Producer> headB(
         masterB.cut(static_cast<int>(clipB.in), static_cast<int>(clipB.in + t.length - 1)));
-    if (!clipB.videoEnabled)
-        headB->set("video_index", -1);
-    if (!clipB.audioEnabled)
-        headB->set("audio_index", -1);
 
     sub->set_track(*tailA, 0);
     sub->set_track(*headB, 1);
@@ -380,7 +304,7 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
     playlist.clear();
     core::FrameIndex cursor = 0;
 
-    for (const TrackSegment &seg : planTrackSegments(modelTrack)) {
+    for (const TrackSegment &seg : core::planTrackSegments(m_model, modelTrack)) {
         if (seg.start > cursor) {
             // Playlist::blank(out) appends out+1 frames.
             playlist.blank(static_cast<int>(seg.start - cursor - 1));
@@ -388,21 +312,10 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
 
         if (seg.kind == TrackSegment::Kind::Clip) {
             const core::Clip &clip = m_model.clip(seg.clip);
-            Mlt::Producer &master = masterProducerFor(clip.asset);
+            // Stream switches (Split Audio's two halves) live on the master
+            // variant, not the cut -- see masterProducerFor().
+            Mlt::Producer &master = masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled);
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
-            // video_index/audio_index=-1 ("off"), verified against avformat's
-            // own YAML metadata. Set on the cut, not the master: cuts carry
-            // their own property overrides in MLT (the mechanism that
-            // already lets different cuts of the same file have different
-            // speed/effects), so this only silences this one clip, not
-            // every other cut of the same asset elsewhere on the timeline.
-            // This is what makes SplitAudio's two resulting clips (a
-            // video-only original, a new audio-only one) actually play as
-            // split, not just look split in the model.
-            if (!clip.videoEnabled)
-                cut->set("video_index", -1);
-            if (!clip.audioEnabled)
-                cut->set("audio_index", -1);
             playlist.append(*cut);
         } else {
             playlist.append(*buildTransitionSubTractor(seg));
@@ -474,7 +387,7 @@ void EngineSync::rebuildAll()
         // wrapper to go out of scope once the loop body ends.
         if (modelTrack.volume != 1.0) {
             Mlt::Filter volumeFilter(*m_profile, "volume");
-            volumeFilter.set("level", linearToDecibels(modelTrack.volume));
+            volumeFilter.set("level", core::linearToDecibels(modelTrack.volume));
             playlist->attach(volumeFilter);
         }
 
@@ -532,7 +445,7 @@ std::vector<std::string> EngineSync::verify() const
             continue;
         }
         Mlt::Playlist playlist(*raw);
-        std::vector<TrackSegment> segments = planTrackSegments(modelTrack);
+        std::vector<TrackSegment> segments = core::planTrackSegments(m_model, modelTrack);
 
         int nonBlankCount = 0;
         for (int i = 0; i < playlist.count(); ++i) {
@@ -598,6 +511,12 @@ std::vector<std::string> EngineSync::verify() const
                         expectedResource = expectedResource.substr(colon + 1);
                     }
                     std::string actualResource = info->resource ? info->resource : "";
+                    // A generator with no argument ("tone:") has an empty
+                    // resource, and a cut of it reports MLT's "<producer>"
+                    // placeholder instead (seen 2026-09-24 in
+                    // test_xml_playback) -- the same producer, not a mismatch.
+                    if (expectedResource.empty() && actualResource == "<producer>")
+                        actualResource.clear();
                     if (actualResource != expectedResource) {
                         problems.push_back("clip " + std::to_string(seg.clip.value) + ": playlist resource '" +
                                            actualResource + "' != asset path '" + expectedResource + "'");

@@ -2,6 +2,7 @@ libustudio_core_sources = files(
   'log.cpp',
   'model/model.cpp',
   'model/mlt_order.cpp',
+  'model/track_segments.cpp',
   'commands/primitives.cpp',
   'commands/undo_stack.cpp',
   'xml/writer.cpp',
