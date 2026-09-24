@@ -30,20 +30,20 @@ Working name: **u Studio Titles**, executable `u-studio-titles`, app id
 
 ## Architecture
 
+All of it lives in `drop-ins/titles/` (see "Drop-in structure" below):
+
 ```
-core/titles/          TitleDocument model, XML reader/writer, animation
-                      evaluator. std + libxml2 only (doc 02's core rules).
-titles/render/        libustudio-titlerender: draws a TitleDocument at time t
-                      into an RGBA buffer. Pango, PangoCairo, Cairo,
-                      fontconfig. No GTK, no MLT.
-mltmodule/            libmltustudio.so: MLT module with one producer,
-                      `ustudio_title`, wrapping titlerender. MLT framework C
-                      API only. Linked into the curated module directory by
-                      FactoryPolicy.
-titles/app/           u-studio-titles: GTK4 + libadwaita app. Uses core and
-                      titlerender directly for its canvas. No MLT.
-engine/, app/ (editor)  Treat a .ustitle file as an asset played by the
-                      `ustudio_title` producer.
+core/        TitleDocument model, .ustitle XML reader/writer, animation
+             evaluator. std + libxml2 only (doc 02's core rules).
+render/      libustudio-titlerender: draws a TitleDocument at time t into an
+             RGBA buffer. Pango, PangoCairo, Cairo, fontconfig. No GTK, no MLT.
+mltmodule/   libmltustudio.so: MLT module with one producer, `ustudio_title`,
+             wrapping render/. MLT framework C API only. Linked into the
+             curated module directory by FactoryPolicy (IP4).
+app/         u-studio-titles: GTK4 + libadwaita app. Uses core/ and render/
+             directly for its canvas. No MLT.
+editor/      The editor side: treats a .ustitle file as an asset played by
+             the `ustudio_title` producer.
 ```
 
 One renderer, three consumers: the titles app's canvas, the editor's
@@ -63,14 +63,21 @@ integration points IP1–IP6 are defined in
 *app* is already separate by design; this section is about the editor side.
 
 ```
-src/core/titles/      TitleDocument, XML, evaluator          (always built)
-src/titles/render/    titlerender (Pango/Cairo)              (-Dtitles=true)
-src/mltmodule/        libmltustudio.so, `ustudio_title`      (-Dtitles=true)
-src/titles/app/       u-studio-titles executable             (-Dtitles=true)
-src/app/titles/       editor side: .ustitle import, file watch, fields page,
-                      New Title / Bake title actions         (-Dtitles=true)
-tests/core/titles/  tests/titles/  tests/engine/titles/
+drop-ins/titles/
+  meson.build  README.md  register.{h,cpp}
+  core/        TitleDocument, .ustitle XML, evaluator
+  render/      titlerender (Pango/Cairo)
+  mltmodule/   libmltustudio.so, `ustudio_title`
+  app/         u-studio-titles executable
+  editor/      .ustitle import handler, file watch, fields page,
+               New Title / Bake title actions
+  data/        templates/, brand.json
+  tests/       core/, render/, engine/, editor/
 ```
+
+The whole folder builds only with `-Dtitles=true`, and follows the same
+self-containment rules as effects (dependencies point from `drop-ins/`
+into `src/`, never back; deleting the folder removes the feature).
 
 | IP | Titles use |
 |---|---|
@@ -85,8 +92,8 @@ Gating: with `-Dtitles=false`, or if the module fails to load, a title clip
 plays as the black missing-media placeholder with a status notice, and its
 data (asset, fields, timing) still round-trips unchanged.
 
-Sequencing matches effects: `core/titles`, `titlerender`, the MLT module
-and the titles app are all new files and can be built and tested now
+Sequencing matches effects: `core/`, `render/`, `mltmodule/` and `app/`
+are all new files inside `drop-ins/titles/` and can be built and tested now
 (T0–T3 need no integration point). Editor-side integration (T1's editor
 import, T4) waits for the integration points that land after the post-M3
 audit.
@@ -168,7 +175,7 @@ the titles tool writes, and it is about forty lines.
 | Out | Mirrors of the In set, plus Collapse |
 | Loop (hold) | Float, Pulse, Shimmer (gradient sweep), Wiggle (seeded noise), Glow breathe |
 
-The evaluator lives in `core/titles/` as a pure function of the document,
+The evaluator lives in `drop-ins/titles/core/` as a pure function of the document,
 time, field values and the unit count, so it is unit-tested without Pango
 or a display. The renderer asks Pango for cluster positions
 (`PangoLayoutIter`) and draws each unit with its own Cairo transform.
@@ -231,7 +238,7 @@ Interactions that make it easy:
 3. **Loop preview.** Space plays intro, two seconds of hold, then outro, on
    repeat, so timing is judged in context without scrubbing.
 4. **Brand kit.** Colours and fonts from the Unicorn Tears design tokens
-   (copied into `data/titles/brand.json`, values only) are one click away;
+   (copied into `drop-ins/titles/data/brand.json`, values only) are one click away;
    "Apply brand" restyles a whole title.
 5. **Templates first.** New Title opens a gallery: lower third (one and two
    lines), name tag, "Live now" bug, chapter card, end card with call to
@@ -288,7 +295,7 @@ handler. The format, renderer and producer can be built and tested before
 those land; only "the editor imports a `.ustitle`" waits for them.
 
 
-`core/titles` model, XML reader/writer, evaluator (keyframes only, no
+`drop-ins/titles/core` model, XML reader/writer, evaluator (keyframes only, no
 animators yet); `titlerender` with text, shapes, fills, stroke, shadow;
 `libmltustudio` producer; the editor imports a `.ustitle` as an asset,
 with per-clip producers, elastic timing and file-watch reload.

@@ -38,10 +38,9 @@ from here:
 4. M4, with the FX and titles tracks continuing in parallel and wiring into
    those integration points phase by phase.
 
-Module-internal work (FX0 and T0 spikes; new files under
-`src/core/effects`, `src/engine/effects`, `src/core/titles`,
-`src/titles/`, `src/mltmodule/`) may start at any time, because it changes
-nothing outside its own directories.
+Drop-in work inside `drop-ins/effects/` and `drop-ins/titles/` (including
+the FX0 and T0 spikes) may start at any time, because it changes nothing
+outside its own folder.
 
 ## M0 — Foundation (no behaviour change)
 

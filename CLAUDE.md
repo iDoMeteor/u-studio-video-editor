@@ -75,6 +75,9 @@ src/app/                  GTK4/libadwaita shell, built imperatively (no .ui file
 src/render/               u-studio-render headless CLI (placeholder until M6)
 tests/                    doctest suites: core/, engine/, app/
 data/                     Desktop file, metainfo, icons, GResource manifest
+drop-ins/                 (planned, ADR-013) one self-contained folder per drop-in
+                          (effects, titles): own code, data, tests, meson.build.
+                          src/ never includes from drop-ins/
 docs/plans/v2/            v2 architecture, model, roadmap, ADRs (see top of this file)
 builddir/                 meson build output — gitignored, per-worktree
 ```
