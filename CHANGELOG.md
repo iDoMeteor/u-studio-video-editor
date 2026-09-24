@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.17.0
+
+- Hide or mute a track from its right-click menu; the row's name strip
+  shows "Hidden"/"Muted".
+- Help has a new Controls tab explaining every button, menu item and
+  timeline gesture, and every control has a tooltip that names its current
+  shortcut.
+
 ## 0.16.5
 
 - Rendering works on stock Fedora, which has no libx264: it falls back to

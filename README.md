@@ -55,7 +55,7 @@ single-track skeleton.
   backed by a real command/undo-stack model — see "Architecture" below.
 - Playback via an MLT consumer (`sdl2_audio`, falling back to `rtaudio`,
   then `null` — see "Playback engine notes"): play/pause (`Space`, or the
-  header-bar button), `J`/`K`/`L` shuttle (repeated `J`/`L` ramps speed
+  play button in the transport bar), `J`/`K`/`L` shuttle (repeated `J`/`L` ramps speed
   1x→2x→4x→8x), frame step
   (`Left`/`Right`; `Ctrl+Left`/`Ctrl+Right` for 10 frames, `Alt+Left`/
   `Alt+Right` for a minute, both clamped to the timeline's start/end),
@@ -91,7 +91,10 @@ single-track skeleton.
   halves can then be moved/trimmed independently); right-click a gap to
   close it (ripples later content earlier to fill it); right-click empty
   track space for a per-track volume slider, "Lock Track"/"Unlock Track",
-  and "Remove Track". A locked track refuses insert/move/resize/split/
+  "Hide Track"/"Show Track" (video tracks: the picture is off in preview
+  and render, and the tracks under it show through), "Mute Track"/
+  "Unmute Track", "Edit Track Name" and "Remove Track". The row's name
+  strip says "Hidden"/"Muted" while either is on. A locked track refuses insert/move/resize/split/
   remove on its own clips (and as a move/Split Audio destination) until
   unlocked — reordering the track itself and toggling the lock stay
   available. Locked rows get a subtle tint so you can tell at a glance.
@@ -119,9 +122,10 @@ single-track skeleton.
   every clip on it. Hovering a clip shows a tooltip with its name (or
   "(unnamed)"), start/end timecodes, length (timecode and frame count),
   and source file.
-- Render the project to an MP4 matching this project's fixed working
-  format (H.264 High/yuv420p, 1920×1080, 30fps, AAC 48kHz stereo) via the
-  header bar's "Render…" button. Runs on a background thread, with a live
+- Render the project to an MP4 at the sequence's own size and frame rate
+  (1920×1080, 30fps by default): H.264 (libx264, or libopenh264 where
+  ffmpeg lacks it), yuv420p, AAC 48kHz stereo, via the header bar's
+  "Render…" button. Runs on a background thread, with a live
   percentage in the status bar while it runs (enhancement #13,
   2026-09-23).
 - Save/load a project as MLT XML with `ustudio:` namespaced properties
@@ -143,7 +147,7 @@ single-track skeleton.
   choose what to open says nothing about the *current* project being
   discarded, so it was never the implicit confirmation it looked like).
   A "Recent projects" button (clock icon, next to Open) lists the last
-  10 `.ustudio` files opened or saved, backed by `GtkRecentManager` (so
+  few `.ustudio` files (10 by default, set in Settings) opened or saved, backed by `GtkRecentManager` (so
   it also shows up in the GNOME Shell's own "recent files" if the desktop
   surfaces those) — picking one confirms unsaved changes first too, the
   same as Open. The window title shows the current project's name (or
@@ -166,7 +170,7 @@ single-track skeleton.
   showStatus()`, covering import/save/open/render/split/close-gap/lock/
   volume outcomes) is logged at debug level automatically, and the
   playback engine's consumer lifecycle (select/start/stop/restart) and
-  `EngineSync::rebuildAll()`/`reset()`/`renderProject()`/waveform decode
+  `EngineSync::rebuildAll()`/`reset()`, `engine::renderProject()`, waveform decode
   jobs log their own timing via `Log::ScopedTimer` (`core/log.h`) — run
   with `USTUDIO_LOG_LEVEL=debug` to get a full trace of what the app did
   and how long each step took, for both bug reports and performance
@@ -176,9 +180,14 @@ single-track skeleton.
   modules never get `dlopen`'d. See "Architecture" below.
 - No PulseAudio/`libpulse-simple` dependency — audio output goes through
   the same MLT consumer as video.
-- Help dialog (header-bar `?` button): a Keyboard Shortcuts tab listing
+- Help dialog (header-bar `?` button): a Controls tab describing every
+  button, menu item and timeline gesture, a Keyboard Shortcuts tab listing
   every action and its default accelerator, grouped by category (Playback/
-  Editing/Project), and an About tab. Settings dialog (header-bar gear
+  Editing/Project), and an About tab. The Controls tab and every control's
+  tooltip come from one table, `src/app/ui_hints.{h,cpp}`: a hint names
+  its action and the shortcut is looked up in `action_registry.cpp`, so a
+  tooltip can't show a stale key. Drop-ins add their own hints with
+  `registerHints()`. Settings dialog (header-bar gear
   button): General (autosave delay, recent-projects list size) and
   Playback (default preview scale, maximum shuttle speed) tabs, backed by
   real `GSettings` persistence (`data/com.ustudio.VideoEditor.gschema.xml`)
@@ -192,10 +201,11 @@ single-track skeleton.
   intended foundation for a future hotkey-rebinding feature.
 
 Not yet: effects, titling, proxy/transcode, configurable export formats
-(render is currently hardcoded to this project's own working format — see
-"Render implementation notes" below), ripple/overwrite editing beyond
-move/trim's "destination must be empty" rule, a real ruler/ripple-timeline
-widget (loop in/out and scrubbing use a plain `GtkScale` for now).
+(render always uses the settings above — see "Render implementation
+notes" below), ripple/slip/copy edits and markers in the UI (the commands
+exist in `src/core/commands/timeline_edits.h`, waiting on the M3 timeline
+widget), zoom/scroll and multi-select on the timeline, a visible loop
+region.
 
 ## Roadmap
 
@@ -205,9 +215,10 @@ Active development is following a v2 rewrite plan recorded under
 decisions. M0 (the `core/engine/app/render` restructure) and M1 (project
 model, commands, undo/redo, MLT-XML save/load, autosave/recovery) have
 landed; M2 (playback via a real MLT consumer instead of a hand-rolled pull
-loop, per ADR-002) is in flight — its transport-UI and engine-swap work is
-in, but its real-hardware acceptance criteria (4K60 real-time playback,
-a 10-minute no-growth soak) haven't been exercised yet. See
+loop, per ADR-002) is built, with an automated A/V sync test
+(`engine-av-sync`) and a soak tool (`tests/engine/playback_soak.cpp`); its
+4K60 soak result is still being investigated. M3 (the multi-track
+timeline) is in progress. See
 [`docs/plans/v2/12-roadmap-and-milestones.md`](docs/plans/v2/12-roadmap-and-milestones.md)
 for what ships in what order. `CLAUDE.md` governs day-to-day coding/agent
 conventions for this repo.
@@ -314,7 +325,7 @@ milestone M6). Full rationale in
   UI) subscribes to instead of being told to resync by hand.
 - `src/core/commands/` — one `Command` per mutator (`InsertClip`,
   `MoveClip`, `ResizeClip`, `RemoveTrack`, ...), a `CompositeCommand` for
-  multi-step edits (e.g. "close gap" = N `MoveClip`s as one undo step), and
+  multi-step edits (e.g. "close gap" = one `ShiftClips` as one undo step), and
   `UndoStack` (execute/undo/redo, dirty-flag tracking for the window title).
 - `src/core/xml/` — `saveProject()`/`loadProject()`: the project file is
   valid MLT XML with `ustudio:`-namespaced properties carrying the model
@@ -343,7 +354,7 @@ milestone M6). Full rationale in
   subscribes to `Model::changed` and projects the model into an
   `Mlt::Tractor` (ADR-003/005): rebuilds every track's playlist from
   scratch on any edit (coalesced to one rebuild per batch/composite
-  command), verified in debug builds/tests against the model
+  command), verified in tests against the model
   (`EngineSync::verify()`). Also builds the throwaway `Profile`/`Tractor`
   pair `renderProject()` and asset-length probing use.
 - `src/engine/playback_controller.{h,cpp}`
@@ -353,7 +364,7 @@ milestone M6). Full rationale in
   "Playback engine notes".
 - `src/engine/dispatcher.{h,cpp}` (`ustudio::engine::MainThreadDispatcher`)
   — posts a closure from any thread onto the GLib main thread
-  (`g_main_context_invoke_full`), guarded by a lifetime token so a post
+  (`g_idle_add_full`, never inline on the posting thread), guarded by a lifetime token so a post
   outliving its owner is dropped instead of touching freed state. Used by
   `PlaybackController` to get decoded frames from the consumer's thread to
   the GTK main thread.
@@ -375,7 +386,7 @@ milestone M6). Full rationale in
   `gtk_css_provider_load_from_resource()`.
 - `src/render/main.cpp` — placeholder; the real headless render CLI
   (`u-studio-render`) is milestone M6.
-- `tests/core/`, `tests/engine/` — doctest suites (vendored under
+- `tests/core/`, `tests/engine/`, `tests/app/` — doctest suites (vendored under
   `subprojects/doctest/`, no system package needed). `tests/engine/`
   needs MLT but no display and no media files.
 
@@ -513,7 +524,7 @@ A dissolve transition between two adjacent same-track clips
 (`core::Transition`, `AddTransition`/`RemoveTransition`) is built as a
 small 2-track `Mlt::Tractor` (clip `a`'s tail on track 0, clip `b`'s head
 on track 1, connected by `luma` + `mix`) nested as one entry inside the
-track's own playlist — `EngineSync::planTrackSegments()` is the single
+track's own playlist — `core::planTrackSegments()` (shared with the XML writer) is the single
 source of truth both `rebuildTrackPlaylist()` and `verify()` build/check
 against, so they can't drift. Both the `luma` and `mix` transitions
 **must** have their own `in`/`out` set explicitly to the sub-tractor's
@@ -936,8 +947,8 @@ crashing in that state, before relying on it in the test.
 ### Project files
 
 Save/load uses **MLT XML with `ustudio:`-namespaced properties** (ADR-004),
-not a bespoke format — `.ustudio` files are valid MLT XML that `melt` or
-`u-studio-render` can play with no editor involved, because the
+not a bespoke format — `.ustudio` files are valid MLT XML that `melt` (and, from M6,
+`u-studio-render`) can play with no editor involved, because the
 tractor/playlist/track structure is a real MLT graph. Earlier (v1) this was
 a small `GKeyFile`-format file instead, because MLT's own `xml`
 consumer/producer round-trip doesn't give back an editable structure (the

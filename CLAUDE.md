@@ -70,6 +70,8 @@ src/engine/               The ONLY code that includes <mlt++/Mlt.h>
   waveform_cache.*, thumbnail_cache.*   Workers with their own throwaway producers
 src/app/                  GTK4/libadwaita shell, built imperatively (no .ui files)
   app_window.*            Header bar, preview, timeline, transport, media browser, dialogs
+  action_registry.*       Every window action and its default shortcut (one table)
+  ui_hints.*              Tooltip and Help text for every control; drop-ins register theirs
   autosave.*              Autosave and crash recovery (doc 09)
   style/style.css         Unicorn Tears tokens on libadwaita named colours (GResource)
 src/render/               u-studio-render headless CLI (placeholder until M6)

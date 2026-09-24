@@ -3,6 +3,7 @@
 #include "action_registry.h"
 #include "autosave.h"
 #include "portal_path.h"
+#include "ui_hints.h"
 #include "core/commands/composite_command.h"
 #include "core/commands/primitives.h"
 #include "core/commands/timeline_edits.h"
@@ -270,11 +271,12 @@ void AppWindow::buildUi(GtkApplication *app)
 
     GtkWidget *importButton = gtk_button_new_with_label("Import…");
     gtk_widget_add_css_class(importButton, "suggested-action");
+    setTooltip(importButton, "header.import");
     g_signal_connect(importButton, "clicked", G_CALLBACK(&AppWindow::importClickedTrampoline), this);
     adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), importButton);
 
     GtkWidget *addTrackButton = gtk_button_new_from_icon_name("list-add-symbolic");
-    gtk_widget_set_tooltip_text(addTrackButton, "Add track");
+    setTooltip(addTrackButton, "header.add-track");
     g_signal_connect(addTrackButton, "clicked", G_CALLBACK(&AppWindow::addTrackClickedTrampoline), this);
     adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), addTrackButton);
 
@@ -282,33 +284,33 @@ void AppWindow::buildUi(GtkApplication *app)
     // (/usr/share/icons/Adwaita/symbolic/actions/sidebar-show-symbolic.svg)
     // rather than guessed -- CLAUDE.md's icon rule.
     GtkWidget *toggleMediaBrowserButton = gtk_button_new_from_icon_name("sidebar-show-symbolic");
-    gtk_widget_set_tooltip_text(toggleMediaBrowserButton, "Media browser");
+    setTooltip(toggleMediaBrowserButton, "header.media-browser");
     g_signal_connect(toggleMediaBrowserButton, "clicked", G_CALLBACK(&AppWindow::toggleMediaBrowserClickedTrampoline),
                       this);
     adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), toggleMediaBrowserButton);
 
     m_undoButton = GTK_BUTTON(gtk_button_new_from_icon_name("edit-undo-symbolic"));
-    gtk_widget_set_tooltip_text(GTK_WIDGET(m_undoButton), "Undo (Ctrl+Z)");
+    setTooltip(GTK_WIDGET(m_undoButton), "header.undo");
     g_signal_connect(m_undoButton, "clicked", G_CALLBACK(&AppWindow::undoClickedTrampoline), this);
     adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_undoButton));
 
     m_redoButton = GTK_BUTTON(gtk_button_new_from_icon_name("edit-redo-symbolic"));
-    gtk_widget_set_tooltip_text(GTK_WIDGET(m_redoButton), "Redo (Ctrl+Shift+Z)");
+    setTooltip(GTK_WIDGET(m_redoButton), "header.redo");
     g_signal_connect(m_redoButton, "clicked", G_CALLBACK(&AppWindow::redoClickedTrampoline), this);
     adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_redoButton));
 
     GtkWidget *newProjectButton = gtk_button_new_from_icon_name("document-new-symbolic");
-    gtk_widget_set_tooltip_text(newProjectButton, "New project (reset to an empty project)");
+    setTooltip(newProjectButton, "header.new-project");
     g_signal_connect(newProjectButton, "clicked", G_CALLBACK(&AppWindow::newProjectClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), newProjectButton);
 
     GtkWidget *reloadButton = gtk_button_new_from_icon_name("view-refresh-symbolic");
-    gtk_widget_set_tooltip_text(reloadButton, "Reload project from disk");
+    setTooltip(reloadButton, "header.reload");
     g_signal_connect(reloadButton, "clicked", G_CALLBACK(&AppWindow::reloadProjectClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), reloadButton);
 
     GtkWidget *openButton = gtk_button_new_from_icon_name("document-open-symbolic");
-    gtk_widget_set_tooltip_text(openButton, "Open project…");
+    setTooltip(openButton, "header.open");
     g_signal_connect(openButton, "clicked", G_CALLBACK(&AppWindow::openProjectClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), openButton);
 
@@ -317,7 +319,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // rebuilds m_recentProjectsPopover's contents from GtkRecentManager.
     GtkWidget *recentProjectsButton = gtk_menu_button_new();
     gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(recentProjectsButton), "document-open-recent-symbolic");
-    gtk_widget_set_tooltip_text(recentProjectsButton, "Recent projects");
+    setTooltip(recentProjectsButton, "header.recent");
     m_recentProjectsPopover = GTK_POPOVER(gtk_popover_new());
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(recentProjectsButton), GTK_WIDGET(m_recentProjectsPopover));
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), recentProjectsButton);
@@ -325,22 +327,22 @@ void AppWindow::buildUi(GtkApplication *app)
                      G_CALLBACK(&AppWindow::recentManagerChangedTrampoline), this);
 
     GtkWidget *saveButton = gtk_button_new_from_icon_name("document-save-symbolic");
-    gtk_widget_set_tooltip_text(saveButton, "Save project…");
+    setTooltip(saveButton, "header.save");
     g_signal_connect(saveButton, "clicked", G_CALLBACK(&AppWindow::saveClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), saveButton);
 
     GtkWidget *renderButton = gtk_button_new_with_label("Render…");
-    gtk_widget_set_tooltip_text(renderButton, "Render the project to an MP4 file");
+    setTooltip(renderButton, "header.render");
     g_signal_connect(renderButton, "clicked", G_CALLBACK(&AppWindow::renderClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), renderButton);
 
     GtkWidget *helpButton = gtk_button_new_from_icon_name("system-help-symbolic");
-    gtk_widget_set_tooltip_text(helpButton, "Help");
+    setTooltip(helpButton, "header.help");
     g_signal_connect(helpButton, "clicked", G_CALLBACK(&AppWindow::helpClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), helpButton);
 
     GtkWidget *settingsButton = gtk_button_new_from_icon_name("preferences-system-symbolic");
-    gtk_widget_set_tooltip_text(settingsButton, "Settings");
+    setTooltip(settingsButton, "header.settings");
     g_signal_connect(settingsButton, "clicked", G_CALLBACK(&AppWindow::settingsClickedTrampoline), this);
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), settingsButton);
 
@@ -404,10 +406,12 @@ void AppWindow::buildUi(GtkApplication *app)
     GtkWidget *mediaContextBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     m_removeAssetButton = gtk_button_new_with_label("Remove from Project");
     gtk_widget_add_css_class(m_removeAssetButton, "flat");
+    setTooltip(m_removeAssetButton, "media.remove");
     g_signal_connect(m_removeAssetButton, "clicked", G_CALLBACK(&AppWindow::removeAssetClickedTrampoline), this);
     gtk_box_append(GTK_BOX(mediaContextBox), m_removeAssetButton);
     m_deleteAssetFileButton = gtk_button_new_with_label("Move File to Trash…");
     gtk_widget_add_css_class(m_deleteAssetFileButton, "flat");
+    setTooltip(m_deleteAssetFileButton, "media.trash");
     g_signal_connect(m_deleteAssetFileButton, "clicked", G_CALLBACK(&AppWindow::deleteAssetFileClickedTrampoline),
                       this);
     gtk_box_append(GTK_BOX(mediaContextBox), m_deleteAssetFileButton);
@@ -485,16 +489,19 @@ void AppWindow::buildUi(GtkApplication *app)
 
     m_deleteClipButton = gtk_button_new_with_label("Delete Clip");
     gtk_widget_add_css_class(m_deleteClipButton, "flat");
+    setTooltip(m_deleteClipButton, "track-menu.delete-clip");
     g_signal_connect(m_deleteClipButton, "clicked", G_CALLBACK(&AppWindow::deleteClipClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_deleteClipButton);
 
     m_splitAudioButton = gtk_button_new_with_label("Split Audio");
     gtk_widget_add_css_class(m_splitAudioButton, "flat");
+    setTooltip(m_splitAudioButton, "track-menu.split-audio");
     g_signal_connect(m_splitAudioButton, "clicked", G_CALLBACK(&AppWindow::splitAudioClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_splitAudioButton);
 
     m_closeGapButton = gtk_button_new_with_label("Close Gap");
     gtk_widget_add_css_class(m_closeGapButton, "flat");
+    setTooltip(m_closeGapButton, "track-menu.close-gap");
     g_signal_connect(m_closeGapButton, "clicked", G_CALLBACK(&AppWindow::closeGapClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_closeGapButton);
 
@@ -503,6 +510,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // onTimelineRightClicked) rather than on a clip or a gap.
     GtkWidget *volumeRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_append(GTK_BOX(volumeRow), gtk_label_new("Track volume"));
+    setTooltip(volumeRow, "track-menu.volume");
     m_trackVolumeScale = GTK_SCALE(gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 1.0, 0.05));
     gtk_scale_set_draw_value(m_trackVolumeScale, FALSE);
     gtk_widget_set_hexpand(GTK_WIDGET(m_trackVolumeScale), TRUE);
@@ -519,16 +527,31 @@ void AppWindow::buildUi(GtkApplication *app)
 
     m_toggleLockButton = gtk_button_new_with_label("Lock Track");
     gtk_widget_add_css_class(m_toggleLockButton, "flat");
+    setTooltip(m_toggleLockButton, "track-menu.lock");
     g_signal_connect(m_toggleLockButton, "clicked", G_CALLBACK(&AppWindow::toggleLockClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_toggleLockButton);
 
+    m_toggleHideButton = gtk_button_new_with_label("Hide Track");
+    gtk_widget_add_css_class(m_toggleHideButton, "flat");
+    setTooltip(m_toggleHideButton, "track-menu.hide");
+    g_signal_connect(m_toggleHideButton, "clicked", G_CALLBACK(&AppWindow::toggleHideClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_toggleHideButton);
+
+    m_toggleMuteButton = gtk_button_new_with_label("Mute Track");
+    gtk_widget_add_css_class(m_toggleMuteButton, "flat");
+    setTooltip(m_toggleMuteButton, "track-menu.mute");
+    g_signal_connect(m_toggleMuteButton, "clicked", G_CALLBACK(&AppWindow::toggleMuteClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_toggleMuteButton);
+
     m_removeTrackButton = gtk_button_new_with_label("Remove Track");
     gtk_widget_add_css_class(m_removeTrackButton, "flat");
+    setTooltip(m_removeTrackButton, "track-menu.remove-track");
     g_signal_connect(m_removeTrackButton, "clicked", G_CALLBACK(&AppWindow::removeTrackClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeTrackButton);
 
     m_editTrackNameButton = gtk_button_new_with_label("Edit Track Name");
     gtk_widget_add_css_class(m_editTrackNameButton, "flat");
+    setTooltip(m_editTrackNameButton, "track-menu.track-name");
     g_signal_connect(m_editTrackNameButton, "clicked", G_CALLBACK(&AppWindow::editTrackNameClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_editTrackNameButton);
 
@@ -539,11 +562,13 @@ void AppWindow::buildUi(GtkApplication *app)
     // clip currently has a name.
     m_editClipNameButton = gtk_button_new_with_label("Edit Clip Name");
     gtk_widget_add_css_class(m_editClipNameButton, "flat");
+    setTooltip(m_editClipNameButton, "track-menu.clip-name");
     g_signal_connect(m_editClipNameButton, "clicked", G_CALLBACK(&AppWindow::editClipNameClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_editClipNameButton);
 
     m_removeClipNameButton = gtk_button_new_with_label("Remove Clip Name");
     gtk_widget_add_css_class(m_removeClipNameButton, "flat");
+    setTooltip(m_removeClipNameButton, "track-menu.remove-clip-name");
     g_signal_connect(m_removeClipNameButton, "clicked", G_CALLBACK(&AppWindow::removeClipNameClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeClipNameButton);
 
@@ -553,6 +578,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // clip's own rectangle too.
     m_removeTransitionButton = gtk_button_new_with_label("Remove Transition");
     gtk_widget_add_css_class(m_removeTransitionButton, "flat");
+    setTooltip(m_removeTransitionButton, "track-menu.remove-transition");
     g_signal_connect(m_removeTransitionButton, "clicked", G_CALLBACK(&AppWindow::removeTransitionClickedTrampoline),
                       this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeTransitionButton);
@@ -562,6 +588,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // alternative to dragging a clip's edge past its neighbour.
     m_addTransitionButton = gtk_button_new_with_label("Add Transition");
     gtk_widget_add_css_class(m_addTransitionButton, "flat");
+    setTooltip(m_addTransitionButton, "track-menu.add-transition");
     g_signal_connect(m_addTransitionButton, "clicked", G_CALLBACK(&AppWindow::addTransitionClickedTrampoline), this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_addTransitionButton);
 
@@ -624,36 +651,36 @@ void AppWindow::buildUi(GtkApplication *app)
     // focusable, like the sliders below (audit A7): a focused button
     // takes Space and the arrow keys for itself instead of letting them
     // reach the window's play/step shortcuts.
-    auto addTransportButton = [&](const char *icon, const char *action, const char *tooltip) {
+    auto addTransportButton = [&](const char *icon, const char *action, const char *hintId) {
         GtkWidget *button = gtk_button_new_from_icon_name(icon);
         gtk_actionable_set_action_name(GTK_ACTIONABLE(button), action);
-        gtk_widget_set_tooltip_text(button, tooltip);
+        setTooltip(button, hintId);
         gtk_widget_set_focusable(button, FALSE);
         gtk_box_append(GTK_BOX(transport), button);
     };
-    addTransportButton("media-skip-backward-symbolic", "win.seek-home", "Go to start (Home)");
-    addTransportButton("media-seek-backward-symbolic", "win.shuttle-reverse",
-                       "Shuttle reverse (J, repeat to speed up)");
-    addTransportButton("go-previous-symbolic", "win.step-backward", "Step back one frame (Left)");
+    addTransportButton("media-skip-backward-symbolic", "win.seek-home", "transport.seek-home");
+    addTransportButton("media-seek-backward-symbolic", "win.shuttle-reverse", "transport.shuttle-reverse");
+    addTransportButton("go-previous-symbolic", "win.step-backward", "transport.step-backward");
 
     m_playButton = GTK_BUTTON(gtk_button_new_from_icon_name("media-playback-start-symbolic"));
     gtk_widget_add_css_class(GTK_WIDGET(m_playButton), "circular");
-    gtk_widget_set_tooltip_text(GTK_WIDGET(m_playButton), "Play/Pause (Space)");
+    setTooltip(GTK_WIDGET(m_playButton), "transport.play-pause");
     g_signal_connect(m_playButton, "clicked", G_CALLBACK(&AppWindow::playToggledTrampoline), this);
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_playButton));
 
-    addTransportButton("media-playback-stop-symbolic", "win.shuttle-stop", "Stop (K)");
-    addTransportButton("go-next-symbolic", "win.step-forward", "Step forward one frame (Right)");
-    addTransportButton("media-seek-forward-symbolic", "win.shuttle-forward", "Shuttle forward (L, repeat to speed up)");
-    addTransportButton("media-skip-forward-symbolic", "win.seek-end", "Go to end (End)");
+    addTransportButton("media-playback-stop-symbolic", "win.shuttle-stop", "transport.stop");
+    addTransportButton("go-next-symbolic", "win.step-forward", "transport.step-forward");
+    addTransportButton("media-seek-forward-symbolic", "win.shuttle-forward", "transport.shuttle-forward");
+    addTransportButton("media-skip-forward-symbolic", "win.seek-end", "transport.seek-end");
 
     GtkWidget *splitButton = gtk_button_new_from_icon_name("edit-cut-symbolic");
-    gtk_widget_set_tooltip_text(splitButton, "Split the active track's clip at the playhead (X)");
+    setTooltip(splitButton, "transport.split");
     g_signal_connect(splitButton, "clicked", G_CALLBACK(&AppWindow::splitClickedTrampoline), this);
     gtk_box_append(GTK_BOX(transport), splitButton);
 
     m_seekScale = GTK_SCALE(gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1, 1));
     gtk_scale_set_draw_value(m_seekScale, FALSE);
+    setTooltip(GTK_WIDGET(m_seekScale), "transport.seek-bar");
     gtk_widget_set_hexpand(GTK_WIDGET(m_seekScale), TRUE);
     // Not focusable: GtkRange's own key bindings would otherwise compete
     // with (and pre-empt, depending on focus) the window-level Left/Right/
@@ -674,7 +701,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_scale_set_draw_value(m_volumeScale, FALSE);
     gtk_range_set_value(GTK_RANGE(m_volumeScale), 1.0);
     gtk_widget_set_size_request(GTK_WIDGET(m_volumeScale), 90, -1);
-    gtk_widget_set_tooltip_text(GTK_WIDGET(m_volumeScale), "Volume");
+    setTooltip(GTK_WIDGET(m_volumeScale), "transport.volume");
     gtk_widget_set_focusable(GTK_WIDGET(m_volumeScale), FALSE); // audit A7 -- see m_seekScale's comment above
     g_signal_connect(m_volumeScale, "value-changed", G_CALLBACK(&AppWindow::volumeChangedTrampoline), this);
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_volumeScale));
@@ -695,7 +722,7 @@ void AppWindow::buildUi(GtkApplication *app)
     else if (defaultScale == "quarter")
         defaultScaleIndex = 3;
     gtk_drop_down_set_selected(m_previewScaleDropdown, defaultScaleIndex);
-    gtk_widget_set_tooltip_text(GTK_WIDGET(m_previewScaleDropdown), "Preview scale");
+    setTooltip(GTK_WIDGET(m_previewScaleDropdown), "transport.preview-scale");
     // Audit A7: GtkDropDown handles Left/Right/Home/End itself while
     // focused (cycling/jumping between its own entries), the same
     // shortcut-stealing problem as the sliders above.
@@ -709,7 +736,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_loopStatusLabel));
 
     GtkWidget *clearLoopButton = gtk_button_new_from_icon_name("edit-clear-symbolic");
-    gtk_widget_set_tooltip_text(clearLoopButton, "Clear loop (I/O set loop in/out at the playhead)");
+    setTooltip(clearLoopButton, "transport.clear-loop");
     g_signal_connect(clearLoopButton, "clicked", G_CALLBACK(&AppWindow::clearLoopClickedTrampoline), this);
     gtk_box_append(GTK_BOX(transport), clearLoopButton);
 
@@ -799,29 +826,56 @@ GtkWidget *AppWindow::buildShortcutsPage() const
             groups.emplace_back(spec.category, group);
         }
 
-        // gtk_accelerator_get_label() turns a parsed accelerator back into
-        // its human display form ("<Control>s" -> "Ctrl+S") -- the same
-        // labels GTK itself would show in a menu, not a hand-formatted
-        // guess (CLAUDE.md: don't guess GTK4 API shapes/behaviour).
-        std::string accelLabel;
-        for (const char *accel : spec.accels) {
-            guint key = 0;
-            GdkModifierType mods{};
-            if (!gtk_accelerator_parse(accel, &key, &mods))
-                continue;
-            char *label = gtk_accelerator_get_label(key, mods);
-            if (label != nullptr) {
-                if (!accelLabel.empty())
-                    accelLabel += ", ";
-                accelLabel += label;
-                g_free(label);
-            }
-        }
+        std::string accelLabel = shortcutLabel(spec.name);
 
         GtkWidget *row = adw_action_row_new();
         adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), spec.label);
         if (!accelLabel.empty())
             adw_action_row_set_subtitle(ADW_ACTION_ROW(row), accelLabel.c_str());
+        adw_preferences_group_add(group, row);
+    }
+
+    return page;
+}
+
+GtkWidget *AppWindow::buildControlsPage() const
+{
+    GtkWidget *page = adw_preferences_page_new();
+    std::vector<std::pair<std::string, AdwPreferencesGroup *>> groups;
+
+    for (const HintSpec &hint : hintSpecs()) {
+        AdwPreferencesGroup *group = nullptr;
+        for (auto &entry : groups) {
+            if (entry.first == hint.category) {
+                group = entry.second;
+                break;
+            }
+        }
+        if (group == nullptr) {
+            group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+            adw_preferences_group_set_title(group, hint.category);
+            adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), group);
+            groups.emplace_back(hint.category, group);
+        }
+
+        // "Click the clip, then Delete": the gesture, then the key.
+        std::string how = hint.gesture != nullptr ? hint.gesture : "";
+        if (std::string shortcut = shortcutLabel(hint.action); !shortcut.empty())
+            how += how.empty() ? shortcut : " " + shortcut;
+        std::string subtitle = how;
+        if (hint.detail != nullptr)
+            subtitle += subtitle.empty() ? hint.detail : std::string("\n") + hint.detail;
+
+        // Row titles and subtitles are Pango markup.
+        GtkWidget *row = adw_action_row_new();
+        char *title = g_markup_escape_text(hint.title, -1);
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+        g_free(title);
+        if (!subtitle.empty()) {
+            char *escaped = g_markup_escape_text(subtitle.c_str(), -1);
+            adw_action_row_set_subtitle(ADW_ACTION_ROW(row), escaped);
+            g_free(escaped);
+        }
         adw_preferences_group_add(group, row);
     }
 
@@ -870,6 +924,7 @@ void AppWindow::showHelpDialog()
     adw_dialog_set_content_height(dialog, 560);
 
     AdwViewStack *stack = ADW_VIEW_STACK(adw_view_stack_new());
+    adw_view_stack_add_titled_with_icon(stack, buildControlsPage(), "controls", "Controls", "input-mouse-symbolic");
     adw_view_stack_add_titled_with_icon(stack, buildShortcutsPage(), "shortcuts", "Keyboard Shortcuts",
                                         "preferences-desktop-keyboard-shortcuts-symbolic");
     adw_view_stack_add_titled_with_icon(stack, buildAboutPage(), "about", "About", "help-about-symbolic");
@@ -1969,11 +2024,17 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     bool onEmptyTrackSpace = m_contextMenuClipStartFrame < 0 && m_contextMenuGapStartFrame < 0;
     gtk_widget_set_visible(m_removeTrackButton, onEmptyTrackSpace);
     gtk_widget_set_visible(m_toggleLockButton, onEmptyTrackSpace);
+    gtk_widget_set_visible(m_toggleMuteButton, onEmptyTrackSpace);
+    gtk_widget_set_visible(m_toggleHideButton, false);
     gtk_widget_set_visible(m_editTrackNameButton, onEmptyTrackSpace);
     gtk_widget_set_visible(gtk_widget_get_parent(GTK_WIDGET(m_trackVolumeScale)), onEmptyTrackSpace);
     if (onEmptyTrackSpace) {
         const core::Track &track = m_model.track(trackIdForRow(row));
         gtk_button_set_label(GTK_BUTTON(m_toggleLockButton), track.locked ? "Unlock Track" : "Lock Track");
+        gtk_button_set_label(GTK_BUTTON(m_toggleMuteButton), track.muted ? "Unmute Track" : "Mute Track");
+        // Hide turns a track's picture off; an audio track has none.
+        gtk_widget_set_visible(m_toggleHideButton, track.kind == core::Track::Kind::Video);
+        gtk_button_set_label(GTK_BUTTON(m_toggleHideButton), track.hidden ? "Show Track" : "Hide Track");
         m_suppressTrackVolumeSignal = true;
         gtk_range_set_value(GTK_RANGE(m_trackVolumeScale), track.volume);
         m_suppressTrackVolumeSignal = false;
@@ -2207,7 +2268,7 @@ void AppWindow::onRemoveTrackClicked()
     m_contextMenuTrack = -1;
 }
 
-void AppWindow::onToggleLockClicked()
+void AppWindow::onToggleTrackFlag(TrackFlag flag)
 {
     gtk_popover_popdown(m_trackContextMenu);
     if (m_contextMenuTrack < 0)
@@ -2215,12 +2276,27 @@ void AppWindow::onToggleLockClicked()
 
     core::TrackId trackId = trackIdForRow(m_contextMenuTrack);
     const core::Track &track = m_model.track(trackId);
-    bool newLocked = !track.locked;
-    if (m_undoStack.execute(std::make_unique<core::SetTrackFlags>(trackId, track.muted, track.hidden, newLocked))) {
+    bool muted = track.muted, hidden = track.hidden, locked = track.locked;
+    const char *status = nullptr;
+    switch (flag) {
+    case TrackFlag::Lock:
+        locked = !locked;
+        status = locked ? "Track locked." : "Track unlocked.";
+        break;
+    case TrackFlag::Hide:
+        hidden = !hidden;
+        status = hidden ? "Track hidden." : "Track shown.";
+        break;
+    case TrackFlag::Mute:
+        muted = !muted;
+        status = muted ? "Track muted." : "Track unmuted.";
+        break;
+    }
+    if (m_undoStack.execute(std::make_unique<core::SetTrackFlags>(trackId, muted, hidden, locked))) {
         refreshTimeline();
-        showStatus(newLocked ? "Track locked." : "Track unlocked.");
+        showStatus(status);
     } else {
-        showStatus("Couldn't change that track's lock.");
+        showStatus("Couldn't change that track.");
     }
     m_contextMenuTrack = -1;
 }
@@ -2702,8 +2778,13 @@ void AppWindow::onTimelineDraw(cairo_t *cr, int width, int height)
         // this exact row is mid-inline-edit: the popover positioned over
         // it already shows (and lets you change) the text.
         const core::Track &modelTrack = m_model.track(trackIdForRow(t));
-        if (!modelTrack.name.empty() && !(m_inlineEditKind == InlineEditKind::Track && m_inlineEditTrackRow == t)) {
-            drawLabel(cr, modelTrack.name, kHandleWidth + 4, rowY + 1, width - kHandleWidth - 8);
+        std::string rowLabel = modelTrack.name;
+        for (auto [on, word] : {std::pair{modelTrack.hidden, "Hidden"}, std::pair{modelTrack.muted, "Muted"}}) {
+            if (on)
+                rowLabel += rowLabel.empty() ? word : std::string(" · ") + word;
+        }
+        if (!rowLabel.empty() && !(m_inlineEditKind == InlineEditKind::Track && m_inlineEditTrackRow == t)) {
+            drawLabel(cr, rowLabel, kHandleWidth + 4, rowY + 1, width - kHandleWidth - 8);
         }
     }
 
@@ -4156,7 +4237,17 @@ void AppWindow::removeTrackClickedTrampoline(GtkButton *, gpointer userData)
 
 void AppWindow::toggleLockClickedTrampoline(GtkButton *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->onToggleLockClicked();
+    static_cast<AppWindow *>(userData)->onToggleTrackFlag(TrackFlag::Lock);
+}
+
+void AppWindow::toggleHideClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onToggleTrackFlag(TrackFlag::Hide);
+}
+
+void AppWindow::toggleMuteClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onToggleTrackFlag(TrackFlag::Mute);
 }
 
 void AppWindow::editTrackNameClickedTrampoline(GtkButton *, gpointer userData)

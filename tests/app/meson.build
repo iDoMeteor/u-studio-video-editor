@@ -64,3 +64,13 @@ test_portal_path_exe = executable(
 # Talks to the real session's xdg-document-portal (skips itself when there
 # isn't one, e.g. in a CI container).
 test('app-portal-path', test_portal_path_exe, workdir: meson.current_build_dir())
+
+test_ui_hints_exe = executable(
+  'test_ui_hints',
+  files('test_ui_hints.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  cpp_args: ['-DUSTUDIO_APP_WINDOW_CPP="' + meson.project_source_root() / 'src' / 'app' / 'app_window.cpp' + '"'],
+  install: false,
+)
+
+test('app-ui-hints', test_ui_hints_exe)

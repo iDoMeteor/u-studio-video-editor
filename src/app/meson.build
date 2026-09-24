@@ -61,10 +61,19 @@ app_portal_dep = declare_dependency(
   dependencies: [glib_dep, libustudio_core_dep],
 )
 
-app_sources = files(
-  'action_registry.cpp',
-  'app_window.cpp',
-  'main.cpp',
+# Everything but main.cpp, as a library, so tests/app/ can check the real
+# hint and action tables against each other (test_ui_hints.cpp).
+app_window_lib = static_library(
+  'ustudio_app_window',
+  files('action_registry.cpp', 'app_window.cpp', 'ui_hints.cpp'),
+  dependencies: [libustudio_engine_dep, app_autosave_dep, app_settings_dep, app_portal_dep, gtk4_dep, adwaita_dep, gio_dep],
+  cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
+  install: false,
+)
+app_window_dep = declare_dependency(
+  link_with: app_window_lib,
+  include_directories: src_inc,
+  dependencies: [libustudio_engine_dep, app_autosave_dep, app_settings_dep, app_portal_dep, gtk4_dep, adwaita_dep, gio_dep],
 )
 
 # --- Dependency-boundary guard: app/ must never see MLT or Pulse headers
@@ -90,9 +99,9 @@ app_boundary_check = custom_target(
 
 executable(
   'u-studio-video-editor',
-  app_sources,
+  files('main.cpp'),
   app_resources,
-  dependencies: [libustudio_engine_dep, app_autosave_dep, app_settings_dep, app_portal_dep, gtk4_dep, adwaita_dep, gio_dep],
+  dependencies: [app_window_dep],
   install: true,
   cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
 )

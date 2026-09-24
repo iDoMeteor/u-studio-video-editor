@@ -295,7 +295,14 @@ class AppWindow
     void onSplitAudioClicked();
     void onCloseGapClicked();
     void onRemoveTrackClicked();
-    void onToggleLockClicked();
+    enum class TrackFlag
+    {
+        Lock,
+        Hide,
+        Mute
+    };
+    // Track right-click menu: flips one of SetTrackFlags' three flags.
+    void onToggleTrackFlag(TrackFlag flag);
     void onEditTrackNameClicked();
     void onTrackVolumeChanged();
     void onWaveformReady();
@@ -458,6 +465,9 @@ class AppWindow
     // every other AdwAlertDialog in this file -- no persistent member.
     void showHelpDialog();
     void showSettingsDialog();
+    // Help's Controls tab: every ui_hints.h entry, grouped by category, so
+    // a drop-in's registered hints appear there too.
+    GtkWidget *buildControlsPage() const;
     GtkWidget *buildShortcutsPage() const;
     GtkWidget *buildAboutPage() const;
 
@@ -532,6 +542,8 @@ class AppWindow
     static void closeGapClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTrackClickedTrampoline(GtkButton *button, gpointer userData);
     static void toggleLockClickedTrampoline(GtkButton *button, gpointer userData);
+    static void toggleHideClickedTrampoline(GtkButton *button, gpointer userData);
+    static void toggleMuteClickedTrampoline(GtkButton *button, gpointer userData);
     static void editTrackNameClickedTrampoline(GtkButton *button, gpointer userData);
     static void trackVolumeChangedTrampoline(GtkRange *range, gpointer userData);
     static void trackDragBeginTrampoline(GtkGestureDrag *gesture, double x, double y, gpointer userData);
@@ -637,6 +649,8 @@ class AppWindow
     GtkWidget *m_closeGapButton = nullptr;
     GtkWidget *m_removeTrackButton = nullptr;
     GtkWidget *m_toggleLockButton = nullptr;
+    GtkWidget *m_toggleHideButton = nullptr;
+    GtkWidget *m_toggleMuteButton = nullptr;
     GtkWidget *m_editTrackNameButton = nullptr;
     GtkWidget *m_editClipNameButton = nullptr;
     GtkWidget *m_removeClipNameButton = nullptr;
