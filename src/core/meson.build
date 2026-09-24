@@ -1,5 +1,6 @@
 libustudio_core_sources = files(
   'log.cpp',
+  'concurrency/thread_pool.cpp',
   'model/model.cpp',
   'model/mlt_order.cpp',
   'model/track_segments.cpp',
@@ -10,10 +11,12 @@ libustudio_core_sources = files(
   'xml/reader.cpp',
 )
 
+threads_dep = dependency('threads')
+
 libustudio_core = static_library(
   'ustudio_core',
   libustudio_core_sources,
-  dependencies: [libxml2_dep],
+  dependencies: [libxml2_dep, threads_dep],
   include_directories: src_inc,
   install: false,
 )
@@ -26,5 +29,5 @@ libustudio_core = static_library(
 libustudio_core_dep = declare_dependency(
   link_with: libustudio_core,
   include_directories: src_inc,
-  dependencies: [libxml2_dep],
+  dependencies: [libxml2_dep, threads_dep],
 )
