@@ -355,6 +355,16 @@ milestone M6). Full rationale in
 
 ### Playback engine notes
 
+**SDL signal handlers are disabled.** MLT's `sdl2_audio` consumer
+initialises SDL, and by default SDL turns SIGINT/SIGTERM into an
+`SDL_QUIT` event that nothing in a GTK app reads, so `kill`, Ctrl+C and
+session logout were ignored until the app was SIGKILLed (sanitizer report
+S2, 2026-09-23). `main()` sets `SDL_NO_SIGNAL_HANDLERS=1` before any
+consumer starts. It doesn't overwrite a value already in the environment.
+Both signals are handled with `g_unix_signal_add()` → `g_application_quit()`,
+so they take the normal shutdown path: final autosave if dirty, then the
+consumer stops before `Factory::close()`.
+
 - **Consumer-based, not pull-based** (ADR-002). `PlaybackController` owns
   an `Mlt::Consumer` (`sdl2_audio` → `rtaudio` → `null`, tried in order via
   `is_valid()`; all three confirmed present under `FactoryPolicy`'s curated

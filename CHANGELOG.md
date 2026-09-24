@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.15.3
+
+- The app now quits cleanly on logout, shutdown, `kill`, or Ctrl+C in a
+  terminal, saving an autosave first if there are unsaved changes.
+  Previously it ignored these until forcibly killed.
+
 ## 0.15.2
 
 - Fixed a crash on quit, and a possible crash when refreshing the recent

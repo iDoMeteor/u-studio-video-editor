@@ -1,5 +1,8 @@
 #include <adwaita.h>
+#include <glib-unix.h>
 #include <gtk/gtk.h>
+
+#include <csignal>
 
 #include <cstdlib>
 #include <string>
@@ -72,6 +75,20 @@ void onShutdown(GtkApplication *app, gpointer /*userData*/)
         window->prepareForShutdown();
 }
 
+// SIGTERM (logout, shutdown, `kill`) and SIGINT (Ctrl+C in a terminal):
+// quit through GApplication so the normal "shutdown" path runs --
+// onShutdown() -> AppWindow::prepareForShutdown(), which writes a final
+// autosave if the project is dirty and stops the consumer before
+// Factory::close(). Before this, SDL's own handlers swallowed both
+// signals (sanitizer report S2, 2026-09-23): see main()'s
+// SDL_NO_SIGNAL_HANDLERS comment.
+gboolean onQuitSignal(gpointer userData)
+{
+    core::Log::info("[app] Received SIGTERM/SIGINT -- quitting");
+    g_application_quit(G_APPLICATION(userData));
+    return G_SOURCE_CONTINUE;
+}
+
 } // namespace
 } // namespace ustudio::app
 
@@ -86,11 +103,24 @@ int main(int argc, char **argv)
     // PlaybackController, which never calls Mlt::Factory::init() itself —
     // see factory_policy.h), destroyed after g_application_run() returns:
     // RAII brackets the required init()/close() lifetime automatically.
+    // MLT's sdl2_audio consumer initialises SDL, and SDL by default installs
+    // SIGINT/SIGTERM handlers that turn both into an SDL_QUIT event -- which
+    // nothing in a GTK app ever reads, so the process ignored `kill`,
+    // Ctrl+C and session logout until SIGKILLed (sanitizer report S2,
+    // 2026-09-23: still running 15 s after SIGTERM by default, exited in
+    // 0.1 s with this set). SDL_HINT_NO_SIGNAL_HANDLERS's env name per
+    // /usr/include/SDL2/SDL_hints.h. Set before any consumer starts; FALSE
+    // so an explicit value in the environment still wins. GLib handles
+    // both signals instead (onQuitSignal, registered below).
+    g_setenv("SDL_NO_SIGNAL_HANDLERS", "1", FALSE);
+
     ustudio::engine::FactoryPolicy factoryPolicy;
 
     AdwApplication *app = adw_application_new("com.ustudio.VideoEditor", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(ustudio::app::onActivate), nullptr);
     g_signal_connect(app, "shutdown", G_CALLBACK(ustudio::app::onShutdown), nullptr);
+    g_unix_signal_add(SIGTERM, ustudio::app::onQuitSignal, app);
+    g_unix_signal_add(SIGINT, ustudio::app::onQuitSignal, app);
 
     int status = g_application_run(G_APPLICATION(app), argc, argv);
     g_object_unref(app);
