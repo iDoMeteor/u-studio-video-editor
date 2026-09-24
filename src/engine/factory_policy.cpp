@@ -4,6 +4,7 @@
 
 #include <mlt++/Mlt.h>
 
+#include <malloc.h>
 #include <unistd.h>
 
 #include <cstdlib>
@@ -184,6 +185,28 @@ void warmUpLazyModuleState()
 
 FactoryPolicy::FactoryPolicy()
 {
+#ifdef __GLIBC__
+    // Process-wide, so it runs here: FactoryPolicy is constructed once, on
+    // the main thread, before any other thread exists (main.cpp; the tests'
+    // shared instance), and before MLT allocates anything.
+    //
+    // MLT's "mix" transition embeds two 192,000-sample x 6-channel float
+    // buffers: a 9.2 MB struct from calloc() (transition_mix.c:37-38, :450,
+    // v7.40.0), one per track and one per dissolve. glibc serves that from fresh, already-zero
+    // mmap pages -- until its dynamic mmap threshold climbs past 9.2 MB,
+    // which it does as soon as such a block is freed (the old graph, on the
+    // first edit). From then on every one comes from the heap and calloc
+    // zeroes all of it: measured on a 5,000-clip project with 1,992
+    // dissolves, rebuilds went 0.35 s -> 5.7 s and resident memory to 36 GB
+    // within nine rebuilds (doc 19 MT2). Setting the threshold turns the
+    // dynamic adjustment off; 4 MiB keeps these on mmap: 0.3 s, 400 MB.
+    // MLT's and FFmpeg's frame buffers are pooled, so the extra mmaps are
+    // only for allocations that weren't reused anyway (the M2 soak, doc 19,
+    // compares 4K60 playback with and without). Each mix is now its own
+    // mapping, twice over while two graphs are alive during a swap: about
+    // 4,000 at 2,000 dissolves, against vm.max_map_count's default 65,530.
+    mallopt(M_MMAP_THRESHOLD, 4 * 1024 * 1024);
+#endif
     std::string curated = buildCuratedModuleDir();
     if (!curated.empty()) {
         Mlt::Factory::init(curated.c_str());

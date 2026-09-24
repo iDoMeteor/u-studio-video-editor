@@ -174,6 +174,56 @@ That is MT2's starting point, and it carries the 50-file import criterion.
 
 ### MT2 — Engine thread (about 2 weeks; the core of this plan)
 
+**Piece 0, measured first (2026-09-24).** `rebuildAll()` scaled worse than
+linearly, for two reasons, both in MLT and both fixed in 0.27.1 before any
+thread work:
+
+- **Playlist appends were O(n²) per track.** MLT refreshes the whole
+  playlist after every append. Tracks with more than 64 entries are now
+  built from nested sub-playlists of 64 (README, "Engine sync notes").
+- **glibc's dynamic mmap threshold moved every 9.2 MB `mix` transition onto
+  the heap** after the first rebuild, where `calloc()` zeroes it all. That
+  meant 5.7 s spikes and resident memory reaching 36 GB at 5,000 clips.
+  `FactoryPolicy` pins the threshold at 4 MiB.
+
+Setup: `rebuildAll()` only, no consumer attached, with 40 real 300-frame
+H.264 sources, a dissolve every other butt and a gap every fifth clip.
+`setTractor()` restarts separately measured 128–167 ms, flat from 1,000 to
+5,000 clips. Medians of 9 in a release build, before → after:
+
+| Project | Before | After |
+|---|---|---|
+| 500 clips, 8 tracks | 28 ms | 25 ms |
+| 1,000 clips, 8 tracks | 70 ms | 53 ms |
+| 5,000 clips, 8 tracks | 1.07–2.8 s, spikes to 5.7 s | 305 ms |
+| 1,000 clips, 1 track | 403 ms | 61 ms |
+| 5,000 clips, 1 track | 17.3–21.6 s | 352 ms |
+
+Chunk-size sweep (release; debug was within about 15%):
+
+| Chunk | 1 track, 5,000 clips | 8 tracks, 5,000 clips |
+|---|---|---|
+| 32 | 357 ms | 288 ms |
+| 64 | 352 ms | 305 ms |
+| 128 | 373 ms | 306 ms |
+| 256 | 441 ms | 447 ms |
+
+32 and 64 tie. 64 keeps half as many nested playlists.
+
+Checks on 0.27.1:
+- **M2 soak** (debug build, 10 min, 4K60 H.264, 100 × 6 s clips so the
+  track is chunked, preview Half): held real time. 37.2 frames/s shown
+  (22,301), 22,293 delivered; resident memory 727–771 MB over the run and
+  853 MB in the end report; load 3.4–4.8. The last recorded soak showed
+  about 37 frames/s and 0.81 GB, so the 4 MiB mmap threshold costs no
+  measurable playback throughput.
+- **Stress**, 16 in parallel:
+  - `engine-playback-controller`: 32 of 32 passed.
+  - `engine-chunked-playlist`: 47 of 48 and then 48 of 48. The one
+    failure missed a loop wrap inside the 5 s window, the same window the
+    flat loop test uses, and didn't reproduce. Per-track
+incremental rebuild stays shelved unless the MT2 latency targets miss.
+
 - `EngineSync` and `PlaybackController` move to the engine thread. The main
   thread talks to them through a small command queue (play, pause, seek,
   loop, volume, preview scale, "new snapshot") and receives state

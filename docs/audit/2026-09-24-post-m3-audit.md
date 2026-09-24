@@ -59,6 +59,13 @@ Worth reporting upstream (MLT 7.40, `consumer_sdl2_audio.c`): besides P3, the co
 Also worth reporting (MLT 7.40, found during doc 19 MT1):
 
 - `mlt_factory.c` assigns every service's `_unique_id` with a plain `++unique_id` on a static int (line 306), so producers created on two threads at once can get the same id. That's a data race, but a benign one for us, since nothing reads `_unique_id`. The thumbnail and waveform workers could already hit it before MT1. TSan doesn't report it under the justfile's `ignore_noninstrumented_modules`.
+- `transition_mix.c` embeds its two 192,000-sample × 6-channel float
+  buffers in the struct (lines 37–38), a 9.2 MB `calloc()` per mix, one
+  per dissolve. Under glibc's dynamic mmap threshold these end up
+  heap-allocated and zeroed in full: 5.7 s rebuilds and 36 GB resident at
+  1,992 dissolves (doc 19, MT2 piece 0). We pin `M_MMAP_THRESHOLD` in
+  `FactoryPolicy`. Upstream could allocate the buffers lazily, or size
+  them to the frame's real channels and samples.
 - The loader's `dictionary` and `normalizers` and avformat's `avformat_initialised` are initialised lazily with no lock (`producer_loader.c:87`, `:207`; `avformat/factory.c:56`). Parallel probes crashed in `attach_normalizers` about 1 run in 7. We work around it by warming them up in `FactoryPolicy` (`606d171`); upstream could use a once-guard.
 
 ## What was run

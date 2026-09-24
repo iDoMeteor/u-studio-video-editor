@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.27.1
+
+- Edits on large projects rebuild playback much faster: 5,000 clips on
+  one track went from about 20 s per edit to 0.35 s. Projects with many
+  dissolves no longer grow to tens of gigabytes of memory after a few
+  edits.
+
 ## 0.27.0
 
 - Settings has a "Worker threads" option for the background work (import,

@@ -7,6 +7,7 @@
 #include "core/model/track_segments.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -24,6 +25,55 @@ constexpr const char *kBlackResource = "color:black";
 // ~3.8 days at 30 fps: longer than any sequence this app will hold, so the
 // black master (rebuildAll()) never needs resizing after creation.
 constexpr int kBlackMasterLength = 10'000'000;
+
+// See rebuildTrackPlaylist(). Sweep: doc 19 MT2.
+constexpr const char *kChunkProperty = "ustudio.chunk";
+std::atomic<size_t> g_playlistChunkSize{EngineSync::kDefaultPlaylistChunkSize};
+
+// verify()'s view of a track playlist: chunks (rebuildTrackPlaylist())
+// flattened back into one list, their entries' starts offset by the
+// chunk's own position, so it compares against the model exactly as it
+// does for a flat track. ClipInfo::producer is the cut's parent
+// (mlt_playlist_get_clip_info()), i.e. the chunk itself for a chunk entry.
+struct PlaylistEntry
+{
+    bool blank = false;
+    bool valid = true; // clip_info() succeeded
+    int start = 0;
+    int frameCount = 0;
+    int frameIn = 0;
+    int frameOut = 0;
+    std::string resource;
+};
+
+void flattenPlaylist(Mlt::Playlist &playlist, int offset, std::vector<PlaylistEntry> &out)
+{
+    for (int i = 0; i < playlist.count(); ++i) {
+        PlaylistEntry entry;
+        if (playlist.is_blank(i)) {
+            entry.blank = true;
+            out.push_back(entry);
+            continue;
+        }
+        std::unique_ptr<Mlt::ClipInfo> info(playlist.clip_info(i));
+        if (!info) {
+            entry.valid = false;
+            out.push_back(entry);
+            continue;
+        }
+        if (info->producer && info->producer->get_int(kChunkProperty)) {
+            Mlt::Playlist chunk(*info->producer);
+            flattenPlaylist(chunk, offset + info->start, out);
+            continue;
+        }
+        entry.start = offset + info->start;
+        entry.frameCount = info->frame_count;
+        entry.frameIn = info->frame_in;
+        entry.frameOut = info->frame_out;
+        entry.resource = info->resource ? info->resource : "";
+        out.push_back(entry);
+    }
+}
 
 std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 {
@@ -352,30 +402,81 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     return sub;
 }
 
+void EngineSync::setPlaylistChunkSize(size_t entries)
+{
+    g_playlistChunkSize = std::max<size_t>(1, entries);
+}
+
+size_t EngineSync::playlistChunkSize()
+{
+    return g_playlistChunkSize;
+}
+
 void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playlist &playlist)
 {
     playlist.clear();
-    core::FrameIndex cursor = 0;
+    const std::vector<TrackSegment> segments = core::planTrackSegments(m_model, modelTrack);
 
-    for (const TrackSegment &seg : core::planTrackSegments(m_model, modelTrack)) {
+    // MLT refreshes a whole playlist after every append or blank
+    // (mlt_playlist_virtual_append() ends in mlt_playlist_virtual_refresh(),
+    // which walks every entry: mlt_playlist.c, v7.40.0), so building a track
+    // of k entries flat is O(k^2) -- 5,000 clips on one track took 21.6 s.
+    // A track with more than kPlaylistChunk entries is built from nested
+    // sub-playlists of that many, each marked "ustudio.chunk" for verify();
+    // measured linear, same frames (doc 19 MT2). A track that fits in one
+    // chunk stays flat, exactly as before.
+    size_t entryCount = 0;
+    core::FrameIndex cursor = 0;
+    for (const TrackSegment &seg : segments) {
+        entryCount += (seg.start > cursor ? 2 : 1);
+        cursor = seg.start + seg.length;
+    }
+    const size_t chunkSize = playlistChunkSize();
+    const bool chunked = entryCount > chunkSize;
+
+    std::unique_ptr<Mlt::Playlist> chunk;
+    size_t inChunk = 0;
+    auto target = [&]() -> Mlt::Playlist & {
+        if (!chunked)
+            return playlist;
+        if (!chunk) {
+            chunk = std::make_unique<Mlt::Playlist>(*m_profile);
+            chunk->set(kChunkProperty, 1);
+        }
+        return *chunk;
+    };
+    auto flush = [&] {
+        if (chunk) {
+            playlist.append(*chunk);
+            chunk.reset();
+            inChunk = 0;
+        }
+    };
+    auto added = [&] {
+        if (chunked && ++inChunk == chunkSize)
+            flush();
+    };
+
+    cursor = 0;
+    for (const TrackSegment &seg : segments) {
         if (seg.start > cursor) {
-            // Playlist::blank(out) appends out+1 frames.
-            playlist.blank(static_cast<int>(seg.start - cursor - 1));
+            target().blank(static_cast<int>(seg.start - cursor - 1));
+            added();
         }
 
         if (seg.kind == TrackSegment::Kind::Clip) {
             const core::Clip &clip = m_model.clip(seg.clip);
-            // Stream switches (Split Audio's two halves) live on the master
-            // variant, not the cut -- see masterProducerFor().
             Mlt::Producer &master = masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled);
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
-            playlist.append(*cut);
+            target().append(*cut);
         } else {
-            playlist.append(*buildTransitionSubTractor(seg));
+            target().append(*buildTransitionSubTractor(seg));
         }
+        added();
 
         cursor = seg.start + seg.length;
     }
+    flush();
 }
 
 void EngineSync::rebuildAll()
@@ -508,10 +609,12 @@ std::vector<std::string> EngineSync::verify() const
         }
         Mlt::Playlist playlist(*raw);
         std::vector<TrackSegment> segments = core::planTrackSegments(m_model, modelTrack);
+        std::vector<PlaylistEntry> entries;
+        flattenPlaylist(playlist, 0, entries);
 
         int nonBlankCount = 0;
-        for (int i = 0; i < playlist.count(); ++i) {
-            if (!playlist.is_blank(i))
+        for (const PlaylistEntry &entry : entries) {
+            if (!entry.blank)
                 ++nonBlankCount;
         }
         if (nonBlankCount != static_cast<int>(segments.size())) {
@@ -522,35 +625,34 @@ std::vector<std::string> EngineSync::verify() const
         }
 
         int entryIndex = 0;
-        for (int i = 0; i < playlist.count() && entryIndex < static_cast<int>(segments.size()); ++i) {
-            if (playlist.is_blank(i))
+        for (size_t i = 0; i < entries.size() && entryIndex < static_cast<int>(segments.size()); ++i) {
+            const PlaylistEntry &entry = entries[i];
+            if (entry.blank)
                 continue;
 
             const TrackSegment &seg = segments[static_cast<size_t>(entryIndex)];
-            std::unique_ptr<Mlt::ClipInfo> info(playlist.clip_info(i));
-            if (!info) {
+            if (!entry.valid) {
                 problems.push_back("track " + std::to_string(trackId.value) + ": clip_info(" + std::to_string(i) +
                                    ") failed");
                 ++entryIndex;
                 continue;
             }
 
-            if (info->start != seg.start) {
-                problems.push_back("track " + std::to_string(trackId.value) + " segment " +
-                                   std::to_string(entryIndex) + ": playlist start " + std::to_string(info->start) +
-                                   " != expected " + std::to_string(seg.start));
+            if (entry.start != seg.start) {
+                problems.push_back("track " + std::to_string(trackId.value) + " segment " + std::to_string(entryIndex) +
+                                   ": playlist start " + std::to_string(entry.start) + " != expected " +
+                                   std::to_string(seg.start));
             }
-            if (info->frame_count != seg.length) {
-                problems.push_back("track " + std::to_string(trackId.value) + " segment " +
-                                   std::to_string(entryIndex) + ": playlist frame_count " +
-                                   std::to_string(info->frame_count) + " != expected length " +
-                                   std::to_string(seg.length));
+            if (entry.frameCount != seg.length) {
+                problems.push_back("track " + std::to_string(trackId.value) + " segment " + std::to_string(entryIndex) +
+                                   ": playlist frame_count " + std::to_string(entry.frameCount) +
+                                   " != expected length " + std::to_string(seg.length));
             }
 
             if (seg.kind == TrackSegment::Kind::Clip) {
-                if (info->frame_in != seg.in || info->frame_out != seg.out) {
+                if (entry.frameIn != seg.in || entry.frameOut != seg.out) {
                     problems.push_back("clip " + std::to_string(seg.clip.value) + ": playlist in/out " +
-                                       std::to_string(info->frame_in) + "/" + std::to_string(info->frame_out) +
+                                       std::to_string(entry.frameIn) + "/" + std::to_string(entry.frameOut) +
                                        " != expected " + std::to_string(seg.in) + "/" + std::to_string(seg.out));
                 }
                 const core::Clip &clip = m_model.clip(seg.clip);
@@ -572,7 +674,7 @@ std::vector<std::string> EngineSync::verify() const
                         colon != std::string::npos && expectedResource.find('/') > colon) {
                         expectedResource = expectedResource.substr(colon + 1);
                     }
-                    std::string actualResource = info->resource ? info->resource : "";
+                    std::string actualResource = entry.resource;
                     // A generator with no argument ("tone:") has an empty
                     // resource, and a cut of it reports MLT's "<producer>"
                     // placeholder instead (seen 2026-09-24 in

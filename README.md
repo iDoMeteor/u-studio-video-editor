@@ -558,6 +558,30 @@ edit (sanitizer report S1, 2026-09-23; confirmed with
 rebuilds leaked, flat when deleted, and ASan-clean either way). Hold these
 in a `std::unique_ptr`.
 
+**Building a playlist entry by entry is O(n²).**
+`mlt_playlist_append()` and `blank()` end in
+`mlt_playlist_virtual_refresh()`, which walks every entry doing three
+locked property lookups each (`mlt_playlist.c`, 7.40). With 5,000 clips on
+one track a rebuild took 17–21 s. MLT has no batch or deferred-refresh
+API. So `EngineSync::rebuildTrackPlaylist()` builds a track with more than
+64 entries from nested sub-playlists of 64, each marked `ustudio.chunk`.
+That's linear, and frame-, audio- and render-identical to the flat graph
+(`engine-chunked-playlist`). `verify()` flattens the chunks back. A track
+of 64 entries or fewer stays flat, exactly as before (doc 19, MT2 piece 0).
+
+**Every `mix` transition is a 9.2 MB `calloc()`, so pin glibc's mmap
+threshold.** `transition_mix.c` embeds two 192,000-sample × 6-channel
+float buffers. There is one per track and one per dissolve. glibc
+serves them from fresh, already-zero mmap pages until its dynamic mmap
+threshold climbs past 9.2 MB. It does that the first time one is freed,
+i.e. on the first rebuild. After that each one comes from the heap and
+is zeroed in full. On a 5,000-clip project with 1,992 dissolves, rebuilds
+went from 0.35 s to 5.7 s and resident memory reached 36 GB within nine
+rebuilds. `FactoryPolicy` sets `M_MMAP_THRESHOLD` to 4 MiB before
+`Factory::init()`, which also disables the dynamic adjustment. Rebuilds
+then stay at 0.3 s and 400 MB. `engine-sync`'s "resident memory" test
+fails without it (+5.4 GB).
+
 `EngineSync` rebuilds a track's whole MLT playlist from the model on any
 change (clear it, re-append blanks and cuts in position order) rather than
 doing incremental playlist surgery (ADR-005) — simpler and always

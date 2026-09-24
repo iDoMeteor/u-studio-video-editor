@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <memory>
 #include <random>
+#include <string>
 
 using namespace ustudio::core;
 using namespace ustudio::engine;
@@ -221,6 +223,46 @@ TEST_CASE("EngineSync: a dissolve transition actually cross-fades, and the pair'
     sampleRedBlue(12, lastOverlapR, lastOverlapB);
     CHECK(firstOverlapR > lastOverlapR);
     CHECK(firstOverlapB < lastOverlapB);
+}
+
+TEST_CASE("EngineSync: rebuilding many dissolves doesn't grow resident memory (FactoryPolicy's mmap threshold)")
+{
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    MESSAGE("sanitizer build: its own allocator, not glibc's -- not checked");
+#else
+    sharedFactoryPolicy();
+    // Each dissolve's "mix" transition is a 9.2 MB calloc(). With glibc's
+    // dynamic mmap threshold these land on the heap after the first rebuild
+    // and are zeroed in full: ~2.7 GB more resident per graph here.
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId red = addGeneratorAsset(model, "color:red");
+    AssetId blue = addGeneratorAsset(model, "color:blue");
+    ClipId previous;
+    for (int c = 0; c < 300; ++c) {
+        ClipId clip = model.insertClip(track, c % 2 ? blue : red, c * 20, 10, 29);
+        if (previous.isValid())
+            model.addTransition(track, previous, clip, 2, 2);
+        previous = clip;
+    }
+    auto residentKb = [] {
+        std::ifstream status("/proc/self/status");
+        std::string line;
+        while (std::getline(status, line))
+            if (line.rfind("VmRSS:", 0) == 0)
+                return std::stol(line.substr(6));
+        return 0L;
+    };
+    EngineSync sync(model);
+    sync.rebuildAll();
+    long before = residentKb();
+    for (int i = 0; i < 6; ++i)
+        sync.rebuildAll();
+    long grown = residentKb() - before;
+    CAPTURE(grown);
+    CHECK(grown < 300 * 1024);
+    CHECK(sync.verify().empty());
+#endif
 }
 
 TEST_CASE("EngineSync: a clip entirely consumed by its own outgoing transition gets no exclusive segment")

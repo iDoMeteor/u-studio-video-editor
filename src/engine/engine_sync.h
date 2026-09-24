@@ -151,6 +151,14 @@ class EngineSync
     // compares tractor length to sequence.length(). Empty = OK.
     std::vector<std::string> verify() const;
 
+    // A track with more playlist entries (cuts, gaps, dissolves) than this
+    // is built from nested sub-playlists of this many (rebuildTrackPlaylist()
+    // says why). Process-wide; tests and benchmarks change it to compare
+    // flat and chunked graphs, and to sweep sizes.
+    static constexpr size_t kDefaultPlaylistChunkSize = 64;
+    static void setPlaylistChunkSize(size_t entries);
+    static size_t playlistChunkSize();
+
     struct ProbedMedia
     {
         core::FrameIndex length = 0; // 0 if the path couldn't be opened

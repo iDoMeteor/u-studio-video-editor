@@ -113,3 +113,14 @@ executable(
   dependencies: [libustudio_engine_dep, libustudio_core_dep, glib_dep],
   install: false,
 )
+
+# doc 19 MT2 piece 0b: chunked track playlists against the flat graph --
+# frames, audio, verify(), paused seeks/steps, loops and a render.
+test_chunked_playlist_exe = executable(
+  'test_chunked_playlist',
+  files('test_chunked_playlist.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, glib_dep],
+  install: false,
+)
+
+test('engine-chunked-playlist', test_chunked_playlist_exe, timeout: 180)
