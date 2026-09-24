@@ -18,34 +18,10 @@
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "settings.h"
+#include "timeline/timeline_controller.h"
 #include "timeline/viewport.h"
 
 namespace ustudio::app {
-
-// What an in-progress timeline drag is doing, decided in onTrackDragBegin
-// from where the press landed (handle strip / clip edge / clip body /
-// empty space) and finalized in onTrackDragEnd.
-enum class TimelineDragMode
-{
-    None,
-    TrackReorder,
-    MoveClip,
-    TrimClipStart,
-    TrimClipEnd,
-    // Dragging one edge of an EXISTING dissolve transition's hatch region
-    // to grow/shrink it (Left = the edge at the earlier clip's position,
-    // Right = the edge at the later clip's end) -- the other edge stays
-    // fixed. Distinct from TrimClipStart/End: those touch a clip's own
-    // in/out directly and refuse on overlap; these touch the transition's
-    // extendA/extendB split via RemoveTransition+AddTransition.
-    TransitionResizeLeft,
-    TransitionResizeRight,
-    // Enhancement #11: a press on empty timeline space (past the handle
-    // strip, no clip/transition edge under it) scrubs the playhead
-    // continuously as the pointer moves, instead of only seeking once on
-    // release the way a plain click already does.
-    Scrub,
-};
 
 // What the inline name-edit popover (double-click a track label or a
 // clip) is currently open for, if anything.
@@ -254,19 +230,8 @@ class AppWindow
     // cutBoundariesForTrack(m_activeTrack)) the active-track case of the
     // snap targets below.
     std::vector<int> cutBoundariesOnActiveTrack() const;
-    // Same as above but for an arbitrary row, not just the active track
-    // -- enhancement #10's snap needs the row a drag is CURRENTLY over
-    // (m_dragPreviewTrack while dragging a clip between rows), which
-    // isn't always m_activeTrack (that only updates to match once the
-    // drag actually completes).
+    // Same as above but for an arbitrary row.
     std::vector<int> cutBoundariesForTrack(int row) const;
-    // Enhancement #10: the closest boundary to `position` among
-    // `boundaries`, as a delta (boundary - position), if any boundary is
-    // within kEdgeGrabWidth pixels -- nullopt otherwise (nothing to snap
-    // to). `pixelsPerFrame` converts the pixel threshold to a frame
-    // distance for the comparison.
-    std::optional<int> nearestBoundaryDelta(int position, const std::vector<int> &boundaries,
-                                            double pixelsPerFrame) const;
     // Moves which track row is "active" (where imports/splits/single-key
     // edits land) up or down by one, clamped to the track list -- the
     // same target onTimelineClicked's plain click already sets, just
@@ -283,13 +248,13 @@ class AppWindow
     void onVolumeChanged();
     void onPreviewScaleChanged();
     void onSplitClicked();
-    // nPress == 2 (double-click) on a track's name-label strip or on a
-    // clip opens the inline name editor instead of the usual seek/select.
-    void onTimelineClicked(int nPress, double x, double y);
+    // Double-clicks only (renames): a single click arrives as a drag that
+    // never moved (onTrackDragEnd), so modifier clicks aren't applied twice.
+    void onTimelineClicked(int nPress, double x, double y, timeline::Modifiers mods);
     void onTimelineRightClicked(double x, double y);
     void onDeleteClipClicked();
-    // Enhancement #3: Delete key removes m_selectedClip (the clip a plain
-    // click last landed on), unlike onDeleteClipClicked() above, which
+    // Enhancement #3: Delete key removes the selected clips (the
+    // controller's selection), unlike onDeleteClipClicked() above, which
     // acts on whichever clip a right-click's context menu was opened
     // over -- a different, independently-tracked selection.
     void onDeleteSelectedClip();
@@ -393,17 +358,15 @@ class AppWindow
     // competing click gesture on the same widget, which would otherwise
     // also treat this as a seek. A press on empty space returns false so
     // the plain click gesture still handles seeking there.
-    bool onTrackDragBegin(double x, double y);
+    // The timeline's drag gesture, forwarded to m_timelineController.
+    bool onTrackDragBegin(double x, double y, timeline::Modifiers mods);
     void onTrackDragUpdate(double offsetX, double offsetY);
     void onTrackDragEnd(double offsetX, double offsetY);
-    // Executes AddTransition(trackIdForRow(m_dragClipTrack), a, b,
-    // extendA, extendB) via the undo stack and reports the result --
-    // shared by TrimClipStart/TrimClipEnd's onTrackDragEnd handling, the
-    // two places dragging a clip's edge past an exactly-touching
-    // neighbour turns what would otherwise be a refused trim into a new
-    // dissolve. Returns false (and shows no status) on failure, so the
-    // caller falls back to its own "can't trim that far" message.
-    bool onDragCreatedTransition(core::ClipId a, core::ClipId b, core::FrameIndex extendA, core::FrameIndex extendB);
+    // What the controller reads: the model, the viewport, the playhead.
+    timeline::TimelineContext timelineContext() const;
+    // Runs a controller outcome: the first attempt the undo stack accepts,
+    // its status or the failure status, the seek, the active row, a rename.
+    void applyTimelineOutcome(timeline::TimelineOutcome &outcome);
     void onTimelineDraw(cairo_t *cr, int width, int height);
     // Audit A5: the playhead line used to be the last few lines of
     // onTimelineDraw() itself, so refreshTransport() -- which runs once
@@ -714,7 +677,9 @@ class AppWindow
     std::unique_ptr<engine::WaveformCache> m_waveforms;
     std::unique_ptr<engine::ThumbnailCache> m_thumbnails;
     std::vector<ClipDisplay> m_clips;
-    int m_selectedClip = -1;
+    // doc 06's TimelineController: gesture state, drag preview and the
+    // clip selection.
+    timeline::TimelineController m_timelineController;
     // Which track row new imports/splits target; set by clicking a track's
     // row. A row index into model.sequence().tracks, not a TrackId.
     int m_activeTrack = 0;
@@ -746,34 +711,6 @@ class AppWindow
     // popover down, so the "closed" signal that follows knows to discard
     // the entry's text instead of committing it.
     bool m_inlineEditCancelled = false;
-
-    // --- Timeline drag state (track reorder, clip move, clip trim) ---
-    TimelineDragMode m_dragMode = TimelineDragMode::None;
-    double m_dragStartX = 0.0;
-    double m_dragStartY = 0.0;
-    // TrackReorder: the track being dragged and the row currently under the
-    // cursor, drawn as a drop-target hint.
-    int m_draggingTrack = -1;
-    int m_dragHoverRow = -1;
-    // MoveClip/TrimClipStart/TrimClipEnd: identifies the clip being
-    // manipulated by its model ClipId. The Preview fields are the live drag
-    // position/length shown as a ghost while dragging, applied via a
-    // Command only on drag-end.
-    core::ClipId m_dragClipId;
-    int m_dragClipTrack = -1;
-    int m_dragClipStartFrame = -1;
-    int m_dragClipFrames = 0;
-    int m_dragPreviewTrack = -1;
-    int m_dragPreviewStartFrame = -1;
-    int m_dragPreviewFrames = 0;
-
-    // TransitionResizeLeft/Right: which transition, its row, and the live
-    // preview position of the edge actually being dragged (the other edge
-    // stays at the transition's current, unchanged position throughout).
-    core::TransitionId m_dragTransitionId;
-    int m_dragTransitionRow = -1;
-    int m_dragTransitionPreviewLeftFrame = 0;
-    int m_dragTransitionPreviewRightFrame = 0;
 
     bool m_suppressSeekSignal = false;
 

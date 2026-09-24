@@ -83,3 +83,12 @@ test_viewport_exe = executable(
 )
 
 test('app-viewport', test_viewport_exe)
+
+test_timeline_controller_exe = executable(
+  'test_timeline_controller',
+  files('test_timeline_controller.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+
+test('app-timeline-controller', test_timeline_controller_exe)

@@ -11,6 +11,16 @@ docs-only changes are not listed (CLAUDE.md).
   plays much more smoothly. The saved default preview scale is also
   applied at startup.
 
+## 0.19.0
+
+- Dragged clips and edges snap to clip edges on every track, markers and
+  the playhead, never to their own old position, with a magenta line where
+  they snap.
+- Trimming the end of a clip works for every clip. It used to go wrong for
+  any clip not cut from the start of its file (refused, wrong length, or a
+  dissolve instead of a trim).
+- Delete removes every selected clip as one undo step.
+
 ## 0.18.0
 
 - Zoom the timeline with Ctrl+wheel or +/-, fit it with 0, and scroll it

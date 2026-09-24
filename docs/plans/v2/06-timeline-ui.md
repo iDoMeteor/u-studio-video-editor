@@ -88,6 +88,13 @@ Colours come from `style/tokens.h`, generated from the same values as
 
 ## Interaction (TimelineController)
 
+> REVIEW: Claude (2026-09-24): built as `app/timeline/timeline_controller.
+> {h,cpp}` with `selection.*` and `row_layout.h`. It takes a context per
+> event (model, viewport, playhead) and returns outcomes (commands to try in
+> order, seek, status, rename) that the window applies, so every gesture is
+> tested against a real Model (`tests/app/test_timeline_controller.cpp`).
+> Still drawn by the window's cairo area until `UsTimelineView` lands.
+
 A state machine driven by `GtkGestureClick`, `GtkGestureDrag`,
 `GtkEventControllerMotion`, `GtkEventControllerScroll`,
 `GtkEventControllerKey`, and `GtkDropTarget` (drops from the bin).

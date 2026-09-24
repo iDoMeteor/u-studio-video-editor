@@ -65,7 +65,7 @@ app_portal_dep = declare_dependency(
 # TimelineController to come), unit-tested in tests/app/.
 app_timeline_lib = static_library(
   'ustudio_app_timeline',
-  files('timeline/viewport.cpp'),
+  files('timeline/selection.cpp', 'timeline/timeline_controller.cpp', 'timeline/viewport.cpp'),
   dependencies: [libustudio_core_dep],
   include_directories: src_inc,
   install: false,
