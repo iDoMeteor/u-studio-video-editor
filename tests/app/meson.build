@@ -92,3 +92,12 @@ test_timeline_controller_exe = executable(
 )
 
 test('app-timeline-controller', test_timeline_controller_exe)
+
+test_timeline_fuzz_exe = executable(
+  'test_timeline_fuzz',
+  files('test_timeline_fuzz.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+
+test('app-timeline-fuzz', test_timeline_fuzz_exe, timeout: 120)

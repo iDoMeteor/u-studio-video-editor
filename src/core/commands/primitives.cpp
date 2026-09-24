@@ -514,6 +514,20 @@ bool ResizeClip::apply(Model &model)
     bool headChanging = m_newPos != current.position || m_newIn != current.in;
     bool tailChanging = m_newOut != current.out;
 
+    // A dissolve on the edge that isn't moving stays, so the clip must still
+    // reach past it: a head trim can't start at or after its tail partner's
+    // start, and a tail trim can't end at or before its head partner's end.
+    // (isRangeFree below ignores that partner, audit C2, so without this a
+    // head trim deep enough put the clip after its partner. Found by the
+    // timeline fuzz test, 2026-09-24.)
+    const FrameIndex newEnd = m_newPos + (m_newOut - m_newIn + 1);
+    for (const Transition &t : model.sequence().transitions) {
+        if (t.a == m_clip && !tailChanging && model.hasClip(t.b) && m_newPos >= model.clip(t.b).position)
+            return false;
+        if (t.b == m_clip && !headChanging && model.hasClip(t.a) && newEnd <= model.clip(t.a).end())
+            return false;
+    }
+
     model.notify(BatchBegin{});
     m_capturedTransitions.clear();
     // Audit C2: a transition NOT being stripped is still legitimately

@@ -207,6 +207,25 @@ void revertSteps(Model &model, std::vector<std::unique_ptr<Command>> &steps)
         (*it)->revert(model);
 }
 
+// Redo: the same step objects again, not freshly built ones, so every id
+// a step created the first time (a copied clip, a re-added dissolve) comes
+// back the same and later history that refers to it still applies. Found
+// by the timeline fuzz test (a slip on a copy failed to redo).
+bool reapplySteps(Model &model, std::vector<std::unique_ptr<Command>> &steps)
+{
+    model.notify(BatchBegin{});
+    for (size_t i = 0; i < steps.size(); ++i) {
+        if (!steps[i]->apply(model)) {
+            for (size_t j = i; j-- > 0;)
+                steps[j]->revert(model);
+            model.notify(BatchEnd{});
+            return false;
+        }
+    }
+    model.notify(BatchEnd{});
+    return true;
+}
+
 // A clip's geometry without the extensions its dissolves give it: what it
 // has once those are removed.
 struct BaseGeometry
@@ -254,6 +273,8 @@ RippleDelete::RippleDelete(ClipId clip) : m_clip(clip) {}
 
 bool RippleDelete::apply(Model &model)
 {
+    if (!m_steps.empty())
+        return reapplySteps(model, m_steps);
     if (!model.hasClip(m_clip))
         return false;
     const TrackId track = model.clip(m_clip).track;
@@ -290,6 +311,8 @@ RippleTrim::RippleTrim(ClipId clip, Edge edge, FrameIndex delta) : m_clip(clip),
 
 bool RippleTrim::apply(Model &model)
 {
+    if (!m_steps.empty())
+        return reapplySteps(model, m_steps);
     if (m_delta == 0 || !model.hasClip(m_clip))
         return false;
     const TrackId track = model.clip(m_clip).track;
@@ -311,6 +334,18 @@ bool RippleTrim::apply(Model &model)
     if (std::optional<TransitionId> t = transitionAtEdge(model, m_clip, head)) {
         if (!runStep(model, m_steps, std::make_unique<RemoveTransition>(*t)))
             return fail();
+    }
+    // A head trim moves the clip's tail too. A dissolve there has to move
+    // with it, but its partner starts inside this clip's extended end, where
+    // the shift below wouldn't reach it (found by the timeline fuzz test):
+    // take it off, ripple on base geometry, and put it back at the end.
+    std::optional<Transition> tailDissolve;
+    if (head) {
+        if (std::optional<TransitionId> t = transitionAtEdge(model, m_clip, false)) {
+            tailDissolve = model.transition(*t);
+            if (!runStep(model, m_steps, std::make_unique<RemoveTransition>(*t)))
+                return fail();
+        }
     }
 
     const Clip &clip = model.clip(m_clip);
@@ -339,6 +374,11 @@ bool RippleTrim::apply(Model &model)
         if (shift && !runStep(model, m_steps, std::move(shift)))
             return fail();
     }
+    if (tailDissolve) {
+        const Transition &t = *tailDissolve;
+        if (!runStep(model, m_steps, std::make_unique<AddTransition>(t.track, t.a, t.b, t.extendA, t.extendB)))
+            return fail();
+    }
     model.notify(BatchEnd{});
     return true;
 }
@@ -356,6 +396,8 @@ SlipClip::SlipClip(ClipId clip, FrameIndex delta) : m_clip(clip), m_delta(delta)
 
 bool SlipClip::apply(Model &model)
 {
+    if (m_resize)
+        return m_resize->apply(model); // redo: same ResizeClip (see reapplySteps)
     if (m_delta == 0 || !model.hasClip(m_clip))
         return false;
     // Slipping changes the content under any dissolve on either edge, so
@@ -364,8 +406,11 @@ bool SlipClip::apply(Model &model)
     // once they're gone.
     const BaseGeometry base = baseGeometry(model, m_clip);
     const FrameIndex basePos = base.position, baseIn = base.in, baseOut = base.out;
-    m_resize = std::make_unique<ResizeClip>(m_clip, baseIn + m_delta, baseOut + m_delta, basePos);
-    return m_resize->apply(model);
+    auto resize = std::make_unique<ResizeClip>(m_clip, baseIn + m_delta, baseOut + m_delta, basePos);
+    if (!resize->apply(model))
+        return false;
+    m_resize = std::move(resize);
+    return true;
 }
 
 void SlipClip::revert(Model &model)
@@ -391,8 +436,12 @@ bool CopyClip::apply(Model &model)
     const FrameIndex in = base.in, out = base.out;
 
     model.notify(BatchBegin{});
-    m_insert = std::make_unique<InsertClip>(m_track, source.asset, m_pos, in, out);
+    // Built once: on redo the same InsertClip brings the copy back under
+    // the same id (see reapplySteps).
+    if (!m_insert)
+        m_insert = std::make_unique<InsertClip>(m_track, source.asset, m_pos, in, out);
     if (!m_insert->apply(model)) {
+        m_insert.reset();
         model.notify(BatchEnd{});
         return false;
     }

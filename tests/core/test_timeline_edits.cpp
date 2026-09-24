@@ -1,6 +1,7 @@
 #include "doctest.h"
 
 #include "core/commands/composite_command.h"
+#include "core/commands/primitives.h"
 #include "core/commands/timeline_edits.h"
 #include "core/commands/undo_stack.h"
 #include "core/model/model.h"
@@ -361,4 +362,56 @@ TEST_CASE("MoveClips moves across tracks together and refuses what MoveClip woul
     CHECK(equalIgnoringIdAllocator(f.model, before));
     f.model.setTrackFlags(v2, false, false, /*locked=*/true);
     CHECK_FALSE(MoveClips({f.c}, 0, 1).apply(f.model));
+}
+
+TEST_CASE("RippleTrim on a head moves a dissolve on the tail along with the clip")
+{
+    // Found by the timeline fuzz test: a's tail dissolve partner b starts
+    // inside a's extended end, so the ripple left b behind, overlapping a.
+    Fixture f;
+    Model before = f.model;
+    RippleTrim grow(f.a, RippleTrim::Edge::Head, -50); // restore 50 frames at a's front
+    REQUIRE(grow.apply(f.model));
+    CHECK(f.model.clip(f.a).position == 0);
+    CHECK(f.model.clip(f.b).position == before.clip(f.b).position + 50);
+    CHECK(f.model.clip(f.c).position == before.clip(f.c).position + 50);
+    // Put back as a new transition between the same clips, same lengths.
+    auto dissolve = [&]() -> const Transition * {
+        for (const Transition &t : f.model.sequence().transitions) {
+            if (t.a == f.a && t.b == f.b)
+                return &t;
+        }
+        return nullptr;
+    };
+    REQUIRE(dissolve());
+    CHECK(dissolve()->extendA == 5);
+    CHECK(dissolve()->extendB == 5);
+    checkRoundTrip(f.model, grow, before);
+
+    RippleTrim cut(f.a, RippleTrim::Edge::Head, 20);
+    REQUIRE(cut.apply(f.model));
+    CHECK(f.model.clip(f.b).position == before.clip(f.b).position - 20);
+    CHECK(dissolve());
+    checkRoundTrip(f.model, cut, before);
+}
+
+TEST_CASE("ResizeClip can't trim a clip past the partner of a dissolve it keeps")
+{
+    // Found by the timeline fuzz test: a head trim on a clip with a tail
+    // dissolve could move its start past the partner's, leaving them
+    // overlapping in the wrong order.
+    Fixture f;
+    const Clip &a = f.model.clip(f.a); // [0, 105) with its tail dissolved into b at 95
+    Model before = f.model;
+    ResizeClip tooFar(f.a, a.in + 99, a.out, 99);
+    CHECK_FALSE(tooFar.apply(f.model));
+    CHECK(equalIgnoringIdAllocator(f.model, before));
+    ResizeClip fine(f.a, a.in + 50, a.out, 50);
+    REQUIRE(fine.apply(f.model));
+    CHECK(f.model.check().empty());
+    checkRoundTrip(f.model, fine, before);
+
+    const Clip &b = f.model.clip(f.b); // head dissolved from a, which ends at 105
+    ResizeClip tailTooShort(f.b, b.in, b.in + 5, b.position);
+    CHECK_FALSE(tailTooShort.apply(f.model));
 }

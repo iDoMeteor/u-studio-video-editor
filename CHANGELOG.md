@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.21.1
+
+- Fixed: a head trim could push a clip past the clip it dissolves into,
+  leaving them overlapping; a ripple trim on a clip's head left its
+  outgoing dissolve partner behind; and redo of an edit made on a copied
+  clip failed (the copy came back with a different identity).
+
 ## 0.21.0
 
 - Ripple trim (Alt+drag an edge), slip (Shift+drag an edge), copy
