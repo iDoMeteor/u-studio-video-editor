@@ -120,7 +120,19 @@ Each lands as small reviewed commits with tests, in this order.
 
 - Probing runs on the pool, in parallel across files, with progress in the
   status bar; each result becomes `AddAsset` + `InsertClip` on the main
-  thread.
+  thread. Landed in 0.24.0 as `app/import_queue.*`, shared by Import, the
+  timeline drop and the media-browser drop. Findings:
+  - MLT initialises some module state lazily and without a lock (the
+    loader's dictionary and normalizers, avformat's one-time init), so the
+    first producers created on two threads at once can crash
+    (`attach_normalizers`, about 1 run in 7 of `app-import-queue`).
+    `FactoryPolicy` now walks those paths once, right after
+    `Factory::init`; 150 of 150 runs clean afterwards.
+  - Probing 12 files in parallel takes about 130 ms, but each apply is a
+    command whose `rebuildAll` costs 110–210 ms with a dozen real clips.
+    Applying every ready result in one go blocked the main loop 2.4 s, so
+    results apply one per main-loop iteration: the worst stall is now one
+    rebuild (212 ms). Getting under 16 ms needs MT2.
 - Save and autosave serialise a snapshot on the pool (the atomic temp file
   and rename stay); the dirty flag is cleared only when the write that
   matches the current undo depth succeeds.

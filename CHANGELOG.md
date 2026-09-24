@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.24.0
+
+- Importing several files probes them in parallel off the main thread, shows
+  "Importing 3 of 12…", keeps them in the order picked, and reports and
+  skips a file it can't open; Import, timeline drops and media-browser
+  drops all work this way.
+
 ## 0.23.1
 
 - Fixed: Shift+Delete crashed after removing a media file whose clips were

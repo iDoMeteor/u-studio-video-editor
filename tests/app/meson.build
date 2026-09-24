@@ -121,3 +121,12 @@ test_stall_monitor_exe = executable(
 
 # USTUDIO_LOG_LEVEL=debug turns the monitor on in release test builds too.
 test('app-stall-monitor', test_stall_monitor_exe, env: ['USTUDIO_LOG_LEVEL=debug'])
+
+test_import_queue_exe = executable(
+  'test_import_queue',
+  files('test_import_queue.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+
+test('app-import-queue', test_import_queue_exe, timeout: 60)

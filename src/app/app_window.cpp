@@ -174,6 +174,11 @@ AppWindow::AppWindow(GtkApplication *app)
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
 
+    m_pool = std::make_unique<core::concurrency::ThreadPool>();
+    m_importQueue =
+        std::make_unique<ImportQueue>(*m_pool, [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
+            engine::MainThreadDispatcher::post(token, std::move(fn));
+        });
     m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
     m_thumbnails = std::make_unique<engine::ThumbnailCache>([this] { onThumbnailReady(); });
     // The timeline's strips have their own worker: dozens of frames arrive
@@ -246,6 +251,12 @@ void AppWindow::prepareForShutdown()
         m_renderCancel = true;
         m_renderThread.join();
     }
+    // Pool jobs open MLT producers too: cancel them and join the workers
+    // before main() closes the factory (doc 19 MT1).
+    if (m_importQueue)
+        m_importQueue->cancelAll();
+    m_importQueue.reset();
+    m_pool.reset();
     if (m_playback)
         m_playback->shutdown();
 }
@@ -367,7 +378,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_visible(m_mediaBrowserPanel, FALSE); // starts collapsed
 
     // Enhancement #7 (media-browser half): files dragged in from outside
-    // the app land in the bin only (importAssetOnly()) -- no track/
+    // the app land in the bin only (startImport() with no track) -- no track/
     // position to insert a clip at here, unlike the timeline's own file
     // drop target above.
     GtkDropTarget *mediaBrowserFileDropTarget = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
@@ -1211,32 +1222,96 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
         return;
     }
 
-    core::TrackId trackId = trackIdForRow(m_activeTrack);
+    std::vector<std::string> paths;
     guint n = g_list_model_get_n_items(files);
     for (guint i = 0; i < n; ++i) {
         auto *file = static_cast<GFile *>(g_list_model_get_item(files, i));
         std::string path = localPathFor(file);
-        if (!path.empty()) {
-            // Recomputed per file: importFileToTrack() on success appends
-            // a new clip to this track, so the next file (if any) needs
-            // to land after THAT one, not stack at the same position.
-            const core::Track &track = m_model.track(trackId);
-            core::FrameIndex insertPos = track.clips.empty() ? 0 : m_model.clip(track.clips.back()).end();
-            importFileToTrack(path, trackId, insertPos);
-        }
+        if (!path.empty())
+            paths.push_back(std::move(path));
         g_object_unref(file);
     }
     g_object_unref(files);
+    Log::debug("[import] dialog picked " + std::to_string(n) + " file(s), " + std::to_string(paths.size()) +
+               " with a local path");
+    startImport(std::move(paths), trackIdForRow(m_activeTrack), std::nullopt);
 }
 
-bool AppWindow::importFileToTrack(const std::string &path, core::TrackId trackId, core::FrameIndex position)
+void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::TrackId> trackId,
+                            std::optional<core::FrameIndex> position)
 {
-    engine::EngineSync::ProbedMedia probed = m_engineSync->probeMedia(path);
-    if (probed.length <= 0) {
-        showStatus("Could not open media file: " + path);
-        return false;
-    }
+    if (paths.empty() || !m_importQueue)
+        return;
+    struct State
+    {
+        std::optional<core::FrameIndex> position;
+        size_t imported = 0;
+        std::string lastImported;
+        std::vector<std::string> failures;
+    };
+    auto state = std::make_shared<State>();
+    state->position = position;
+    const size_t total = paths.size();
+    showStatus(total == 1 ? "Importing " + paths.front() + "…" : "Importing 0 of " + std::to_string(total) + "…");
 
+    m_importQueue->start(
+        std::move(paths),
+        // Pool thread: a copy of the profile, nothing of the live project.
+        [profile = m_model.sequence().profile](const std::string &path) {
+            return engine::EngineSync::probeMediaFile(profile, path);
+        },
+        [this, state, trackId](size_t, const std::string &path, const engine::EngineSync::ProbedMedia &probed) {
+            std::string failure;
+            if (probed.length <= 0) {
+                failure = "Could not open media file: " + path;
+            } else if (!trackId) {
+                if (auto added = importProbedAssetOnly(path, probed); !added)
+                    failure = added.error();
+            } else if (!m_model.hasTrack(*trackId)) {
+                failure = "Can't import " + path + ": its track was deleted.";
+            } else {
+                const core::Track &track = m_model.track(*trackId);
+                core::FrameIndex at = state->position       ? *state->position
+                                      : track.clips.empty() ? 0
+                                                            : m_model.clip(track.clips.back()).end();
+                if (auto end = importProbedToTrack(path, probed, *trackId, at)) {
+                    if (state->position)
+                        state->position = *end;
+                } else {
+                    failure = end.error();
+                }
+            }
+            if (failure.empty()) {
+                ++state->imported;
+                state->lastImported = path;
+            } else {
+                Log::warn("[import] " + failure);
+                state->failures.push_back(std::move(failure));
+            }
+        },
+        [this, total](size_t finished, size_t) {
+            if (total > 1)
+                showStatus("Importing " + std::to_string(finished) + " of " + std::to_string(total) + "…");
+        },
+        [this, state, total] {
+            if (state->failures.empty())
+                showStatus(total == 1 ? "Imported: " + state->lastImported
+                                      : "Imported " + std::to_string(total) + " files.");
+            else if (total == 1)
+                showStatus(state->failures.front());
+            else
+                showStatus("Imported " + std::to_string(state->imported) + " of " + std::to_string(total) + " files. " +
+                           state->failures.front() +
+                           (state->failures.size() > 1
+                                ? " (and " + std::to_string(state->failures.size() - 1) + " more)"
+                                : std::string()));
+        });
+}
+
+std::expected<core::FrameIndex, std::string>
+AppWindow::importProbedToTrack(const std::string &path, const engine::EngineSync::ProbedMedia &probed,
+                               core::TrackId trackId, core::FrameIndex position)
+{
     // A still image is boundless (MediaInfo::isBoundless()) -- MLT's own
     // default (15000 frames via pixbuf, verified empirically) has
     // nothing to do with how long a clip cut from it should be. Default
@@ -1248,10 +1323,8 @@ bool AppWindow::importFileToTrack(const std::string &path, core::TrackId trackId
     // empty project, or inserting past the current end).
     core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probed.length, position);
 
-    if (!m_model.isRangeFree(trackId, position, position + length)) {
-        showStatus("Can't import " + path + " there: it would overlap another clip.");
-        return false;
-    }
+    if (!m_model.isRangeFree(trackId, position, position + length))
+        return std::unexpected("Can't import " + path + " there: it would overlap another clip.");
 
     // AddAsset applies first (below) and, with no reuseId, allocates
     // exactly model.project().nextId as read here -- nothing else can
@@ -1267,32 +1340,28 @@ bool AppWindow::importFileToTrack(const std::string &path, core::TrackId trackId
 
     auto composite = std::make_unique<core::CompositeCommand>("Import clip", std::move(steps));
 
-    if (m_undoStack.execute(std::move(composite))) {
-        refreshTimeline();
-        refreshMediaBrowser();
-        showStatus("Imported: " + path);
-        return true;
-    }
-    showStatus("Could not import: " + path);
-    return false;
+    if (!m_undoStack.execute(std::move(composite)))
+        return std::unexpected("Could not import: " + path);
+    refreshTimeline();
+    refreshMediaBrowser();
+    return position + length;
 }
 
-bool AppWindow::importAssetOnly(const std::string &path)
+std::expected<void, std::string> AppWindow::importProbedAssetOnly(const std::string &path,
+                                                                  const engine::EngineSync::ProbedMedia &probed)
 {
-    engine::EngineSync::ProbedMedia probed = m_engineSync->probeMedia(path);
-    if (probed.length <= 0) {
-        showStatus("Could not open media file: " + path);
-        return false;
-    }
     core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probed.length, 0);
-    if (m_undoStack.execute(std::make_unique<core::AddAsset>(
-            makeImportedAsset(path, length, probed, m_model.sequence().profile.fps)))) {
-        refreshMediaBrowser();
-        showStatus("Imported: " + path);
-        return true;
-    }
-    showStatus("Could not import: " + path);
-    return false;
+    if (!m_undoStack.execute(
+            std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, m_model.sequence().profile.fps))))
+        return std::unexpected("Could not import: " + path);
+    refreshMediaBrowser();
+    return {};
+}
+
+void AppWindow::cancelProjectJobs()
+{
+    if (m_importQueue)
+        m_importQueue->cancelAll();
 }
 
 void AppWindow::onSaveClicked()
@@ -1432,6 +1501,7 @@ bool AppWindow::loadProjectFromPath(const std::string &requestedPath)
         showStatus(loaded.error());
         return false;
     }
+    cancelProjectJobs();
     m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy --
                                   // reassigning its contents leaves both still pointing at the right object
     m_currentProjectPath = path;
@@ -1478,6 +1548,7 @@ void AppWindow::performReload()
         return;
     }
 
+    cancelProjectJobs();
     m_model = std::move(*loaded); // m_undoStack/m_engineSync hold a reference to m_model, not a copy
     m_undoStack.clear();
     m_undoStack.setCleanPoint(); // emits changed -- updateWindowTitle() follows automatically
@@ -1499,6 +1570,7 @@ void AppWindow::onNewProjectClicked()
 
 void AppWindow::performNewProject()
 {
+    cancelProjectJobs();
     m_model = core::Model::createEmpty();
     // Pristine starting state, matching the constructor's own initial
     // track -- not through the UndoStack, since there's nothing to undo
@@ -2841,40 +2913,38 @@ gboolean AppWindow::onTimelineFileDrop(GdkFileList *files, double x, double y)
 
     core::FrameIndex position = m_viewport.frameForX(x);
 
-    GSList *list = gdk_file_list_get_files(files);
-    bool anySucceeded = false;
+    std::vector<std::string> paths;
+    GSList *list = gdk_file_list_get_files(files); // transfer container
     for (GSList *l = list; l != nullptr; l = l->next) {
-        auto *file = static_cast<GFile *>(l->data);
-        std::string path = localPathFor(file);
-        if (path.empty())
-            continue;
-        if (importFileToTrack(path, trackId, position)) {
-            anySucceeded = true;
-            // Each subsequent file (if several were dropped at once)
-            // lands right after the one just placed, same "append" rule
-            // onFileOpened() uses for a multi-select Import.
-            const core::Track &track = m_model.track(trackId);
-            position = track.clips.empty() ? position : m_model.clip(track.clips.back()).end();
-        }
+        std::string path = localPathFor(static_cast<GFile *>(l->data));
+        if (!path.empty())
+            paths.push_back(std::move(path));
     }
-    return anySucceeded ? TRUE : FALSE;
+    g_slist_free(list);
+    if (paths.empty())
+        return FALSE;
+    // Several files dropped at once land one after another from the drop
+    // point, the same "append" rule a multi-select Import uses.
+    startImport(std::move(paths), trackId, position);
+    return TRUE;
 }
 
 gboolean AppWindow::onMediaBrowserFileDrop(GdkFileList *files)
 {
     if (!files)
         return FALSE;
-    GSList *list = gdk_file_list_get_files(files);
-    bool anySucceeded = false;
+    std::vector<std::string> paths;
+    GSList *list = gdk_file_list_get_files(files); // transfer container
     for (GSList *l = list; l != nullptr; l = l->next) {
-        auto *file = static_cast<GFile *>(l->data);
-        std::string path = localPathFor(file);
-        if (path.empty())
-            continue;
-        if (importAssetOnly(path))
-            anySucceeded = true;
+        std::string path = localPathFor(static_cast<GFile *>(l->data));
+        if (!path.empty())
+            paths.push_back(std::move(path));
     }
-    return anySucceeded ? TRUE : FALSE;
+    g_slist_free(list);
+    if (paths.empty())
+        return FALSE;
+    startImport(std::move(paths), std::nullopt, std::nullopt);
+    return TRUE;
 }
 
 bool AppWindow::insertAssetAtPosition(core::AssetId assetId, core::TrackId trackId, core::FrameIndex position)
@@ -3472,6 +3542,7 @@ void AppWindow::offerRecoveryIfAny()
             if (response && std::string(response) == "recover") {
                 auto loaded = core::loadProject(owned->found.autosavePath);
                 if (loaded.has_value()) {
+                    owned->self->cancelProjectJobs();
                     owned->self->m_model = std::move(*loaded);
                     owned->self->m_currentProjectPath = owned->found.meta.originalPath;
                     owned->self->m_undoStack.clear();

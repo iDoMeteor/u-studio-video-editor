@@ -5,6 +5,7 @@
 
 #include <thread>
 #include <atomic>
+#include <expected>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -14,11 +15,14 @@
 
 #include "action_registry.h"
 #include "core/commands/undo_stack.h"
+#include "core/concurrency/thread_pool.h"
 #include "core/model/model.h"
+#include "engine/dispatcher.h"
 #include "engine/engine_sync.h"
 #include "engine/playback_controller.h"
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
+#include "import_queue.h"
 #include "settings.h"
 #include "timeline/timeline_controller.h"
 #include "timeline/texture_cache.h"
@@ -96,23 +100,33 @@ class AppWindow
     void buildUi(GtkApplication *app);
     void installActions(GtkApplication *app);
     // Enhancement #5: gtk_file_dialog_open_multiple() -- onFileOpened()
-    // imports every selected file, one after another, each appended
-    // after the previous one on the active track (recomputing the
-    // insert position fresh per file, since importFileToTrack() below
-    // changes the track's own clip list on every success).
+    // imports every selected file, each appended after the previous one on
+    // the active track.
     void onImportClicked();
     void onFileOpened(GObject *sourceObject, GAsyncResult *result);
-    // Shared by onFileOpened() (appends after the active track's last
-    // clip) and onTimelineFileDrop() (enhancement #7, a specific
-    // track/position from where the drop landed): probes `path`, computes
-    // its insert length, refuses if the target range isn't free (audit-
-    // C2-style dynamic overlap check, same as onTimelineDrop() below),
-    // and inserts an AddAsset+InsertClip CompositeCommand.
-    bool importFileToTrack(const std::string &path, core::TrackId trackId, core::FrameIndex position);
-    // Enhancement #7 (media-browser half): adds `path` to the project
-    // bin only -- no clip, no track needed. Also reachable nowhere else
-    // yet; Import always inserts a clip today (unchanged).
-    bool importAssetOnly(const std::string &path);
+    // doc 19 MT1: every import -- the Import dialog, a timeline drop, a
+    // media-browser drop -- probes its files in parallel on m_pool through
+    // m_importQueue and applies them here on the main thread, in the order
+    // given. With no `trackId` the files go to the project bin only; with
+    // one and no `position` each is appended after the track's last clip;
+    // with a `position` the first lands there and each next one right after
+    // the one before. A file that fails is reported and skipped.
+    void startImport(std::vector<std::string> paths, std::optional<core::TrackId> trackId,
+                     std::optional<core::FrameIndex> position);
+    // Computes the insert length, refuses if the target range isn't free
+    // (audit-C2-style dynamic overlap check, same as onTimelineDrop() below)
+    // and runs an AddAsset+InsertClip CompositeCommand. Returns the new
+    // clip's end, or why it couldn't be imported.
+    std::expected<core::FrameIndex, std::string> importProbedToTrack(const std::string &path,
+                                                                     const engine::EngineSync::ProbedMedia &probed,
+                                                                     core::TrackId trackId, core::FrameIndex position);
+    // Enhancement #7 (media-browser half): adds the file to the project bin
+    // only -- no clip, no track needed.
+    std::expected<void, std::string> importProbedAssetOnly(const std::string &path,
+                                                           const engine::EngineSync::ProbedMedia &probed);
+    // Open, New, Reload and Recover replace the project: imports still
+    // probing for the old one are cancelled and their results dropped.
+    void cancelProjectJobs();
     // Always opens the "Save Project" dialog (Save As), regardless of
     // m_currentProjectPath -- bound to Ctrl+Shift+S and the "Save
     // project…" button. See saveInPlaceOrPrompt() for Ctrl+S's "save in
@@ -707,6 +721,13 @@ class AppWindow
     // The timeline's thumbnail strips (their own worker; see the constructor)
     // and the textures made from them.
     std::unique_ptr<engine::ThumbnailCache> m_timelineThumbnails;
+    // doc 19 MT1: the window's worker pool and what runs on it. Results come
+    // back through MainThreadDispatcher::post guarded by m_lifetime, so a
+    // late one after the window is gone is dropped. prepareForShutdown()
+    // cancels and joins them before MLT is closed.
+    engine::MainThreadDispatcher::LifetimeToken m_lifetime = engine::MainThreadDispatcher::makeToken();
+    std::unique_ptr<core::concurrency::ThreadPool> m_pool;
+    std::unique_ptr<ImportQueue> m_importQueue;
     timeline::TextureCache m_thumbnailTextures{600};
     std::vector<ClipDisplay> m_clips;
     // doc 06's TimelineController: gesture state, drag preview and the

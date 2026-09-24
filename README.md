@@ -42,7 +42,9 @@ single-track skeleton.
   starting at the drop point, or onto the media browser to just add them
   to the bin with no clip placed. Import (`Ctrl+I`) supports selecting
   several files at once, each landing after the previous one on the
-  active track, and both Import and Open Project filter their file
+  active track. Files are probed in parallel off the main thread, with
+  "Importing 3 of 12…" in the status bar, and a file that can't be opened
+  is reported and skipped without stopping the rest. Both Import and Open Project filter their file
   pickers to media files and `.ustudio` projects respectively.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).
