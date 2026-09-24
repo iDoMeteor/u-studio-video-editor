@@ -123,6 +123,12 @@ subprojects/doctest/     vendored single header (wrap-file)
 
 ## Threading model
 
+> **Planned change (2026-09-24):** [ADR-016](adr/016-concurrency-model.md)
+> and [doc 19](19-concurrency.md) move `EngineSync` and
+> `PlaybackController` off the main thread onto a dedicated engine thread,
+> add model snapshots, and make the worker pool real. The table below
+> describes the current design until that lands.
+
 Four kinds of threads, each with a fixed set of things it may touch.
 
 | Thread | Owns | May touch | May not touch |

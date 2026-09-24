@@ -32,6 +32,13 @@ from here:
 
 1. Wrap up everything through M3 (in progress).
 2. Audit (bugs plus sanitizers) before starting M4.
+2a. **Concurrency, MT0–MT3** ([doc 19](19-concurrency.md), ADR-016,
+   owner direction 2026-09-24): worker pool and model snapshots; import,
+   probing, save and load off the main thread; an engine thread owning
+   graph building and playback; parallel caches. Before the integration
+   points, because IP3's hooks and M4's import work are built on it. MT4
+   (playback throughput) and MT5 (parallel, out-of-process export) can run
+   alongside M4.
 3. Land the integration points IP1–IP6 (doc 15, "Drop-in structure") as
    small reviewed commits, each a no-op with the drop-in build options
    `disabled`, so M4's bin and import work builds on them. The drop-in

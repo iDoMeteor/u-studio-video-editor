@@ -21,3 +21,4 @@ carries its own current status (ADR-011 to ADR-015 are Accepted).
 | [013](013-effects-and-titles-as-drop-in-modules.md) | Effects and titles are drop-in modules behind named integration points, optional at build time; their project data never is |
 | [014](014-drop-in-loading-and-distribution.md) | Drop-ins build built-in or as loadable modules; core ships with effects and titles, everything else is an opt-in package |
 | [015](015-ai-generation-network-boundary.md) | AI generation runs in a separate networked helper; the editor stays network-free |
+| [016](016-concurrency-model.md) | The main thread does UI and commands only; an engine thread, a worker pool and child processes do the rest, on immutable model snapshots |
