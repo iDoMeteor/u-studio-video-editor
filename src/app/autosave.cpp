@@ -289,4 +289,12 @@ std::optional<Recoverable> findRecoverable(const std::set<std::string> &excludeM
     return best;
 }
 
+bool autosaveDue(int64_t nowUsec, int64_t lastEditUsec, int64_t unsavedSinceUsec, int64_t delayUsec,
+                 int64_t heartbeatUsec)
+{
+    if (unsavedSinceUsec == 0)
+        return false;
+    return nowUsec - lastEditUsec >= delayUsec || nowUsec - unsavedSinceUsec >= delayUsec - heartbeatUsec;
+}
+
 } // namespace ustudio::app::autosave

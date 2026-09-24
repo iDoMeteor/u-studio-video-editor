@@ -91,4 +91,18 @@ struct Recoverable
 // alongside older ones (2026-09-23).
 std::optional<Recoverable> findRecoverable(const std::set<std::string> &excludeMetaPaths = {});
 
+// Whether the autosave heartbeat should write now, from monotonic
+// timestamps in microseconds. `unsavedSinceUsec` is when the oldest edit
+// not yet in an autosave happened (0 = nothing pending). Due when either:
+// - the user has been idle for `delayUsec` since the last edit (doc 09:
+//   "2 minutes after the last command"), or
+// - the oldest pending edit is about to be `delayUsec` old. Without this,
+//   steady editing never pauses long enough for the idle rule, and a
+//   kill -9 after half an hour of work lost the whole half hour. Doc 12's
+//   M1 box is "<= 2 min lost". `heartbeatUsec` is subtracted because the
+//   heartbeat only checks this often, so the worst case stays within
+//   `delayUsec`.
+bool autosaveDue(int64_t nowUsec, int64_t lastEditUsec, int64_t unsavedSinceUsec, int64_t delayUsec,
+                 int64_t heartbeatUsec);
+
 } // namespace ustudio::app::autosave

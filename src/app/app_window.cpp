@@ -196,6 +196,8 @@ AppWindow::AppWindow(GtkApplication *app)
     m_engineSync->rebuilt.connect([this] {
         m_playback->setTractor(m_engineSync->tractorPtr());
         m_lastEditMonotonicUsec = g_get_monotonic_time();
+        if (m_unsavedSinceMonotonicUsec == 0)
+            m_unsavedSinceMonotonicUsec = m_lastEditMonotonicUsec;
     });
     m_engineSync->mediaUnavailable.connect([this](const std::string &path) {
         showStatus("Couldn't open \"" + path + "\" — showing black in its place. The file may have moved or been "
@@ -225,11 +227,12 @@ AppWindow::AppWindow(GtkApplication *app)
     installActions(app);
     g_signal_connect(m_window, "notify::is-active", G_CALLBACK(&AppWindow::windowActiveChangedTrampoline), this);
     g_signal_connect(m_window, "close-request", G_CALLBACK(&AppWindow::closeRequestTrampoline), this);
-    // Heartbeat, not a one-shot timer reset on every edit (doc 09: "2
-    // minutes after the last command while dirty"): simpler to reason
-    // about than adding/removing a GSource on every keystroke-equivalent,
-    // and 10s of slack on a 2-minute threshold is immaterial.
-    m_autosaveHeartbeatId = g_timeout_add_seconds(10, &AppWindow::autosaveHeartbeatTrampoline, this);
+    // Heartbeat, not a one-shot timer reset on every edit: simpler to
+    // reason about than adding/removing a GSource on every
+    // keystroke-equivalent. autosave::autosaveDue() accounts for its
+    // interval so a kill -9 still loses at most the autosave delay.
+    m_autosaveHeartbeatId =
+        g_timeout_add_seconds(kAutosaveHeartbeatSeconds, &AppWindow::autosaveHeartbeatTrampoline, this);
 
     refreshTimeline();
     updateWindowTitle();
@@ -3713,22 +3716,24 @@ void AppWindow::performAutosave()
     meta.ownerStartTime = autosave::processStartTime(meta.ownerPid);
     autosave::writeMeta(metaPath, meta);
 
-    m_lastAutosaveMonotonicUsec = g_get_monotonic_time();
+    m_unsavedSinceMonotonicUsec = 0;
     Log::debug("[app] Autosaved to " + autosavePath);
 }
 
 void AppWindow::onAutosaveHeartbeat()
 {
-    if (m_undoStack.isClean())
+    // Clean (just saved, loaded, or undone back to the save point): nothing
+    // to protect, and the next edit starts a fresh pending window.
+    if (m_undoStack.isClean()) {
+        m_unsavedSinceMonotonicUsec = 0;
         return;
-    // Already covered this edit -- avoid re-writing the same state every
-    // 10s while the user is away with nothing new to capture.
-    if (m_lastAutosaveMonotonicUsec >= m_lastEditMonotonicUsec)
-        return;
+    }
 
-    // doc 09: N minutes since the last command, N from Settings (default 2).
+    // N minutes from Settings (default 2): idle for N, or the oldest
+    // unsaved edit about to be N old -- see autosave::autosaveDue().
     const gint64 autosaveDelayUsec = static_cast<gint64>(m_settings->autosaveDelayMinutes()) * 60 * G_USEC_PER_SEC;
-    if (g_get_monotonic_time() - m_lastEditMonotonicUsec >= autosaveDelayUsec)
+    if (autosave::autosaveDue(g_get_monotonic_time(), m_lastEditMonotonicUsec, m_unsavedSinceMonotonicUsec,
+                              autosaveDelayUsec, kAutosaveHeartbeatSeconds * G_USEC_PER_SEC))
         performAutosave();
 }
 

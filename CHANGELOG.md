@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.16.3
+
+- Autosave now also runs while you edit continuously, so a crash loses at
+  most 2 minutes of work. Before, it waited for 2 minutes with no edits.
+
 ## 0.16.2
 
 - Saved projects now play exactly as in the editor when opened by other

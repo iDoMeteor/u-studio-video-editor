@@ -125,7 +125,11 @@ single-track skeleton.
   percentage in the status bar while it runs (enhancement #13,
   2026-09-23).
 - Save/load a project as MLT XML with `ustudio:` namespaced properties
-  (see "Project files" below), plus autosave and crash recovery.
+  (see "Project files" below), plus autosave and crash recovery. Autosave
+  fires 2 minutes (configurable) after the last edit, on focus loss, and
+  whenever the oldest unsaved edit reaches that age. So a crash or
+  `kill -9` loses at most 2 minutes of work even while you edit
+  continuously.
   `Ctrl+S` saves straight back to the project's own file with no dialog
   once it has one (falling back to the Save As dialog for an untitled
   project); `Ctrl+Shift+S` always opens the Save As dialog. `Ctrl+O`/

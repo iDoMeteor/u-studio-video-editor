@@ -447,3 +447,41 @@ TEST_CASE("autosave: findRecoverable's exclude set skips a candidate to surface 
     // Excluding both leaves nothing.
     CHECK_FALSE(findRecoverable({first->metaPath, second->metaPath}).has_value());
 }
+
+// doc 12, M1: "kill -9 during editing -> next launch offers recovery with
+// <= 2 min lost". Microseconds, like g_get_monotonic_time().
+TEST_CASE("autosaveDue: nothing pending never triggers")
+{
+    constexpr int64_t kMinute = 60'000'000;
+    CHECK_FALSE(autosaveDue(100 * kMinute, 0, 0, 2 * kMinute, 10'000'000));
+}
+
+TEST_CASE("autosaveDue: idle for the delay after the last edit triggers (doc 09)")
+{
+    constexpr int64_t kSecond = 1'000'000;
+    const int64_t delay = 120 * kSecond, heartbeat = 10 * kSecond;
+    CHECK_FALSE(autosaveDue(1000 * kSecond, 1000 * kSecond, 1000 * kSecond, delay, heartbeat));
+    CHECK_FALSE(autosaveDue(1100 * kSecond, 1000 * kSecond, 1000 * kSecond, delay, heartbeat));
+    CHECK(autosaveDue(1120 * kSecond, 1000 * kSecond, 1000 * kSecond, delay, heartbeat));
+}
+
+TEST_CASE("autosaveDue: steady editing still autosaves, losing at most the delay")
+{
+    // An edit every 30 s, never idle long enough for the idle rule: the
+    // max-age rule must fire, and at a heartbeat granularity that keeps the
+    // oldest unsaved edit younger than the delay when the write happens.
+    constexpr int64_t kSecond = 1'000'000;
+    const int64_t delay = 120 * kSecond, heartbeat = 10 * kSecond;
+    const int64_t firstEdit = 5000 * kSecond;
+    int64_t firedAt = -1;
+    for (int64_t now = firstEdit; now <= firstEdit + 600 * kSecond; now += heartbeat) {
+        int64_t lastEdit = firstEdit + ((now - firstEdit) / (30 * kSecond)) * (30 * kSecond);
+        if (autosaveDue(now, lastEdit, firstEdit, delay, heartbeat)) {
+            firedAt = now;
+            break;
+        }
+    }
+    REQUIRE(firedAt >= 0);
+    CHECK(firedAt - firstEdit <= delay);
+    CHECK(firedAt - firstEdit >= delay - heartbeat);
+}

@@ -734,7 +734,11 @@ class AppWindow
     // different files instead of overwriting each other, per doc 09.
     std::string m_autosaveSessionId;
     gint64 m_lastEditMonotonicUsec = 0;
-    gint64 m_lastAutosaveMonotonicUsec = 0;
+    // When the oldest edit not yet in an autosave happened; 0 = none
+    // pending. Set by the first rebuild after an autosave, cleared by
+    // performAutosave() and whenever the project is clean.
+    gint64 m_unsavedSinceMonotonicUsec = 0;
+    static constexpr guint kAutosaveHeartbeatSeconds = 10;
     guint m_autosaveHeartbeatId = 0;
     // Set after a successful "Recover" (audit A2): this session's own
     // future autosaves go to a filename keyed on m_autosaveSessionId (a

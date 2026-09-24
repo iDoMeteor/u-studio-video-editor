@@ -91,6 +91,10 @@ Every migration has a fixture file in `tests/fixtures/projects/`.
 ## Autosave and recovery
 
 - Timer: 2 minutes after the last command while dirty, and on focus loss.
+  Also whenever the oldest unsaved edit is about to be 2 minutes old, so
+  steady editing (never idle for 2 minutes) still autosaves. Doc 12's M1
+  box is "kill -9 loses at most 2 minutes" (`autosave::autosaveDue()`,
+  2026-09-24).
 - Location: `$XDG_STATE_HOME/ustudio/autosave/<sha1(path or 'untitled-'+uuid)>.ustudio`
   plus a `.meta` JSON with the original path and timestamp.
 - On startup, autosaves newer than their targets (or with no target) are
