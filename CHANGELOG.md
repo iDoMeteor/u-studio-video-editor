@@ -8,6 +8,8 @@ docs-only changes are not listed (CLAUDE.md).
 
 - Stepping frame by frame quickly (holding an arrow key, or clicking the
   step button repeatedly) no longer drops steps.
+- Fixed a rare flash of the first frame in the preview right after an edit
+  while paused (a regression from 0.15.3's playback change).
 
 ## 0.15.4
 

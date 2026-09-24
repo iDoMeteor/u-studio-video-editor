@@ -154,28 +154,20 @@ void PlaybackController::setTractor(std::shared_ptr<Mlt::Tractor> tractor)
     m_pausedPosition.store(clamped);
     m_lastKnownFrame.store(clamped);
 
-    if (wasPlaying) {
+    // Full pause() after the fresh start, purge included. Sanitizer report
+    // S4 suggested skipping the purge here (MLT's mlt_consumer_purge()
+    // reads an unsynchronised `started` flag right after start(), a
+    // theoretical ARM hazard), and 4e9c602 did that. It was reverted: the
+    // purge also drops the frame the fresh consumer queued at position 0
+    // before the seek above. Without it, that stale frame could reach the
+    // screen after the preserved one. The full suite then failed "pause
+    // shows the exact frame sought to" in 2 of 6 runs under load, against
+    // 0 of 6 with the purge. The S4 race itself never reproduced under
+    // TSan here.
+    if (wasPlaying)
         play(previousSpeed);
-        return;
-    }
-
-    // pause() minus its seek-back and purge. The consumer was started a
-    // moment ago, so its queue holds nothing to drop, and the producer is
-    // already at `clamped` (seek above). Calling mlt_consumer_purge() right
-    // after start() also races MLT itself (sanitizer report S4,
-    // 2026-09-23, TSan): consumer_read_ahead_start() inits queue_mutex on
-    // the consumer thread and then sets a plain `started` flag, which
-    // purge() reads without synchronisation before locking that mutex.
-    // Harmless on x86's store ordering, but on ARM it could lock a
-    // half-initialised mutex. Every paused edit hit that window. Covered
-    // by "an edit while paused (setTractor) keeps showing the paused
-    // frame" in test_playback_controller.
-    m_tractor->set_speed(0);
-    m_speed.store(0.0);
-    m_playing.store(false);
-    if (m_consumer)
-        m_consumer->set("refresh", 1);
-    applyResolvedScale();
+    else
+        pause();
 }
 
 void PlaybackController::setFrameCallback(FrameCallback cb)

@@ -242,10 +242,10 @@ TEST_CASE("PlaybackController: an edit while paused (setTractor) keeps showing t
 
     // Every ordinary edit hands PlaybackController a brand-new tractor
     // (EngineSync::rebuildAll()); setTractor() restarts the consumer and
-    // re-enters the paused state at the preserved position without purging
-    // the fresh consumer's queue (sanitizer report S4). Whatever the fresh
-    // consumer delivers must be the preserved frame -- never a stale frame
-    // 0 from before setTractor()'s own seek.
+    // re-enters the paused state at the preserved position. Whatever the
+    // fresh consumer delivers must be the preserved frame -- never a stale
+    // frame 0 from before setTractor()'s own seek (the reason setTractor()
+    // keeps its purge; see the comment there on sanitizer report S4).
     {
         std::lock_guard<std::mutex> lock(mutex);
         deliveredPositions.clear();
