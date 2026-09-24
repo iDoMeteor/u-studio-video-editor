@@ -56,6 +56,11 @@ Found while fixing, by the fuzz test with the P4 invariant and undo/redo checks:
 
 Worth reporting upstream (MLT 7.40, `consumer_sdl2_audio.c`): besides P3, the consumer thread's paused path checks `running` outside `refresh_mutex` and then waits on `refresh_cond` without re-checking it, so a stop that lands between the two is a lost wake-up. Not reproduced here.
 
+Also worth reporting (MLT 7.40, found during doc 19 MT1):
+
+- `mlt_factory.c` assigns every service's `_unique_id` with a plain `++unique_id` on a static int (line 306), so producers created on two threads at once can get the same id. That's a data race, but a benign one for us, since nothing reads `_unique_id`. The thumbnail and waveform workers could already hit it before MT1. TSan doesn't report it under the justfile's `ignore_noninstrumented_modules`.
+- The loader's `dictionary` and `normalizers` and avformat's `avformat_initialised` are initialised lazily with no lock (`producer_loader.c:87`, `:207`; `avformat/factory.c:56`). Parallel probes crashed in `attach_normalizers` about 1 run in 7. We work around it by warming them up in `FactoryPolicy` (`606d171`); upstream could use a once-guard.
+
 ## What was run
 
 | Run | Result |
