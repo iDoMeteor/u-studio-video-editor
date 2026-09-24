@@ -2960,18 +2960,19 @@ void AppWindow::refreshRecentProjectsMenu()
 
     GList *items = gtk_recent_manager_get_items(gtk_recent_manager_get_default());
 
-    // Newest first, capped at 10 -- a menu, not a full history browser.
-    // Extracts a plain int64 timestamp for each entry FIRST and sorts
-    // that with std::sort, rather than g_list_sort() with a comparator
-    // that calls back into gtk_recent_info_get_modified()/
-    // g_date_time_compare() on every comparison: found live that this
-    // crashes deep inside GLib's own g_date_time_compare
-    // (g_time_zone_get_offset) against a large, real recently-used.xbel
-    // history (g_list_sort's merge-sort recursion visible in the
-    // backtrace) -- never reproduced against this session's own small,
-    // synthetic test histories, only the owner's real one. A pre-
-    // extracted int64 needs no further GLib calls during the comparison
-    // itself.
+    // Newest first, capped at Settings::recentProjectsMax() -- a menu, not
+    // a full history browser. Sorts plain int64 timestamps extracted up
+    // front rather than calling back into GtkRecentInfo per comparison.
+    //
+    // gtk_recent_info_get_modified() is transfer-none (Gtk-4.0.gir): the
+    // GDateTime belongs to the GtkRecentInfo and must NOT be unreffed here.
+    // An earlier version did unref it, freeing timestamps the recent
+    // manager still owned. That crashed in g_time_zone_get_offset twice:
+    // first inside a g_list_sort comparator on a later refresh (once
+    // blamed on a "large real history", which was wrong), then, after
+    // sanitizer report S2 made SIGTERM reach the normal shutdown path,
+    // when gtk_application_shutdown serialised recently-used.xbel from
+    // the freed dates (2026-09-23, coredumpctl backtrace).
     std::vector<std::pair<gint64, GtkRecentInfo *>> entries;
     for (GList *l = items; l != nullptr; l = l->next) {
         auto *info = static_cast<GtkRecentInfo *>(l->data);
@@ -2982,10 +2983,8 @@ void AppWindow::refreshRecentProjectsMenu()
         // register a custom MIME type to filter on instead.
         if (!uri || !g_str_has_suffix(uri, ".ustudio"))
             continue;
-        GDateTime *modified = gtk_recent_info_get_modified(info);
+        GDateTime *modified = gtk_recent_info_get_modified(info); // transfer none -- see above
         gint64 timestamp = modified ? g_date_time_to_unix(modified) : 0;
-        if (modified)
-            g_date_time_unref(modified);
         entries.emplace_back(timestamp, info);
     }
     std::sort(entries.begin(), entries.end(),

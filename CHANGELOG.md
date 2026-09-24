@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.15.2
+
+- Fixed a crash on quit, and a possible crash when refreshing the recent
+  projects menu, caused by freeing timestamps the recent-files list still
+  owned.
+
 ## 0.15.1
 
 - Fixed memory growing with every edit: each edit leaked the previous
