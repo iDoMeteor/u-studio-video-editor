@@ -186,7 +186,10 @@ void writeAssetProducer(xmlNodePtr mlt, const Asset &asset, const fs::path &proj
     addProperty(producer, "ustudio:folder", asset.folder);
     addProperty(producer, "ustudio:fingerprint", asset.fileFingerprint);
     addProperty(producer, "ustudio:proxy", asset.proxyPath);
-    addProperty(producer, "ustudio:status", std::to_string(static_cast<int>(asset.status)));
+    // Missing is what this run found on disk, not part of the project
+    // (doc 07; the next open checks again).
+    const Asset::Status status = asset.status == Asset::Status::Missing ? Asset::Status::Ready : asset.status;
+    addProperty(producer, "ustudio:status", std::to_string(static_cast<int>(status)));
 
     const MediaInfo &info = asset.info;
     addProperty(producer, "ustudio:has_video", info.hasVideo ? "1" : "0");

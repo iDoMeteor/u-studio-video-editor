@@ -93,6 +93,12 @@ class Model
     // bit" contract). Same "asserts on an unknown id, callers validate
     // first" contract as every other mutator here.
     void setAssetLength(AssetId, FrameIndex length);
+    // Missing or Ready as found on disk (doc 07): runtime state, not an
+    // edit, so not a command (and never saved as Missing).
+    void setAssetStatus(AssetId, Asset::Status status);
+    // Where the asset's file is (RelinkAsset): its path, fingerprint and
+    // status together.
+    void setAssetSource(AssetId, std::string path, std::string fingerprint, Asset::Status status);
 
     TrackId addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId = std::nullopt);
     void removeTrack(TrackId);

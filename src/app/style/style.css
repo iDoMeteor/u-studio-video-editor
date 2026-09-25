@@ -112,6 +112,12 @@ window {
   background-color: black;
 }
 
+/* A missing file in the media browser (M4 B). */
+.media-missing {
+  color: @semantic_danger;
+  font-weight: bold;
+}
+
 .media-browser-panel {
   background-color: @ink_800;
   border-right: 1px solid @ink_500;

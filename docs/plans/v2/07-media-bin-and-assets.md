@@ -96,6 +96,8 @@ The relink dialog lists missing assets, lets the user pick a file or a folder
 to search (matching by filename, then by fingerprint), and applies
 `RelinkAsset` commands.
 
+> REVIEW: VE Core, 2026-09-25 (M4 B, 0.46.0): as built. The loader marks missing files on the pool with the parse (`core::markMissingMedia`: absolute file paths only, never generators); Missing is runtime state (decision (f)), set by `Model::setAssetStatus` outside the undo stack and saved as Ready, so the next open checks again. The engine opens nothing for a known-missing asset and plays `color:#7a2232` (style.css's danger red, darkened; the engine can't include tokens.h), opaque rather than doc 07's translucent `0x40000040`, so it reads the same on any track; a file that fails to open later becomes Missing too. The timeline stripes those clips in the danger token, the bin says MISSING, and a banner ("N media files are missing") opens the relink dialog: Locate… per file, or Search a Folder… (by file name, then fingerprint among several of that name). Each candidate is probed on the pool and must be long enough for the clips that use it; the good ones become `RelinkAsset` commands (path, fingerprint, status only), one undo step. The engine drops the cached masters of any asset whose path or status changed. Every render with missing media in use asks first: Relink First or Render Anyway.
+
 ## Bin panel
 
 `AdwViewStack` page in the left sidebar. `GtkGridView` of cards (thumbnail,

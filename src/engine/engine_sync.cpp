@@ -41,6 +41,12 @@ namespace Log = ustudio::core::Log;
 
 namespace {
 constexpr const char *kBlackResource = "color:black";
+// What a missing file's clips play (doc 07, M4 B): style.css's
+// semantic_danger (#ff4d6d) darkened, so it reads as "something's wrong"
+// without glaring for the length of a clip. The engine can't include the
+// app's generated tokens.h; keep the two in step. "#rrggbb" verified with
+// MLT 7.40's color producer (standalone repro, 2026-09-25).
+constexpr const char *kMissingResource = "color:#7a2232";
 // ~3.8 days at 30 fps: longer than any sequence this app will hold, so the
 // black master (rebuildAll()) never needs resizing after creation.
 constexpr int kBlackMasterLength = 10'000'000;
@@ -155,6 +161,8 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
         inPlace = true;
     }
     const core::Profile profileBefore = m_model.sequence().profile;
+    if (rebuild)
+        dropChangedMasters(*m_project, *project);
     m_project = std::move(project);
     m_model = core::Model(*m_project);
     const bool newProfile = m_model.sequence().profile != profileBefore;
@@ -164,6 +172,21 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
         rebuildAll();
     if (inPlace)
         appliedInPlace.emit();
+}
+
+void EngineSync::dropChangedMasters(const core::Project &before, const core::Project &after)
+{
+    // A relinked, missing or found-again asset needs its file (or the
+    // placeholder) opened afresh; the cache is keyed by asset id alone.
+    for (const core::Asset &now : after.bin) {
+        auto was =
+            std::find_if(before.bin.begin(), before.bin.end(), [&](const core::Asset &a) { return a.id == now.id; });
+        if (was == before.bin.end() || (was->path == now.path && was->status == now.status))
+            continue;
+        for (uint64_t variant = 0; variant < 4; ++variant)
+            m_masterProducers.erase((now.id.value << 2) | variant);
+        m_unavailableAssets.erase(now.id.value);
+    }
 }
 
 void EngineSync::reset(std::shared_ptr<const core::Project> project)
@@ -314,8 +337,14 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
     const uint64_t key = (assetId.value << 2) | (videoEnabled ? 1u : 0u) | (audioEnabled ? 2u : 0u);
     auto it = m_masterProducers.find(key);
     if (it == m_masterProducers.end()) {
-        auto producer = std::make_shared<Mlt::Producer>(*m_profile, asset.path.c_str());
-        if (!producer->is_valid()) {
+        // A file already known to be missing (checked on load) isn't
+        // opened at all: straight to the placeholder, no warning.
+        const bool knownMissing = asset.status == core::Asset::Status::Missing;
+        if (knownMissing)
+            m_unavailableAssets.insert(assetId.value);
+        auto producer =
+            std::make_shared<Mlt::Producer>(*m_profile, knownMissing ? kMissingResource : asset.path.c_str());
+        if (!knownMissing && !producer->is_valid()) {
             // Untrusted input (CLAUDE.md): a project can reference a file
             // that's since been moved, deleted, or lives on an unmounted
             // drive. Confirmed empirically (standalone repro) that an
@@ -328,17 +357,19 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
             // the ONLY place that can catch it: by the time a bad
             // producer would otherwise reach rebuildTrackPlaylist(), it's
             // already too late to tell it apart from a real one. Falls
-            // back to a black placeholder sized to the asset's own
-            // recorded length, so the clip's span keeps its correct
+            // back to the missing-media placeholder sized to the asset's
+            // own recorded length, so the clip's span keeps its correct
             // duration and every other clip's timing is unaffected --
-            // only its own frames show black instead of crashing the app.
+            // only its own frames show the placeholder instead of crashing.
             // Once per asset, not once per stream-switch variant.
             if (m_unavailableAssets.insert(assetId.value).second) {
                 Log::error("[engine] could not open asset " + std::to_string(assetId.value) + " (" + asset.path +
-                           ") -- showing black in its place");
+                           ") -- showing the missing-media placeholder in its place");
                 mediaUnavailable.emit(asset.path);
             }
-            producer = std::make_shared<Mlt::Producer>(*m_profile, kBlackResource);
+            producer = std::make_shared<Mlt::Producer>(*m_profile, kMissingResource);
+        }
+        if (knownMissing || m_unavailableAssets.contains(assetId.value)) {
             core::FrameIndex placeholderLength = std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1);
             producer->set("length", static_cast<int>(placeholderLength));
             producer->set_in_and_out(0, static_cast<int>(placeholderLength - 1));

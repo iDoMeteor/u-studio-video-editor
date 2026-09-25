@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.46.0
+
+- Missing media: a project whose files moved opens with those clips striped red
+  (playing dark red), a banner, and a Relink dialog (locate each file or
+  search a folder); relinking changes nothing else and undoes in one step.
+  Renders ask before using missing media.
+
 ## 0.45.1
 
 - A long status message (an import of many files at another frame rate)

@@ -70,6 +70,27 @@ void AddAsset::revert(Model &model)
 
 RemoveAsset::RemoveAsset(AssetId asset) : m_asset(asset) {}
 
+RelinkAsset::RelinkAsset(AssetId asset, std::string path, std::string fingerprint)
+    : m_asset(asset), m_path(std::move(path)), m_fingerprint(std::move(fingerprint))
+{}
+
+bool RelinkAsset::apply(Model &model)
+{
+    if (!model.hasAsset(m_asset) || m_path.empty())
+        return false;
+    const Asset &asset = model.asset(m_asset);
+    m_oldPath = asset.path;
+    m_oldFingerprint = asset.fileFingerprint;
+    m_oldStatus = asset.status;
+    model.setAssetSource(m_asset, m_path, m_fingerprint, Asset::Status::Ready);
+    return true;
+}
+
+void RelinkAsset::revert(Model &model)
+{
+    model.setAssetSource(m_asset, m_oldPath, m_oldFingerprint, m_oldStatus);
+}
+
 bool RemoveAsset::apply(Model &model)
 {
     if (!model.hasAsset(m_asset))

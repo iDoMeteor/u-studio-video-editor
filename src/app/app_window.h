@@ -166,6 +166,26 @@ class AppWindow : public ShellHost
     void showImportReport(size_t imported, size_t total, const std::vector<std::string> &failures,
                           const std::string &notes);
     void onImportFolderClicked();
+
+    // M4 B, missing media (app/missing_media.cpp). Assets marked Missing on
+    // load (core::markMissingMedia) or when the engine couldn't open them.
+    // The banner and relink dialog exist only once something is missing.
+    std::vector<core::AssetId> missingAssets(bool usedOnly) const;
+    // " 2 media files are missing.", for the Opened status; "" if none.
+    std::string missingMediaNotice() const;
+    void refreshMissingBanner();
+    void showRelinkDialog();
+    void refreshRelinkDialog();
+    // Probes each candidate on the pool (it must open and be long enough
+    // for the clips using it), then relinks the good ones as one command.
+    void relinkTo(std::vector<std::pair<core::AssetId, std::string>> candidates);
+    void searchFolderForMissing(const std::string &folder);
+    void onMediaUnavailable(const std::string &path);
+    AdwBanner *m_missingBanner = nullptr;
+    AdwDialog *m_relinkDialog = nullptr;
+    AdwPreferencesGroup *m_relinkGroup = nullptr;
+    std::vector<GtkWidget *> m_relinkRows;
+    static void relinkDialogClosedTrampoline(AdwDialog *dialog, gpointer userData);
     // Enhancement #7 (media-browser half): adds the file to the project bin
     // only -- no clip, no track needed.
     // Doc 13 R7: the profile an import should set first (the first video
@@ -1046,7 +1066,9 @@ class AppWindow : public ShellHost
     GtkLabel *m_renderBadge = nullptr;
     GtkPopover *m_renderMenu = nullptr;
     std::string m_lastRenderedPath; // non-empty: the button offers to open it
-    void queueRender(const core::RenderProfile &profile, const std::string &path);
+    // Every render goes through here. With missing media in use it asks
+    // first ("Relink first / Render anyway") unless `missingConfirmed`.
+    void queueRender(const core::RenderProfile &profile, const std::string &path, bool missingConfirmed = false);
     // `<project>-<profile>-YYYYMMDD-HHMMSS.mp4` in exportFolder(), unused.
     std::string autoRenderPath(const core::RenderProfile &profile) const;
     void askCancelOrQueueRender();

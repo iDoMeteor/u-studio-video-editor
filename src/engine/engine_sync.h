@@ -255,6 +255,9 @@ class EngineSync
     // verify() skips its resource check for these, since the mismatch
     // there is the intended fallback, not a sync bug.
     std::unordered_set<uint64_t> m_unavailableAssets;
+    // Forgets the masters of assets whose path or status changed (relink,
+    // missing on load, found again), so the next build opens them afresh.
+    void dropChangedMasters(const core::Project &before, const core::Project &after);
     // MLT tractor index -> model TrackId; std::nullopt at index 0 (the
     // black backing track, not a model track).
     std::vector<std::optional<core::TrackId>> m_mltTrackOrder;

@@ -67,6 +67,15 @@ test_probe_media_exe = executable(
 
 test('engine-probe-media', test_probe_media_exe)
 
+# M4 B: missing media plays a placeholder; relink restores it exactly.
+test_missing_media_exe = executable(
+  'test_missing_media',
+  files('test_missing_media.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-missing-media', test_missing_media_exe, timeout: 60)
+
 test_waveform_cache_exe = executable(
   'test_waveform_cache',
   files('test_waveform_cache.cpp'),

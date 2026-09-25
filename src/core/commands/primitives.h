@@ -72,6 +72,28 @@ class AddAsset : public Command
 // locked track -- same guard as RemoveClip's own, and for the same
 // reason: a locked track refuses removal of its own clips regardless of
 // what's driving the removal.
+// Points an asset at another file (the relink dialog, doc 07): its path,
+// fingerprint and status, nothing else, so clips, lengths and the rest of
+// the project are exactly as they were. Whether the new file is long
+// enough for the ranges in use is the caller's check (it needs a probe).
+class RelinkAsset : public Command
+{
+  public:
+    RelinkAsset(AssetId asset, std::string path, std::string fingerprint);
+    std::string label() const override
+    {
+        return "Relink media";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    AssetId m_asset;
+    std::string m_path, m_fingerprint;
+    std::string m_oldPath, m_oldFingerprint;
+    Asset::Status m_oldStatus = Asset::Status::Ready;
+};
+
 class RemoveAsset : public Command
 {
   public:

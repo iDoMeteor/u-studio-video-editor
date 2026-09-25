@@ -48,7 +48,12 @@ single-track skeleton.
   drop a folder) brings in every file under it, subfolders included and
   hidden files skipped, into the bin. However many files, one import is one
   undo step, and when some can't be imported a dialog lists each one and why
-  (empty, a folder, not media, or over 20 s to open). Both Import and Open Project filter their file
+  (empty, a folder, not media, or over 20 s to open). A project whose
+  media has moved opens anyway: those clips show striped red (and play dark
+  red), a banner says how many files are missing, and Relink… points each at
+  its new place, one file at a time or by searching a folder, as one undo
+  step that changes nothing else. A render with missing media asks first.
+  Both Import and Open Project filter their file
   pickers to media files and `.ustudio` projects respectively.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).

@@ -8,6 +8,7 @@
 #include "core/commands/composite_command.h"
 #include "platform/process.h"
 #include "core/media/fingerprint.h"
+#include "core/media/missing_media.h"
 #include "core/media/utf8_path.h"
 #include "core/commands/primitives.h"
 #include "core/commands/timeline_edits.h"
@@ -170,10 +171,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         if (m_unsavedSinceMonotonicUsec == 0)
             m_unsavedSinceMonotonicUsec = m_lastEditMonotonicUsec;
     });
-    m_engine->mediaUnavailable.connect([this](const std::string &path) {
-        showStatus("Couldn't open \"" + path + "\" — showing black in its place. The file may have moved or been "
-                   "deleted.");
-    });
+    m_engine->mediaUnavailable.connect([this](const std::string &path) { onMediaUnavailable(path); });
     m_engine->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
@@ -235,7 +233,14 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
         },
-        core::loadProject);
+        // Pool: the parse, then which media files are missing (a stat each;
+        // doc 07), so a slow mount never stalls the window.
+        [](const std::string &path) {
+            ProjectLoader::Result loaded = core::loadProject(path);
+            if (loaded)
+                core::markMissingMedia(*loaded);
+            return loaded;
+        });
     // doc 19 MT3: the caches run on the pool too, capped so imports, probes
     // and saves still get threads: about half the pool between the timeline's
     // strips and its waveforms, plus one job for the media browser's row
@@ -291,6 +296,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         // IP5: drop-ins' inspector pages refresh, the selection already
         // pruned.
         m_shellProjectChanged.emit();
+        refreshMissingBanner(); // a relink, or its undo
     });
 
     gchar *sessionUuid = g_uuid_string_random();
@@ -2330,7 +2336,7 @@ void AppWindow::loadProjectFromPath(const std::string &requestedPath)
             m_pendingAutosaveCleanupMetaPath.clear();
             refreshTimeline();
             refreshMediaBrowser();
-            showStatus("Opened: " + path + unplayedEffectsNotice());
+            showStatus("Opened: " + path + unplayedEffectsNotice() + missingMediaNotice());
             // Enhancement #15: recorded regardless of how the project got
             // opened (dialog or the recent-projects menu itself), so
             // re-opening it later keeps bumping it back to the top.
@@ -2385,6 +2391,7 @@ void AppWindow::replaceProject(core::Model model)
     m_undoStack.clear();
     m_activeTrack = 0;
     m_timelineController.selection().clear();
+    refreshMissingBanner();
 }
 
 void AppWindow::onReloadProjectClicked()
@@ -2445,6 +2452,14 @@ void AppWindow::performNewProject()
 core::RenderProfile AppWindow::defaultRenderProfile() const
 {
     return m_renderProfiles->find(m_settings->defaultRenderProfile()).value_or(core::builtInRenderProfiles()[0]);
+}
+
+std::string AppWindow::missingMediaNotice() const
+{
+    const size_t missing = missingAssets(false).size();
+    if (missing == 0)
+        return {};
+    return missing == 1 ? " 1 media file is missing." : " " + std::to_string(missing) + " media files are missing.";
 }
 
 std::string AppWindow::unplayedEffectsNotice() const
@@ -2580,8 +2595,40 @@ std::string AppWindow::autoRenderPath(const core::RenderProfile &profile) const
     return path;
 }
 
-void AppWindow::queueRender(const core::RenderProfile &profile, const std::string &path)
+void AppWindow::queueRender(const core::RenderProfile &profile, const std::string &path, bool missingConfirmed)
 {
+    // Never export red placeholders without asking (M4 B).
+    if (!missingConfirmed) {
+        if (const size_t missing = missingAssets(true).size(); missing > 0) {
+            struct Pending
+            {
+                AppWindow *self;
+                core::RenderProfile profile;
+                std::string path;
+            };
+            const std::string heading =
+                missing == 1 ? "1 file is missing" : std::to_string(missing) + " files are missing";
+            AdwDialog *dialog =
+                adw_alert_dialog_new(heading.c_str(), "The render will show red frames where they're used.");
+            adw_alert_dialog_add_responses(ADW_ALERT_DIALOG(dialog), "relink", "Relink First", "render",
+                                           "Render Anyway", nullptr);
+            adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "relink");
+            adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "relink");
+            adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "render", ADW_RESPONSE_DESTRUCTIVE);
+            adw_alert_dialog_choose(
+                ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+                [](GObject *source, GAsyncResult *result, gpointer data) {
+                    std::unique_ptr<Pending> pending(static_cast<Pending *>(data));
+                    const std::string response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+                    if (response == "render")
+                        pending->self->queueRender(pending->profile, pending->path, true);
+                    else
+                        pending->self->showRelinkDialog();
+                },
+                new Pending{this, profile, path});
+            return;
+        }
+    }
     if (pathIsProjectAsset(path)) {
         showStatus("Refusing to render over a file already in this project's media: " + path);
         return;
@@ -3996,8 +4043,10 @@ void AppWindow::refreshMediaBrowser()
         std::string formatText = asset.info.container;
         for (char &c : formatText)
             c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        GtkWidget *formatLabel = gtk_label_new(formatText.empty() ? "—" : formatText.c_str());
-        gtk_widget_add_css_class(formatLabel, "dim-label");
+        // A missing file says so where its format would be (M4 B).
+        const bool missing = asset.status == core::Asset::Status::Missing;
+        GtkWidget *formatLabel = gtk_label_new(missing ? "MISSING" : formatText.empty() ? "—" : formatText.c_str());
+        gtk_widget_add_css_class(formatLabel, missing ? "media-missing" : "dim-label");
         gtk_widget_set_size_request(formatLabel, 50, -1);
         gtk_label_set_xalign(GTK_LABEL(formatLabel), 0.0);
         gtk_box_append(GTK_BOX(row), formatLabel);

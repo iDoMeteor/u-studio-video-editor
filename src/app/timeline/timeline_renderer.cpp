@@ -215,14 +215,13 @@ void drawWaveform(GtkSnapshot *s, const std::vector<float> &peaks, const ClipBox
 #endif
 }
 
-void drawDissolveHatch(GtkSnapshot *s, double left, double right, double top, double height)
+void drawHatch(GtkSnapshot *s, double left, double right, double top, double height, tokens::Rgb c, double alpha)
 {
     graphene_rect_t bounds = rect(left, top, right - left, height);
     cairo_t *cr = gtk_snapshot_append_cairo(s, &bounds);
     cairo_rectangle(cr, left, top, right - left, height);
     cairo_clip(cr);
-    const tokens::Rgb c = tokens::kBrandCyan;
-    cairo_set_source_rgba(cr, c.r, c.g, c.b, 0.6);
+    cairo_set_source_rgba(cr, c.r, c.g, c.b, alpha);
     cairo_set_line_width(cr, 1.5);
     constexpr double kSpacing = 7.0;
     for (double sx = left - height; sx < right; sx += kSpacing) {
@@ -321,14 +320,28 @@ void snapshotTimeline(GtkSnapshot *s, const TimelineScene &scene, double width, 
             ClipBox box;
             if (!clipBox(scene, drawRow, start, length, width, box))
                 continue;
-            const std::string &name = !clip.name.empty() ? clip.name : tracks[r].name;
-            bool thumbnails =
-                scene.thumbnailFor && !dragged && clip.videoEnabled && tracks[r].kind == core::Track::Kind::Video;
+            // A missing file (doc 07, M4 B): striped danger red, no pictures
+            // or sound drawn, named as missing.
+            const bool missing =
+                model.hasAsset(clip.asset) && model.asset(clip.asset).status == core::Asset::Status::Missing;
+            const std::string &clipName = !clip.name.empty() ? clip.name : tracks[r].name;
+            const std::string name = missing ? "Missing: " + clipName : clipName;
+            bool thumbnails = !missing && scene.thumbnailFor && !dragged && clip.videoEnabled &&
+                              tracks[r].kind == core::Track::Kind::Video;
             if (thumbnails) {
                 // The fill first, so it shows while thumbnails load.
                 fill(s, box.left + 1.0, box.top, std::max(box.right - box.left - 2.0, 1.0), box.height,
                      rgba(tokens::kInk700));
                 drawThumbnails(s, scene, clip, box, width);
+            }
+            if (missing) {
+                // Fill and stripes under the outline and name.
+                fill(s, box.left + 1.0, box.top, std::max(box.right - box.left - 2.0, 1.0), box.height,
+                     rgba(tokens::kSemanticDanger, 0.3f));
+                drawHatch(s, std::max(box.left + 1.0, scene.handleWidth), box.right - 1.0, box.top, box.height,
+                          tokens::kSemanticDanger, 0.35);
+                drawClip(s, scene, box, name, selected, false, !selected, true); // selection still shows
+                continue;
             }
             drawClip(s, scene, box, name, selected, false, dragged && !preview.valid, thumbnails);
             if (!dragged && scene.waveformFor && box.w >= kMinWaveformWidthPx) {
@@ -387,7 +400,7 @@ void snapshotTimeline(GtkSnapshot *s, const TimelineScene &scene, double width, 
         double left = std::max(scene.viewport.xForFrame(static_cast<double>(from)), scene.handleWidth - 20.0);
         double right = std::min(scene.viewport.xForFrame(static_cast<double>(to)), width + 20.0);
         if (right > left)
-            drawDissolveHatch(s, left, right, scene.layout.clipTop(row), scene.layout.clipHeight());
+            drawHatch(s, left, right, scene.layout.clipTop(row), scene.layout.clipHeight(), tokens::kBrandCyan, 0.6);
     }
 
     // Markers run through the tracks as faint lines.

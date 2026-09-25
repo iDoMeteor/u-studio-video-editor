@@ -309,6 +309,34 @@ void Model::setAssetLength(AssetId id, FrameIndex length)
     notify(AssetChanged{id});
 }
 
+void Model::setAssetStatus(AssetId id, Asset::Status status)
+{
+    auto &bin = m_project.bin;
+    auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
+    if (it == bin.end()) {
+        preconditionFailed("Model::setAssetStatus: unknown AssetId");
+        return;
+    }
+    if (it->status == status)
+        return;
+    it->status = status;
+    notify(AssetChanged{id});
+}
+
+void Model::setAssetSource(AssetId id, std::string path, std::string fingerprint, Asset::Status status)
+{
+    auto &bin = m_project.bin;
+    auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
+    if (it == bin.end()) {
+        preconditionFailed("Model::setAssetSource: unknown AssetId");
+        return;
+    }
+    it->path = std::move(path);
+    it->fileFingerprint = std::move(fingerprint);
+    it->status = status;
+    notify(AssetChanged{id});
+}
+
 // --- Track mutators --------------------------------------------------------
 
 TrackId Model::addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId)
