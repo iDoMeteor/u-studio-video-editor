@@ -486,3 +486,56 @@ TEST_CASE("autosaveDue: steady editing still autosaves, losing at most the delay
     CHECK(firedAt - firstEdit <= delay);
     CHECK(firedAt - firstEdit >= delay - heartbeat);
 }
+
+TEST_CASE("autosave: an untitled project saved under a name leaves no autosave to recover")
+{
+    OwnAutosaves own("doctest-own-session");
+    const std::string untitled = baseNameFor("", "doctest-own-session");
+    std::string autosavePath = directory() + "/" + untitled + ".ustudio";
+    std::string metaPath = directory() + "/" + untitled + ".meta";
+    Guard guard{{autosavePath, metaPath}};
+    {
+        std::ofstream(autosavePath) << "<mlt/>";
+    }
+    Meta meta;
+    meta.timestampUnix = 100;
+    REQUIRE(writeMeta(metaPath, meta));
+    own.written("");
+    REQUIRE(findRecoverable().has_value()); // the untitled work, before the save
+
+    // Save As, nothing edited since: the untitled pair goes.
+    const std::vector<std::string> stale = own.saved("", "/projects/unicorn-demo.ustudio", true);
+    CHECK(stale == std::vector<std::string>{untitled});
+    for (const std::string &base : stale)
+        removeAutosavePair(directory(), base);
+    CHECK_FALSE(fs::exists(autosavePath));
+    CHECK_FALSE(fs::exists(metaPath));
+    std::set<std::string> others;
+    auto found = findRecoverable(others);
+    CHECK((!found || found->autosavePath != autosavePath));
+}
+
+TEST_CASE("autosave: OwnAutosaves takes back only this session's, and only what a save makes stale")
+{
+    OwnAutosaves own("doctest-own-2");
+    const std::string a = baseNameFor("/p/a.ustudio", "doctest-own-2");
+    const std::string b = baseNameFor("/p/b.ustudio", "doctest-own-2");
+
+    // Saved with edits made since: the same name's autosave is newer work.
+    own.written("/p/a.ustudio");
+    CHECK(own.saved("/p/a.ustudio", "/p/a.ustudio", false).empty());
+    // Saved clean: it's stale.
+    CHECK(own.saved("/p/a.ustudio", "/p/a.ustudio", true) == std::vector<std::string>{a});
+    // Save As to another name: the old name's goes, even with edits since.
+    own.written("/p/a.ustudio");
+    CHECK(own.saved("/p/a.ustudio", "/p/b.ustudio", false) == std::vector<std::string>{a});
+    // Never another session's: nothing of ours was written for b.
+    CHECK(own.saved("/p/b.ustudio", "/p/b.ustudio", true).empty());
+
+    // A clean quit takes back everything still ours, once.
+    own.written("/p/b.ustudio");
+    own.written("");
+    CHECK(own.quitClean().size() == 2);
+    CHECK(own.quitClean().empty());
+    (void)b;
+}

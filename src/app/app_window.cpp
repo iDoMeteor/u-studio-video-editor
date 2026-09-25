@@ -301,6 +301,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
 
     gchar *sessionUuid = g_uuid_string_random();
     m_autosaveSessionId = sessionUuid;
+    m_ownAutosaves = std::make_unique<autosave::OwnAutosaves>(m_autosaveSessionId);
     g_free(sessionUuid);
 
     buildUi(app);
@@ -361,6 +362,11 @@ void AppWindow::prepareForShutdown()
         if (!m_undoStack.isClean()) {
             performAutosave();
             m_saveQueue->finish();
+        } else if (m_ownAutosaves) {
+            // Nothing unsaved: this session's autosaves are all stale, and
+            // left behind they'd be offered for recovery at the next launch
+            // (and stop reopen-last-project).
+            removeStaleAutosaves(m_ownAutosaves->quitClean());
         }
     }
     // A render still running would be inside MLT when main() closes the
@@ -2241,8 +2247,11 @@ bool AppWindow::performSaveToPath(const std::string &requestedPath, bool closeAf
                 return;
             }
             if (generation == m_projectGeneration) {
-                m_currentProjectPath = path;
+                const std::string previousPath = std::exchange(m_currentProjectPath, path);
                 m_undoStack.setCleanPoint(savedState); // emits changed -- updateWindowTitle() follows
+                // The untitled (or old path's) autosave is stale once the work
+                // has a name, and this path's too if nothing changed since.
+                removeStaleAutosaves(m_ownAutosaves->saved(previousPath, path, m_undoStack.isClean()));
                 // A successful manual Save is the one point A2 designates
                 // safe to remove a recovered autosave: the recovered content
                 // now has a durable copy of its own at `path`.
@@ -4713,7 +4722,7 @@ void AppWindow::performAutosave()
                 error = "could not write " + metaPath;
             return error;
         },
-        [this, autosavePath, generation](const std::string &error) {
+        [this, autosavePath, generation, originalPath = m_currentProjectPath](const std::string &error) {
             // Silent either way: an autosave failure shouldn't interrupt
             // the user.
             if (!error.empty()) {
@@ -4721,10 +4730,22 @@ void AppWindow::performAutosave()
             } else {
                 if (generation == m_projectGeneration)
                     m_unsavedSinceMonotonicUsec = 0;
+                m_ownAutosaves->written(originalPath);
                 Log::debug("[app] Autosaved to " + autosavePath);
             }
             onSaveQueueSettled();
         });
+}
+
+void AppWindow::removeStaleAutosaves(const std::vector<std::string> &bases)
+{
+    const std::string dir = autosave::directory();
+    if (dir.empty())
+        return;
+    for (const std::string &base : bases) {
+        autosave::removeAutosavePair(dir, base);
+        Log::debug("[app] Removed stale autosave " + base);
+    }
 }
 
 void AppWindow::onAutosaveHeartbeat()

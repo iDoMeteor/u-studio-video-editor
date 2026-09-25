@@ -11,6 +11,12 @@ docs-only changes are not listed (CLAUDE.md).
   search a folder); relinking changes nothing else and undoes in one step.
   Renders ask before using missing media.
 
+## 0.45.2
+
+- Saving an untitled project, or quitting with nothing unsaved, no longer
+  leaves an autosave behind that the next launch offers to recover (which
+  also stopped the last project reopening).
+
 ## 0.45.1
 
 - A long status message (an import of many files at another frame rate)
