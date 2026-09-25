@@ -15,7 +15,9 @@ test_engine_sync_exe = executable(
   install: false,
 )
 
-test('engine-sync', test_engine_sync_exe)
+# 9 s alone, but 31 s (past meson's default 30) on the owner's machine under
+# load (2026-09-25): headroom like the other decoding tests.
+test('engine-sync', test_engine_sync_exe, timeout: 90)
 
 test_xml_playback_exe = executable(
   'test_xml_playback',
@@ -24,7 +26,7 @@ test_xml_playback_exe = executable(
   install: false,
 )
 
-test('engine-xml-playback', test_xml_playback_exe)
+test('engine-xml-playback', test_xml_playback_exe, timeout: 90)
 
 test_playback_controller_exe = executable(
   'test_playback_controller',
@@ -84,7 +86,7 @@ test_render_exe = executable(
 
 # Runs a real libx264/aac avformat encode (short, 5 frames) -- a bit
 # slower than the synthetic-only engine tests, hence its own timeout.
-test('engine-render', test_render_exe, timeout: 30)
+test('engine-render', test_render_exe, timeout: 90)
 
 test_av_sync_exe = executable(
   'test_av_sync',

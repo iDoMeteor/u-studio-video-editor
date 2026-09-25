@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.42.0
+
+- Render profiles have a frame rate: render a 30 fps project at 60, 24 at
+  23.976 and so on, with every cut kept in time (Settings > Render).
+
 ## 0.41.0
 
 - A new project takes its size and frame rate from the first video you

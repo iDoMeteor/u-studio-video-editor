@@ -192,6 +192,62 @@ Acceptance:
       own, newest requests first. `engine-thumbnail-cache`: 300 thumbnail and
       100 waveform requests while both workers decode, slowest call 0.8 ms.)
 
+## Frame rate (post-M3, pre-M4)
+
+What the owner means by "variable frame rate": clips at 24, 25, 30, 60 fps
+and so on on one timeline, and a choosable output rate. Investigated
+2026-09-25 (spike: generated media in the scratchpad, standalone repros
+against MLT 7.40, `~/Repos/mlt` at v7.40.0 for the source).
+
+- **FR0, mixed source rates (done, 0.41.0).** MLT maps every source into
+  the sequence's rate by time: `producer_avformat.c:2854`,
+  `req_position = position / fps * source_fps + 0.5`, the nearest source
+  frame. `tests/engine/test_mixed_rates.cpp` puts lossless 23.976–60 fps
+  sources in 30 and 24 fps projects and checks every frame of playback,
+  seeks and render, the sound on every cut, thumbnails and save/load. A
+  new, empty project takes its size and rate from its first video (doc 13
+  R7); a later import at another rate notes that frames will repeat or be
+  skipped.
+- **FR1, output frame rate (done, 0.42.0).** A render profile's frame rate
+  renders `core::retime()`'s copy of the project (every frame index scaled
+  to the new rate, absolute positions rounded) on a profile at that rate.
+  The avformat consumer's own `frame_rate_num` only relabels the stream;
+  MLT's `consumer` producer wrapper didn't rescale length and gave NaN
+  audio. Checked: 30 → 60, 60 → 30 and 24 → 29.97 by frame count,
+  duration, picture per frame and beep on every cut.
+- **FR2, change the sequence's rate (next, about 2 days).** A command with
+  undo (sequence snapshot) reusing `retime()`; the engine already rebuilds
+  on a new profile (`EngineSync::setProject()` → `rebuildOnNewProfile()`,
+  stopping the consumer first). UI with a confirmation, since it rewrites
+  every position. Full sanitizer suites.
+- **FR3, VFR detection (optional, not scheduled; needs the owner's call).**
+  Sources whose own frame rate varies (phones, screen recordings) are
+  already handled correctly by the time mapping above. Detecting them
+  (to warn, or to choose a rate) needs libavformat directly: MLT reports
+  only the nominal `r_frame_rate` (60 for a file averaging 40), and frames
+  carry no source pts. That is a new dependency: an ADR first.
+- **CFR conform** belongs to M4's proxy plan, for editing responsiveness,
+  not correctness: 60 s of 1080p VFR to CFR 30 took 16 s (x264 veryfast)
+  or 26 s (medium) on the dev machine.
+- **Untagged HD colour.** MLT treats an untagged HD source as BT.709;
+  ffmpeg-based players and ffmpeg's own encoder default to BT.601, so an
+  untagged 601 source renders with shifted hues (pure green 255 → 214).
+  `force_colorspace=601` on the producer fixes it. Tagged sources (the
+  owner's OBS footage: bt709, full range) are converted correctly; full
+  range is mapped to limited and tagged, no crushed blacks.
+
+Spike measurements (generated media; each frame's luma encodes its source
+time, a beep marks each whole second):
+
+| Question | Result |
+|---|---|
+| Probe of a VFR source (frames alternate 1/60 and 1/30 s, average 40 fps) | `meta.media.frame_rate_num/den` = 60/1 (nominal only); `get_length()` right (duration × profile fps) |
+| Sequential read and seeks, 30 fps profile, over 60 s | worst error 16 ms (jitter file), 21 ms (29.97 with 0–4 ms jitter): within one source frame, no drift |
+| Render, A/V over 60 s | beeps at 1.000 / 10.000 / 30.000 / 59.000 s; the picture there shows the matching source time within one output frame |
+| VFR detection cost (ffprobe, most of it process start) | 150–220 ms; stated rates catch the jitter file (60 vs 40.01) but not mild phone jitter (29.970 vs 29.966); a 300-packet pts scan catches both |
+| CFR conform, 60 s 1080p | 16.2 s (veryfast), 26.1 s (medium), 16 threads |
+| 24 → 23.976 over 10 min, 103 clips | absolute rounding: worst cut 20.6 ms (half a frame is 20.9), no gaps, 14,386 frames = 600.016 s; rounding lengths or relabelling: 14,400 frames = 600.6 s, 0.6 s behind the audio |
+
 ## M4 — Media bin and assets
 
 **Effort:** ~2 weeks. **Depends on:** M1; parallel with M3.

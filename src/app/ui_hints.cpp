@@ -122,6 +122,7 @@ std::vector<HintSpec> &registry()
         {"render-profiles.remove",   "Settings", "Remove this profile",     nullptr, nullptr, nullptr},
         {"render-profiles.save",     "Settings", "Save this profile",       nullptr, nullptr, nullptr},
         {"render-profiles.resolution", "Settings", "Output height",         "Project keeps the project's size; others scale to that height at the project's shape", nullptr, nullptr},
+        {"render-profiles.frame-rate", "Settings", "Output frame rate",    "Project keeps the project's rate; another rate renders the project retimed to it, every cut where it was in time", nullptr, nullptr},
         {"render-profiles.quality",  "Settings", "Quality",                 "Draft is fastest and smallest, Max slowest and largest; Exact bitrates sets them directly", nullptr, nullptr},
     };
     // clang-format on

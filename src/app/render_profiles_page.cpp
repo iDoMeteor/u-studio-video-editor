@@ -4,6 +4,8 @@
 #include "settings.h"
 #include "ui_hints.h"
 
+#include "core/model/profile_match.h"
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -34,6 +36,7 @@ struct RenderPage
     AdwPreferencesGroup *editGroup = nullptr;
     AdwEntryRow *nameRow = nullptr;
     AdwComboRow *resolutionRow = nullptr;
+    AdwComboRow *rateRow = nullptr;
     AdwComboRow *qualityRow = nullptr;
     AdwSpinRow *videoRow = nullptr;
     AdwSpinRow *audioRow = nullptr;
@@ -99,6 +102,9 @@ void showProfile(RenderPage &page, const std::string &name)
     auto height = std::find(heights.begin(), heights.end(), profile.height);
     adw_combo_row_set_selected(page.resolutionRow,
                                height == heights.end() ? 0 : static_cast<guint>(height - heights.begin()));
+    const auto &rates = core::renderFrameRates();
+    auto rate = std::find(rates.begin(), rates.end(), profile.frameRate);
+    adw_combo_row_set_selected(page.rateRow, rate == rates.end() ? 0 : static_cast<guint>(rate - rates.begin()));
     adw_combo_row_set_selected(
         page.qualityRow, static_cast<guint>(std::find(std::begin(kQualities), std::end(kQualities), profile.quality) -
                                             std::begin(kQualities)));
@@ -108,8 +114,9 @@ void showProfile(RenderPage &page, const std::string &name)
     updateBitrateRows(page);
 
     const bool editable = !profile.builtIn;
-    for (GtkWidget *row : {GTK_WIDGET(page.nameRow), GTK_WIDGET(page.resolutionRow), GTK_WIDGET(page.qualityRow),
-                           GTK_WIDGET(page.videoRow), GTK_WIDGET(page.audioRow), page.saveButton})
+    for (GtkWidget *row :
+         {GTK_WIDGET(page.nameRow), GTK_WIDGET(page.resolutionRow), GTK_WIDGET(page.rateRow),
+          GTK_WIDGET(page.qualityRow), GTK_WIDGET(page.videoRow), GTK_WIDGET(page.audioRow), page.saveButton})
         gtk_widget_set_sensitive(row, editable);
     gtk_widget_set_sensitive(page.removeButton, editable);
     gtk_widget_set_visible(page.defaultButton, defaultName(page) != profile.name); // room for the name
@@ -250,12 +257,16 @@ AdwPreferencesPage *buildRenderProfilesPage(RenderProfileStore &store, Settings 
     setTooltip(GTK_WIDGET(page->resolutionRow), "render-profiles.resolution");
     adw_preferences_group_add(page->editGroup, GTK_WIDGET(page->resolutionRow));
 
-    // Verified: the avformat consumer can't convert frame rates by itself
-    // (engine_sync.cpp, renderProject()).
-    AdwActionRow *rateRow = ADW_ACTION_ROW(adw_action_row_new());
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(rateRow), "Frame rate");
-    adw_action_row_set_subtitle(rateRow, "The project's own; other rates aren't supported yet");
-    adw_preferences_group_add(page->editGroup, GTK_WIDGET(rateRow));
+    // Another rate renders a retimed copy of the project (renderProject()).
+    GtkStringList *rateModel = gtk_string_list_new(nullptr);
+    for (const core::Rational &rate : core::renderFrameRates())
+        gtk_string_list_append(rateModel, rate.num > 0 ? (core::formatFps(rate) + " fps").c_str() : "Project");
+    page->rateRow = ADW_COMBO_ROW(adw_combo_row_new());
+    adw_combo_row_set_model(page->rateRow, G_LIST_MODEL(rateModel));
+    g_object_unref(rateModel);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(page->rateRow), "Frame rate");
+    setTooltip(GTK_WIDGET(page->rateRow), "render-profiles.frame-rate");
+    adw_preferences_group_add(page->editGroup, GTK_WIDGET(page->rateRow));
 
     const char *qualities[] = {"Draft", "Good", "High", "Max", "Exact bitrates", nullptr};
     page->qualityRow = ADW_COMBO_ROW(adw_combo_row_new());
@@ -350,6 +361,7 @@ void saveClickedTrampoline(GtkButton *, gpointer userData)
     core::RenderProfile profile;
     profile.name = gtk_editable_get_text(GTK_EDITABLE(page->nameRow));
     profile.height = core::renderHeights()[adw_combo_row_get_selected(page->resolutionRow)];
+    profile.frameRate = core::renderFrameRates()[adw_combo_row_get_selected(page->rateRow)];
     profile.quality = kQualities[adw_combo_row_get_selected(page->qualityRow)];
     if (profile.quality == Quality::Bitrate) {
         profile.videoBitrate = std::llround(adw_spin_row_get_value(page->videoRow) * 1000.0);

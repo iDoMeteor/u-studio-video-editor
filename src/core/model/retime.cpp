@@ -27,7 +27,8 @@ Project retime(const Project &project, Rational fps)
         return result;
     Sequence &seq = *seqIt;
     const Rational from = seq.profile.fps;
-    if (from == fps)
+    // The same rate however it's written (60/2 is 30/1): nothing to do.
+    if (static_cast<int64_t>(from.num) * fps.den == static_cast<int64_t>(fps.num) * from.den)
         return result;
     auto at = [&](FrameIndex frame) { return retimeFrame(frame, from, fps); };
 

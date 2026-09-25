@@ -6,6 +6,7 @@
 #include "core/trace.h"
 #include "core/model/audio_level.h"
 #include "core/model/mlt_order.h"
+#include "core/model/retime.h"
 #include "core/model/track_segments.h"
 
 #include <algorithm>
@@ -827,7 +828,22 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
                    const core::RenderProfile &profile, int threadBudget)
 {
     Log::ScopedTimer timer("[engine] renderProject total");
-    EngineSync renderSync(model); // its own Profile/Tractor, independent of any live one
+    // Another output rate: render a retimed copy, built on a profile at that
+    // rate (MLT maps each source by time; doc 12, "Frame rate": verified
+    // 30 <-> 60 by frame count, duration, picture and beep sync).
+    std::optional<core::Model> retimed;
+    if (profile.frameRate.num > 0) {
+        core::Project project = core::retime(model.project(), profile.frameRate);
+        if (project != model.project()) {
+            retimed.emplace(std::move(project));
+            Log::info("[engine] Rendering at " + std::to_string(profile.frameRate.num) + "/" +
+                      std::to_string(profile.frameRate.den) + " fps (the project is " +
+                      std::to_string(model.sequence().profile.fps.num) + "/" +
+                      std::to_string(model.sequence().profile.fps.den) + ")");
+        }
+    }
+    core::Model &renderModel = retimed ? *retimed : model;
+    EngineSync renderSync(renderModel); // its own Profile/Tractor, independent of any live one
 
     // Audit A6: render to a "<path>.part" sibling and rename into place
     // only on success, matching CLAUDE.md's "renders... written to an
@@ -866,7 +882,7 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // the stream's rate (60 frames at 60 fps played 1 s, not 2), so the
     // output always keeps the project's frame rate.
     const core::EncoderSettings settings =
-        core::encoderSettings(profile, model.sequence().profile, h264Encoder() == "libx264");
+        core::encoderSettings(profile, renderModel.sequence().profile, h264Encoder() == "libx264");
     if (settings.width > 0 && settings.height > 0) {
         consumer.set("width", settings.width);
         consumer.set("height", settings.height);

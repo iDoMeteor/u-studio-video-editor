@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <filesystem>
 #include <utility>
 
@@ -45,6 +46,10 @@ void writeProfile(GKeyFile *file, const char *group, const core::RenderProfile &
 {
     g_key_file_set_string(file, group, "quality", qualityName(profile.quality));
     g_key_file_set_integer(file, group, "height", profile.height);
+    if (profile.frameRate.num > 0)
+        g_key_file_set_string(
+            file, group, "frame-rate",
+            (std::to_string(profile.frameRate.num) + "/" + std::to_string(profile.frameRate.den)).c_str());
     if (profile.quality == Quality::Bitrate) {
         g_key_file_set_int64(file, group, "video-bitrate", profile.videoBitrate);
         g_key_file_set_int64(file, group, "audio-bitrate", profile.audioBitrate);
@@ -62,6 +67,13 @@ std::optional<core::RenderProfile> readProfile(GKeyFile *file, const char *group
     profile.name = group;
     profile.quality = *parsed;
     profile.height = g_key_file_get_integer(file, group, "height", nullptr);
+    // "num/den"; absent (profiles saved before 0.42) means the project's.
+    if (gchar *rate = g_key_file_get_string(file, group, "frame-rate", nullptr)) {
+        int num = 0, den = 0;
+        if (std::sscanf(rate, "%d/%d", &num, &den) == 2 && num > 0 && den > 0)
+            profile.frameRate = {num, den};
+        g_free(rate);
+    }
     profile.videoBitrate = g_key_file_get_int64(file, group, "video-bitrate", nullptr);
     profile.audioBitrate = g_key_file_get_int64(file, group, "audio-bitrate", nullptr);
     return profile;

@@ -15,6 +15,7 @@
 
 #include "core/concurrency/thread_pool.h"
 #include "core/model/model.h"
+#include "core/model/retime.h"
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
 #include "engine/engine_sync.h"
@@ -262,7 +263,9 @@ Model projectAt(Rational fps, std::vector<Placed> &placed)
 void checkPicture(const Placed &clip, Rational projectFps, FrameIndex position, double luma)
 {
     const double seconds = static_cast<double>(position - clip.position) / rateOf(projectFps);
-    const double due = seconds * rateOf(clip.source->fps);
+    // Past the source's last frame (a clip's final frame at a higher output
+    // rate can round there) the source holds its last one.
+    const double due = std::min(seconds * rateOf(clip.source->fps), static_cast<double>(clip.source->lumas.size() - 1));
     // The source frame nearest in time (producer_avformat.c rounds:
     // req_position = position / fps * source_fps + 0.5). Matched by
     // "consistent with", not by nearest grey: the colour conversions leave
@@ -437,5 +440,51 @@ TEST_CASE("mixed rates: a project saves and loads with every clip and rate intac
         CHECK(loaded->clip(id).position == clip.position);
         CHECK(loaded->clip(id).in == clip.in);
         CHECK(loaded->clip(id).out == clip.out);
+    }
+}
+
+TEST_CASE("mixed rates: a render at another frame rate keeps picture and sound in time (FR1)")
+{
+    sharedFactoryPolicy();
+    const std::pair<Rational, Rational> cases[] = {{{30, 1}, {60, 1}}, {{60, 1}, {30, 1}}, {{24, 1}, {30000, 1001}}};
+    for (const auto &[projectFps, outputFps] : cases) {
+        std::vector<Placed> placed;
+        Model model = projectAt(projectFps, placed);
+        RenderProfile profile = legacyRenderProfile();
+        profile.frameRate = outputFps;
+        const fs::path output = scratchDir() / ("render-" + std::to_string(projectFps.num) + "-to-" +
+                                                std::to_string(outputFps.num) + ".mov");
+        std::string error;
+        REQUIRE(renderProject(model, output.string(), error, {}, nullptr, profile));
+
+        // Where each clip lands at the output rate: its ends, rounded.
+        std::vector<Placed> expected;
+        for (const Placed &clip : placed) {
+            const FrameIndex start = retimeFrame(clip.position, projectFps, outputFps);
+            const FrameIndex end = retimeFrame(clip.position + clip.length, projectFps, outputFps);
+            expected.push_back({clip.source, start, end - start});
+        }
+        const FrameIndex total = expected.back().position + expected.back().length;
+
+        auto outputProfile = profileAt(outputFps);
+        Mlt::Producer rendered(*outputProfile, output.c_str());
+        REQUIRE(rendered.is_valid());
+        INFO(projectFps.num << "/" << projectFps.den << " project rendered at " << outputFps.num << "/"
+                            << outputFps.den);
+        CHECK(rendered.get_int("meta.media.frame_rate_num") * outputFps.den ==
+              rendered.get_int("meta.media.frame_rate_den") * outputFps.num);
+        CHECK(std::abs(rendered.get_length() - total) <= 1); // avformat's estimate for the length
+        std::vector<double> loudness;
+        for (FrameIndex position = 0; position < total; ++position) {
+            std::unique_ptr<Mlt::Frame> frame(rendered.get_frame());
+            checkPicture(clipAt(expected, position), outputFps, position, lumaOf(*frame));
+            loudness.push_back(loudnessOf(*frame, outputFps, static_cast<int>(position)));
+        }
+        for (const Placed &clip : expected) {
+            INFO("cut at output frame " << clip.position);
+            CHECK(std::max(loudness[clip.position], loudness[std::min(clip.position + 1, total - 1)]) > 0.1);
+            if (clip.position > 1)
+                CHECK(loudness[clip.position - 2] < 0.01);
+        }
     }
 }

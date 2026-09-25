@@ -9,7 +9,8 @@
 namespace ustudio::core {
 
 // A named set of render choices (Settings > Render). Always MP4, H.264 +
-// AAC; the output frame rate is the project's (see encoderSettings()).
+// AAC. A frame rate other than the project's renders a retimed copy of the
+// project (core::retime(), engine::renderProject()).
 struct RenderProfile
 {
     enum class Quality
@@ -24,6 +25,7 @@ struct RenderProfile
     std::string name;
     bool builtIn = false;
     int height = 0; // output height in pixels; 0 = the project's size
+    Rational frameRate{0, 1}; // 0/1 = the project's rate
     Quality quality = Quality::High;
     int64_t videoBitrate = 0; // bits/s, Quality::Bitrate only
     int64_t audioBitrate = 0;
@@ -39,6 +41,8 @@ const RenderProfile &legacyRenderProfile();
 
 // The heights Settings offers; 0 is "Project".
 const std::vector<int> &renderHeights();
+// The frame rates Settings offers; 0/1 is "Project".
+const std::vector<Rational> &renderFrameRates();
 
 // What the encoder is told. crf >= 0 means constant quality (with `preset`);
 // otherwise the bitrates apply.

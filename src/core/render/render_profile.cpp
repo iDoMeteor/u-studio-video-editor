@@ -67,6 +67,13 @@ const std::vector<int> &renderHeights()
     return heights;
 }
 
+const std::vector<Rational> &renderFrameRates()
+{
+    static const std::vector<Rational> rates = {{0, 1},  {24000, 1001}, {24, 1},       {25, 1}, {30000, 1001},
+                                                {30, 1}, {50, 1},       {60000, 1001}, {60, 1}};
+    return rates;
+}
+
 EncoderSettings encoderSettings(const RenderProfile &profile, const Profile &project, bool qualityMode)
 {
     EncoderSettings settings;

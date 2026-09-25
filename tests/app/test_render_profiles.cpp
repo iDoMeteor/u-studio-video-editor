@@ -86,3 +86,16 @@ TEST_CASE("RenderProfileStore: a hand-edited bad entry is skipped")
     CHECK(store.userProfiles()[0].name == "Good one");
     CHECK(store.userProfiles()[0].quality == Quality::Max);
 }
+
+TEST_CASE("RenderProfileStore: a frame rate round-trips; none means the project's")
+{
+    Scratch scratch;
+    {
+        app::RenderProfileStore store(scratch.file.string());
+        CHECK(store.save({.name = "NTSC", .frameRate = {30000, 1001}, .quality = Quality::High}, "").empty());
+        CHECK(store.save({.name = "Same", .quality = Quality::Good}, "").empty());
+    }
+    app::RenderProfileStore store(scratch.file.string());
+    CHECK(store.find("NTSC")->frameRate == ustudio::core::Rational{30000, 1001});
+    CHECK(store.find("Same")->frameRate == ustudio::core::Rational{0, 1});
+}

@@ -187,7 +187,7 @@ single-track skeleton.
   imported into it (one undo step with the import); a later import at
   another rate says so in the import summary ("frames will repeat" or "be
   skipped"). The media browser shows rates as 23.976, 29.97, 59.94.
-- Render the project to an MP4 at the sequence's frame rate: H.264
+- Render the project to an MP4: H.264
   (libx264, or libopenh264 where ffmpeg lacks it), yuv420p, AAC 48kHz
   stereo, via the header bar's "Render…" button, with the default render
   profile. Profiles (Settings > Render) set the output height (Project,
@@ -200,9 +200,11 @@ single-track skeleton.
   `$XDG_CONFIG_HOME/ustudio/render-profiles.ini`. A global Render threads setting
   (Settings > Render, default 80% of the hardware threads, warns above
   80%) splits the render between MLT's parallel frame rendering and the
-  encoder; it applies from the next render. Other frame rates aren't
-  supported yet: the avformat consumer's `frame_rate_num` only relabels
-  the stream. Renders run one at a time from a queue, each fixed when
+  encoder; it applies from the next render. A profile's frame rate
+  (Project, 23.976, 24, 25, 29.97, 30, 50, 59.94, 60) other than the
+  project's renders a retimed copy of the project (`core::retime()`:
+  absolute positions rounded, so every cut stays within half a frame of
+  its time; doc 12, "Frame rate"). Renders run one at a time from a queue, each fixed when
   queued (the project as it was, the profile, the output path). The Render
   button fills magenta as it goes and shows a badge counting the queue;
   when it's done it turns cyan ("Open Render") and opens the file.
