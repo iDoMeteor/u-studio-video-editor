@@ -7,11 +7,14 @@
 #include <malloc.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 #ifndef USTUDIO_MLT_MODULE_DIR
@@ -217,6 +220,32 @@ FactoryPolicy::FactoryPolicy()
         m_moduleDirectoryUsed.clear();
     }
     warmUpLazyModuleState();
+    raiseAvformatDecoderLimit(8);
+}
+
+void FactoryPolicy::raiseAvformatDecoderLimit(size_t tracks)
+{
+    // MLT keeps at most N avformat producers' decoder state alive process
+    // wide (mlt_cache, default 4, "producer_avformat") and evicts the least
+    // recently used when another producer decodes. The cache jobs (doc 19
+    // MT3) decode on several pool threads while playback decodes its own
+    // masters; with more producers active than the limit they evict each
+    // other's state mid-decode across threads, and playback crashed in
+    // producer_get_audio -> init_cache -> mlt_properties_get (reproduced
+    // 2026-09-24: a 1080p timeline playing while caches filled). kdenlive
+    // sizes it the same way: threads + 2 per track (timelinemodel.cpp).
+    // Set first here, on the main thread before any other thread exists,
+    // which also creates MLT's lazily-made cache object; later only raised,
+    // from the engine thread (EngineSync::rebuildAll()).
+    static std::mutex mutex; // the engine thread and a render thread both rebuild
+    static size_t current = 0;
+    std::lock_guard<std::mutex> lock(mutex);
+    const size_t wanted =
+        std::max<size_t>(4, static_cast<size_t>(std::max(1u, std::thread::hardware_concurrency())) + (tracks + 1) * 2);
+    if (wanted <= current)
+        return;
+    current = std::min<size_t>(wanted, 200); // mlt_cache.c's MAX_CACHE_SIZE
+    mlt_service_cache_set_size(nullptr, "producer_avformat", static_cast<int>(current));
 }
 
 FactoryPolicy::~FactoryPolicy()

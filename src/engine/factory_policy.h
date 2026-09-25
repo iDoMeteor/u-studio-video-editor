@@ -29,6 +29,11 @@ class FactoryPolicy
     FactoryPolicy();
     ~FactoryPolicy();
 
+    // Raises MLT's process-wide limit on live avformat decoders to fit
+    // `tracks` plus every thread that may decode (factory_policy.cpp says
+    // why). Only ever raises. Any thread; EngineSync calls it per rebuild.
+    static void raiseAvformatDecoderLimit(size_t tracks);
+
     FactoryPolicy(const FactoryPolicy &) = delete;
     FactoryPolicy &operator=(const FactoryPolicy &) = delete;
 

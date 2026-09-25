@@ -1,5 +1,7 @@
 #include "engine_sync.h"
 
+#include "factory_policy.h"
+
 #include "core/log.h"
 #include "core/trace.h"
 #include "core/model/audio_level.h"
@@ -492,6 +494,7 @@ void EngineSync::rebuildAll()
     Log::debug("[engine] rebuildAll: " + std::to_string(trackCount) + " tracks, " + std::to_string(clipCount) +
                " clips, sequence length " + std::to_string(seq.length()));
 
+    FactoryPolicy::raiseAvformatDecoderLimit(trackCount);
     auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
     std::vector<std::optional<core::TrackId>> order;
 
