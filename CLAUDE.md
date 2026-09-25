@@ -64,6 +64,7 @@ src/core/                 Pure C++23 + libxml2. No GTK, no GLib, no MLT
   log.{h,cpp}             Thread-safe logger → stderr + $XDG_STATE_HOME/ustudio/logs/
 src/engine/               The ONLY code that includes <mlt++/Mlt.h>
   factory_policy.*        Curated MLT module directory, Factory::init/close (ADR-007)
+  engine.*                engine::Engine: the engine thread and its main-thread façade (doc 19 MT2)
   engine_sync.*           Model → Mlt::Tractor projection, verifier, media probe, render
   playback_controller.*   Playback over an MLT consumer (ADR-002, doc 05)
   dispatcher.*            MainThreadDispatcher: consumer thread → GLib main thread
@@ -165,18 +166,33 @@ the rest by review.
 - GTK widgets are touched from the main thread only. Cross from a worker via
   `MainThreadDispatcher` (or `g_idle_add` in the worker caches). If you are
   holding a `GtkWidget*` on a worker thread, that is the bug.
+- The main thread never touches an MLT object. `EngineSync` (graph
+  builds, master producers, the tractor) and `PlaybackController` (the
+  consumer) live on one engine thread behind `engine::Engine` (ADR-016,
+  doc 19 MT2). `src/app/` talks only to that façade: it publishes
+  `Model::snapshot()`s and sends transport commands, and reads position,
+  length and fps from its main-thread mirror, never waiting on the engine
+  thread except in `Engine::shutdown()`. The engine never sees the live
+  Model, only immutable snapshots.
 - There is no project-wide MLT mutex. The live tractor is built and replaced
-  on the main thread (`EngineSync::rebuildAll()` → `PlaybackController::
+  on the engine thread (`EngineSync::rebuildAll()` → `PlaybackController::
   setTractor()`, which stops the consumer before dropping the old tractor).
   The consumer's thread enters our code only in `handleFrameShow()`, which
-  copies the frame and posts to the main thread. Work that must not contend
-  with playback (waveforms, thumbnails, probing, render) opens its own
-  throwaway `Mlt::Profile`/`Producer` — keep that pattern.
+  copies the frame and posts the drain to the engine thread; the frame
+  reaches the main thread from there. Work that must not contend with
+  playback (waveforms, thumbnails, probing, render) opens its own throwaway
+  `Mlt::Profile`/`Producer` — keep that pattern.
 - MLT producers are not shared across threads. A worker owns its own
-  producer; the live tractor belongs to the engine thread + main thread
-  under the mutex.
+  producer; the live tractor belongs to the engine thread alone.
+- Blocking work leaves the main thread: pool jobs (`core::concurrency::
+  ThreadPool`) for probing, loading and saving, the engine thread for
+  graphs and playback. The stall monitor (`USTUDIO_LOG_LEVEL=debug`) logs
+  any main-loop iteration over 16 ms; a new stall with our code in it is a
+  bug.
 - Never destroy an MLT service a running consumer/pull loop can still reach.
-  Stop first, then tear down; `Mlt::Factory::close()` is last, once.
+  Stop first, then tear down; `Mlt::Factory::close()` is last, once, after
+  `Engine::shutdown()` has joined the engine thread and the worker pool is
+  drained.
 
 ### MLT empirical-knowledge rule
 
