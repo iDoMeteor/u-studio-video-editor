@@ -92,7 +92,9 @@ test_waveform_cache_exe = executable(
   install: false,
 )
 
-test('engine-waveform-cache', test_waveform_cache_exe)
+# Serial: a perf case waits a bounded time for a long clip's peaks, which a
+# machine loaded with the rest of the suite (or two sanitizer suites) can miss.
+test('engine-waveform-cache', test_waveform_cache_exe, is_parallel: false)
 
 test_thumbnail_cache_exe = executable(
   'test_thumbnail_cache',
