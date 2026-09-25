@@ -171,8 +171,10 @@ shipped bindings are the owner's and are the source of truth
 | J / K / L | reverse / pause / forward; repeated J/L step speed |
 | ← / → | −1 / +1 frame; Ctrl = 10 frames, Alt = 1 minute |
 | Home / End | sequence start/end |
-| A / F | previous / next cut on the active track |
+| A / F | previous / next cut on any track |
+| Shift+A / Shift+F | previous / next cut on the active track |
 | S / D | active track up / down |
+| Shift+S / Shift+D | active track to the top / bottom track |
 | X | split the active track's clip at the playhead |
 | Delete / Shift+Delete | delete / ripple delete |
 | I / O | set loop in / out |

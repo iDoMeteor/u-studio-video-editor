@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.29.0
+
+- `A`/`F` now jump to the previous/next cut on any track; `Shift+A`/
+  `Shift+F` keep the old active-track-only jump. `Shift+S`/`Shift+D` make
+  the top/bottom track active.
+
 ## 0.28.2
 
 - Fixed: playback could crash while thumbnails and waveforms were being

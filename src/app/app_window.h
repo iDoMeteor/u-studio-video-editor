@@ -266,8 +266,13 @@ class AppWindow
     // otherwise-empty or single-clip track. Doesn't pause playback,
     // matching onSeekHome/onSeekEnd's own precedent (a mid-playback jump
     // is a scrub, not a stop).
-    void onSeekPreviousCut();
-    void onSeekNextCut();
+    // Plain a/f: the nearest cut on ANY track; with Shift, on the active
+    // track only (owner request, 2026-09-25).
+    void onSeekPreviousCut(bool activeTrackOnly);
+    void onSeekNextCut(bool activeTrackOnly);
+    // Every clip boundary on every track, plus 0 and the last frame, sorted
+    // and deduplicated.
+    std::vector<int> cutBoundariesAllTracks() const;
     // Every clip boundary on the active track, plus 0 and totalFrames(),
     // sorted and deduplicated -- shared by the two methods above, and (as
     // cutBoundariesForTrack(m_activeTrack)) the active-track case of the
@@ -634,6 +639,10 @@ class AppWindow
     static void seekNextCutActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void activeTrackUpActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void activeTrackDownActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void seekPreviousCutOnActiveTrackActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void seekNextCutOnActiveTrackActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void activeTrackTopActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void activeTrackBottomActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void clearLoopClickedTrampoline(GtkButton *button, gpointer userData);
     static void volumeChangedTrampoline(GtkRange *range, gpointer userData);
     static void previewScaleChangedTrampoline(GtkDropDown *dropdown, GParamSpec *pspec, gpointer userData);

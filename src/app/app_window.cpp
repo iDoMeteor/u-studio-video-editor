@@ -1206,6 +1206,8 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
         "shuttle-forward", "shuttle-reverse",     "shuttle-stop",         "step-forward",
         "step-backward",   "seek-home",           "seek-end",             "loop-set-in",
         "loop-set-out",    "seek-previous-cut",   "seek-next-cut",        "active-track-up",
+        "seek-previous-cut-on-active-track", "seek-next-cut-on-active-track", "active-track-top",
+        "active-track-bottom",
         "active-track-down", "step-forward-10",   "step-backward-10",    "step-forward-minute",
         "step-backward-minute",
         // Enhancements #1/#3: bare Space and Delete, and X (split at
@@ -2012,11 +2014,23 @@ std::vector<int> AppWindow::cutBoundariesForTrack(int row) const
     return boundaries;
 }
 
-void AppWindow::onSeekPreviousCut()
+std::vector<int> AppWindow::cutBoundariesAllTracks() const
+{
+    std::vector<int> boundaries;
+    for (int row = 0; row < static_cast<int>(m_model.sequence().tracks.size()); ++row) {
+        std::vector<int> track = cutBoundariesForTrack(row);
+        boundaries.insert(boundaries.end(), track.begin(), track.end());
+    }
+    std::sort(boundaries.begin(), boundaries.end());
+    boundaries.erase(std::unique(boundaries.begin(), boundaries.end()), boundaries.end());
+    return boundaries;
+}
+
+void AppWindow::onSeekPreviousCut(bool activeTrackOnly)
 {
     if (m_model.sequence().tracks.empty())
         return;
-    std::vector<int> boundaries = cutBoundariesOnActiveTrack();
+    std::vector<int> boundaries = activeTrackOnly ? cutBoundariesOnActiveTrack() : cutBoundariesAllTracks();
 
     // The largest boundary strictly before the current frame: lower_bound
     // finds the first boundary >= current (which, if current sits exactly
@@ -2024,21 +2038,21 @@ void AppWindow::onSeekPreviousCut()
     // previous distinct cut is always one step back from there.
     auto it = std::lower_bound(boundaries.begin(), boundaries.end(), m_engine->currentFrame());
     if (it == boundaries.begin()) {
-        showStatus("No earlier cut on this track.");
+        showStatus(activeTrackOnly ? "No earlier cut on this track." : "No earlier cut.");
         return;
     }
     m_engine->seek(*(it - 1));
 }
 
-void AppWindow::onSeekNextCut()
+void AppWindow::onSeekNextCut(bool activeTrackOnly)
 {
     if (m_model.sequence().tracks.empty())
         return;
-    std::vector<int> boundaries = cutBoundariesOnActiveTrack();
+    std::vector<int> boundaries = activeTrackOnly ? cutBoundariesOnActiveTrack() : cutBoundariesAllTracks();
 
     auto it = std::upper_bound(boundaries.begin(), boundaries.end(), m_engine->currentFrame());
     if (it == boundaries.end()) {
-        showStatus("No later cut on this track.");
+        showStatus(activeTrackOnly ? "No later cut on this track." : "No later cut.");
         return;
     }
     m_engine->seek(*it);
@@ -4484,12 +4498,41 @@ void AppWindow::loopSetOutActivated(GSimpleAction *, GVariant *, gpointer userDa
 
 void AppWindow::seekPreviousCutActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->onSeekPreviousCut();
+    static_cast<AppWindow *>(userData)->onSeekPreviousCut(false);
 }
 
 void AppWindow::seekNextCutActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->onSeekNextCut();
+    static_cast<AppWindow *>(userData)->onSeekNextCut(false);
+}
+
+void AppWindow::seekPreviousCutOnActiveTrackActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSeekPreviousCut(true);
+}
+
+void AppWindow::seekNextCutOnActiveTrackActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSeekNextCut(true);
+}
+
+void AppWindow::activeTrackTopActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    if (self->m_model.sequence().tracks.empty())
+        return;
+    self->m_activeTrack = 0;
+    gtk_widget_queue_draw(GTK_WIDGET(self->m_timeline));
+}
+
+void AppWindow::activeTrackBottomActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    int trackCount = static_cast<int>(self->m_model.sequence().tracks.size());
+    if (trackCount <= 0)
+        return;
+    self->m_activeTrack = trackCount - 1;
+    gtk_widget_queue_draw(GTK_WIDGET(self->m_timeline));
 }
 
 void AppWindow::activeTrackUpActivated(GSimpleAction *, GVariant *, gpointer userData)

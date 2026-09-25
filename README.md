@@ -78,8 +78,10 @@ single-track skeleton.
   its own overlay layer so updating it 30 times a second doesn't also
   redraw every clip/waveform/label underneath (audit A5, 2026-09-23).
   `A`/`F` jump the playhead to the previous/next cut (a clip's start or
-  end, or the timeline's own start/end) on the active track; `S`/`D` move
-  which track is active up/down, the same target a plain click sets.
+  end, or the timeline's own start/end) on any track, and `Shift+A`/
+  `Shift+F` to the previous/next cut on the active track only. `S`/`D` move
+  which track is active up/down, the same target a plain click sets, and
+  `Shift+S`/`Shift+D` jump it to the top/bottom track.
 - Split the active track's clip at the playhead (`X`, or the scissors
   button in the transport bar).
 - Transport buttons around the play button: go to start, shuttle reverse,

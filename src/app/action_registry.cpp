@@ -32,10 +32,14 @@ const std::vector<ActionSpec> &actionSpecs()
         {"redo",                 "Redo",                       "Editing", {"<Control><Shift>z"},   nullptr},
         // A/F: previous/next cut on the active track. S/D: active track
         // up/down -- the row edits/imports land on, same as clicking a row.
-        {"seek-previous-cut",    "Seek to Previous Cut",       "Editing", {"a"},                    &AppWindow::seekPreviousCutActivated},
-        {"seek-next-cut",        "Seek to Next Cut",           "Editing", {"f"},                    &AppWindow::seekNextCutActivated},
+        {"seek-previous-cut",    "Seek to Previous Cut (Any Track)", "Editing", {"a"},              &AppWindow::seekPreviousCutActivated},
+        {"seek-next-cut",        "Seek to Next Cut (Any Track)",     "Editing", {"f"},              &AppWindow::seekNextCutActivated},
+        {"seek-previous-cut-on-active-track", "Seek to Previous Cut on Active Track", "Editing", {"<Shift>a"}, &AppWindow::seekPreviousCutOnActiveTrackActivated},
+        {"seek-next-cut-on-active-track",     "Seek to Next Cut on Active Track",     "Editing", {"<Shift>f"}, &AppWindow::seekNextCutOnActiveTrackActivated},
         {"active-track-up",      "Active Track Up",            "Editing", {"s", "Up"},              &AppWindow::activeTrackUpActivated},
         {"active-track-down",    "Active Track Down",          "Editing", {"d", "Down"},            &AppWindow::activeTrackDownActivated},
+        {"active-track-top",     "Active Track to Top",        "Editing", {"<Shift>s"},             &AppWindow::activeTrackTopActivated},
+        {"active-track-bottom",  "Active Track to Bottom",     "Editing", {"<Shift>d"},             &AppWindow::activeTrackBottomActivated},
         {"delete-selected-clip", "Delete Selected Clip",       "Editing", {"Delete"},               &AppWindow::deleteSelectedClipActivated},
         {"split-at-playhead",    "Split Clip at Playhead",     "Editing", {"x"},                    &AppWindow::splitAtPlayheadActivated},
         {"ripple-delete-selected", "Ripple Delete Selected",   "Editing", {"<Shift>Delete"},        &AppWindow::rippleDeleteSelectedActivated},
