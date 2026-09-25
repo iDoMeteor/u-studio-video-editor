@@ -87,6 +87,19 @@ std::unique_ptr<Mlt::Profile> profileAt(Rational fps)
     return profile;
 }
 
+// Removed at exit (unless USTUDIO_KEEP_TEST_MEDIA is set). The remover is
+// a static made after the path it holds a copy of, so it runs first.
+struct Cleanup
+{
+    fs::path dir;
+    ~Cleanup()
+    {
+        std::error_code ec;
+        if (!std::getenv("USTUDIO_KEEP_TEST_MEDIA"))
+            fs::remove_all(dir, ec);
+    }
+};
+
 fs::path scratchDir()
 {
     static const fs::path dir = [] {
@@ -94,18 +107,9 @@ fs::path scratchDir()
         fs::create_directories(d);
         return d;
     }();
+    static const Cleanup cleanup{dir};
     return dir;
 }
-
-struct Cleanup
-{
-    ~Cleanup()
-    {
-        std::error_code ec;
-        if (!std::getenv("USTUDIO_KEEP_TEST_MEDIA"))
-            fs::remove_all(scratchDir(), ec);
-    }
-} cleanup;
 
 // A lossless source at `fps`: frame i is grey levelFor(i), with a beep on
 // frames 0-2.
