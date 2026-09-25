@@ -12,20 +12,28 @@ namespace ustudio::engine {
 
 namespace Log = ustudio::core::Log;
 
-WaveformCache::WaveformCache(std::function<void()> onReady) : m_onReady(std::move(onReady))
-{
-    m_worker = std::thread([this] { workerMain(); });
-}
+WaveformCache::WaveformCache(core::concurrency::ThreadPool &pool, std::function<void()> onReady, size_t maxJobs)
+    : m_pool(pool), m_maxJobs(std::max<size_t>(1, maxJobs)), m_onReady(std::move(onReady))
+{}
 
 WaveformCache::~WaveformCache()
 {
+    shutdown();
+}
+
+void WaveformCache::shutdown()
+{
+    std::vector<core::concurrency::JobHandle> jobs;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_quit.store(true);
+        m_quit = true;
+        m_queue.clear();
+        jobs.swap(m_jobs);
     }
-    m_cv.notify_all();
-    if (m_worker.joinable())
-        m_worker.join();
+    for (core::concurrency::JobHandle &job : jobs)
+        job.cancel();
+    for (core::concurrency::JobHandle &job : jobs)
+        job.wait();
 }
 
 std::string WaveformCache::keyFor(const std::string &resource, int in, int out, core::Rational fps)
@@ -43,30 +51,58 @@ const std::vector<float> *WaveformCache::peaksFor(const std::string &resource, i
     if (it != m_cache.end())
         return &it->second;
 
-    if (m_inFlight.find(key) == m_inFlight.end()) {
-        m_inFlight.insert(key);
+    if (!m_quit && m_inFlight.insert(key).second) {
         m_queue.push_back(Job{key, resource, in, out, fps});
-        m_cv.notify_one();
+        schedule();
     }
     return nullptr;
 }
 
-void WaveformCache::workerMain()
+size_t WaveformCache::peakConcurrentJobs() const
 {
-    while (true) {
-        Job job;
-        {
-            std::unique_lock<std::mutex> lock(m_mutex);
-            m_cv.wait(lock, [this] { return m_quit.load() || !m_queue.empty(); });
-            if (m_queue.empty()) {
-                if (m_quit.load())
-                    return;
-                continue;
-            }
-            job = m_queue.front();
-            m_queue.pop_front();
-        }
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_peakRunning;
+}
 
+void WaveformCache::schedule()
+{
+    std::erase_if(m_jobs, [](const core::concurrency::JobHandle &job) {
+        auto state = job.state();
+        return state != core::concurrency::JobState::Pending && state != core::concurrency::JobState::Running;
+    });
+    // One job per (resource, range), as before: a waveform reads a clip's
+    // range once, start to end.
+    while (!m_quit && m_running < m_maxJobs && !m_queue.empty()) {
+        Job job = std::move(m_queue.front());
+        m_queue.pop_front();
+        ++m_running;
+        m_peakRunning = std::max(m_peakRunning, m_running);
+        m_jobs.push_back(m_pool.submit(
+            [this, job = std::move(job)](std::stop_token stop) {
+                std::vector<float> peaks;
+                if (!stop.stop_requested())
+                    peaks = compute(job);
+                std::lock_guard<std::mutex> lock(m_mutex);
+                --m_running;
+                if (stop.stop_requested() || m_quit) {
+                    m_inFlight.erase(job.key);
+                    return;
+                }
+                m_cache.emplace(job.key, std::move(peaks));
+                m_inFlight.erase(job.key);
+                // Through MainThreadDispatcher rather than a raw g_idle_add():
+                // one hand-off mechanism for every worker-to-main-thread
+                // post, with a lifetime guard, and the one place the TSan
+                // annotations for that hand-off live (sanitizer report S5).
+                MainThreadDispatcher::post(m_lifetime, m_onReady);
+                schedule();
+            },
+            core::concurrency::Priority::Interactive));
+    }
+}
+
+std::vector<float> WaveformCache::compute(const Job &job)
+{
         std::vector<float> peaks;
         Log::ScopedTimer timer("[waveform] job " + job.resource + " [" + std::to_string(job.in) + "," +
                                std::to_string(job.out) + "]");
@@ -130,18 +166,7 @@ void WaveformCache::workerMain()
             Log::warn("[waveform] could not open " + job.resource);
         }
 
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_cache.emplace(job.key, std::move(peaks));
-            m_inFlight.erase(job.key);
-        }
-
-        // Through MainThreadDispatcher rather than a raw g_idle_add(): one
-        // hand-off mechanism for every worker-to-main-thread post, with a
-        // lifetime guard, and the one place the TSan annotations for that
-        // hand-off live (sanitizer report S5).
-        MainThreadDispatcher::post(m_lifetime, m_onReady);
-    }
+    return peaks;
 }
 
 } // namespace ustudio::engine

@@ -1,17 +1,15 @@
 #pragma once
 
 #include "core/model/frame_time.h"
+#include "core/concurrency/thread_pool.h"
 #include "dispatcher.h"
 
-#include <atomic>
-#include <condition_variable>
 #include <deque>
 #include <functional>
 #include <map>
 #include <mutex>
 #include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace ustudio::engine {
@@ -19,9 +17,8 @@ namespace ustudio::engine {
 namespace core = ustudio::core;
 
 // Computes and caches per-clip audio waveform peak data (one normalized
-// [0,1] peak value per frame across a clip's [in,out] range) on a
-// dedicated background worker thread, so drawing the timeline never blocks
-// on decoding.
+// [0,1] peak value per frame across a clip's [in,out] range) as jobs on the
+// app's worker pool, so drawing the timeline never blocks on decoding.
 //
 // A narrow, separate MLT touchpoint from EngineSync/PlaybackController —
 // kept outside them specifically so waveform computation (which opens its
@@ -34,8 +31,17 @@ class WaveformCache
     // onReady is invoked (already marshaled onto the GLib main thread)
     // each time a previously-unavailable waveform finishes computing —
     // callers should just queue a redraw and call peaksFor() again.
-    explicit WaveformCache(std::function<void()> onReady);
+    // Runs as jobs on `pool` (doc 19 MT3), at most `maxJobs` at once, one
+    // per (resource, range); Interactive, since the timeline asks only for
+    // clips it's drawing.
+    WaveformCache(core::concurrency::ThreadPool &pool, std::function<void()> onReady, size_t maxJobs);
+    // Calls shutdown().
     ~WaveformCache();
+    // Stops taking work, cancels queued jobs, waits for running ones. Call
+    // before the pool is destroyed. Main thread. Idempotent.
+    void shutdown();
+    // Most jobs that ran at the same time so far (for tests).
+    size_t peakConcurrentJobs() const;
 
     WaveformCache(const WaveformCache &) = delete;
     WaveformCache &operator=(const WaveformCache &) = delete;
@@ -73,22 +79,26 @@ class WaveformCache
         core::Rational fps;
     };
 
-    void workerMain();
+    void schedule(); // m_mutex held
+    std::vector<float> compute(const Job &job);
     static std::string keyFor(const std::string &resource, int in, int out, core::Rational fps);
 
     mutable std::mutex m_mutex;
     std::map<std::string, std::vector<float>> m_cache;
     std::set<std::string> m_inFlight;
     std::deque<Job> m_queue;
-    std::condition_variable m_cv;
-    std::thread m_worker;
-    std::atomic<bool> m_quit{false};
+    core::concurrency::ThreadPool &m_pool;
+    const size_t m_maxJobs;
+    size_t m_running = 0;
+    size_t m_peakRunning = 0;
+    bool m_quit = false;
+    std::vector<core::concurrency::JobHandle> m_jobs;
     std::function<void()> m_onReady;
     // Guards the ready callbacks posted through MainThreadDispatcher: if
     // this cache is destroyed first, a still-pending callback is dropped
     // instead of calling a copied m_onReady whose captures may be gone.
     // Declared last, so it's destroyed first, after the destructor has
-    // already joined the worker.
+    // waited for every job.
     MainThreadDispatcher::LifetimeToken m_lifetime = MainThreadDispatcher::makeToken();
 };
 

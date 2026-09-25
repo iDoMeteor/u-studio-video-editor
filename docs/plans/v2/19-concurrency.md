@@ -282,6 +282,42 @@ the 16 ms criterion.
 - Waveforms and thumbnails move from one dedicated thread each onto the
   pool, with priorities (visible first) and cancellation.
 
+**Done (0.28.2, 2026-09-24).**
+- **Jobs:** `ThumbnailCache` and `WaveformCache` run as jobs on the
+  window's pool. Timeline strips and waveforms are Interactive; the media
+  browser's row thumbnails are Background, since its list asks for every
+  row, shown or not.
+- **Cap:** cache jobs are capped to about half the pool, so imports and
+  saves keep threads. Strips get half of that and waveforms the rest; the
+  media browser gets one.
+- **Batching and cancellation:** strip frames are batched per file (the
+  producer is opened once), and stale requests are dropped before decoding
+  (the P5 generation check plus the job stop token).
+- **Shutdown:** each cache has `shutdown()`, which cancels and waits
+  before the pool goes.
+- **Found on the way:** MLT's process-wide avformat decoder cap (4) let
+  producers evict each other mid-decode across threads and crashed
+  playback. It's now sized as kdenlive sizes it (README, "Thumbnail cache
+  notes").
+
+Measured in a release build: 50 clips on 8 tracks over 40 generated 1080p
+H.264 files; 8 strip frames per video clip, a waveform per audio clip and a
+row thumbnail per file.
+
+| | Dedicated threads (before) | Pool (after) |
+|---|---|---|
+| All thumbnails and waveforms ready, idle | 17.8 s | 15.1 s |
+| Same, while playing a 1080p timeline | 18.5–18.6 s | 16.7–19.3 s |
+| Playback during the fill (shown fps) | 30.0 | 30.0, 30.0, 29.7 (6 of 580 dropped) |
+
+The fill is bound by opening 40 files; more strip jobs would shorten it, at
+the cost of pool room, which is the cap's policy.
+
+Stall monitor, on the Wayland desktop: a 50-clip project playing for 15 s
+while 52 thumbnail and 6 waveform jobs ran showed no iteration over 16 ms
+after the window's first second. That first second has first-show stalls
+(the window's first layout and paint), as in MT2.
+
 ### MT4 — Playback throughput (about 1–2 weeks, measurement-led)
 
 - Zero-copy hand-off: keep the `Mlt::Frame` alive and wrap its image in a

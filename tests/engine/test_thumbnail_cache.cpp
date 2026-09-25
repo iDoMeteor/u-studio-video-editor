@@ -58,6 +58,13 @@ template <class Done> bool pumpMainContextUntil(Done done, std::chrono::millisec
     return false;
 }
 
+// doc 19 MT3: the caches run on a pool; one for the whole binary, made after
+// the shared FactoryPolicy, so it's destroyed before MLT is closed.
+ustudio::core::concurrency::ThreadPool &testPool()
+{
+    static ustudio::core::concurrency::ThreadPool pool(4);
+    return pool;
+}
 } // namespace
 
 TEST_CASE("ThumbnailCache: computes a small RGBA image for a synthetic colour producer")
@@ -65,10 +72,13 @@ TEST_CASE("ThumbnailCache: computes a small RGBA image for a synthetic colour pr
     sharedFactoryPolicy();
     std::mutex mutex;
     int readyCount = 0;
-    ThumbnailCache cache([&] {
-        std::lock_guard<std::mutex> lock(mutex);
-        ++readyCount;
-    });
+    ThumbnailCache cache(
+        testPool(),
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++readyCount;
+        },
+        2, ustudio::core::concurrency::Priority::Interactive);
 
     // color: is an MLT generator producer -- synthetic, no file (doc 11's
     // no-binary-media rule).
@@ -102,10 +112,13 @@ TEST_CASE("ThumbnailCache: a second request for the same resource before it's re
     sharedFactoryPolicy();
     std::mutex mutex;
     int readyCount = 0;
-    ThumbnailCache cache([&] {
-        std::lock_guard<std::mutex> lock(mutex);
-        ++readyCount;
-    });
+    ThumbnailCache cache(
+        testPool(),
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++readyCount;
+        },
+        2, ustudio::core::concurrency::Priority::Interactive);
 
     CHECK(cache.thumbnailFor("color:blue") == nullptr);
     CHECK(cache.thumbnailFor("color:blue") == nullptr); // still in flight -- must not double-queue
@@ -130,10 +143,13 @@ TEST_CASE("ThumbnailCache: an unopenable resource yields a cached, empty (not cr
     sharedFactoryPolicy();
     std::mutex mutex;
     int readyCount = 0;
-    ThumbnailCache cache([&] {
-        std::lock_guard<std::mutex> lock(mutex);
-        ++readyCount;
-    });
+    ThumbnailCache cache(
+        testPool(),
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++readyCount;
+        },
+        2, ustudio::core::concurrency::Priority::Interactive);
 
     CHECK(cache.thumbnailFor("/nonexistent/path/does-not-exist.mp4") == nullptr);
     bool ready = pumpMainContextUntil(
@@ -180,10 +196,13 @@ TEST_CASE("ThumbnailCache: a real 16:9 video decodes at its own aspect, not MLT'
 
     std::mutex mutex;
     int readyCount = 0;
-    ThumbnailCache cache([&] {
-        std::lock_guard<std::mutex> lock(mutex);
-        ++readyCount;
-    });
+    ThumbnailCache cache(
+        testPool(),
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++readyCount;
+        },
+        2, ustudio::core::concurrency::Priority::Interactive);
 
     CHECK(cache.thumbnailFor(path.string()) == nullptr);
     bool ready = pumpMainContextUntil(
@@ -225,7 +244,7 @@ TEST_CASE("ThumbnailCache: frame thumbnails show the frame asked for, at the seq
     ustudio::testing::renderSyncClip(sync.profile(), media.string(), 3);
 
     std::atomic<int> ready{0};
-    ThumbnailCache cache([&] { ++ready; });
+    ThumbnailCache cache(testPool(), [&] { ++ready; }, 2, ustudio::core::concurrency::Priority::Interactive);
     auto brightness = [&](int frame) -> int {
         const ThumbnailCache::Data *data = nullptr;
         pumpMainContextUntil([&] { return (data = cache.frameThumbnail(media.string(), frame, fps, 1)) != nullptr; },
@@ -256,8 +275,8 @@ TEST_CASE("ThumbnailCache and WaveformCache never block the caller while their w
     RemoveOnExit cleanup{media};
     ustudio::testing::renderSyncClip(sync.profile(), media.string(), 4);
 
-    ThumbnailCache thumbnails([] {});
-    WaveformCache waveforms([] {});
+    ThumbnailCache thumbnails(testPool(), [] {}, 2, ustudio::core::concurrency::Priority::Interactive);
+    WaveformCache waveforms(testPool(), [] {}, 2);
     double worstMs = 0.0;
     auto timed = [&](auto call) {
         auto start = std::chrono::steady_clock::now();
@@ -291,7 +310,7 @@ TEST_CASE("ThumbnailCache: frame requests the view stopped asking for are droppe
     RemoveOnExit cleanup{media};
     ustudio::testing::renderSyncClip(sync.profile(), media.string(), 4);
 
-    ThumbnailCache cache([] {});
+    ThumbnailCache cache(testPool(), [] {}, 2, ustudio::core::concurrency::Priority::Interactive);
     // A zoom sweep: 30 rounds, each asking for a different set of 4 frames.
     for (int round = 0; round < 30; ++round) {
         cache.newFrameGeneration();
@@ -312,4 +331,48 @@ TEST_CASE("ThumbnailCache: frame requests the view stopped asking for are droppe
     CHECK(settled);
     MESSAGE("decoded " << cache.frameThumbnailsDecoded() << " of 120 requested");
     CHECK(cache.frameThumbnailsDecoded() < 20);
+}
+
+TEST_CASE("ThumbnailCache and WaveformCache stay within their job caps and leave the pool room (doc 19 MT3)")
+{
+    sharedFactoryPolicy();
+    // Eight files: eight batches, but at most two jobs at a time.
+    ThumbnailCache thumbnails(testPool(), [] {}, 2, ustudio::core::concurrency::Priority::Interactive);
+    WaveformCache waveforms(testPool(), [] {}, 1);
+    std::vector<std::string> files;
+    for (int i = 0; i < 8; ++i)
+        files.push_back("noise:" + std::to_string(i));
+    for (const std::string &file : files) {
+        thumbnails.thumbnailFor(file);
+        waveforms.peaksFor("tone:" + std::to_string(200 + 20 * static_cast<int>(files.size())), 0, 2'000,
+                           ustudio::core::Rational{25, 1});
+    }
+    for (int i = 0; i < 6; ++i)
+        waveforms.peaksFor("tone:" + std::to_string(300 + i), 0, 2'000, ustudio::core::Rational{25, 1});
+
+    // A job of the pool's other users (an import's probe, a save) still gets
+    // a thread while the caches have work queued.
+    std::atomic<bool> otherRan{false};
+    auto other =
+        testPool().submit([&](std::stop_token) { otherRan = true; }, ustudio::core::concurrency::Priority::Interactive);
+    other.wait();
+    CHECK(otherRan);
+
+    bool allReady = pumpMainContextUntil(
+        [&] {
+            for (const std::string &file : files)
+                if (!thumbnails.thumbnailFor(file))
+                    return false;
+            for (int i = 0; i < 6; ++i)
+                if (!waveforms.peaksFor("tone:" + std::to_string(300 + i), 0, 2'000, ustudio::core::Rational{25, 1}))
+                    return false;
+            return true;
+        },
+        std::chrono::seconds(60));
+    CHECK(allReady);
+    CAPTURE(thumbnails.peakConcurrentJobs());
+    CAPTURE(waveforms.peakConcurrentJobs());
+    CHECK(thumbnails.peakConcurrentJobs() >= 1);
+    CHECK(thumbnails.peakConcurrentJobs() <= 2);
+    CHECK(waveforms.peakConcurrentJobs() == 1);
 }

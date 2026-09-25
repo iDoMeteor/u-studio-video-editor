@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.28.2
+
+- Fixed: playback could crash while thumbnails and waveforms were being
+  generated for a project with several video files.
+- Thumbnails and waveforms are generated on the shared worker pool, a
+  little faster.
+
 ## 0.28.1
 
 - Fixed: pressing play right after an edit could leave playback stuck on

@@ -191,15 +191,26 @@ AppWindow::AppWindow(GtkApplication *app)
             engine::MainThreadDispatcher::post(token, std::move(fn));
         },
         core::loadProject);
-    m_waveforms = std::make_unique<engine::WaveformCache>([this] { onWaveformReady(); });
-    m_thumbnails = std::make_unique<engine::ThumbnailCache>([this] { onThumbnailReady(); });
-    // The timeline's strips have their own worker: dozens of frames arrive
+    // doc 19 MT3: the caches run on the pool too, capped so imports, probes
+    // and saves still get threads: about half the pool between the timeline's
+    // strips and its waveforms, plus one job for the media browser's row
+    // thumbnails (Background: its list asks for every row, shown or not).
+    const size_t cacheJobs = std::max<size_t>(1, poolSize / 2);
+    const size_t stripJobs = std::max<size_t>(1, cacheJobs / 2);
+    const size_t waveformJobs = std::max<size_t>(1, cacheJobs - stripJobs);
+    m_waveforms = std::make_unique<engine::WaveformCache>(*m_pool, [this] { onWaveformReady(); }, waveformJobs);
+    m_thumbnails = std::make_unique<engine::ThumbnailCache>(
+        *m_pool, [this] { onThumbnailReady(); }, 1, core::concurrency::Priority::Background);
+    // The timeline's strips are a separate cache: dozens of frames arrive
     // while scrolling, and each only needs the timeline redrawn, not the
     // media browser rebuilt.
-    m_timelineThumbnails = std::make_unique<engine::ThumbnailCache>([this] {
-        if (m_timeline)
-            gtk_widget_queue_draw(m_timeline);
-    });
+    m_timelineThumbnails = std::make_unique<engine::ThumbnailCache>(
+        *m_pool,
+        [this] {
+            if (m_timeline)
+                gtk_widget_queue_draw(m_timeline);
+        },
+        stripJobs, core::concurrency::Priority::Interactive);
 
     // Single source of truth for the undo/redo buttons and the title's
     // dirty mark (audit A1): every place that used to call
@@ -284,6 +295,13 @@ void AppWindow::prepareForShutdown()
         m_projectLoader->cancel();
     m_projectLoader.reset();
     m_saveQueue.reset();
+    // The caches' jobs run on the pool: stop them before it goes. The
+    // caches stay alive (a late draw may still ask them) but take no work.
+    for (engine::ThumbnailCache *cache : {m_thumbnails.get(), m_timelineThumbnails.get()})
+        if (cache)
+            cache->shutdown();
+    if (m_waveforms)
+        m_waveforms->shutdown();
     m_pool.reset();
     if (m_engine)
         m_engine->shutdown();

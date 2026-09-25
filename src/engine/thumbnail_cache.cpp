@@ -22,20 +22,29 @@ namespace {
 constexpr int kThumbnailWidth = 120;
 } // namespace
 
-ThumbnailCache::ThumbnailCache(std::function<void()> onReady) : m_onReady(std::move(onReady))
-{
-    m_worker = std::thread([this] { workerMain(); });
-}
+ThumbnailCache::ThumbnailCache(core::concurrency::ThreadPool &pool, std::function<void()> onReady, size_t maxJobs,
+                               core::concurrency::Priority priority)
+    : m_pool(pool), m_maxJobs(std::max<size_t>(1, maxJobs)), m_priority(priority), m_onReady(std::move(onReady))
+{}
 
 ThumbnailCache::~ThumbnailCache()
 {
+    shutdown();
+}
+
+void ThumbnailCache::shutdown()
+{
+    std::vector<core::concurrency::JobHandle> jobs;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_quit.store(true);
+        m_quit = true;
+        m_readyBatches.clear();
+        jobs.swap(m_jobs);
     }
-    m_cv.notify_all();
-    if (m_worker.joinable())
-        m_worker.join();
+    for (core::concurrency::JobHandle &job : jobs)
+        job.cancel(); // queued ones never start; running ones see their stop token
+    for (core::concurrency::JobHandle &job : jobs)
+        job.wait();
 }
 
 const ThumbnailCache::Data *ThumbnailCache::thumbnailFor(const std::string &resource)
@@ -46,10 +55,9 @@ const ThumbnailCache::Data *ThumbnailCache::thumbnailFor(const std::string &reso
     if (it != m_cache.end())
         return &it->second;
 
-    if (m_inFlight.find(resource) == m_inFlight.end()) {
-        m_inFlight.insert(resource);
-        m_queue.push_back(Job{resource, -1, 0, 1, resource});
-        m_cv.notify_one();
+    if (!m_quit && m_inFlight.insert(resource).second) {
+        enqueue(Job{resource, -1, 0, 1, resource}, /*newest=*/false);
+        schedule();
     }
     return nullptr;
 }
@@ -58,7 +66,7 @@ const ThumbnailCache::Data *ThumbnailCache::frameThumbnail(const std::string &re
                                                            int fpsDen)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    // Evicted here, on the main thread, never by the worker: a pointer this
+    // Evicted here, on the main thread, never by a job: a pointer this
     // returned is used before the next call, so eviction can't pull an entry
     // out from under a caller.
     while (m_frameOrder.size() > kMaxFrameThumbnails) {
@@ -72,9 +80,9 @@ const ThumbnailCache::Data *ThumbnailCache::frameThumbnail(const std::string &re
     if (it != m_cache.end())
         return &it->second;
     m_requestedIn[key] = m_generation;
-    if (m_inFlight.insert(key).second) {
-        m_queue.push_front(Job{resource, frame, fpsNum, fpsDen, key}); // newest first
-        m_cv.notify_one();
+    if (!m_quit && m_inFlight.insert(key).second) {
+        enqueue(Job{resource, frame, fpsNum, fpsDen, key}, /*newest=*/true);
+        schedule();
     }
     return nullptr;
 }
@@ -91,41 +99,95 @@ size_t ThumbnailCache::frameThumbnailsDecoded() const
     return m_framesDecoded;
 }
 
-void ThumbnailCache::workerMain()
+size_t ThumbnailCache::peakConcurrentJobs() const
 {
-    // The last file opened, kept open: a thumbnail strip asks for many
-    // frames of the same file in a row, and opening a producer costs far
-    // more than decoding one frame.
-    std::string openResource;
-    int openFpsNum = -1, openFpsDen = -1;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_peakRunning;
+}
+
+namespace {
+std::string batchKeyFor(const std::string &resource, int fpsNum, int fpsDen)
+{
+    return resource + '\n' + std::to_string(fpsNum) + '/' + std::to_string(fpsDen);
+}
+} // namespace
+
+void ThumbnailCache::enqueue(Job job, bool newest)
+{
+    std::string batchKey = batchKeyFor(job.resource, job.fpsNum, job.fpsDen);
+    Batch &batch = m_batches[batchKey];
+    if (newest)
+        batch.pending.push_front(std::move(job));
+    else
+        batch.pending.push_back(std::move(job));
+    // Newest-asked file first, as the old single queue served newest first.
+    std::erase(m_readyBatches, batchKey);
+    if (!batch.running)
+        m_readyBatches.push_front(batchKey);
+}
+
+bool ThumbnailCache::isStale(const Job &job)
+{
+    if (job.frame < 0)
+        return false;
+    auto requested = m_requestedIn.find(job.key);
+    bool stale = requested == m_requestedIn.end() || requested->second + 1 < m_generation;
+    if (requested != m_requestedIn.end())
+        m_requestedIn.erase(requested);
+    return stale;
+}
+
+void ThumbnailCache::schedule()
+{
+    // Finished handles are dropped as new ones go in.
+    std::erase_if(m_jobs, [](const core::concurrency::JobHandle &job) {
+        auto state = job.state();
+        return state != core::concurrency::JobState::Pending && state != core::concurrency::JobState::Running;
+    });
+    while (!m_quit && m_running < m_maxJobs && !m_readyBatches.empty()) {
+        std::string batchKey = m_readyBatches.front();
+        m_readyBatches.pop_front();
+        m_batches[batchKey].running = true;
+        ++m_running;
+        m_peakRunning = std::max(m_peakRunning, m_running);
+        m_jobs.push_back(
+            m_pool.submit([this, batchKey](std::stop_token stop) { runBatch(batchKey, stop); }, m_priority));
+    }
+}
+
+void ThumbnailCache::runBatch(const std::string &batchKey, std::stop_token stop)
+{
+    // Opened once for the batch: every job in it is the same file at the
+    // same rate.
     std::unique_ptr<Mlt::Profile> openProfile;
     std::unique_ptr<Mlt::Producer> openProducer;
 
     while (true) {
         Job job;
         {
-            std::unique_lock<std::mutex> lock(m_mutex);
-            m_cv.wait(lock, [this] { return m_quit.load() || !m_queue.empty(); });
-            if (m_queue.empty()) {
-                if (m_quit.load())
-                    return;
-                continue;
-            }
-            job = m_queue.front();
-            m_queue.pop_front();
-            // A frame job the latest round didn't ask for again: the view
-            // has moved on, so skip the decode. If it's wanted later it is
+            std::lock_guard<std::mutex> lock(m_mutex);
+            Batch &batch = m_batches[batchKey];
+            // Stale requests go without decoding; if wanted later they are
             // simply requested again.
-            if (job.frame >= 0) {
-                auto requested = m_requestedIn.find(job.key);
-                bool stale = requested == m_requestedIn.end() || requested->second + 1 < m_generation;
-                if (requested != m_requestedIn.end())
-                    m_requestedIn.erase(requested);
-                if (stale) {
-                    m_inFlight.erase(job.key);
-                    continue;
-                }
+            while (!batch.pending.empty() && isStale(batch.pending.front())) {
+                m_inFlight.erase(batch.pending.front().key);
+                batch.pending.pop_front();
             }
+            if (batch.pending.empty() || stop.stop_requested() || m_quit) {
+                if (stop.stop_requested() || m_quit) {
+                    for (const Job &left : batch.pending)
+                        m_inFlight.erase(left.key);
+                    batch.pending.clear();
+                }
+                batch.running = false;
+                if (batch.pending.empty())
+                    m_batches.erase(batchKey);
+                --m_running;
+                schedule();
+                return;
+            }
+            job = std::move(batch.pending.front());
+            batch.pending.pop_front();
         }
 
         Data data;
@@ -150,7 +212,7 @@ void ThumbnailCache::workerMain()
         // sample-aspect before decoding the real thumbnail frame --
         // confirmed empirically that this is enough on its own; the
         // producer does not need to be reopened.
-        if (!openProducer || openResource != job.resource || openFpsNum != job.fpsNum || openFpsDen != job.fpsDen) {
+        if (!openProducer) {
             openProducer.reset();
             openProfile = std::make_unique<Mlt::Profile>();
             // A frame job counts frames at the sequence's rate; set it
@@ -158,9 +220,6 @@ void ThumbnailCache::workerMain()
             if (job.frame >= 0 && job.fpsNum > 0 && job.fpsDen > 0)
                 openProfile->set_frame_rate(job.fpsNum, job.fpsDen);
             openProducer = std::make_unique<Mlt::Producer>(*openProfile, job.resource.c_str());
-            openResource = job.resource;
-            openFpsNum = job.fpsNum;
-            openFpsDen = job.fpsDen;
             if (openProducer->is_valid()) {
                 std::unique_ptr<Mlt::Frame> primeFrame(openProducer->get_frame());
                 int metaWidth = openProducer->get_int("meta.media.width");

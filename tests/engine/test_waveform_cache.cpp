@@ -42,6 +42,13 @@ template <class Done> bool pumpMainContextUntil(Done done, std::chrono::millisec
     return false;
 }
 
+// doc 19 MT3: the caches run on a pool; one for the whole binary, made after
+// the shared FactoryPolicy, so it's destroyed before MLT is closed.
+ustudio::core::concurrency::ThreadPool &testPool()
+{
+    static ustudio::core::concurrency::ThreadPool pool(4);
+    return pool;
+}
 } // namespace
 
 TEST_CASE("WaveformCache: computes peaks for a synthetic tone, one per requested frame")
@@ -49,10 +56,13 @@ TEST_CASE("WaveformCache: computes peaks for a synthetic tone, one per requested
     sharedFactoryPolicy();
     std::mutex mutex;
     int readyCount = 0;
-    WaveformCache cache([&] {
-        std::lock_guard<std::mutex> lock(mutex);
-        ++readyCount;
-    });
+    WaveformCache cache(
+        testPool(),
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++readyCount;
+        },
+        2);
 
     // tone: is an MLT generator producer -- synthetic, no file (doc 11's
     // no-binary-media rule).
@@ -77,10 +87,13 @@ TEST_CASE("WaveformCache: the same resource/in/out at a different fps is a disti
     sharedFactoryPolicy();
     std::mutex mutex;
     int readyCount = 0;
-    WaveformCache cache([&] {
-        std::lock_guard<std::mutex> lock(mutex);
-        ++readyCount;
-    });
+    WaveformCache cache(
+        testPool(),
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++readyCount;
+        },
+        2);
 
     // Two jobs differ only in fps -- E5's fix opens each job's throwaway
     // Producer at the SEQUENCE's fps (here, deliberately two different
@@ -113,10 +126,13 @@ TEST_CASE("WaveformCache: a very long clip is capped to a bounded peak count, de
     sharedFactoryPolicy();
     std::mutex mutex;
     int readyCount = 0;
-    WaveformCache cache([&] {
-        std::lock_guard<std::mutex> lock(mutex);
-        ++readyCount;
-    });
+    WaveformCache cache(
+        testPool(),
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++readyCount;
+        },
+        2);
 
     // A real ~62-minute (110,854-frame) clip's waveform job was measured
     // taking 18.2 SECONDS before this fix -- one Mlt::Producer::get_frame()

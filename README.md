@@ -24,9 +24,9 @@ single-track skeleton.
 - Collapsible media browser panel to the left of the video preview (toggle
   from the header-bar button next to "Add track"): every imported asset as
   a row with a thumbnail, name, length, fps, and format. Thumbnails are
-  decoded on a background thread (`src/engine/thumbnail_cache.{h,cpp}`,
-  the same architecture as the waveform cache below) so importing a large
-  file never blocks the UI. Right-click a row for "Remove from Project"
+  decoded as background jobs on the worker pool
+  (`src/engine/thumbnail_cache.{h,cpp}`, the same architecture as the
+  waveform cache below) so importing a large file never blocks the UI. Right-click a row for "Remove from Project"
   (drops the asset and every clip cut from it, undoable — the file on
   disk is untouched) or "Move File to Trash…" (confirms, since removing
   it from the project isn't chained onto the file move by the undo stack,
@@ -130,9 +130,9 @@ single-track skeleton.
   unlocked — reordering the track itself and toggling the lock stay
   available. Locked rows get a subtle tint so you can tell at a glance.
 - Per-clip audio waveforms, drawn on every clip that has audio (video or
-  audio-only), computed on a background thread so the UI never stalls —
-  see `src/engine/waveform_cache.{h,cpp}`. Video clips carry a strip of
-  thumbnails edge to edge, frame-accurate, from their own worker (newest
+  audio-only), computed as pool jobs so the UI never stalls — see
+  `src/engine/waveform_cache.{h,cpp}`. Video clips carry a strip of
+  thumbnails edge to edge, frame-accurate, from their own cache (newest
   requests first; `ThumbnailCache::frameThumbnail`), with the waveform in
   the bottom 40% under them.
 - The timeline is one custom widget (`UsTimelineView`, ADR-008) drawn in
@@ -878,9 +878,24 @@ clip," not a hard failure.
 ### Thumbnail cache notes
 
 `ThumbnailCache` (`src/engine/thumbnail_cache.{h,cpp}`) is the same
-background-worker-thread-plus-cache architecture as `WaveformCache` above,
-one dedicated thread instead of a pool, keyed on the resource path alone
-(a thumbnail isn't tied to any sequence's fps the way waveform peaks are).
+jobs-on-the-pool-plus-cache architecture as `WaveformCache` above (doc 19
+MT3: at most a capped number of jobs at once, so imports and probes keep
+threads). Pending frames are batched per file: one job opens the producer
+once and walks that file's frames, newest first, skipping any the view
+stopped asking for. A representative thumbnail is keyed on the resource
+path alone (it isn't tied to any sequence's fps the way waveform peaks
+are).
+
+**MLT caps live avformat decoders process-wide; raise the cap.** MLT keeps
+at most 4 avformat producers' decoder state (`mlt_cache`,
+"producer_avformat") and evicts the least recently used when another one
+decodes. With cache jobs decoding on pool threads while playback decodes
+its own masters, producers evicted each other mid-decode across threads.
+Playback crashed in `producer_get_audio → init_cache` (reproduced
+2026-09-24; 2 of 2 runs with a 1080p timeline playing while the caches
+filled, 0 of 3 after). `FactoryPolicy::raiseAvformatDecoderLimit()` sizes
+it as kdenlive does, threads + 2 per track. It is set once before any
+other thread exists, and raised from `EngineSync::rebuildAll()`.
 Each job opens its own throwaway `Mlt::Profile`/`Producer`, seeks to 10%
 into the clip (a plain frame 0 often lands on a fade-in or black open),
 decodes one frame, and box-downsamples it in software to a fixed
