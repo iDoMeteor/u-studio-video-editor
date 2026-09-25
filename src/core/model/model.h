@@ -103,6 +103,9 @@ class Model
     // to the dB "level" a volume filter takes. Applies to the whole track
     // (doc 03: "audio tracks and the audio part of video tracks").
     void setTrackVolume(TrackId, double volume);
+    // The active sequence's size and rate, as they are: nothing is retimed
+    // (see core/model/retime.h for that).
+    void setSequenceProfile(const Profile &profile);
     // Deliberately NOT gated by Track::locked (matches setTrackVolume's own
     // comment): a track's name is a label, not content, so it stays
     // editable the same way toggling the lock itself does.

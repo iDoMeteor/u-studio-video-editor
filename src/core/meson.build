@@ -5,6 +5,8 @@ libustudio_core_sources = files(
   'model/model.cpp',
   'model/mlt_order.cpp',
   'model/track_segments.cpp',
+  'model/profile_match.cpp',
+  'model/retime.cpp',
   'commands/primitives.cpp',
   'commands/undo_stack.cpp',
   'commands/timeline_edits.cpp',

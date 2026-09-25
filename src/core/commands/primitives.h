@@ -201,6 +201,25 @@ class SetTrackVolume : public Command
     double m_oldVolume = 1.0;
 };
 
+// The sequence's size and rate, for a sequence with no clips yet (its
+// first video import, doc 13 R7). With clips it refuses: their positions
+// would need retiming (core/model/retime.h), a different command.
+class SetSequenceProfile : public Command
+{
+  public:
+    explicit SetSequenceProfile(Profile profile);
+    std::string label() const override
+    {
+        return "Set project format";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    Profile m_profile;
+    Profile m_oldProfile;
+};
+
 // Also not gated by Track::locked, for the same reason as SetTrackVolume
 // above: a name is a label, not content.
 class RenameTrack : public Command

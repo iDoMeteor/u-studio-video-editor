@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.41.0
+
+- A new project takes its size and frame rate from the first video you
+  import (undo reverts both); importing a clip at a different rate notes
+  that frames will repeat or be skipped. Rates show as 23.976/29.97/59.94.
+
 ## 0.40.1
 
 - Launched from a snap app's terminal (VS Code's), the editor no longer

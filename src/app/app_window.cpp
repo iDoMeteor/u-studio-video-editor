@@ -12,6 +12,8 @@
 #include "core/log.h"
 #include "core/trace.h"
 #include "engine/audio_sync.h"
+#include "core/model/profile_match.h"
+#include "core/model/retime.h"
 #include "core/xml/backup.h"
 #include "pending_renders.h"
 #include "render_profiles_page.h"
@@ -82,21 +84,10 @@ std::string formatMediaLength(double seconds)
     return buf;
 }
 
-// Media-browser "fps" column -- a plain decimal (e.g. "30" or "29.97"),
-// not a raw num/den fraction; trims to an integer when the ratio already
-// is one (the overwhelmingly common case) rather than always showing a
-// misleadingly precise ".00".
+// Media-browser "fps" column: 30, 25, 23.976, 29.97 (core::formatFps).
 std::string formatMediaFps(core::Rational fps)
 {
-    if (fps.num <= 0 || fps.den <= 0)
-        return "—";
-    double value = static_cast<double>(fps.num) / fps.den;
-    char buf[32];
-    if (fps.num % fps.den == 0)
-        std::snprintf(buf, sizeof(buf), "%d", fps.num / fps.den);
-    else
-        std::snprintf(buf, sizeof(buf), "%.2f", value);
-    return buf;
+    return core::formatFps(fps);
 }
 
 // `length` is the caller's ADJUSTED length (still images get resized to
@@ -1764,9 +1755,15 @@ void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::
                 showStatus("Importing " + std::to_string(finished) + " of " + std::to_string(total) + "…");
         },
         [this, state, total] {
+            // Format notes (doc 13 R7) ride on the summary: the first video
+            // set the project's format, or a clip's rate differs from it.
+            std::string notes;
+            for (const std::string &note : std::exchange(m_importNotes, {}))
+                notes += " " + note + (note.ends_with(".") ? "" : ".");
             if (state->failures.empty())
-                showStatus(total == 1 ? "Imported: " + state->lastImported
-                                      : "Imported " + std::to_string(total) + " files.");
+                showStatus((total == 1 ? "Imported: " + state->lastImported
+                                       : "Imported " + std::to_string(total) + " files.") +
+                           notes);
             else if (total == 1)
                 showStatus(state->failures.front());
             else
@@ -1791,7 +1788,15 @@ AppWindow::importProbedToTrack(const std::string &path, const engine::EngineSync
     // what a still image is for -- no manual trim-to-fit needed. Falls
     // back to a modest 10s default when there's nothing yet to cover (an
     // empty project, or inserting past the current end).
-    core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probed.length, position);
+    std::vector<std::unique_ptr<core::Command>> steps;
+    std::optional<core::Profile> adopt = profileToAdopt(probed);
+    if (adopt)
+        steps.push_back(std::make_unique<core::SetSequenceProfile>(*adopt));
+    const core::Rational fps = adopt ? adopt->fps : m_model.sequence().profile.fps;
+    const core::FrameIndex probedLength = lengthAtRate(probed, fps);
+    if (adopt)
+        position = core::retimeFrame(position, m_model.sequence().profile.fps, fps);
+    core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probedLength, position);
 
     if (!m_model.isRangeFree(trackId, position, position + length))
         return std::unexpected("Can't import " + path + " there: it would overlap another clip.");
@@ -1803,26 +1808,63 @@ AppWindow::importProbedToTrack(const std::string &path, const engine::EngineSync
     // yet.
     core::AssetId predictedAssetId{m_model.project().nextId};
 
-    std::vector<std::unique_ptr<core::Command>> steps;
-    steps.push_back(
-        std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, m_model.sequence().profile.fps)));
+    steps.push_back(std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, fps)));
     steps.push_back(std::make_unique<core::InsertClip>(trackId, predictedAssetId, position, 0, length - 1));
 
     auto composite = std::make_unique<core::CompositeCommand>("Import clip", std::move(steps));
 
     if (!m_undoStack.execute(std::move(composite)))
         return std::unexpected("Could not import: " + path);
+    noteImportedRate(path, probed, adopt.has_value());
     queueRefresh();
     return position + length;
+}
+
+std::optional<core::Profile> AppWindow::profileToAdopt(const engine::EngineSync::ProbedMedia &probed) const
+{
+    if (probed.isStillImage || probed.width <= 0 || probed.height <= 0 || probed.fps.num <= 0 || probed.fps.den <= 0 ||
+        !core::sequenceTakesProfileFromMedia(m_model.project()))
+        return std::nullopt;
+    core::Profile profile = core::profileForMedia(m_model.sequence().profile, probed.width, probed.height, probed.fps);
+    if (profile == m_model.sequence().profile)
+        return std::nullopt;
+    return profile;
+}
+
+core::FrameIndex AppWindow::lengthAtRate(const engine::EngineSync::ProbedMedia &probed, core::Rational fps) const
+{
+    if (probed.sequenceFps.num <= 0 || probed.sequenceFps.den <= 0 || probed.sequenceFps == fps)
+        return probed.length;
+    return std::max<core::FrameIndex>(1, core::retimeFrame(probed.length, probed.sequenceFps, fps));
+}
+
+void AppWindow::noteImportedRate(const std::string &path, const engine::EngineSync::ProbedMedia &probed, bool adopted)
+{
+    const std::string name = std::filesystem::path(path).filename().string();
+    const core::Profile &profile = m_model.sequence().profile;
+    if (adopted) {
+        m_importNotes.push_back("The project now matches " + name + ": " + std::to_string(profile.width) + "×" +
+                                std::to_string(profile.height) + " at " + core::formatFps(profile.fps) + " fps.");
+        return;
+    }
+    if (!probed.isStillImage)
+        if (std::string note = core::frameRateNote(name, probed.fps, profile.fps); !note.empty())
+            m_importNotes.push_back(std::move(note));
 }
 
 std::expected<void, std::string> AppWindow::importProbedAssetOnly(const std::string &path,
                                                                   const engine::EngineSync::ProbedMedia &probed)
 {
-    core::FrameIndex length = effectiveInsertLength(probed.isStillImage, probed.length, 0);
-    if (!m_undoStack.execute(
-            std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, m_model.sequence().profile.fps))))
+    std::vector<std::unique_ptr<core::Command>> steps;
+    std::optional<core::Profile> adopt = profileToAdopt(probed);
+    if (adopt)
+        steps.push_back(std::make_unique<core::SetSequenceProfile>(*adopt));
+    const core::Rational fps = adopt ? adopt->fps : m_model.sequence().profile.fps;
+    core::FrameIndex length = effectiveInsertLength(probed.isStillImage, lengthAtRate(probed, fps), 0);
+    steps.push_back(std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, fps)));
+    if (!m_undoStack.execute(std::make_unique<core::CompositeCommand>("Import media", std::move(steps))))
         return std::unexpected("Could not import: " + path);
+    noteImportedRate(path, probed, adopt.has_value());
     queueRefresh();
     return {};
 }

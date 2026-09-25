@@ -145,3 +145,14 @@ test_audio_sync_exe = executable(
 )
 
 test('engine-audio-sync', test_audio_sync_exe, timeout: 120)
+
+# Clips of eight frame rates in 30 and 24 fps projects (doc 12, "Frame rate"):
+# generates its own lossless sources, so give it room.
+test_mixed_rates_exe = executable(
+  'test_mixed_rates',
+  files('test_mixed_rates.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+
+test('engine-mixed-rates', test_mixed_rates_exe, timeout: 180)

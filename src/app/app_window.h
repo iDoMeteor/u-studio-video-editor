@@ -126,6 +126,15 @@ class AppWindow
                                                                      core::TrackId trackId, core::FrameIndex position);
     // Enhancement #7 (media-browser half): adds the file to the project bin
     // only -- no clip, no track needed.
+    // Doc 13 R7: the profile an import should set first (the first video
+    // into an empty project), if any.
+    std::optional<core::Profile> profileToAdopt(const engine::EngineSync::ProbedMedia &probed) const;
+    // A probed length in frames of `fps` (it was counted at the rate the
+    // sequence had when probed).
+    core::FrameIndex lengthAtRate(const engine::EngineSync::ProbedMedia &probed, core::Rational fps) const;
+    // Queues the import summary's note about format or rate.
+    void noteImportedRate(const std::string &path, const engine::EngineSync::ProbedMedia &probed, bool adopted);
+    std::vector<std::string> m_importNotes;
     std::expected<void, std::string> importProbedAssetOnly(const std::string &path,
                                                            const engine::EngineSync::ProbedMedia &probed);
     // Open, New, Reload and Recover replace the project: imports still

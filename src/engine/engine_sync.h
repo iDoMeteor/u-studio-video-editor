@@ -174,6 +174,10 @@ class EngineSync
         core::Rational fps{0, 0};
         int width = 0;
         int height = 0;
+        // The rate `length` is counted in: the sequence's when probed. An
+        // import applied after the sequence's rate changed (its first video,
+        // doc 13 R7) retimes it.
+        core::Rational sequenceFps{0, 0};
     };
 
     // Opens `path` against this EngineSync's profile just long enough to

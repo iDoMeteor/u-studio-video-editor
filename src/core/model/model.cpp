@@ -287,6 +287,12 @@ void Model::setTrackVolume(TrackId id, double volume)
     notify(TrackVolumeChanged{id});
 }
 
+void Model::setSequenceProfile(const Profile &profile)
+{
+    activeSequence().profile = profile;
+    notify(SequenceProfileChanged{});
+}
+
 MarkerId Model::addMarker(FrameIndex at, std::string text, std::optional<MarkerId> reuseId)
 {
     MarkerId id = reuseId ? *reuseId : MarkerId{allocateId()};

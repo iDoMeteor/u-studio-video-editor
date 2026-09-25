@@ -272,6 +272,23 @@ bool SetTrackVolume::mergeWith(const Command &next)
     return true;
 }
 
+SetSequenceProfile::SetSequenceProfile(Profile profile) : m_profile(std::move(profile)) {}
+
+bool SetSequenceProfile::apply(Model &model)
+{
+    if (!model.sequence().clips.empty() || m_profile.width <= 0 || m_profile.height <= 0 || m_profile.fps.num <= 0 ||
+        m_profile.fps.den <= 0)
+        return false;
+    m_oldProfile = model.sequence().profile;
+    model.setSequenceProfile(m_profile);
+    return true;
+}
+
+void SetSequenceProfile::revert(Model &model)
+{
+    model.setSequenceProfile(m_oldProfile);
+}
+
 RenameTrack::RenameTrack(TrackId track, std::string name) : m_track(track), m_name(std::move(name)) {}
 
 bool RenameTrack::apply(Model &model)

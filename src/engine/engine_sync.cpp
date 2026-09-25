@@ -228,6 +228,7 @@ EngineSync::ProbedMedia EngineSync::probeMediaFile(const core::Profile &sequence
         return {};
 
     ProbedMedia result;
+    result.sequenceFps = sequenceProfile.fps;
     result.length = producer.get_length();
     const char *service = producer.get("mlt_service");
     result.isStillImage = service && (std::string(service) == "pixbuf" || std::string(service) == "qimage");

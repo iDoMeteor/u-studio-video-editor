@@ -181,6 +181,12 @@ single-track skeleton.
   every clip on it. Hovering a clip shows a tooltip with its name (or
   "(unnamed)"), start/end timecodes, length (timecode and frame count),
   and source file.
+- Mixed frame rates: clips of any rate (23.976 to 60 fps) play, seek and
+  render on one timeline; MLT takes each source's frame nearest in time.
+  A new, empty project takes its size and rate from the first video
+  imported into it (one undo step with the import); a later import at
+  another rate says so in the import summary ("frames will repeat" or "be
+  skipped"). The media browser shows rates as 23.976, 29.97, 59.94.
 - Render the project to an MP4 at the sequence's frame rate: H.264
   (libx264, or libopenh264 where ffmpeg lacks it), yuv420p, AAC 48kHz
   stereo, via the header bar's "Render…" button, with the default render
