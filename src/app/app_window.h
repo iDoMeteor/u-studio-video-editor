@@ -270,8 +270,8 @@ class AppWindow
     // track only (owner request, 2026-09-25).
     void onSeekPreviousCut(bool activeTrackOnly);
     void onSeekNextCut(bool activeTrackOnly);
-    // Every clip boundary on every track, plus 0 and the last frame, sorted
-    // and deduplicated.
+    // Every clip boundary on every track and every marker, plus 0 and the
+    // last frame, sorted and deduplicated.
     std::vector<int> cutBoundariesAllTracks() const;
     // Shift+S/Shift+D with exactly one clip selected (owner, 2026-09-25):
     // move it to the nearest track above (-1) or below (+1) of the same kind

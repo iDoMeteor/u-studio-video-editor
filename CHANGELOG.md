@@ -4,6 +4,10 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.31.0
+
+- `A`/`F` also stop at markers.
+
 ## 0.30.0
 
 - `Shift+S`/`Shift+D` move a single selected clip up/down to the nearest

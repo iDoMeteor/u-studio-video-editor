@@ -171,7 +171,7 @@ shipped bindings are the owner's and are the source of truth
 | J / K / L | reverse / pause / forward; repeated J/L step speed |
 | ← / → | −1 / +1 frame; Ctrl = 10 frames, Alt = 1 minute |
 | Home / End | sequence start/end |
-| A / F | previous / next cut on any track |
+| A / F | previous / next cut on any track, or marker |
 | Shift+A / Shift+F | previous / next cut on the active track |
 | S / D | active track up / down |
 | Shift+S / Shift+D | the selected clip up / down to the nearest free track of its kind; with nothing selected, active track to the top / bottom |

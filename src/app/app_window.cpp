@@ -2021,6 +2021,11 @@ std::vector<int> AppWindow::cutBoundariesAllTracks() const
         std::vector<int> track = cutBoundariesForTrack(row);
         boundaries.insert(boundaries.end(), track.begin(), track.end());
     }
+    // Plain A/F stop at markers too (owner, 2026-09-25); Shift+A/F, the
+    // active-track seek, stays on that track's cuts.
+    const int lastFrame = std::max(sequenceFrames() - 1, 0);
+    for (const core::Marker &marker : m_model.sequence().markers)
+        boundaries.push_back(std::clamp(static_cast<int>(marker.at), 0, lastFrame));
     std::sort(boundaries.begin(), boundaries.end());
     boundaries.erase(std::unique(boundaries.begin(), boundaries.end()), boundaries.end());
     return boundaries;
@@ -2077,7 +2082,7 @@ void AppWindow::onSeekPreviousCut(bool activeTrackOnly)
     // previous distinct cut is always one step back from there.
     auto it = std::lower_bound(boundaries.begin(), boundaries.end(), m_engine->currentFrame());
     if (it == boundaries.begin()) {
-        showStatus(activeTrackOnly ? "No earlier cut on this track." : "No earlier cut.");
+        showStatus(activeTrackOnly ? "No earlier cut on this track." : "No earlier cut or marker.");
         return;
     }
     m_engine->seek(*(it - 1));
@@ -2091,7 +2096,7 @@ void AppWindow::onSeekNextCut(bool activeTrackOnly)
 
     auto it = std::upper_bound(boundaries.begin(), boundaries.end(), m_engine->currentFrame());
     if (it == boundaries.end()) {
-        showStatus(activeTrackOnly ? "No later cut on this track." : "No later cut.");
+        showStatus(activeTrackOnly ? "No later cut on this track." : "No later cut or marker.");
         return;
     }
     m_engine->seek(*it);

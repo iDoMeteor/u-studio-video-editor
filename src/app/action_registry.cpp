@@ -32,8 +32,8 @@ const std::vector<ActionSpec> &actionSpecs()
         {"redo",                 "Redo",                       "Editing", {"<Control><Shift>z"},   nullptr},
         // A/F: previous/next cut on the active track. S/D: active track
         // up/down -- the row edits/imports land on, same as clicking a row.
-        {"seek-previous-cut",    "Seek to Previous Cut (Any Track)", "Editing", {"a"},              &AppWindow::seekPreviousCutActivated},
-        {"seek-next-cut",        "Seek to Next Cut (Any Track)",     "Editing", {"f"},              &AppWindow::seekNextCutActivated},
+        {"seek-previous-cut",    "Seek to Previous Cut or Marker", "Editing", {"a"},              &AppWindow::seekPreviousCutActivated},
+        {"seek-next-cut",        "Seek to Next Cut or Marker",     "Editing", {"f"},              &AppWindow::seekNextCutActivated},
         {"seek-previous-cut-on-active-track", "Seek to Previous Cut on Active Track", "Editing", {"<Shift>a"}, &AppWindow::seekPreviousCutOnActiveTrackActivated},
         {"seek-next-cut-on-active-track",     "Seek to Next Cut on Active Track",     "Editing", {"<Shift>f"}, &AppWindow::seekNextCutOnActiveTrackActivated},
         {"active-track-up",      "Active Track Up",            "Editing", {"s", "Up"},              &AppWindow::activeTrackUpActivated},

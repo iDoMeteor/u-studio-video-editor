@@ -78,7 +78,8 @@ single-track skeleton.
   its own overlay layer so updating it 30 times a second doesn't also
   redraw every clip/waveform/label underneath (audit A5, 2026-09-23).
   `A`/`F` jump the playhead to the previous/next cut (a clip's start or
-  end, or the timeline's own start/end) on any track, and `Shift+A`/
+  end, or the timeline's own start/end) on any track, or to a marker,
+  and `Shift+A`/
   `Shift+F` to the previous/next cut on the active track only. `S`/`D` move
   which track is active up/down, the same target a plain click sets.
   `Shift+S`/`Shift+D` move a single selected clip to the nearest track
