@@ -1,12 +1,13 @@
 #!/bin/bash
 # One-command demo recording for the rolling series.
-#   make_demo.sh [checkout]     (default: the main checkout, built as release in its own builddir-demo)
+#   make_demo.sh    run from the demo worktree (branch agent/strategist-demo): merges the
+#                   latest origin/main into it, builds its own release builddir, records.
 # Stages media from the owner's drive (read-only) into ~/.cache/ustudio-demo-media once,
 # records the tour, and saves the result into the demo-videos folder without ever
 # overwriting or removing an existing video.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
-SRC_CHECKOUT=${1:-/home/jj/Repos/u-studio-video-editor}
+REPO=$(cd "$HERE/../.." && pwd)
 DEST=/home/jj/projects/u-studio-video-editor-projects/demo-videos
 MEDIA=${TOUR_MEDIA:-$HOME/.cache/ustudio-demo-media}
 AI=/run/media/jj/Expansion/Work/video/exports/ai-generated
@@ -27,9 +28,10 @@ if [ ! -f "$MEDIA/.complete" ]; then
   touch "$MEDIA/.complete"
 fi
 
-# 2. build (a separate release builddir, so the checkout's own builddir is untouched)
-BUILD=$SRC_CHECKOUT/builddir-demo
-[ -d "$BUILD" ] || meson setup "$BUILD" "$SRC_CHECKOUT" -Dbuildtype=release >/dev/null
+# 2. current main, built as release in this worktree (never in the owner's checkout)
+git -C "$REPO" fetch -q origin && git -C "$REPO" merge -q --no-edit origin/main
+BUILD=$REPO/builddir
+[ -d "$BUILD" ] || meson setup "$BUILD" "$REPO" -Dbuildtype=release >/dev/null
 meson compile -C "$BUILD" >/dev/null
 VERSION=$(meson introspect "$BUILD" --projectinfo | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
 

@@ -28,7 +28,7 @@ zone at 1344×768@25).
 ## One command (the rolling series)
 
 ```sh
-tools/demo-tour/make_demo.sh            # records the main checkout
+tools/demo-tour/make_demo.sh   # from the demo worktree (agent/strategist-demo)
 ```
 
 Stages the media once into `~/.cache/ustudio-demo-media` (copies from the
