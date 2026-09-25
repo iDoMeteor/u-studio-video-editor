@@ -23,6 +23,7 @@ struct Fixture
     ClipId a, b, c, d;
     TimelineController controller;
     FrameIndex playhead = 0;
+    bool snapping = true;
 
     Fixture()
     {
@@ -52,7 +53,8 @@ struct Fixture
                                .edgeGrabPx = 8.0,
                                .dragThresholdPx = 3.0,
                                .playhead = playhead,
-                               .sequenceLength = 1000};
+                               .sequenceLength = 1000,
+                               .snapping = snapping};
     }
     static double x(FrameIndex frame)
     {
@@ -146,6 +148,15 @@ TEST_CASE("TimelineController: a moved clip snaps to a nearby edge, never to its
     TimelineOutcome back = g.drag(Fixture::x(350), Fixture::bodyY(0), Fixture::x(354), Fixture::bodyY(0));
     CHECK(g.apply(back) == 0);
     CHECK(g.model.clip(g.c).position == 304);
+}
+
+TEST_CASE("TimelineController: with snapping off, a clip lands where it's dropped")
+{
+    Fixture f;
+    f.snapping = false;
+    TimelineOutcome out = f.drag(Fixture::x(350), Fixture::bodyY(0), Fixture::x(255), Fixture::bodyY(0));
+    CHECK(f.apply(out) == 0);
+    CHECK(f.model.clip(f.c).position == 205);
 }
 
 TEST_CASE("TimelineController: snapping takes edges on other tracks and the playhead")

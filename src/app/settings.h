@@ -32,6 +32,7 @@ class Settings
     static constexpr double kDefaultShuttleMaxSpeed = 8.0;
     static constexpr int kDefaultRecentProjectsMax = 10;
     static constexpr int kDefaultWorkerThreads = 0; // automatic
+    static constexpr int kDefaultCacheJobs = 0;     // automatic
 
     int autosaveDelayMinutes() const;
     void setAutosaveDelayMinutes(int minutes);
@@ -56,6 +57,34 @@ class Settings
     int workerThreads() const;
     void setWorkerThreads(int threads);
 
+    // How many pool threads the timeline's thumbnail and waveform caches may
+    // use at once; 0 means automatic (half the pool). Read at startup.
+    int cacheJobs() const;
+    void setCacheJobs(int jobs);
+
+    // Settings > Toggles.
+    bool reopenLastProject() const;
+    void setReopenLastProject(bool reopen);
+    bool snapWhileDragging() const;
+    void setSnapWhileDragging(bool snap);
+    bool followPlayhead() const;
+    void setFollowPlayhead(bool follow);
+    bool showTimelineThumbnails() const;
+    void setShowTimelineThumbnails(bool show);
+    bool showWaveforms() const;
+    void setShowWaveforms(bool show);
+
+    // The project open when the app last ran ("" if it was untitled); what
+    // "Reopen last project on startup" opens.
+    std::string lastProjectPath() const;
+    void setLastProjectPath(const std::string &path);
+
+    // Settings > Locations; "" means not set.
+    std::string defaultProjectFolder() const;
+    void setDefaultProjectFolder(const std::string &folder);
+    std::string defaultExportFolder() const;
+    void setDefaultExportFolder(const std::string &folder);
+
     // False when the schema wasn't found (not installed, and
     // GSETTINGS_SCHEMA_DIR doesn't point at a compiled one) -- every
     // setter above is then a no-op. The Settings dialog shows a note when
@@ -66,6 +95,11 @@ class Settings
     }
 
   private:
+    bool getBool(const char *key, bool fallback) const;
+    void setBool(const char *key, bool value);
+    std::string getString(const char *key, const char *fallback) const;
+    void setString(const char *key, const std::string &value);
+
     GSettings *m_settings = nullptr;
 };
 

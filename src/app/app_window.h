@@ -577,6 +577,11 @@ class AppWindow
     static gboolean settingsWorkerThreadsOutputTrampoline(AdwSpinRow *row, gpointer userData);
     static gint settingsWorkerThreadsInputTrampoline(AdwSpinRow *row, double *newValue, gpointer userData);
     static void settingsPreviewScaleChangedTrampoline(AdwComboRow *row, GParamSpec *pspec, gpointer userData);
+    static void settingsCacheJobsChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
+    static gboolean settingsCacheJobsOutputTrampoline(AdwSpinRow *row, gpointer userData);
+    static void settingsToggleChangedTrampoline(AdwSwitchRow *row, GParamSpec *pspec, gpointer userData);
+    static void settingsChooseFolderClickedTrampoline(GtkButton *button, gpointer userData);
+    static void settingsClearFolderClickedTrampoline(GtkButton *button, gpointer userData);
     static void addTrackClickedTrampoline(GtkButton *button, gpointer userData);
     static void undoClickedTrampoline(GtkButton *button, gpointer userData);
     static void redoClickedTrampoline(GtkButton *button, gpointer userData);
@@ -766,6 +771,25 @@ class AppWindow
     // selection, and onShuttleForward/onAutosaveHeartbeat/
     // refreshRecentProjectsMenu all read from it too.
     std::unique_ptr<Settings> m_settings;
+    // Settings > Toggles, cached here so they still work for the session
+    // when the schema is missing (Settings' setters are then no-ops).
+    bool m_snapWhileDragging = true;
+    bool m_followPlayhead = true;
+    bool m_showTimelineThumbnails = true;
+    bool m_showWaveforms = true;
+    void onSettingsToggleChanged(const std::string &key, bool active);
+    // Settings > Locations: `key` is "project" or "export".
+    void chooseDefaultFolder(const std::string &key, AdwActionRow *row);
+    void setDefaultFolder(const std::string &key, const std::string &folder, AdwActionRow *row);
+    // Where the Open and Save As dialogs start: the default project folder,
+    // if set and present.
+    void setInitialProjectFolder(GtkFileDialog *dialog) const;
+    // Where renders go: the default export folder, else the project's own
+    // folder, else ~/Videos, else home.
+    std::string exportFolder() const;
+    // The file named by last-project-path, when reopening is on; called at
+    // startup only when there's no recovery to offer.
+    void reopenLastProjectIfWanted(const std::string &path);
 
     core::Model m_model = core::Model::createEmpty();
     core::UndoStack m_undoStack{m_model};
@@ -886,7 +910,7 @@ class AppWindow
 
     void onAutosaveHeartbeat();
     void performAutosave();
-    void offerRecoveryIfAny();
+    bool offerRecoveryIfAny(); // true when it asked
     void onWindowActiveChanged();
     static gboolean autosaveHeartbeatTrampoline(gpointer userData);
     static void windowActiveChangedTrampoline(GObject *object, GParamSpec *pspec, gpointer userData);

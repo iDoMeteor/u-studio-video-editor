@@ -148,6 +148,10 @@ AppWindow::AppWindow(GtkApplication *app)
     // Before buildUi(): its transport-bar preview-scale dropdown reads
     // defaultPreviewScale() for its initial selection.
     m_settings = std::make_unique<Settings>();
+    m_snapWhileDragging = m_settings->snapWhileDragging();
+    m_followPlayhead = m_settings->followPlayhead();
+    m_showTimelineThumbnails = m_settings->showTimelineThumbnails();
+    m_showWaveforms = m_settings->showWaveforms();
 
     // One starting track, matching v1's "track 0 always exists" default --
     // not through the UndoStack, since this is the pristine starting
@@ -197,7 +201,10 @@ AppWindow::AppWindow(GtkApplication *app)
     // and saves still get threads: about half the pool between the timeline's
     // strips and its waveforms, plus one job for the media browser's row
     // thumbnails (Background: its list asks for every row, shown or not).
-    const size_t cacheJobs = std::max<size_t>(1, poolSize / 2);
+    // Settings > Performance > Cache jobs overrides the half, up to the pool.
+    const int cacheJobsSetting = m_settings->cacheJobs();
+    const size_t cacheJobs = cacheJobsSetting > 0 ? std::min(static_cast<size_t>(cacheJobsSetting), poolSize)
+                                                  : std::max<size_t>(1, poolSize / 2);
     const size_t stripJobs = std::max<size_t>(1, cacheJobs / 2);
     const size_t waveformJobs = std::max<size_t>(1, cacheJobs - stripJobs);
     m_waveforms = std::make_unique<engine::WaveformCache>(*m_pool, [this] { onWaveformReady(); }, waveformJobs);
@@ -256,11 +263,28 @@ AppWindow::AppWindow(GtkApplication *app)
     m_autosaveHeartbeatId =
         g_timeout_add_seconds(kAutosaveHeartbeatSeconds, &AppWindow::autosaveHeartbeatTrampoline, this);
 
+    // Read before updateWindowTitle() records the (still untitled) current
+    // project over it.
+    const std::string lastProject = m_settings->lastProjectPath();
     refreshTimeline();
     updateWindowTitle();
     refreshRecentProjectsMenu();
-    offerRecoveryIfAny();
     showStatus("Import a media file to begin.");
+    // Recovering unsaved work takes precedence over reopening.
+    if (!offerRecoveryIfAny())
+        reopenLastProjectIfWanted(lastProject);
+}
+
+void AppWindow::reopenLastProjectIfWanted(const std::string &path)
+{
+    if (!m_settings->reopenLastProject() || path.empty())
+        return;
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+        showStatus("The last project isn't there any more: " + path);
+        return;
+    }
+    loadProjectFromPath(path);
 }
 
 void AppWindow::prepareForShutdown()
@@ -1117,18 +1141,26 @@ void AppWindow::showHelpDialog()
 void AppWindow::showSettingsDialog()
 {
     AdwDialog *dialog = ADW_DIALOG(adw_preferences_dialog_new());
-    adw_dialog_set_content_width(dialog, 560);
+    adw_dialog_set_content_width(dialog, 680); // five tabs fit side by side
     adw_dialog_set_content_height(dialog, 520);
 
+    auto addPage = [dialog](const char *title, const char *iconName) {
+        AdwPreferencesPage *page = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
+        adw_preferences_page_set_title(page, title);
+        adw_preferences_page_set_icon_name(page, iconName);
+        adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog), page);
+        return page;
+    };
+    auto addGroup = [](AdwPreferencesPage *page, const char *title) {
+        AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+        adw_preferences_group_set_title(group, title);
+        adw_preferences_page_add(page, group);
+        return group;
+    };
+
     // --- General ---
-    AdwPreferencesPage *generalPage = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
-    adw_preferences_page_set_title(generalPage, "General");
-    adw_preferences_page_set_icon_name(generalPage, "preferences-system-symbolic");
-
-    AdwPreferencesGroup *projectGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(projectGroup, "Project");
-    adw_preferences_page_add(generalPage, projectGroup);
-
+    AdwPreferencesPage *generalPage = addPage("General", "preferences-system-symbolic");
+    AdwPreferencesGroup *projectGroup = addGroup(generalPage, "Project");
     AdwSpinRow *autosaveRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(1.0, 30.0, 1.0));
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(autosaveRow), "Autosave delay (minutes)");
     setTooltip(GTK_WIDGET(autosaveRow), "settings.autosave-delay");
@@ -1150,42 +1182,47 @@ void AppWindow::showSettingsDialog()
                      this);
     adw_preferences_group_add(projectGroup, GTK_WIDGET(recentRow));
 
-    AdwPreferencesGroup *performanceGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(performanceGroup, "Performance");
-    adw_preferences_page_add(generalPage, performanceGroup);
+    AdwPreferencesGroup *shuttleGroup = addGroup(generalPage, "Shuttle");
+    AdwSpinRow *shuttleRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(2.0, 32.0, 1.0));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(shuttleRow), "Maximum shuttle speed");
+    setTooltip(GTK_WIDGET(shuttleRow), "settings.shuttle-speed");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(shuttleRow),
+                                "Upper bound (x normal speed) the J/K/L shuttle ramps up to");
+    adw_spin_row_set_digits(shuttleRow, 0);
+    adw_spin_row_set_value(shuttleRow, m_settings->shuttleMaxSpeed());
+    g_signal_connect(shuttleRow, "notify::value", G_CALLBACK(&AppWindow::settingsShuttleMaxSpeedChangedTrampoline),
+                     this);
+    adw_preferences_group_add(shuttleGroup, GTK_WIDGET(shuttleRow));
 
-    // 0 is "Automatic (N)" (the output/input handlers below); the pool is
-    // sized once, at startup.
-    const double maxThreads = std::max(1.0, static_cast<double>(std::thread::hardware_concurrency()));
-    AdwSpinRow *threadsRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(0.0, maxThreads, 1.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(threadsRow), "Worker threads");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(threadsRow), "Applies after restart");
-    setTooltip(GTK_WIDGET(threadsRow), "settings.worker-threads");
-    adw_spin_row_set_digits(threadsRow, 0);
-    g_signal_connect(threadsRow, "output", G_CALLBACK(&AppWindow::settingsWorkerThreadsOutputTrampoline), nullptr);
-    g_signal_connect(threadsRow, "input", G_CALLBACK(&AppWindow::settingsWorkerThreadsInputTrampoline), nullptr);
-    adw_spin_row_set_value(threadsRow, static_cast<double>(m_settings->workerThreads()));
-    // The row starts at 0, so setting 0 changes nothing and never re-runs
-    // the output handler; the default width fits two digits, not the label;
-    // and a numeric spin row (the default) drops the label's letters
-    // (confirmed: gtk_editable_set_text left it empty until this was off).
-    adw_spin_row_set_numeric(threadsRow, FALSE);
-    gtk_editable_set_width_chars(GTK_EDITABLE(threadsRow), 13);
-    adw_spin_row_update(threadsRow);
-    g_signal_connect(threadsRow, "notify::value", G_CALLBACK(&AppWindow::settingsWorkerThreadsChangedTrampoline), this);
-    adw_preferences_group_add(performanceGroup, GTK_WIDGET(threadsRow));
+    // --- Toggles --- settingsToggleChangedTrampoline() finds the setting by
+    // the key stored on the row.
+    AdwPreferencesPage *togglesPage = addPage("Toggles", "checkbox-checked-symbolic");
+    auto addToggle = [this](AdwPreferencesGroup *group, const char *key, const char *title, const char *hintKey,
+                            bool value) {
+        GtkWidget *row = adw_switch_row_new();
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+        if (const HintSpec *hint = findHint(hintKey); hint && hint->detail)
+            adw_action_row_set_subtitle(ADW_ACTION_ROW(row), hint->detail);
+        setTooltip(row, hintKey);
+        adw_switch_row_set_active(ADW_SWITCH_ROW(row), value);
+        g_object_set_data_full(G_OBJECT(row), "ustudio-setting", g_strdup(key), g_free);
+        g_signal_connect(row, "notify::active", G_CALLBACK(&AppWindow::settingsToggleChangedTrampoline), this);
+        adw_preferences_group_add(group, row);
+    };
+    AdwPreferencesGroup *startupGroup = addGroup(togglesPage, "Startup");
+    addToggle(startupGroup, "reopen-last-project", "Reopen last project on startup", "settings.reopen-last",
+              m_settings->reopenLastProject());
+    AdwPreferencesGroup *timelineGroup = addGroup(togglesPage, "Timeline");
+    addToggle(timelineGroup, "snap-while-dragging", "Snap while dragging", "settings.snap", m_snapWhileDragging);
+    addToggle(timelineGroup, "follow-playhead", "Follow playhead while playing", "settings.follow-playhead",
+              m_followPlayhead);
+    addToggle(timelineGroup, "show-timeline-thumbnails", "Show timeline thumbnails", "settings.timeline-thumbnails",
+              m_showTimelineThumbnails);
+    addToggle(timelineGroup, "show-waveforms", "Show waveforms", "settings.waveforms", m_showWaveforms);
 
-    adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog), generalPage);
-
-    // --- Playback ---
-    AdwPreferencesPage *playbackPage = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
-    adw_preferences_page_set_title(playbackPage, "Playback");
-    adw_preferences_page_set_icon_name(playbackPage, "media-playback-start-symbolic");
-
-    AdwPreferencesGroup *previewGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(previewGroup, "Preview");
-    adw_preferences_page_add(playbackPage, previewGroup);
-
+    // --- Performance ---
+    AdwPreferencesPage *performancePage = addPage("Performance", "power-profile-performance-symbolic");
+    AdwPreferencesGroup *previewGroup = addGroup(performancePage, "Preview");
     const char *scaleLabels[] = {"Auto", "Full", "Half", "Quarter", nullptr};
     GtkStringList *scaleModel = gtk_string_list_new(scaleLabels);
     AdwComboRow *scaleRow = ADW_COMBO_ROW(adw_combo_row_new());
@@ -1208,22 +1245,75 @@ void AppWindow::showSettingsDialog()
     g_signal_connect(scaleRow, "notify::selected", G_CALLBACK(&AppWindow::settingsPreviewScaleChangedTrampoline), this);
     adw_preferences_group_add(previewGroup, GTK_WIDGET(scaleRow));
 
-    AdwPreferencesGroup *shuttleGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(shuttleGroup, "Shuttle");
-    adw_preferences_page_add(playbackPage, shuttleGroup);
+    AdwPreferencesGroup *backgroundGroup = addGroup(performancePage, "Background work");
+    // 0 is "Automatic (N)" (the output/input handlers below); the pool is
+    // sized once, at startup.
+    const double maxThreads = std::max(1.0, static_cast<double>(std::thread::hardware_concurrency()));
+    AdwSpinRow *threadsRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(0.0, maxThreads, 1.0));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(threadsRow), "Worker threads");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(threadsRow), "Applies after restart");
+    setTooltip(GTK_WIDGET(threadsRow), "settings.worker-threads");
+    adw_spin_row_set_digits(threadsRow, 0);
+    g_signal_connect(threadsRow, "output", G_CALLBACK(&AppWindow::settingsWorkerThreadsOutputTrampoline), nullptr);
+    g_signal_connect(threadsRow, "input", G_CALLBACK(&AppWindow::settingsWorkerThreadsInputTrampoline), nullptr);
+    adw_spin_row_set_value(threadsRow, static_cast<double>(m_settings->workerThreads()));
+    // The row starts at 0, so setting 0 changes nothing and never re-runs
+    // the output handler; the default width fits two digits, not the label;
+    // and a numeric spin row (the default) drops the label's letters
+    // (confirmed: gtk_editable_set_text left it empty until this was off).
+    adw_spin_row_set_numeric(threadsRow, FALSE);
+    gtk_editable_set_width_chars(GTK_EDITABLE(threadsRow), 13);
+    adw_spin_row_update(threadsRow);
+    g_signal_connect(threadsRow, "notify::value", G_CALLBACK(&AppWindow::settingsWorkerThreadsChangedTrampoline), this);
+    adw_preferences_group_add(backgroundGroup, GTK_WIDGET(threadsRow));
 
-    AdwSpinRow *shuttleRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(2.0, 32.0, 1.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(shuttleRow), "Maximum shuttle speed");
-    setTooltip(GTK_WIDGET(shuttleRow), "settings.shuttle-speed");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(shuttleRow),
-                                "Upper bound (x normal speed) the J/K/L shuttle ramps up to");
-    adw_spin_row_set_digits(shuttleRow, 0);
-    adw_spin_row_set_value(shuttleRow, m_settings->shuttleMaxSpeed());
-    g_signal_connect(shuttleRow, "notify::value", G_CALLBACK(&AppWindow::settingsShuttleMaxSpeedChangedTrampoline),
-                     this);
-    adw_preferences_group_add(shuttleGroup, GTK_WIDGET(shuttleRow));
+    // 0 is "Automatic" (half the worker threads); read when the window
+    // creates its caches.
+    AdwSpinRow *cacheJobsRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(0.0, maxThreads, 1.0));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(cacheJobsRow), "Thumbnail and waveform jobs");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(cacheJobsRow), "Applies after restart");
+    setTooltip(GTK_WIDGET(cacheJobsRow), "settings.cache-jobs");
+    adw_spin_row_set_digits(cacheJobsRow, 0);
+    g_signal_connect(cacheJobsRow, "output", G_CALLBACK(&AppWindow::settingsCacheJobsOutputTrampoline), nullptr);
+    g_signal_connect(cacheJobsRow, "input", G_CALLBACK(&AppWindow::settingsWorkerThreadsInputTrampoline), nullptr);
+    adw_spin_row_set_value(cacheJobsRow, static_cast<double>(m_settings->cacheJobs()));
+    adw_spin_row_set_numeric(cacheJobsRow, FALSE); // as the worker-threads row above
+    gtk_editable_set_width_chars(GTK_EDITABLE(cacheJobsRow), 13);
+    adw_spin_row_update(cacheJobsRow);
+    g_signal_connect(cacheJobsRow, "notify::value", G_CALLBACK(&AppWindow::settingsCacheJobsChangedTrampoline), this);
+    adw_preferences_group_add(backgroundGroup, GTK_WIDGET(cacheJobsRow));
 
-    adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog), playbackPage);
+    // --- Locations --- Each row keeps its key ("project"/"export") and its
+    // clear button for the trampolines.
+    AdwPreferencesPage *locationsPage = addPage("Locations", "folder-symbolic");
+    AdwPreferencesGroup *foldersGroup = addGroup(locationsPage, "Folders");
+    auto addFolderRow = [this, foldersGroup](const char *key, const char *title, const char *hintKey) {
+        AdwActionRow *row = ADW_ACTION_ROW(adw_action_row_new());
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+        setTooltip(GTK_WIDGET(row), hintKey);
+        g_object_set_data_full(G_OBJECT(row), "ustudio-setting", g_strdup(key), g_free);
+        GtkWidget *clear = gtk_button_new_from_icon_name("edit-clear-symbolic");
+        gtk_widget_set_tooltip_text(clear, "Clear");
+        gtk_widget_set_valign(clear, GTK_ALIGN_CENTER);
+        gtk_widget_add_css_class(clear, "flat");
+        g_object_set_data(G_OBJECT(clear), "ustudio-row", row);
+        g_signal_connect(clear, "clicked", G_CALLBACK(&AppWindow::settingsClearFolderClickedTrampoline), this);
+        g_object_set_data(G_OBJECT(row), "ustudio-clear", clear);
+        GtkWidget *choose = gtk_button_new_from_icon_name("folder-open-symbolic");
+        gtk_widget_set_tooltip_text(choose, "Choose Folder…");
+        gtk_widget_set_valign(choose, GTK_ALIGN_CENTER);
+        gtk_widget_add_css_class(choose, "flat");
+        g_object_set_data(G_OBJECT(choose), "ustudio-row", row);
+        g_signal_connect(choose, "clicked", G_CALLBACK(&AppWindow::settingsChooseFolderClickedTrampoline), this);
+        adw_action_row_add_suffix(row, clear);
+        adw_action_row_add_suffix(row, choose);
+        adw_preferences_group_add(foldersGroup, GTK_WIDGET(row));
+        const std::string current =
+            std::string(key) == "project" ? m_settings->defaultProjectFolder() : m_settings->defaultExportFolder();
+        setDefaultFolder(key, current, row);
+    };
+    addFolderRow("project", "Default project folder", "settings.project-folder");
+    addFolderRow("export", "Default export folder", "settings.export-folder");
 
     // --- Keyboard Shortcuts (placeholder -- see action_registry.h's own
     // comment on the intended shape of the real rebinding UI later) ---
@@ -1244,6 +1334,75 @@ void AppWindow::showSettingsDialog()
             adw_toast_new("Changes aren't being saved this session (GSettings schema not found)"));
 
     adw_dialog_present(dialog, GTK_WIDGET(m_window));
+}
+
+void AppWindow::onSettingsToggleChanged(const std::string &key, bool active)
+{
+    if (key == "reopen-last-project") {
+        m_settings->setReopenLastProject(active);
+        return;
+    }
+    if (key == "snap-while-dragging") {
+        m_snapWhileDragging = active;
+        m_settings->setSnapWhileDragging(active);
+    } else if (key == "follow-playhead") {
+        m_followPlayhead = active;
+        m_settings->setFollowPlayhead(active);
+    } else if (key == "show-timeline-thumbnails") {
+        m_showTimelineThumbnails = active;
+        m_settings->setShowTimelineThumbnails(active);
+    } else if (key == "show-waveforms") {
+        m_showWaveforms = active;
+        m_settings->setShowWaveforms(active);
+    }
+    if (m_timeline)
+        gtk_widget_queue_draw(m_timeline);
+}
+
+void AppWindow::setDefaultFolder(const std::string &key, const std::string &folder, AdwActionRow *row)
+{
+    if (key == "project")
+        m_settings->setDefaultProjectFolder(folder);
+    else
+        m_settings->setDefaultExportFolder(folder);
+    std::string subtitle = folder;
+    if (folder.empty())
+        subtitle =
+            key == "project" ? "Not set: the file chooser decides" : "Not set: the project's folder, then Videos";
+    adw_action_row_set_subtitle(row, subtitle.c_str());
+    if (auto *clear = static_cast<GtkWidget *>(g_object_get_data(G_OBJECT(row), "ustudio-clear")))
+        gtk_widget_set_visible(clear, !folder.empty());
+}
+
+void AppWindow::chooseDefaultFolder(const std::string &key, AdwActionRow *row)
+{
+    struct FolderContext
+    {
+        AppWindow *self;
+        std::string key;
+        AdwActionRow *row; // a ref is held until the dialog finishes
+    };
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, key == "project" ? "Default Project Folder" : "Default Export Folder");
+    auto *ctx = new FolderContext{this, key, ADW_ACTION_ROW(g_object_ref(row))};
+    gtk_file_dialog_select_folder(
+        dialog, GTK_WINDOW(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            std::unique_ptr<FolderContext> owned(static_cast<FolderContext *>(userData));
+            GError *error = nullptr;
+            GFile *folder = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source), result, &error);
+            if (folder) {
+                std::string path = localPathFor(folder, false);
+                if (!path.empty())
+                    owned->self->setDefaultFolder(owned->key, path, owned->row);
+                g_object_unref(folder);
+            }
+            if (error)
+                g_error_free(error);
+            g_object_unref(owned->row);
+        },
+        ctx);
+    g_object_unref(dialog);
 }
 
 void AppWindow::setTransportActionsEnabled(bool enabled)
@@ -1517,6 +1676,7 @@ void AppWindow::onSaveClicked()
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Save Project");
     gtk_file_dialog_set_initial_name(dialog, "project.ustudio");
+    setInitialProjectFolder(dialog);
     gtk_file_dialog_save(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::saveFinishedTrampoline, this);
     g_object_unref(dialog);
 }
@@ -1631,6 +1791,7 @@ void AppWindow::onOpenProjectClicked()
     confirmDiscardIfDirty([this] {
         GtkFileDialog *dialog = gtk_file_dialog_new();
         gtk_file_dialog_set_title(dialog, "Open Project");
+        setInitialProjectFolder(dialog);
 
         // Enhancement #6.
         GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
@@ -1800,11 +1961,42 @@ void AppWindow::performNewProject()
     showStatus("New project.");
 }
 
+void AppWindow::setInitialProjectFolder(GtkFileDialog *dialog) const
+{
+    const std::string folder = m_settings->defaultProjectFolder();
+    std::error_code ec;
+    if (folder.empty() || !std::filesystem::is_directory(folder, ec))
+        return;
+    GFile *file = g_file_new_for_path(folder.c_str());
+    gtk_file_dialog_set_initial_folder(dialog, file);
+    g_object_unref(file);
+}
+
+std::string AppWindow::exportFolder() const
+{
+    std::error_code ec;
+    auto usable = [&ec](const std::string &folder) {
+        return !folder.empty() && std::filesystem::is_directory(folder, ec);
+    };
+    if (std::string folder = m_settings->defaultExportFolder(); usable(folder))
+        return folder;
+    if (!m_currentProjectPath.empty()) {
+        if (std::string folder = std::filesystem::path(m_currentProjectPath).parent_path().string(); usable(folder))
+            return folder;
+    }
+    if (const char *videos = g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS); videos && usable(videos))
+        return videos;
+    return g_get_home_dir();
+}
+
 void AppWindow::onRenderClicked()
 {
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Render Project");
     gtk_file_dialog_set_initial_name(dialog, "export.mp4");
+    GFile *folder = g_file_new_for_path(exportFolder().c_str());
+    gtk_file_dialog_set_initial_folder(dialog, folder);
+    g_object_unref(folder);
     gtk_file_dialog_save(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::renderFinishedTrampoline, this);
     g_object_unref(dialog);
 }
@@ -2263,7 +2455,8 @@ timeline::TimelineContext AppWindow::timelineContext() const
                                      .dragThresholdPx = kDragClickThreshold,
                                      .playhead = m_engine->currentFrame(),
                                      .sequenceLength = sequenceFrames(),
-                                     .rippleMode = rippleMode()};
+                                     .rippleMode = rippleMode(),
+                                     .snapping = m_snapWhileDragging};
 }
 
 void AppWindow::applyTimelineOutcome(timeline::TimelineOutcome &outcome)
@@ -2860,6 +3053,12 @@ void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int heigh
         .overlays = m_timelineOverlays,
         .labelLayout = layout,
     };
+    // Settings > Toggles: without a callback the renderer neither draws nor
+    // requests them.
+    if (!m_showWaveforms)
+        scene.waveformFor = nullptr;
+    if (!m_showTimelineThumbnails)
+        scene.thumbnailFor = nullptr;
     timeline::snapshotTimeline(snapshot, scene, width, height);
     g_object_unref(layout);
 }
@@ -3632,7 +3831,9 @@ void AppWindow::refreshTransport(int frameNumber)
     gtk_label_set_text(m_timecodeLabel, formatTimecode(frameNumber).c_str());
     // Follow the playhead a page at a time when it leaves the view
     // (playback, Home/End, cut jumps).
-    if (m_viewport.ensureVisible(frameNumber))
+    // (playback, Home/End, cut jumps). With Follow playhead off, playback
+    // leaves the view where it is; seeks while stopped still follow.
+    if ((m_followPlayhead || !m_engine->isPlaying()) && m_viewport.ensureVisible(frameNumber))
         onTimelineViewportChanged();
     // Keeps the timeline's playhead line in sync with playback, not just
     // with edits -- this runs once per displayed frame (onFrameReady's
@@ -3688,11 +3889,15 @@ void AppWindow::updateWindowTitle()
     // connected to, so this always sees the current path.
     std::string docName =
         m_currentProjectPath.empty() ? "Untitled Project" : std::filesystem::path(m_currentProjectPath).stem().string();
-    std::string title = docName + " — u Studio";
-    if (!m_undoStack.isClean())
-        title += " •";
-    gtk_window_set_title(GTK_WINDOW(m_window), title.c_str());
-    adw_window_title_set_title(m_windowTitle, title.c_str());
+    const std::string dirtyMark = m_undoStack.isClean() ? "" : " •";
+    // The taskbar gets the app's name too; the header bar has no room for it
+    // beside its buttons at the default width.
+    gtk_window_set_title(GTK_WINDOW(m_window), (docName + " — u Studio" + dirtyMark).c_str());
+    adw_window_title_set_title(m_windowTitle, (docName + dirtyMark).c_str());
+    // What "Reopen last project on startup" opens next launch. Every change
+    // of m_currentProjectPath comes through here (see above).
+    if (m_settings->lastProjectPath() != m_currentProjectPath)
+        m_settings->setLastProjectPath(m_currentProjectPath);
     gtk_widget_set_sensitive(GTK_WIDGET(m_undoButton), m_undoStack.canUndo());
     gtk_widget_set_sensitive(GTK_WIDGET(m_redoButton), m_undoStack.canRedo());
 }
@@ -3903,7 +4108,7 @@ gboolean AppWindow::onCloseRequest()
     return GDK_EVENT_STOP;
 }
 
-void AppWindow::offerRecoveryIfAny()
+bool AppWindow::offerRecoveryIfAny()
 {
     // Excludes every candidate already offered (and answered) THIS
     // launch -- recovering doesn't delete the file (see
@@ -3914,7 +4119,7 @@ void AppWindow::offerRecoveryIfAny()
     // unmentioned and unrecovered alongside newer, emptier ones).
     auto found = autosave::findRecoverable(m_offeredAutosaveMetaPaths);
     if (!found)
-        return;
+        return false;
     bool isFirstOfferThisLaunch = m_offeredAutosaveMetaPaths.empty();
     m_offeredAutosaveMetaPaths.insert(found->metaPath);
 
@@ -4005,6 +4210,7 @@ void AppWindow::offerRecoveryIfAny()
             owned->self->offerRecoveryIfAny();
         },
         ctx);
+    return true;
 }
 
 // ---- GTK/GObject trampolines: static C-linkage-compatible callbacks that
@@ -4184,6 +4390,40 @@ gint AppWindow::settingsWorkerThreadsInputTrampoline(AdwSpinRow *row, double *ne
         return TRUE;
     }
     return FALSE;
+}
+
+void AppWindow::settingsCacheJobsChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->m_settings->setCacheJobs(static_cast<int>(adw_spin_row_get_value(row)));
+}
+
+gboolean AppWindow::settingsCacheJobsOutputTrampoline(AdwSpinRow *row, gpointer)
+{
+    if (adw_spin_row_get_value(row) != 0.0)
+        return FALSE; // the number itself
+    gtk_editable_set_text(GTK_EDITABLE(row), "Automatic");
+    return TRUE;
+}
+
+void AppWindow::settingsToggleChangedTrampoline(AdwSwitchRow *row, GParamSpec *, gpointer userData)
+{
+    const auto *key = static_cast<const char *>(g_object_get_data(G_OBJECT(row), "ustudio-setting"));
+    if (key)
+        static_cast<AppWindow *>(userData)->onSettingsToggleChanged(key, adw_switch_row_get_active(row));
+}
+
+void AppWindow::settingsChooseFolderClickedTrampoline(GtkButton *button, gpointer userData)
+{
+    auto *row = static_cast<AdwActionRow *>(g_object_get_data(G_OBJECT(button), "ustudio-row"));
+    const auto *key = static_cast<const char *>(g_object_get_data(G_OBJECT(row), "ustudio-setting"));
+    static_cast<AppWindow *>(userData)->chooseDefaultFolder(key, row);
+}
+
+void AppWindow::settingsClearFolderClickedTrampoline(GtkButton *button, gpointer userData)
+{
+    auto *row = static_cast<AdwActionRow *>(g_object_get_data(G_OBJECT(button), "ustudio-row"));
+    const auto *key = static_cast<const char *>(g_object_get_data(G_OBJECT(row), "ustudio-setting"));
+    static_cast<AppWindow *>(userData)->setDefaultFolder(key, "", row);
 }
 
 void AppWindow::settingsShuttleMaxSpeedChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)

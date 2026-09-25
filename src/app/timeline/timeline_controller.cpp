@@ -686,6 +686,8 @@ std::vector<core::FrameIndex> TimelineController::snapTargets(const TimelineCont
 std::optional<core::FrameIndex> TimelineController::snapDelta(const TimelineContext &ctx, core::FrameIndex position,
                                                               const std::vector<core::FrameIndex> &targets) const
 {
+    if (!ctx.snapping)
+        return std::nullopt;
     std::optional<core::FrameIndex> best;
     double bestPx = ctx.edgeGrabPx; // strictly closer than this snaps
     for (core::FrameIndex target : targets) {

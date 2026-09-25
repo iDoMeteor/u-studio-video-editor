@@ -322,7 +322,8 @@ void snapshotTimeline(GtkSnapshot *s, const TimelineScene &scene, double width, 
             if (!clipBox(scene, drawRow, start, length, width, box))
                 continue;
             const std::string &name = !clip.name.empty() ? clip.name : tracks[r].name;
-            bool thumbnails = !dragged && clip.videoEnabled && tracks[r].kind == core::Track::Kind::Video;
+            bool thumbnails =
+                scene.thumbnailFor && !dragged && clip.videoEnabled && tracks[r].kind == core::Track::Kind::Video;
             if (thumbnails) {
                 // The fill first, so it shows while thumbnails load.
                 fill(s, box.left + 1.0, box.top, std::max(box.right - box.left - 2.0, 1.0), box.height,

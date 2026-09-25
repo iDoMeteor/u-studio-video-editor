@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.35.0
+
+- Settings: new Toggles tab (reopen last project on startup, snapping,
+  follow playhead, timeline thumbnails, waveforms), Performance tab
+  (preview scale, worker threads, thumbnail/waveform jobs) and Locations
+  tab (default project and export folders). The header bar shows just the
+  project name.
+
 ## 0.34.0
 
 - Header bar: zoom out / zoom in / fit buttons, and the buttons regrouped

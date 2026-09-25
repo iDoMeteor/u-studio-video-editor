@@ -255,9 +255,14 @@ single-track skeleton.
   its action and the shortcut is looked up in `action_registry.cpp`, so a
   tooltip can't show a stale key. Drop-ins add their own hints with
   `registerHints()`. Settings dialog (header-bar gear
-  button): General (autosave delay, recent-projects list size, worker
-  threads) and
-  Playback (default preview scale, maximum shuttle speed) tabs, backed by
+  button): General (autosave delay, recent-projects list size, maximum
+  shuttle speed), Toggles (reopen the last project on startup, on by
+  default and skipped when there's work to recover; snap while dragging;
+  follow the playhead while playing; timeline thumbnails; waveforms),
+  Performance (default preview scale, worker threads, thumbnail and
+  waveform jobs) and Locations (default project folder, where Open and
+  Save As start; default export folder, where renders go, else the
+  project's folder, then Videos, then home) tabs, backed by
   real `GSettings` persistence (`data/com.ustudio.VideoEditor.gschema.xml`)
   — falls back to in-memory defaults with a one-time warning log and an
   in-dialog toast if the schema isn't installed/compiled (the common case

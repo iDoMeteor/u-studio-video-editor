@@ -52,20 +52,41 @@ void Settings::setAutosaveDelayMinutes(int minutes)
         g_settings_set_int(m_settings, "autosave-delay-minutes", minutes);
 }
 
-std::string Settings::defaultPreviewScale() const
+bool Settings::getBool(const char *key, bool fallback) const
+{
+    return m_settings != nullptr ? g_settings_get_boolean(m_settings, key) != FALSE : fallback;
+}
+
+void Settings::setBool(const char *key, bool value)
+{
+    if (m_settings != nullptr)
+        g_settings_set_boolean(m_settings, key, value ? TRUE : FALSE);
+}
+
+std::string Settings::getString(const char *key, const char *fallback) const
 {
     if (m_settings == nullptr)
-        return kDefaultPreviewScale;
-    gchar *value = g_settings_get_string(m_settings, "default-preview-scale");
-    std::string result = value != nullptr ? value : kDefaultPreviewScale;
+        return fallback;
+    gchar *value = g_settings_get_string(m_settings, key);
+    std::string result = value != nullptr ? value : fallback;
     g_free(value);
     return result;
 }
 
-void Settings::setDefaultPreviewScale(const std::string &scale)
+void Settings::setString(const char *key, const std::string &value)
 {
     if (m_settings != nullptr)
-        g_settings_set_string(m_settings, "default-preview-scale", scale.c_str());
+        g_settings_set_string(m_settings, key, value.c_str());
+}
+
+std::string Settings::defaultPreviewScale() const
+{
+    return getString("default-preview-scale", kDefaultPreviewScale);
+}
+
+void Settings::setDefaultPreviewScale(const std::string &scale)
+{
+    setString("default-preview-scale", scale);
 }
 
 double Settings::shuttleMaxSpeed() const
@@ -99,6 +120,97 @@ void Settings::setWorkerThreads(int threads)
 {
     if (m_settings != nullptr)
         g_settings_set_int(m_settings, "worker-threads", threads);
+}
+
+int Settings::cacheJobs() const
+{
+    return m_settings != nullptr ? g_settings_get_int(m_settings, "cache-jobs") : kDefaultCacheJobs;
+}
+
+void Settings::setCacheJobs(int jobs)
+{
+    if (m_settings != nullptr)
+        g_settings_set_int(m_settings, "cache-jobs", jobs);
+}
+
+bool Settings::reopenLastProject() const
+{
+    return getBool("reopen-last-project", true);
+}
+
+void Settings::setReopenLastProject(bool reopen)
+{
+    setBool("reopen-last-project", reopen);
+}
+
+bool Settings::snapWhileDragging() const
+{
+    return getBool("snap-while-dragging", true);
+}
+
+void Settings::setSnapWhileDragging(bool snap)
+{
+    setBool("snap-while-dragging", snap);
+}
+
+bool Settings::followPlayhead() const
+{
+    return getBool("follow-playhead", true);
+}
+
+void Settings::setFollowPlayhead(bool follow)
+{
+    setBool("follow-playhead", follow);
+}
+
+bool Settings::showTimelineThumbnails() const
+{
+    return getBool("show-timeline-thumbnails", true);
+}
+
+void Settings::setShowTimelineThumbnails(bool show)
+{
+    setBool("show-timeline-thumbnails", show);
+}
+
+bool Settings::showWaveforms() const
+{
+    return getBool("show-waveforms", true);
+}
+
+void Settings::setShowWaveforms(bool show)
+{
+    setBool("show-waveforms", show);
+}
+
+std::string Settings::lastProjectPath() const
+{
+    return getString("last-project-path", "");
+}
+
+void Settings::setLastProjectPath(const std::string &path)
+{
+    setString("last-project-path", path);
+}
+
+std::string Settings::defaultProjectFolder() const
+{
+    return getString("default-project-folder", "");
+}
+
+void Settings::setDefaultProjectFolder(const std::string &folder)
+{
+    setString("default-project-folder", folder);
+}
+
+std::string Settings::defaultExportFolder() const
+{
+    return getString("default-export-folder", "");
+}
+
+void Settings::setDefaultExportFolder(const std::string &folder)
+{
+    setString("default-export-folder", folder);
 }
 
 } // namespace ustudio::app

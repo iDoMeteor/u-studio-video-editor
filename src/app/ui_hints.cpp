@@ -105,6 +105,14 @@ std::vector<HintSpec> &registry()
         {"settings.preview-scale",   "Settings", "Default preview scale",   "The preview resolution the app starts with; the transport bar's own dropdown changes it for this session only", nullptr, nullptr},
         {"settings.shuttle-speed",   "Settings", "Maximum shuttle speed",   "The fastest the J/K/L shuttle ramps up to, in multiples of normal speed", nullptr, nullptr},
         {"settings.worker-threads", "Settings", "Worker threads", "Background threads for probing imports and loading and saving projects; Automatic uses half the CPU cores. Applies after restart", nullptr, nullptr},
+        {"settings.cache-jobs",      "Settings", "Thumbnail and waveform jobs", "How many worker threads the timeline's thumbnails and waveforms may use at once; Automatic uses half of them. Applies after restart", nullptr, nullptr},
+        {"settings.reopen-last",     "Settings", "Reopen last project on startup", "Opens the project you had open last time, unless there's unsaved work to recover", nullptr, nullptr},
+        {"settings.snap",            "Settings", "Snap while dragging",     "Dragged clips and edges snap to nearby clip edges", nullptr, nullptr},
+        {"settings.follow-playhead", "Settings", "Follow playhead while playing", "The timeline turns a page when the playhead runs off it during playback", nullptr, nullptr},
+        {"settings.timeline-thumbnails", "Settings", "Show timeline thumbnails", "Video clips show frames from their source", nullptr, nullptr},
+        {"settings.waveforms",       "Settings", "Show waveforms",          "Clips with sound show their waveform", nullptr, nullptr},
+        {"settings.project-folder",  "Settings", "Default project folder",  "Where Open and Save As start", nullptr, nullptr},
+        {"settings.export-folder",   "Settings", "Default export folder",   "Where renders go; unset, the project's own folder, then Videos, then your home folder", nullptr, nullptr},
     };
     // clang-format on
     return hints;

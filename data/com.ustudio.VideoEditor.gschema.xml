@@ -5,7 +5,7 @@
   requires the schema to declare its own path rather than being handed one
   at construction time.
 
-  Keys here back the Settings dialog's General/Playback tabs (app_window.cpp's
+  Keys here back the Settings dialog's tabs (app_window.cpp's
   showSettingsDialog()) and the four call sites that used to hardcode these
   values (onAutosaveHeartbeat, onShuttleForward/onShuttleReverse,
   refreshRecentProjectsMenu, buildUi's preview-scale dropdown default). A
@@ -48,6 +48,52 @@
       <default>0</default>
       <summary>Worker threads</summary>
       <description>Threads in the background pool that probes imports and loads and saves projects (doc 19). 0 picks automatically: half the CPU cores, at least 2. Read at startup.</description>
+    </key>
+    <key name="cache-jobs" type="i">
+      <range min="0" max="64"/>
+      <default>0</default>
+      <summary>Cache jobs</summary>
+      <description>Pool threads the timeline's thumbnail and waveform caches may use at once. 0 picks automatically: half the pool. Read at startup.</description>
+    </key>
+    <key name="reopen-last-project" type="b">
+      <default>true</default>
+      <summary>Reopen last project on startup</summary>
+      <description>Open the project that was open when the app last closed, unless there is unsaved work to recover.</description>
+    </key>
+    <key name="last-project-path" type="s">
+      <default>""</default>
+      <summary>Last project</summary>
+      <description>The project open when the app last ran; empty if it was untitled.</description>
+    </key>
+    <key name="snap-while-dragging" type="b">
+      <default>true</default>
+      <summary>Snap while dragging</summary>
+      <description>Dragged clips and edges snap to nearby clip edges.</description>
+    </key>
+    <key name="follow-playhead" type="b">
+      <default>true</default>
+      <summary>Follow playhead while playing</summary>
+      <description>The timeline scrolls a page at a time to keep the playhead in view during playback.</description>
+    </key>
+    <key name="show-timeline-thumbnails" type="b">
+      <default>true</default>
+      <summary>Show timeline thumbnails</summary>
+      <description>Video clips on the timeline show frames from their source.</description>
+    </key>
+    <key name="show-waveforms" type="b">
+      <default>true</default>
+      <summary>Show waveforms</summary>
+      <description>Clips with sound show their waveform on the timeline.</description>
+    </key>
+    <key name="default-project-folder" type="s">
+      <default>""</default>
+      <summary>Default project folder</summary>
+      <description>Where Open and Save As start; empty for the file chooser's own default.</description>
+    </key>
+    <key name="default-export-folder" type="s">
+      <default>""</default>
+      <summary>Default export folder</summary>
+      <description>Where renders go; empty for the project's folder, then Videos, then home.</description>
     </key>
   </schema>
 </schemalist>

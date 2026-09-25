@@ -33,6 +33,7 @@ struct TimelineContext
     // doc 06's Ripple mode: a single-clip move closes the gap it leaves and
     // pushes later clips along where it lands (core::RippleMove).
     bool rippleMode = false;
+    bool snapping = true; // Settings > Toggles > Snap while dragging
 };
 
 enum class Modifiers : unsigned
