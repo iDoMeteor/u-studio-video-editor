@@ -35,7 +35,7 @@ app_autosave_dep = declare_dependency(
 # comment) without linking the whole GTK app.
 app_settings_lib = static_library(
   'ustudio_app_settings',
-  files('settings.cpp', 'render_profiles.cpp'),
+  files('settings.cpp', 'render_profiles.cpp', 'snap_env.cpp'),
   dependencies: [gio_dep, glib_dep, libustudio_core_dep],
   include_directories: src_inc,
   install: false,

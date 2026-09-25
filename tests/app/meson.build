@@ -16,6 +16,14 @@ test(
   env: {'XDG_STATE_HOME': meson.current_build_dir() / 'autosave-test-state'},
 )
 
+test_snap_env_exe = executable(
+  'test_snap_env',
+  files('test_snap_env.cpp'),
+  dependencies: [doctest_dep, app_settings_dep],
+  install: false,
+)
+test('app-snap-env', test_snap_env_exe)
+
 test_render_queue_exe = executable(
   'test_render_queue',
   files('test_render_queue.cpp'),

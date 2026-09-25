@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.40.1
+
+- Launched from a snap app's terminal (VS Code's), the editor no longer
+  inherits that snap's module paths, so "Open Render" starts the player
+  cleanly.
+
 ## 0.40.0
 
 - Settings > Render > Render threads: how much of the machine a render may

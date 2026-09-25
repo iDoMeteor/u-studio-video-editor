@@ -8,6 +8,7 @@
 #include <string>
 
 #include "app_window.h"
+#include "snap_env.h"
 #include "stall_monitor.h"
 #include "core/log.h"
 #include "engine/factory_policy.h"
@@ -101,7 +102,16 @@ gboolean onQuitSignal(gpointer userData)
 
 int main(int argc, char **argv)
 {
+    // First: GLib caches the XDG directories on first use (Log::init asks
+    // for XDG_STATE_HOME), and GIO loads its modules at first use.
+    const std::vector<std::string> scrubbed = ustudio::app::scrubSnapEnvironment();
     ustudio::core::Log::init("u-studio-video-editor");
+    if (!scrubbed.empty()) {
+        std::string names;
+        for (const std::string &name : scrubbed)
+            names += (names.empty() ? "" : ", ") + name;
+        ustudio::core::Log::info("[app] Launched from a snap's environment; undid " + names);
+    }
     const char *envLevel = std::getenv("USTUDIO_LOG_LEVEL");
     ustudio::core::Log::info("[app] Starting u Studio Video Editor (log level=" +
                              std::string(envLevel ? envLevel
