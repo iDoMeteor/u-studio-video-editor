@@ -219,6 +219,16 @@ FactoryPolicy::FactoryPolicy()
         Mlt::Factory::init();
         m_moduleDirectoryUsed.clear();
     }
+    // MLT's avformat module copies MLT's log level into FFmpeg once, in
+    // avformat_init() (MLT 7.40 src/modules/avformat/factory.c:67,
+    // av_log_set_level(mlt_log_get_level())), and warmUpLazyModuleState()
+    // is what runs that init. At MLT's default, WARNING, FFmpeg's scaler
+    // printed "deprecated pixel format used, make sure you did set range
+    // correctly" for every scaler context on a full-range (yuvj*) source --
+    // one per frame. So errors only, unless we're debugging (a debug build,
+    // or USTUDIO_LOG_LEVEL=debug: Log is initialised before this runs).
+    // Constant names from mlt_log.h.
+    mlt_log_set_level(Log::level() == core::LogLevel::Debug ? MLT_LOG_WARNING : MLT_LOG_ERROR);
     warmUpLazyModuleState();
     raiseAvformatDecoderLimit(8);
 }
