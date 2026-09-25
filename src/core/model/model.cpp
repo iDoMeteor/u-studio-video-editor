@@ -337,6 +337,28 @@ void Model::setAssetSource(AssetId id, std::string path, std::string fingerprint
     notify(AssetChanged{id});
 }
 
+void Model::setAssetProxy(AssetId id, std::string proxyPath)
+{
+    auto &bin = m_project.bin;
+    auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
+    if (it == bin.end()) {
+        preconditionFailed("Model::setAssetProxy: unknown AssetId");
+        return;
+    }
+    if (it->proxyPath == proxyPath)
+        return;
+    it->proxyPath = std::move(proxyPath);
+    notify(AssetChanged{id});
+}
+
+void Model::setProjectSetting(const std::string &key, const std::string &value)
+{
+    if (value.empty())
+        m_project.settings.erase(key);
+    else
+        m_project.settings[key] = value;
+}
+
 // --- Track mutators --------------------------------------------------------
 
 TrackId Model::addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId)

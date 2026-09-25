@@ -8,6 +8,7 @@ libustudio_engine_sources = files(
   'engine.cpp',
   'engine_sync.cpp',
   'engine_extension.cpp',
+  'proxy.cpp',
 )
 
 # The real MLT module directory (e.g. /usr/lib64/mlt-7), baked in at build

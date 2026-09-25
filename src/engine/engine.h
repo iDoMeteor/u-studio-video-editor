@@ -53,6 +53,8 @@ class Engine
     // A different project (EngineSync::reset()).
     void reset(std::shared_ptr<const core::Project> project);
     void setPreviewScale(PreviewScale scale);
+    // EngineSync::setUseProxies().
+    void setUseProxies(bool use);
 
     // Main thread, once per displayed frame.
     void setFrameCallback(FrameCallback callback);

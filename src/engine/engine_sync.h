@@ -17,6 +17,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace ustudio::engine {
@@ -99,6 +100,16 @@ class EngineSync
     // `rebuilt`; setting the same factor again does nothing. Positions,
     // lengths and fps are unaffected; only pixel dimensions change.
     void setPreviewScale(PreviewScale scale);
+    // M4 C: play each asset's proxy (Asset::proxyPath) instead of its file
+    // when there is one. View state, not the model's; renders build their
+    // own EngineSync with it off, so export always uses the originals. A
+    // proxy whose file is gone (the cache was cleared) falls back to the
+    // original quietly. Rebuilds when it changes anything.
+    void setUseProxies(bool use);
+    bool useProxies() const
+    {
+        return m_useProxies;
+    }
     PreviewScale previewScale() const
     {
         return m_previewScale;
@@ -255,6 +266,10 @@ class EngineSync
     // verify() skips its resource check for these, since the mismatch
     // there is the intended fallback, not a sync bug.
     std::unordered_set<uint64_t> m_unavailableAssets;
+    bool m_useProxies = false;
+    // Assets playing their proxy this build (verify() skips their resource).
+    std::unordered_set<uint64_t> m_proxiedAssets;
+    void dropProxiedMasters();
     // Forgets the masters of assets whose path or status changed (relink,
     // missing on load, found again), so the next build opens them afresh.
     void dropChangedMasters(const core::Project &before, const core::Project &after);
@@ -324,10 +339,14 @@ class EngineSync
 // the pre-profile settings, which the engine tests rely on. `threadBudget`
 // > 0 caps the render's threads (core::splitRenderThreads()); 0 leaves
 // MLT's defaults (one render thread, the encoder's automatic count).
+//
+// `extra`: further avformat consumer properties, set last (a proxy's
+// keyframe interval, "g").
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int currentFrame, int totalFrames)> onProgress = {},
                    const std::atomic<bool> *cancel = nullptr,
-                   const core::RenderProfile &profile = core::legacyRenderProfile(), int threadBudget = 0);
+                   const core::RenderProfile &profile = core::legacyRenderProfile(), int threadBudget = 0,
+                   const std::vector<std::pair<std::string, std::string>> &extra = {});
 
 // The H.264 encoder renderProject uses: libx264 where ffmpeg has it,
 // otherwise libopenh264 (stock Fedora's ffmpeg-free ships only that one;

@@ -308,6 +308,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
     installActions(app);
     // Doc 15 IP5: the drop-ins' pages, actions and overlays, into the
     // finished shell (shell_hosts.cpp).
+    setUpProxies();
     m_hasShellExtensions = !shellExtensions.empty();
     for (const dropins::ShellExtension &extension : shellExtensions)
         extension(*this);
@@ -389,6 +390,8 @@ void AppWindow::prepareForShutdown()
     if (m_importQueue)
         m_importQueue->cancelAll();
     m_importQueue.reset();
+    if (m_proxyQueue)
+        m_proxyQueue->cancelAll(); // the children stop and remove their .part files
     if (m_projectLoader)
         m_projectLoader->cancel();
     m_projectLoader.reset();
@@ -650,6 +653,7 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_deleteAssetFileButton, "clicked", G_CALLBACK(&AppWindow::deleteAssetFileClickedTrampoline),
                       this);
     gtk_box_append(GTK_BOX(mediaContextBox), m_deleteAssetFileButton);
+    addProxyMenuItems(mediaContextBox);
     gtk_popover_set_child(m_mediaBrowserContextMenu, mediaContextBox);
     // A popover parented with gtk_widget_set_parent() has to be unparented
     // by hand before its parent goes (post-M3 audit P10: GTK warned on every
@@ -1054,6 +1058,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // Settings default never reached playback; apply it once here.
     onPreviewScaleChanged();
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_previewScaleDropdown));
+    buildProxyToggle(transport);
 
     m_loopStatusLabel = GTK_LABEL(gtk_label_new(""));
     gtk_widget_add_css_class(GTK_WIDGET(m_loopStatusLabel), "dim-label");
@@ -1404,6 +1409,7 @@ void AppWindow::showSettingsDialog()
     adw_combo_row_set_selected(scaleRow, scaleIndex);
     g_signal_connect(scaleRow, "notify::selected", G_CALLBACK(&AppWindow::settingsPreviewScaleChangedTrampoline), this);
     adw_preferences_group_add(previewGroup, GTK_WIDGET(scaleRow));
+    addProxySettingsRow(previewGroup);
 
     AdwPreferencesGroup *backgroundGroup = addGroup(performancePage, "Background work");
     // 0 is "Automatic (N)" (the output/input handlers below); the pool is
@@ -2030,6 +2036,7 @@ void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::
                 showStatus("Couldn't import " + state->failures.front());
             else
                 showImportReport(state->imported, total, state->failures, notes);
+            offerProxiesAfterImport();
         });
 }
 
@@ -4054,8 +4061,12 @@ void AppWindow::refreshMediaBrowser()
             c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         // A missing file says so where its format would be (M4 B).
         const bool missing = asset.status == core::Asset::Status::Missing;
-        GtkWidget *formatLabel = gtk_label_new(missing ? "MISSING" : formatText.empty() ? "—" : formatText.c_str());
-        gtk_widget_add_css_class(formatLabel, missing ? "media-missing" : "dim-label");
+        const auto proxy = missing ? std::nullopt : proxyBadge(asset); // M4 C
+        GtkWidget *formatLabel = gtk_label_new(missing              ? "MISSING"
+                                               : proxy              ? proxy->first.c_str()
+                                               : formatText.empty() ? "—"
+                                                                    : formatText.c_str());
+        gtk_widget_add_css_class(formatLabel, missing ? "media-missing" : proxy ? proxy->second : "dim-label");
         gtk_widget_set_size_request(formatLabel, 50, -1);
         gtk_label_set_xalign(GTK_LABEL(formatLabel), 0.0);
         gtk_box_append(GTK_BOX(row), formatLabel);
@@ -4091,6 +4102,7 @@ void AppWindow::refreshMediaBrowser()
 void AppWindow::onMediaBrowserRowRightClicked(core::AssetId assetId, GtkWidget *row, double x, double y)
 {
     m_contextMenuAssetId = assetId;
+    updateProxyMenuItems();
 
     graphene_point_t local = GRAPHENE_POINT_INIT(static_cast<float>(x), static_cast<float>(y));
     graphene_point_t inPanel{};

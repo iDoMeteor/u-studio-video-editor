@@ -27,6 +27,32 @@ const char *executableSuffix()
     return "";
 }
 
+namespace {
+std::atomic<bool> *s_terminationFlag = nullptr;
+
+void onTerminationSignal(int)
+{
+    // Async-signal-safe: a lock-free atomic store and nothing else.
+    if (s_terminationFlag)
+        s_terminationFlag->store(true);
+}
+} // namespace
+
+void onTerminationRequest(std::atomic<bool> *flag)
+{
+    s_terminationFlag = flag;
+    struct sigaction action = {};
+    action.sa_handler = &onTerminationSignal;
+    sigemptyset(&action.sa_mask);
+    ::sigaction(SIGTERM, &action, nullptr);
+    ::sigaction(SIGINT, &action, nullptr);
+}
+
+bool requestTermination(int64_t pid)
+{
+    return pid > 0 && ::kill(static_cast<pid_t>(pid), SIGTERM) == 0;
+}
+
 // kill(pid, 0) sends no signal, it only probes (POSIX kill(2)): ESRCH is
 // no such process; EPERM is one owned by someone else, which exists.
 bool processExists(int64_t pid)

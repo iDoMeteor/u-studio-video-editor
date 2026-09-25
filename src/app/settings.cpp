@@ -309,4 +309,25 @@ void Settings::setDropInEnabled(const std::string &name, bool enabled)
     g_settings_set_strv(m_settings, "disabled-drop-ins", values.data());
 }
 
+bool Settings::useProxies() const
+{
+    return getBool("use-proxies", true);
+}
+
+void Settings::setUseProxies(bool use)
+{
+    setBool("use-proxies", use);
+}
+
+int Settings::proxyHeight() const
+{
+    return m_settings != nullptr ? g_settings_get_int(m_settings, "proxy-height") : kDefaultProxyHeight;
+}
+
+void Settings::setProxyHeight(int height)
+{
+    if (m_settings != nullptr)
+        g_settings_set_int(m_settings, "proxy-height", height);
+}
+
 } // namespace ustudio::app

@@ -112,6 +112,18 @@ window {
   background-color: black;
 }
 
+/* A clip's proxy in the media browser (M4 C): made, being made, or its
+   file gone from the cache (then the original plays). */
+.media-proxy {
+  color: @brand_cyan;
+  font-weight: bold;
+}
+
+.media-proxy-missing {
+  color: @semantic_warning;
+  font-weight: bold;
+}
+
 /* A missing file in the media browser (M4 B). */
 .media-missing {
   color: @semantic_danger;

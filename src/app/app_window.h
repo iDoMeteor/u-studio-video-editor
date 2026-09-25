@@ -27,6 +27,7 @@
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "import_queue.h"
+#include "proxy_queue.h"
 #include "project_loader.h"
 #include "save_queue.h"
 #include "settings.h"
@@ -182,6 +183,26 @@ class AppWindow : public ShellHost
     void relinkTo(std::vector<std::pair<core::AssetId, std::string>> candidates);
     void searchFolderForMissing(const std::string &folder);
     void onMediaUnavailable(const std::string &path);
+    // M4 C, proxies (app/proxies.cpp).
+    void setUpProxies();
+    void buildProxyToggle(GtkWidget *transport);
+    void addProxyMenuItems(GtkWidget *menuBox);
+    void updateProxyMenuItems();
+    void addProxySettingsRow(AdwPreferencesGroup *group);
+    // The bin's proxy badge for an asset (text, CSS class), if any.
+    std::optional<std::pair<std::string, const char *>> proxyBadge(const core::Asset &asset) const;
+    void createProxies(const std::vector<core::AssetId> &assets, int height);
+    void onProxyDone(core::AssetId asset, const std::string &output);
+    void removeProxy(core::AssetId asset);
+    // After an import: sources taller than 1080 are offered proxies once per
+    // project, or get them if the project said "always".
+    void offerProxiesAfterImport();
+    std::unique_ptr<ProxyQueue> m_proxyQueue;
+    GtkWidget *m_proxyToggle = nullptr;
+    GtkWidget *m_createProxyButton = nullptr;
+    GtkWidget *m_conformProxyButton = nullptr;
+    GtkWidget *m_removeProxyButton = nullptr;
+
     AdwBanner *m_missingBanner = nullptr;
     AdwDialog *m_relinkDialog = nullptr;
     AdwPreferencesGroup *m_relinkGroup = nullptr;

@@ -5,6 +5,8 @@
 > REVIEW: Claude (2026-09-24): not built yet. Until M6, `engine::renderProject()` renders
 > in-process on a worker thread from a deep copy of the model.
 
+> REVIEW: VE Core, 2026-09-25: proxies are the first out-of-process use (M4 C): the editor runs `u-studio-render --proxy` through `GSubprocess` (`app/proxy_queue.*`, `app/proxy_launcher.*`), reads JSON progress lines from its stdout, and cancels with `platform::requestTermination()`. Exports follow in M6 with the same launcher.
+
 ## Context
 Rendering in-process shares the editor's MLT factory, threads, and address
 space with a running preview. Encoder or demuxer crashes take the editor

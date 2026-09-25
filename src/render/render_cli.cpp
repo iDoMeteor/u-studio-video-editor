@@ -11,7 +11,7 @@ void printUsage(const std::vector<dropins::RenderSubcommand> &subcommands, std::
 {
     out << "Usage: u-studio-render [--help | --<subcommand> [args...]]\n"
            "\n"
-           "Drop-in subcommands:\n";
+           "Subcommands:\n";
     if (subcommands.empty())
         out << "  (none: no drop-ins installed)\n";
     for (const dropins::RenderSubcommand &subcommand : subcommands)

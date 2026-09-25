@@ -267,6 +267,9 @@ void AppWindow::relinkTo(std::vector<std::pair<core::AssetId, std::string>> cand
                 return; // another project now
             std::vector<std::unique_ptr<core::Command>> steps;
             std::vector<std::string> problems;
+            // A proxy of another file's content is stale (M4 C): dropped
+            // once the relink lands.
+            std::vector<core::AssetId> staleProxies;
             for (const Checked &check : checked) {
                 if (!m_model.hasAsset(check.id))
                     continue;
@@ -286,6 +289,8 @@ void AppWindow::relinkTo(std::vector<std::pair<core::AssetId, std::string>> cand
                                        ") than its clips need (" + formatTimecode(static_cast<int>(needed)) + ")");
                     continue;
                 }
+                if (!asset.proxyPath.empty() && asset.fileFingerprint != check.fingerprint)
+                    staleProxies.push_back(check.id);
                 steps.push_back(std::make_unique<core::RelinkAsset>(check.id, check.path, check.fingerprint));
             }
             const size_t relinked = steps.size();
@@ -294,6 +299,10 @@ void AppWindow::relinkTo(std::vector<std::pair<core::AssetId, std::string>> cand
                 showStatus("Couldn't relink the media.");
                 return;
             }
+            for (core::AssetId id : staleProxies)
+                m_model.setAssetProxy(id, "");
+            if (!staleProxies.empty())
+                m_undoStack.markDirty();
             std::string status =
                 relinked == 1 ? "Relinked 1 file." : "Relinked " + std::to_string(relinked) + " files.";
             if (!problems.empty())

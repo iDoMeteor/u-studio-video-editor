@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.47.0
+
+- Proxies: Create Proxy / Create Conformed Proxy in the media browser, a
+  Proxies toggle beside the preview scale, and an offer once per project for
+  footage above 1080p. Made in the background by `u-studio-render --proxy`;
+  renders always use the originals.
+
 ## 0.46.1
 
 - A video smaller than the project (720p or 640x360 in a 1080p project) now

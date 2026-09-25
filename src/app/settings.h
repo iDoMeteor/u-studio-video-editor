@@ -107,6 +107,14 @@ class Settings
     // Settings > Drop-ins: installed drop-ins not to load, read once at
     // startup (unloading native code at runtime isn't safe; doc 17).
     std::vector<std::string> disabledDropIns() const;
+
+    // M4 C: whether playback uses proxies (view state, remembered here, not
+    // in the project), and the height new ones get (0: source size).
+    static constexpr int kDefaultProxyHeight = 540;
+    bool useProxies() const;
+    void setUseProxies(bool use);
+    int proxyHeight() const;
+    void setProxyHeight(int height);
     void setDropInEnabled(const std::string &name, bool enabled);
 
     // False when the schema wasn't found (not installed, and

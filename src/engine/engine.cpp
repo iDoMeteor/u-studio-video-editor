@@ -282,6 +282,11 @@ void Engine::reset(std::shared_ptr<const core::Project> project)
     m_thread->enqueue(std::move(entry));
 }
 
+void Engine::setUseProxies(bool use)
+{
+    send([use](Thread &t) { t.sync->setUseProxies(use); });
+}
+
 void Engine::setPreviewScale(PreviewScale scale)
 {
     send([scale](Thread &t) { t.sync->setPreviewScale(scale); });

@@ -111,6 +111,15 @@ test_shell_hosts_exe = executable(
 )
 test('app-shell-hosts', test_shell_hosts_exe)
 
+# M4 C: the proxy queue, with a fake u-studio-render.
+test_proxy_queue_exe = executable(
+  'test_proxy_queue',
+  files('test_proxy_queue.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+test('app-proxy-queue', test_proxy_queue_exe)
+
 test_viewport_exe = executable(
   'test_viewport',
   files('test_viewport.cpp'),

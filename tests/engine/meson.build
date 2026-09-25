@@ -85,6 +85,15 @@ test_composite_fill_exe = executable(
 )
 test('engine-composite-fill', test_composite_fill_exe, timeout: 60)
 
+# M4 C: proxies (render, toggle, fallback, originals for export).
+test_proxy_exe = executable(
+  'test_proxy',
+  files('test_proxy.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-proxy', test_proxy_exe, timeout: 120)
+
 test_waveform_cache_exe = executable(
   'test_waveform_cache',
   files('test_waveform_cache.cpp'),

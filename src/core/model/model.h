@@ -99,6 +99,12 @@ class Model
     // Where the asset's file is (RelinkAsset): its path, fingerprint and
     // status together.
     void setAssetSource(AssetId, std::string path, std::string fingerprint, Asset::Status status);
+    // The asset's proxy file ("" none; M4 C). Like a probe result, not an
+    // edit: not a command, not undone, saved with the project.
+    void setAssetProxy(AssetId, std::string proxyPath);
+    // Project::settings[key] ("" removes it); the project's own
+    // preferences, saved with it (the proxy prompt's answer). Not a command.
+    void setProjectSetting(const std::string &key, const std::string &value);
 
     TrackId addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId = std::nullopt);
     void removeTrack(TrackId);

@@ -180,11 +180,13 @@ void EngineSync::dropChangedMasters(const core::Project &before, const core::Pro
     for (const core::Asset &now : after.bin) {
         auto was =
             std::find_if(before.bin.begin(), before.bin.end(), [&](const core::Asset &a) { return a.id == now.id; });
-        if (was == before.bin.end() || (was->path == now.path && was->status == now.status))
+        if (was == before.bin.end() ||
+            (was->path == now.path && was->status == now.status && was->proxyPath == now.proxyPath))
             continue;
         for (uint64_t variant = 0; variant < 4; ++variant)
             m_masterProducers.erase((now.id.value << 2) | variant);
         m_unavailableAssets.erase(now.id.value);
+        m_proxiedAssets.erase(now.id.value);
     }
 }
 
@@ -207,11 +209,35 @@ void EngineSync::setPreviewScale(PreviewScale scale)
     rebuildOnNewProfile();
 }
 
+void EngineSync::setUseProxies(bool use)
+{
+    if (use == m_useProxies)
+        return;
+    m_useProxies = use;
+    const auto &bin = m_model.project().bin;
+    if (std::none_of(bin.begin(), bin.end(), [](const core::Asset &a) { return !a.proxyPath.empty(); }))
+        return; // nothing plays differently
+    dropProxiedMasters();
+    rebuildAll();
+}
+
+void EngineSync::dropProxiedMasters()
+{
+    for (const core::Asset &asset : m_model.project().bin) {
+        if (asset.proxyPath.empty())
+            continue;
+        for (uint64_t variant = 0; variant < 4; ++variant)
+            m_masterProducers.erase((asset.id.value << 2) | variant);
+        m_proxiedAssets.erase(asset.id.value);
+    }
+}
+
 void EngineSync::rebuildOnNewProfile()
 {
     Log::debug("[engine] new profile: dropping " + std::to_string(m_masterProducers.size()) +
                " cached master producer(s)");
     m_masterProducers.clear();
+    m_proxiedAssets.clear();
     // Built from the old profile, which applyProfile() below replaces.
     m_blackMaster.reset();
 
@@ -341,8 +367,21 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
         const bool knownMissing = asset.status == core::Asset::Status::Missing;
         if (knownMissing)
             m_unavailableAssets.insert(assetId.value);
-        auto producer =
-            std::make_shared<Mlt::Producer>(*m_profile, knownMissing ? kMissingResource : asset.path.c_str());
+        // The proxy when asked for and its file is there; the cache may have
+        // been cleared, which isn't missing media: the original plays.
+        std::string resource = asset.path;
+        m_proxiedAssets.erase(assetId.value);
+        if (m_useProxies && !knownMissing && !asset.proxyPath.empty()) {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(asset.proxyPath, ec)) {
+                resource = asset.proxyPath;
+                m_proxiedAssets.insert(assetId.value);
+            } else {
+                Log::debug("[engine] proxy of asset " + std::to_string(assetId.value) +
+                           " is gone; playing the original");
+            }
+        }
+        auto producer = std::make_shared<Mlt::Producer>(*m_profile, knownMissing ? kMissingResource : resource.c_str());
         if (!knownMissing && !producer->is_valid()) {
             // Untrusted input (CLAUDE.md): a project can reference a file
             // that's since been moved, deleted, or lives on an unmounted
@@ -852,7 +891,7 @@ std::vector<std::string> EngineSync::verify() const
                 // not the asset's own path -- that mismatch is the
                 // intended fallback (see its own comment), not a sync bug.
                 if (m_model.hasAsset(clip.asset) && !m_unavailableAssets.contains(clip.asset.value) &&
-                    !m_extensionProducers.contains(clip.id.value)) {
+                    !m_proxiedAssets.contains(clip.asset.value) && !m_extensionProducers.contains(clip.id.value)) {
                     std::string expectedResource = m_model.asset(clip.asset).path;
                     // MLT's "resource" property for a "service:arg" shorthand
                     // producer (color:/noise:/tone: generators, used by
@@ -994,7 +1033,8 @@ std::optional<bool> h264HasQualityMode()
 
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int, int)> onProgress, const std::atomic<bool> *cancel,
-                   const core::RenderProfile &profile, int threadBudget)
+                   const core::RenderProfile &profile, int threadBudget,
+                   const std::vector<std::pair<std::string, std::string>> &extra)
 {
     Log::ScopedTimer timer("[engine] renderProject total");
     // Another output rate: render a retimed copy, built on a profile at that
@@ -1089,6 +1129,8 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     } else {
         consumer.set("real_time", -1);
     }
+    for (const auto &[name, value] : extra)
+        consumer.set(name.c_str(), value.c_str());
     consumer.connect(renderSync.tractor());
 
     // Registered before run() (which blocks until the render finishes),

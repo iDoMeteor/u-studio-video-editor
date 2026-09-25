@@ -9,8 +9,10 @@
 #include "dropins/registry.h"
 #include "engine/engine_extension.h"
 #include "engine/factory_policy.h"
+#include "render/proxy_command.h"
 #include "render/render_cli.h"
 
+#include <atomic>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -127,4 +129,26 @@ TEST_CASE("IP6: a taken, reserved or malformed subcommand name is refused")
     host.addRenderSubcommand({"norun", "no function", nullptr});
     REQUIRE(host.renderSubcommands().size() == 1);
     CHECK(host.renderSubcommands()[0].summary == "first");
+}
+
+TEST_CASE("--proxy: bad arguments exit 2 with a JSON reason; strings are escaped")
+{
+    std::atomic<bool> cancel{false};
+    const std::vector<dropins::RenderSubcommand> core{render::proxySubcommand(&cancel)};
+    Run help = run(core, {"--help"});
+    CHECK(help.out.find("--proxy") != std::string::npos);
+    for (const std::vector<std::string> &bad : std::vector<std::vector<std::string>>{
+             {"--proxy", "only-one"},
+             {"--proxy", "a.mov", "b.mp4", "--height"},
+             {"--proxy", "a.mov", "b.mp4", "--height", "tall"},
+             {"--proxy", "a.mov", "b.mp4", "--fps", "0/1"},
+             {"--proxy", "a.mov", "b.mp4", "--speed", "2"}}) {
+        Run usage = run(core, bad);
+        CHECK(usage.status == 2);
+        CHECK(usage.out.starts_with(R"({"status":"error","message":"usage: )"));
+    }
+    Run missing = run(core, {"--proxy", "/nowhere/a \"b\".mov", "never.mp4"});
+    CHECK(missing.status == 1);
+    CHECK(missing.out.find(R"(\"b\")") != std::string::npos); // escaped, still one JSON line
+    CHECK(render::jsonEscape("a\"b\\c\n") == "a\\\"b\\\\c\\u000a");
 }

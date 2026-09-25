@@ -53,6 +53,13 @@ single-track skeleton.
   red), a banner says how many files are missing, and Relink… points each at
   its new place, one file at a time or by searching a folder, as one undo
   step that changes nothing else. A render with missing media asks first.
+  Proxies: right-click a clip in the media browser for Create Proxy (540p by
+  default, Settings › Performance) or Create Conformed Proxy (full size at
+  the project's rate, for phone and screen recordings); footage taller than
+  1080p is offered them once per project. They're rendered by
+  `u-studio-render --proxy` in the background, into the user cache, and the
+  Proxies toggle beside the preview scale plays them or the originals.
+  Renders always use the originals.
   Both Import and Open Project filter their file
   pickers to media files and `.ustudio` projects respectively.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
