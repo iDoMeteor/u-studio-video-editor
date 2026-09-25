@@ -15,6 +15,7 @@
 
 #include "action_registry.h"
 #include "render_profiles.h"
+#include "render_queue.h"
 #include "core/commands/undo_stack.h"
 #include "core/concurrency/thread_pool.h"
 #include "core/model/model.h"
@@ -565,6 +566,9 @@ class AppWindow
                                                     gpointer userData);
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
+    static void renderButtonRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
+                                                 gpointer userData);
+    static void renderMenuItemClickedTrampoline(GtkButton *button, gpointer userData);
     static void helpClickedTrampoline(GtkButton *button, gpointer userData);
     static void settingsClickedTrampoline(GtkButton *button, gpointer userData);
     // Settings dialog rows: each reads its new value straight off the row
@@ -905,12 +909,32 @@ class AppWindow
     // closes the window.
     bool m_closeAfterSave = false;
 
-    // The render thread (onRenderFinished), owned so shutdown can cancel
-    // and join it before MLT closes (post-M3 audit P2).
-    std::thread m_renderThread;
-    std::atomic<bool> m_renderCancel{false};
-    std::atomic<bool> m_renderRunning{false};
-    bool m_stopRenderConfirmed = false; // "Stop and Quit" was chosen
+    // Renders, one at a time (the Render button). prepareForShutdown()
+    // stops it before MLT closes (post-M3 audit P2) and keeps what didn't
+    // finish for the next launch (pending_renders).
+    std::unique_ptr<RenderQueue> m_renderQueue;
+    bool m_stopRenderConfirmed = false; // "Quit" was chosen while rendering
+    // The Render button: a progress fill under its label, a queued-count
+    // badge, and after a render, "Open Render" until clicked.
+    GtkWidget *m_renderButton = nullptr;
+    GtkLabel *m_renderLabel = nullptr;
+    GtkProgressBar *m_renderProgress = nullptr;
+    GtkLabel *m_renderBadge = nullptr;
+    GtkPopover *m_renderMenu = nullptr;
+    std::string m_lastRenderedPath; // non-empty: the button offers to open it
+    void queueRender(const core::RenderProfile &profile, const std::string &path);
+    // `<project>-<profile>-YYYYMMDD-HHMMSS.mp4` in exportFolder(), unused.
+    std::string autoRenderPath(const core::RenderProfile &profile) const;
+    void askCancelOrQueueRender();
+    void openLastRender();
+    void updateRenderButton();
+    void showRenderMenu();
+    void onRenderStarted(const RenderJob &job);
+    void onRenderProgress(double fraction);
+    void onRenderDone(const RenderJob &job, bool ok, bool cancelled, const std::string &error);
+    // Renders the last session didn't finish: offered once, at startup.
+    void offerPendingRenders();
+    void restartPendingRenders();
 
     void onAutosaveHeartbeat();
     void performAutosave();

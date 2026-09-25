@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.37.0
+
+- Render queue: the Render button shows progress, a queue count, and
+  "Open Render" when done; click it mid-render to cancel or queue another,
+  right-click to render or queue with any profile (auto-named). Quitting
+  mid-render keeps unfinished renders and offers to restart them next time.
+
 ## 0.36.0
 
 - Render profiles (Settings > Render): output height and quality presets,

@@ -1,7 +1,5 @@
 #include "factory_policy.h"
 
-#include "engine_sync.h"
-
 #include "core/log.h"
 
 #include <mlt++/Mlt.h>
@@ -223,9 +221,6 @@ FactoryPolicy::FactoryPolicy()
     }
     warmUpLazyModuleState();
     raiseAvformatDecoderLimit(8);
-    // Cached now, while only this thread uses MLT, so Settings (main thread)
-    // can ask which encoder there is without touching MLT.
-    h264Encoder();
 }
 
 void FactoryPolicy::raiseAvformatDecoderLimit(size_t tracks)

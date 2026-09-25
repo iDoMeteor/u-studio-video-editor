@@ -193,8 +193,17 @@ single-track skeleton.
   render used before 0.36; duplicate one to make your own, kept in
   `$XDG_CONFIG_HOME/ustudio/render-profiles.ini`. Other frame rates aren't
   supported yet: the avformat consumer's `frame_rate_num` only relabels
-  the stream. Runs on a background thread, with a live percentage in the
-  status bar while it runs (enhancement #13, 2026-09-23).
+  the stream. Renders run one at a time from a queue, each fixed when
+  queued (the project as it was, the profile, the output path). The Render
+  button fills magenta as it goes and shows a badge counting the queue;
+  when it's done it turns cyan ("Open Render") and opens the file.
+  Clicking it mid-render offers Cancel Render (the partial file is
+  removed) or Queue Another. Right-click it to render or queue with any
+  profile, auto-named `<project>-<profile>-YYYYMMDD-HHMMSS.mp4` in the
+  default export folder; the left-click dialog is prefilled with that
+  name. Quitting mid-render asks first; unfinished renders are kept in
+  `$XDG_STATE_HOME/ustudio/pending-renders/` and offered again (from the
+  beginning) on the next launch.
 - Save/load a project as MLT XML with `ustudio:` namespaced properties
   (see "Project files" below), plus autosave and crash recovery. Autosave
   fires 2 minutes (configurable) after the last edit, on focus loss, and

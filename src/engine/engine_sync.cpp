@@ -18,6 +18,10 @@
 #include <thread>
 #include <variant>
 
+#include <cstdio>
+#include <fcntl.h>
+#include <unistd.h>
+
 namespace ustudio::engine {
 
 namespace Log = ustudio::core::Log;
@@ -757,17 +761,40 @@ void renderProgressTrampoline(mlt_properties /*owner*/, void *self, mlt_event_da
 }
 } // namespace
 
+namespace {
+// -1 unknown, 0 no, 1 yes: h264HasQualityMode()'s answer, set once
+// h264Encoder() has one.
+std::atomic<int> s_h264QualityMode{-1};
+} // namespace
+
 const std::string &h264Encoder()
 {
     static const std::string encoder = [] {
+        Log::ScopedTimer timer("[engine] H.264 encoder query");
         // avformat's documented "list" value (consumer_avformat.yml):
         // start() fills the consumer's "vcodec" data with every encoder
-        // name, and also prints them to stdout -- once per process.
+        // name, and also printf()s them all to stdout. That goes to
+        // /dev/null: fd 1 is swapped for the call, with stdout's buffer
+        // flushed on both sides so nothing written before lands there and
+        // nothing of the list leaks out after. The app writes nothing to
+        // stdout itself (logs go to stderr).
+        std::fflush(stdout);
+        const int savedStdout = ::dup(STDOUT_FILENO);
+        const int devNull = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
+        if (savedStdout >= 0 && devNull >= 0)
+            ::dup2(devNull, STDOUT_FILENO);
         Mlt::Profile profile;
         Mlt::Consumer consumer(profile, "avformat");
         consumer.set("vcodec", "list");
         consumer.start();
         consumer.stop();
+        std::fflush(stdout);
+        if (savedStdout >= 0 && devNull >= 0)
+            ::dup2(savedStdout, STDOUT_FILENO);
+        if (devNull >= 0)
+            ::close(devNull);
+        if (savedStdout >= 0)
+            ::close(savedStdout);
         auto *list = static_cast<mlt_properties>(consumer.get_data("vcodec"));
         std::string found;
         if (!list) {
@@ -782,14 +809,16 @@ const std::string &h264Encoder()
             }
         }
         Log::info("[engine] H.264 encoder: " + (found.empty() ? std::string("none") : found));
+        s_h264QualityMode = found == "libx264" ? 1 : 0;
         return found;
     }();
     return encoder;
 }
 
-bool h264HasQualityMode()
+std::optional<bool> h264HasQualityMode()
 {
-    return h264Encoder() == "libx264";
+    const int known = s_h264QualityMode.load();
+    return known < 0 ? std::nullopt : std::optional<bool>(known == 1);
 }
 
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
@@ -836,7 +865,7 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // the stream's rate (60 frames at 60 fps played 1 s, not 2), so the
     // output always keeps the project's frame rate.
     const core::EncoderSettings settings =
-        core::encoderSettings(profile, model.sequence().profile, h264HasQualityMode());
+        core::encoderSettings(profile, model.sequence().profile, h264Encoder() == "libx264");
     if (settings.width > 0 && settings.height > 0) {
         consumer.set("width", settings.width);
         consumer.set("height", settings.height);

@@ -26,7 +26,7 @@ std::vector<HintSpec> &registry()
         {"header.open",          "Header bar", "Open project…",         nullptr, "open-project", nullptr},
         {"header.recent",        "Header bar", "Recent projects",       nullptr, nullptr, nullptr},
         {"header.save",          "Header bar", "Save project",          "Saves to the project's own file, keeping its last 5 versions in .ustudio-backups beside it; right-click for Save As", "save", nullptr},
-        {"header.render",        "Header bar", "Render the project to an MP4 file", "H.264 and AAC at the project's own size and frame rate", nullptr, nullptr},
+        {"header.render",        "Header bar", "Render the project to an MP4 file", "With the default render profile; right-click to pick a profile or queue", nullptr, nullptr},
         {"header.help",          "Header bar", "Help",                  nullptr, nullptr, nullptr},
         {"header.settings",      "Header bar", "Settings",              nullptr, nullptr, nullptr},
         {"header.zoom-out",      "Header bar", "Zoom the timeline out",  nullptr, "zoom-out", nullptr},

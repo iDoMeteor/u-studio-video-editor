@@ -41,6 +41,32 @@ std::optional<Quality> qualityFromName(const std::string &text)
 
 } // namespace
 
+void writeProfile(GKeyFile *file, const char *group, const core::RenderProfile &profile)
+{
+    g_key_file_set_string(file, group, "quality", qualityName(profile.quality));
+    g_key_file_set_integer(file, group, "height", profile.height);
+    if (profile.quality == Quality::Bitrate) {
+        g_key_file_set_int64(file, group, "video-bitrate", profile.videoBitrate);
+        g_key_file_set_int64(file, group, "audio-bitrate", profile.audioBitrate);
+    }
+}
+
+std::optional<core::RenderProfile> readProfile(GKeyFile *file, const char *group)
+{
+    gchar *quality = g_key_file_get_string(file, group, "quality", nullptr);
+    std::optional<Quality> parsed = qualityFromName(quality ? quality : "");
+    g_free(quality);
+    if (!parsed)
+        return std::nullopt;
+    core::RenderProfile profile;
+    profile.name = group;
+    profile.quality = *parsed;
+    profile.height = g_key_file_get_integer(file, group, "height", nullptr);
+    profile.videoBitrate = g_key_file_get_int64(file, group, "video-bitrate", nullptr);
+    profile.audioBitrate = g_key_file_get_int64(file, group, "audio-bitrate", nullptr);
+    return profile;
+}
+
 RenderProfileStore::RenderProfileStore(std::string path) : m_path(std::move(path))
 {
     GKeyFile *file = g_key_file_new();
@@ -54,20 +80,12 @@ RenderProfileStore::RenderProfileStore(std::string path) : m_path(std::move(path
     }
     gchar **groups = g_key_file_get_groups(file, nullptr);
     for (gchar **group = groups; *group; ++group) {
-        core::RenderProfile profile;
-        profile.name = *group;
-        gchar *quality = g_key_file_get_string(file, *group, "quality", nullptr);
-        std::optional<Quality> parsed = qualityFromName(quality ? quality : "");
-        g_free(quality);
-        if (!parsed || !core::renderProfileNameProblem(profile.name, m_user).empty()) {
-            core::Log::warn("[render] Skipping render profile \"" + profile.name + "\" in " + m_path);
+        std::optional<core::RenderProfile> profile = readProfile(file, *group);
+        if (!profile || !core::renderProfileNameProblem(profile->name, m_user).empty()) {
+            core::Log::warn("[render] Skipping render profile \"" + std::string(*group) + "\" in " + m_path);
             continue;
         }
-        profile.quality = *parsed;
-        profile.height = g_key_file_get_integer(file, *group, "height", nullptr);
-        profile.videoBitrate = g_key_file_get_int64(file, *group, "video-bitrate", nullptr);
-        profile.audioBitrate = g_key_file_get_int64(file, *group, "audio-bitrate", nullptr);
-        m_user.push_back(std::move(profile));
+        m_user.push_back(std::move(*profile));
     }
     g_strfreev(groups);
     g_key_file_free(file);
@@ -135,15 +153,8 @@ std::string RenderProfileStore::remove(const std::string &name)
 std::string RenderProfileStore::write() const
 {
     GKeyFile *file = g_key_file_new();
-    for (const core::RenderProfile &profile : m_user) {
-        const char *group = profile.name.c_str();
-        g_key_file_set_string(file, group, "quality", qualityName(profile.quality));
-        g_key_file_set_integer(file, group, "height", profile.height);
-        if (profile.quality == Quality::Bitrate) {
-            g_key_file_set_int64(file, group, "video-bitrate", profile.videoBitrate);
-            g_key_file_set_int64(file, group, "audio-bitrate", profile.audioBitrate);
-        }
-    }
+    for (const core::RenderProfile &profile : m_user)
+        writeProfile(file, profile.name.c_str(), profile);
     std::error_code ec;
     std::filesystem::create_directories(std::filesystem::path(m_path).parent_path(), ec);
     GError *error = nullptr;

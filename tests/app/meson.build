@@ -16,6 +16,14 @@ test(
   env: {'XDG_STATE_HOME': meson.current_build_dir() / 'autosave-test-state'},
 )
 
+test_render_queue_exe = executable(
+  'test_render_queue',
+  files('test_render_queue.cpp'),
+  dependencies: [doctest_dep, app_render_queue_dep],
+  install: false,
+)
+test('app-render-queue', test_render_queue_exe)
+
 test_render_profiles_exe = executable(
   'test_render_profiles',
   files('test_render_profiles.cpp'),

@@ -2,6 +2,8 @@
 
 #include "core/render/render_profile.h"
 
+#include <glib.h>
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -11,6 +13,12 @@ namespace ustudio::app {
 // The user's render profiles, in a keyfile (one group per profile), plus
 // the read-only built-ins. The default profile's name lives in GSettings
 // (Settings::defaultRenderProfile()). Main thread only.
+// One profile as a keyfile group (its name is the group's): shared by the
+// store and pending-renders' files. readProfile() is nullopt for a group
+// that isn't a valid profile.
+void writeProfile(GKeyFile *file, const char *group, const core::RenderProfile &profile);
+std::optional<core::RenderProfile> readProfile(GKeyFile *file, const char *group);
+
 class RenderProfileStore
 {
   public:

@@ -294,13 +294,14 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
 // The H.264 encoder renderProject uses: libx264 where ffmpeg has it,
 // otherwise libopenh264 (stock Fedora's ffmpeg-free ships only that one;
 // given an unknown vcodec, avformat writes an MP4 with no video stream at
-// all). Empty if neither is present. Asked of MLT once per process; needs
-// the Factory initialised. FactoryPolicy asks at startup, so later calls
-// (the main thread's included) only read the cached answer.
+// all). Empty if neither is present. Asked of MLT once per process, on the
+// first call, which must not be on the main thread (it opens an avformat
+// consumer); the app asks from a pool job at startup, and renders ask too.
 const std::string &h264Encoder();
 
-// True when that encoder has a constant-quality (CRF) mode: libx264 does,
-// OpenH264 doesn't.
-bool h264HasQualityMode();
+// Whether that encoder has a constant-quality (CRF) mode (libx264 does,
+// OpenH264 doesn't), once h264Encoder() has answered; nullopt before. Reads
+// only the cached answer, so any thread may call it.
+std::optional<bool> h264HasQualityMode();
 
 } // namespace ustudio::engine

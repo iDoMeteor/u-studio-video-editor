@@ -52,6 +52,44 @@ window {
   margin-right: 6px;
 }
 
+/* The Render button (app_window.cpp): a magenta fill grows under the label
+   while rendering; cyan once a render is done ("Open Render"); a violet
+   badge counts the queue. */
+.render-button {
+  padding: 0;
+}
+
+.render-button .render-label {
+  margin: 0 12px;
+}
+
+.render-button .render-progress trough {
+  min-height: 34px;
+  border-radius: 6px;
+  background: none;
+}
+
+.render-button .render-progress progress {
+  min-height: 34px;
+  border-radius: 6px;
+  background-color: @brand_magenta;
+}
+
+.render-button.render-done {
+  background-color: @brand_cyan;
+  color: @ink_900;
+}
+
+.render-badge {
+  background-color: @brand_violet;
+  color: @window_fg_color;
+  border-radius: 8px;
+  font-size: 9px;
+  min-width: 14px;
+  padding: 0 3px;
+  margin: 1px;
+}
+
 .timeline-area {
   background-color: @ink_800;
   border: 1px solid @ink_500;

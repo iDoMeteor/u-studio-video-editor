@@ -13,6 +13,7 @@
 #include "core/trace.h"
 #include "engine/audio_sync.h"
 #include "core/xml/backup.h"
+#include "pending_renders.h"
 #include "render_profiles_page.h"
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
@@ -189,6 +190,25 @@ AppWindow::AppWindow(GtkApplication *app)
         std::make_unique<ImportQueue>(*m_pool, [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
         });
+    // Which H.264 encoder there is (Settings > Render asks): MLT prints a
+    // list to find out, so it's asked once, off the main thread, and nothing
+    // waits for it. A render asks too, if it gets there first.
+    m_pool->submit([](std::stop_token) { engine::h264Encoder(); });
+    m_renderQueue = std::make_unique<RenderQueue>(
+        [](const RenderJob &job, std::string &error, std::function<void(int, int)> onProgress,
+           const std::atomic<bool> &cancel) {
+            core::Model model(*job.snapshot);
+            return engine::renderProject(model, job.outputPath, error, std::move(onProgress), &cancel, job.profile);
+        },
+        [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
+            engine::MainThreadDispatcher::post(token, std::move(fn));
+        },
+        RenderQueue::Callbacks{
+            .started = [this](const RenderJob &job) { onRenderStarted(job); },
+            .progress = [this](const RenderJob &, double fraction) { onRenderProgress(fraction); },
+            .finished = [this](const RenderJob &job, bool ok, bool cancelled,
+                               const std::string &error) { onRenderDone(job, ok, cancelled, error); },
+        });
     m_saveQueue =
         std::make_unique<SaveQueue>(*m_pool, [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
@@ -275,6 +295,8 @@ AppWindow::AppWindow(GtkApplication *app)
     // Recovering unsaved work takes precedence over reopening.
     if (!offerRecoveryIfAny())
         reopenLastProjectIfWanted(lastProject);
+    offerPendingRenders();
+    updateRenderButton();
 }
 
 void AppWindow::reopenLastProjectIfWanted(const std::string &path)
@@ -309,10 +331,18 @@ void AppWindow::prepareForShutdown()
     }
     // A render still running would be inside MLT when main() closes the
     // factory (post-M3 audit P2: 3/3 crashes). Stop it and wait for it;
-    // renderProject() removes its .part file when cancelled.
-    if (m_renderThread.joinable()) {
-        m_renderCancel = true;
-        m_renderThread.join();
+    // renderProject() removes its .part file when cancelled. What didn't
+    // finish is kept for the next launch to offer. (Nothing unfinished
+    // leaves the folder alone, so an offer left unanswered stays.)
+    if (m_renderQueue) {
+        std::vector<RenderJob> unfinished = m_renderQueue->shutdown();
+        if (!unfinished.empty()) {
+            std::string error = pending_renders::save(unfinished, pending_renders::directory());
+            if (error.empty())
+                Log::info("[render] Kept " + std::to_string(unfinished.size()) + " unfinished render(s) for next time");
+            else
+                Log::warn("[render] " + error);
+        }
     }
     // Pool jobs open MLT producers too: cancel them and join the workers
     // before main() closes the factory (doc 19 MT1).
@@ -445,9 +475,38 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_add_controller(saveButton, GTK_EVENT_CONTROLLER(saveRightClick));
     gtk_box_append(GTK_BOX(projectGroup), saveButton);
 
-    GtkWidget *renderButton = gtk_button_new_with_label("Render…");
+    // Render: a label over a progress bar that fills magenta while a render
+    // runs, and a badge counting the queue (updateRenderButton()).
+    GtkWidget *renderButton = gtk_button_new();
+    m_renderButton = renderButton;
+    gtk_widget_add_css_class(renderButton, "render-button");
+    GtkWidget *renderOverlay = gtk_overlay_new();
+    m_renderProgress = GTK_PROGRESS_BAR(gtk_progress_bar_new());
+    gtk_widget_add_css_class(GTK_WIDGET(m_renderProgress), "render-progress");
+    gtk_widget_set_valign(GTK_WIDGET(m_renderProgress), GTK_ALIGN_FILL);
+    gtk_widget_set_visible(GTK_WIDGET(m_renderProgress), FALSE);
+    gtk_overlay_set_child(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderProgress));
+    m_renderLabel = GTK_LABEL(gtk_label_new("Render…"));
+    gtk_widget_add_css_class(GTK_WIDGET(m_renderLabel), "render-label");
+    gtk_label_set_width_chars(m_renderLabel, 13); // "Rendering 100%": the header doesn't reflow as it counts
+    gtk_overlay_add_overlay(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderLabel));
+    gtk_overlay_set_measure_overlay(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderLabel), TRUE);
+    m_renderBadge = GTK_LABEL(gtk_label_new(""));
+    gtk_widget_add_css_class(GTK_WIDGET(m_renderBadge), "render-badge");
+    gtk_widget_set_halign(GTK_WIDGET(m_renderBadge), GTK_ALIGN_END);
+    gtk_widget_set_valign(GTK_WIDGET(m_renderBadge), GTK_ALIGN_START);
+    gtk_widget_set_visible(GTK_WIDGET(m_renderBadge), FALSE);
+    gtk_overlay_add_overlay(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderBadge));
+    gtk_button_set_child(GTK_BUTTON(renderButton), renderOverlay);
     setTooltip(renderButton, "header.render");
     g_signal_connect(renderButton, "clicked", G_CALLBACK(&AppWindow::renderClickedTrampoline), this);
+    GtkGesture *renderRightClick = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(renderRightClick), GDK_BUTTON_SECONDARY);
+    g_signal_connect(renderRightClick, "pressed", G_CALLBACK(&AppWindow::renderButtonRightClickTrampoline), this);
+    gtk_widget_add_controller(renderButton, GTK_EVENT_CONTROLLER(renderRightClick));
+    m_renderMenu = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_set_parent(GTK_WIDGET(m_renderMenu), renderButton);
+    g_signal_connect(renderButton, "destroy", G_CALLBACK(&AppWindow::unparentPopoverTrampoline), m_renderMenu);
 
     GtkWidget *appGroup = headerGroup();
     GtkWidget *settingsButton = gtk_button_new_from_icon_name("preferences-system-symbolic");
@@ -1318,8 +1377,9 @@ void AppWindow::showSettingsDialog()
     addFolderRow("export", "Default export folder", "settings.export-folder");
 
     // --- Render ---
-    adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog),
-                               buildRenderProfilesPage(*m_renderProfiles, *m_settings, engine::h264HasQualityMode()));
+    adw_preferences_dialog_add(
+        ADW_PREFERENCES_DIALOG(dialog),
+        buildRenderProfilesPage(*m_renderProfiles, *m_settings, engine::h264HasQualityMode().value_or(true)));
 
     // --- Keyboard Shortcuts (placeholder -- see action_registry.h's own
     // comment on the intended shape of the real rebinding UI later) ---
@@ -2002,10 +2062,19 @@ std::string AppWindow::exportFolder() const
 
 void AppWindow::onRenderClicked()
 {
+    if (m_renderQueue->busy()) {
+        askCancelOrQueueRender();
+        return;
+    }
+    if (!m_lastRenderedPath.empty()) {
+        openLastRender();
+        return;
+    }
+    const std::filesystem::path suggested = autoRenderPath(defaultRenderProfile());
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Render Project");
-    gtk_file_dialog_set_initial_name(dialog, "export.mp4");
-    GFile *folder = g_file_new_for_path(exportFolder().c_str());
+    gtk_file_dialog_set_initial_name(dialog, suggested.filename().c_str());
+    GFile *folder = g_file_new_for_path(suggested.parent_path().c_str());
     gtk_file_dialog_set_initial_folder(dialog, folder);
     g_object_unref(folder);
     gtk_file_dialog_save(dialog, GTK_WINDOW(m_window), nullptr, &AppWindow::renderFinishedTrampoline, this);
@@ -2021,91 +2090,257 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
             g_error_free(error);
         return;
     }
-
     std::string path = localPathFor(file, true);
     g_object_unref(file);
-    if (path.empty())
-        return;
+    if (!path.empty())
+        queueRender(defaultRenderProfile(), path);
+}
 
+namespace {
+// "High quality" -> "high-quality", for file names.
+std::string fileNameSlug(const std::string &text)
+{
+    std::string slug;
+    for (char c : text) {
+        if (std::isalnum(static_cast<unsigned char>(c)))
+            slug += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        else if (!slug.empty() && slug.back() != '-')
+            slug += '-';
+    }
+    while (!slug.empty() && slug.back() == '-')
+        slug.pop_back();
+    return slug.empty() ? "render" : slug;
+}
+} // namespace
+
+std::string AppWindow::autoRenderPath(const core::RenderProfile &profile) const
+{
+    const std::string project =
+        m_currentProjectPath.empty() ? "untitled" : std::filesystem::path(m_currentProjectPath).stem().string();
+    std::time_t now = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    char stamp[32];
+    std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &local);
+    const std::filesystem::path folder = exportFolder();
+    const std::string base = project + "-" + fileNameSlug(profile.name) + "-" + stamp;
+    // Two renders queued within a second: the second gets "-2", and so on.
+    auto taken = [this](const std::string &path) {
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec))
+            return true;
+        const RenderJob *running = m_renderQueue ? m_renderQueue->running() : nullptr;
+        return (running && running->outputPath == path) || (m_renderQueue && m_renderQueue->isQueued(path));
+    };
+    std::string path = (folder / (base + ".mp4")).string();
+    for (int n = 2; taken(path); ++n)
+        path = (folder / (base + "-" + std::to_string(n) + ".mp4")).string();
+    return path;
+}
+
+void AppWindow::queueRender(const core::RenderProfile &profile, const std::string &path)
+{
     if (pathIsProjectAsset(path)) {
-        showStatus(std::string("Refusing to render over a file already in this project's media: ") + path);
+        showStatus("Refusing to render over a file already in this project's media: " + path);
         return;
     }
+    const bool startsNow = !m_renderQueue->busy();
+    RenderJob job;
+    job.snapshot = m_model.snapshot(); // the project as it is now, whatever happens to it later
+    job.profile = profile;
+    job.outputPath = path;
+    m_renderQueue->enqueue(std::move(job));
+    if (!startsNow)
+        showStatus("Queued “" + profile.name + "” to " + path + " (" + std::to_string(m_renderQueue->queued()) +
+                   " waiting).");
+    updateRenderButton();
+}
 
-    if (m_renderRunning) {
-        showStatus("A render is already running; wait for it to finish.");
-        return;
+void AppWindow::askCancelOrQueueRender()
+{
+    const RenderJob *running = m_renderQueue->running();
+    const std::string body = "“" + std::filesystem::path(running ? running->outputPath : "").filename().string() +
+                             "” is rendering. You can stop it, or queue the project as it is now with the " +
+                             "default profile.";
+    AdwDialog *dialog = adw_alert_dialog_new("Cancel render or queue another?", body.c_str());
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "neither", "Neither");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel Render");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "queue", "Queue Another");
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "cancel", ADW_RESPONSE_DESTRUCTIVE);
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "queue", ADW_RESPONSE_SUGGESTED);
+    adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "neither");
+    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "neither");
+    adw_alert_dialog_choose(
+        ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            auto *self = static_cast<AppWindow *>(userData);
+            const std::string response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+            if (response == "cancel") {
+                self->m_renderQueue->cancelCurrent();
+                self->showStatus("Cancelling the render…");
+            } else if (response == "queue") {
+                const core::RenderProfile profile = self->defaultRenderProfile();
+                self->queueRender(profile, self->autoRenderPath(profile));
+            }
+        },
+        this);
+}
+
+void AppWindow::openLastRender()
+{
+    const std::string path = std::exchange(m_lastRenderedPath, {});
+    updateRenderButton();
+    gchar *uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
+    GError *error = nullptr;
+    if (!uri || !g_app_info_launch_default_for_uri(uri, nullptr, &error)) {
+        showStatus("Couldn't open " + path + (error ? std::string(": ") + error->message : std::string()));
+        if (error)
+            g_error_free(error);
     }
-    if (m_renderThread.joinable())
-        m_renderThread.join(); // the last one, already finished
-    m_renderCancel = false;
-    m_renderRunning = true;
-    core::RenderProfile profile = defaultRenderProfile();
-    showStatus("Rendering “" + profile.name + "” to " + path +
+    g_free(uri);
+}
+
+void AppWindow::updateRenderButton()
+{
+    if (!m_renderButton)
+        return;
+    const bool busy = m_renderQueue && m_renderQueue->busy();
+    const size_t queued = m_renderQueue ? m_renderQueue->queued() : 0;
+    const bool done = !busy && !m_lastRenderedPath.empty();
+    gtk_widget_set_visible(GTK_WIDGET(m_renderProgress), busy);
+    if (busy)
+        gtk_widget_add_css_class(m_renderButton, "rendering");
+    else
+        gtk_widget_remove_css_class(m_renderButton, "rendering");
+    if (done)
+        gtk_widget_add_css_class(m_renderButton, "render-done");
+    else
+        gtk_widget_remove_css_class(m_renderButton, "render-done");
+    if (!busy)
+        gtk_label_set_text(m_renderLabel, done ? "Open Render" : "Render…");
+    gtk_widget_set_visible(GTK_WIDGET(m_renderBadge), queued > 0);
+    gtk_label_set_text(m_renderBadge, std::to_string(queued).c_str());
+
+    std::string tooltip =
+        done ? "Open " + std::filesystem::path(m_lastRenderedPath).filename().string() : tooltipText("header.render");
+    if (queued > 0)
+        tooltip = std::to_string(queued) + " queued\n" + tooltip;
+    gtk_widget_set_tooltip_text(m_renderButton, tooltip.c_str());
+}
+
+void AppWindow::showRenderMenu()
+{
+    // Rebuilt each time: profiles change in Settings.
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    auto addItem = [this, box](const std::string &label, const std::string &profileName) {
+        GtkWidget *item = gtk_button_new_with_label(label.c_str());
+        gtk_widget_add_css_class(item, "flat");
+        gtk_widget_set_halign(gtk_button_get_child(GTK_BUTTON(item)), GTK_ALIGN_START);
+        g_object_set_data_full(G_OBJECT(item), "ustudio-profile", g_strdup(profileName.c_str()), g_free);
+        g_signal_connect(item, "clicked", G_CALLBACK(&AppWindow::renderMenuItemClickedTrampoline), this);
+        gtk_box_append(GTK_BOX(box), item);
+    };
+    const bool busy = m_renderQueue->busy();
+    for (const core::RenderProfile &profile : m_renderProfiles->all())
+        addItem((busy ? "Queue “" : "Render “") + profile.name + "”", profile.name);
+    gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    addItem("Add to Render Queue", "");
+    gtk_popover_set_child(m_renderMenu, box);
+    gtk_popover_popup(m_renderMenu);
+}
+
+void AppWindow::onRenderStarted(const RenderJob &job)
+{
+    m_lastRenderedPath.clear();
+    gtk_progress_bar_set_fraction(m_renderProgress, 0.0);
+    gtk_label_set_text(m_renderLabel, "Rendering 0%");
+    updateRenderButton();
+    showStatus("Rendering “" + job.profile.name + "” to " + job.outputPath +
                " … (this can take a while — the window will stay responsive)");
+}
 
-    // Owned and joined, not detached (post-M3 audit P2): prepareForShutdown()
-    // cancels and joins it before MLT is torn down. AppWindow itself is never
-    // destroyed (see main.cpp), so capturing `this` is safe. `snapshot` is a deep copy of m_model taken HERE,
-    // synchronously on the main thread, before the thread starts: core::Model has no internal synchronization, so
-    // handing the render thread a reference to the live m_model (which UndoStack::execute()/undo()/redo() mutate in
-    // place on the main thread, with no lock) would be an unsynchronized
-    // concurrent read/write the moment an edit happens mid-render. Copying
-    // once up front instead means the render thread only ever touches its
-    // own independent Model after this point -- a real render *queue* that
-    // could serialize renders against edits is M6 territory, out of scope
-    // here, but this closes the actual data race.
-    m_renderThread = std::thread([this, path, profile, snapshot = m_model]() mutable {
-        std::string err;
-        // Enhancement #13: renderProject() calls this from the SAME
-        // thread its own consumer.run() blocks on (this detached
-        // std::thread, not the GTK main thread) -- see its own comment.
-        // Marshals to the main thread the same way the final result
-        // below already does, via g_idle_add and a heap-allocated
-        // struct the idle callback takes ownership of.
-        bool ok = engine::renderProject(
-            snapshot, path, err,
-            [this](int currentFrame, int totalFrames) {
-                struct Progress
-                {
-                    AppWindow *self;
-                    int currentFrame;
-                    int totalFrames;
-                };
-                auto *progress = new Progress{this, currentFrame, totalFrames};
-                g_idle_add(
-                    [](gpointer data) -> gboolean {
-                        std::unique_ptr<Progress> p(static_cast<Progress *>(data));
-                        int percent = p->totalFrames > 0 ? (p->currentFrame * 100) / p->totalFrames : 0;
-                        p->self->showStatus("Rendering… " + std::to_string(std::clamp(percent, 0, 100)) + "%");
-                        return G_SOURCE_REMOVE;
-                    },
-                    progress);
-            },
-            &m_renderCancel, profile);
-        m_renderRunning = false;
+void AppWindow::onRenderProgress(double fraction)
+{
+    fraction = std::clamp(fraction, 0.0, 1.0);
+    const std::string percent = std::to_string(static_cast<int>(fraction * 100.0)) + "%";
+    gtk_progress_bar_set_fraction(m_renderProgress, fraction);
+    gtk_label_set_text(m_renderLabel, ("Rendering " + percent).c_str());
+    showStatus("Rendering… " + percent);
+}
 
-        struct Result
-        {
-            AppWindow *self;
-            bool ok;
-            std::string err;
-            std::string path;
-        };
-        auto *renderResult = new Result{this, ok, std::move(err), path};
-        g_idle_add(
-            [](gpointer data) -> gboolean {
-                std::unique_ptr<Result> r(static_cast<Result *>(data));
-                if (r->ok)
-                    r->self->showStatus("Rendered: " + r->path);
-                else if (r->err == "Render cancelled")
-                    r->self->showStatus("Render stopped; nothing was written.");
-                else
-                    r->self->showStatus("Render failed: " + r->err);
-                return G_SOURCE_REMOVE;
-            },
-            renderResult);
-    });
+void AppWindow::onRenderDone(const RenderJob &job, bool ok, bool cancelled, const std::string &error)
+{
+    if (ok) {
+        m_lastRenderedPath = job.outputPath;
+        showStatus("Rendered: " + job.outputPath);
+    } else if (cancelled) {
+        showStatus("Render cancelled; nothing was written.");
+    } else {
+        showStatus("Render failed: " + error);
+    }
+    updateRenderButton();
+}
+
+void AppWindow::offerPendingRenders()
+{
+    const std::vector<pending_renders::Pending> pending = pending_renders::list(pending_renders::directory());
+    if (pending.empty())
+        return;
+    const std::string body = std::to_string(pending.size()) +
+                             (pending.size() == 1 ? " render didn't" : " renders didn't") +
+                             " finish last time. Restart them? They start from the beginning.";
+    AdwDialog *dialog = adw_alert_dialog_new("Restart unfinished renders?", body.c_str());
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "discard", "Discard");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "restart", "Restart");
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "restart", ADW_RESPONSE_SUGGESTED);
+    adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "restart");
+    // Closed unanswered: offered again next launch.
+    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "later");
+    adw_alert_dialog_choose(
+        ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            auto *self = static_cast<AppWindow *>(userData);
+            const std::string response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+            if (response == "restart")
+                self->restartPendingRenders();
+            else if (response == "discard")
+                pending_renders::clear(pending_renders::directory());
+        },
+        this);
+}
+
+void AppWindow::restartPendingRenders()
+{
+    // The snapshots are project files: read on the pool, queued here.
+    m_pool->submit(
+        [token = std::weak_ptr<void>(m_lifetime), this](std::stop_token) {
+            const std::string dir = pending_renders::directory();
+            auto jobs = std::make_shared<std::vector<RenderJob>>();
+            size_t unreadable = 0;
+            for (const pending_renders::Pending &pending : pending_renders::list(dir)) {
+                std::expected<core::Model, std::string> model = core::loadProject(pending.projectPath);
+                if (!model) {
+                    Log::warn("[render] Can't restart " + pending.outputPath + ": " + model.error());
+                    ++unreadable;
+                    continue;
+                }
+                RenderJob job;
+                job.snapshot = model->snapshot();
+                job.profile = pending.profile;
+                job.outputPath = pending.outputPath;
+                jobs->push_back(std::move(job));
+            }
+            engine::MainThreadDispatcher::post(token, [this, jobs, unreadable, dir] {
+                // Queued in memory now; quitting again saves them afresh.
+                pending_renders::clear(dir);
+                for (RenderJob &job : *jobs)
+                    m_renderQueue->enqueue(std::move(job));
+                if (unreadable > 0)
+                    showStatus(std::to_string(unreadable) + " unfinished render(s) couldn't be read and were dropped.");
+                updateRenderButton();
+            });
+        },
+        core::concurrency::Priority::Interactive);
 }
 
 void AppWindow::onAddTrackClicked()
@@ -4050,11 +4285,12 @@ void AppWindow::confirmDiscardIfDirty(std::function<void()> onConfirmed)
 gboolean AppWindow::onCloseRequest()
 {
     // Quitting stops a running render (prepareForShutdown), so ask first.
-    if (m_renderRunning && !m_stopRenderConfirmed) {
-        AdwDialog *dialog =
-            adw_alert_dialog_new("A render is running", "Quitting now stops it, and the file isn't finished.");
-        adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Keep Rendering");
-        adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "stop", "Stop and Quit");
+    if (m_renderQueue && m_renderQueue->busy() && !m_stopRenderConfirmed) {
+        const std::string body = "A render is in progress (" + std::to_string(m_renderQueue->queued()) +
+                                 " queued). Quit anyway? Unfinished renders are offered again next time.";
+        AdwDialog *dialog = adw_alert_dialog_new("Quit while rendering?", body.c_str());
+        adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Keep Working");
+        adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "stop", "Quit");
         adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "stop", ADW_RESPONSE_DESTRUCTIVE);
         adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "cancel");
         adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
@@ -4650,6 +4886,23 @@ void AppWindow::playPauseActivated(GSimpleAction *, GVariant *, gpointer userDat
 void AppWindow::saveActionActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->saveInPlaceOrPrompt(false);
+}
+
+void AppWindow::renderButtonRightClickTrampoline(GtkGestureClick *, int, double, double, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->showRenderMenu();
+}
+
+void AppWindow::renderMenuItemClickedTrampoline(GtkButton *button, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    const auto *name = static_cast<const char *>(g_object_get_data(G_OBJECT(button), "ustudio-profile"));
+    gtk_popover_popdown(self->m_renderMenu);
+    // "" is Add to Render Queue: the default profile.
+    const core::RenderProfile profile = name && *name
+                                            ? self->m_renderProfiles->find(name).value_or(self->defaultRenderProfile())
+                                            : self->defaultRenderProfile();
+    self->queueRender(profile, self->autoRenderPath(profile));
 }
 
 void AppWindow::saveButtonRightClickTrampoline(GtkGestureClick *, int, double, double, gpointer userData)
