@@ -76,6 +76,15 @@ test_missing_media_exe = executable(
 )
 test('engine-missing-media', test_missing_media_exe, timeout: 60)
 
+# composite's fill (a picture smaller than the project fills the frame).
+test_composite_fill_exe = executable(
+  'test_composite_fill',
+  files('test_composite_fill.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-composite-fill', test_composite_fill_exe, timeout: 60)
+
 test_waveform_cache_exe = executable(
   'test_waveform_cache',
   files('test_waveform_cache.cpp'),

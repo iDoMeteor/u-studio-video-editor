@@ -576,6 +576,8 @@ std::string saveProject(const Model &model, const std::string &path)
         addProperty(composite, "mlt_service", "composite");
         addProperty(composite, "a_track", std::to_string(index - 1));
         addProperty(composite, "b_track", std::to_string(index));
+        // As EngineSync sets it (its comment: composite's fill is 0 unless set).
+        addProperty(composite, "fill", "1");
 
         xmlNodePtr mix = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
         addProperty(mix, "mlt_service", "mix");

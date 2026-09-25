@@ -931,6 +931,17 @@ and the project writer puts the same `in`/`out` on a clip entry's native
 `<filter>`. Confirmed with a standalone repro and
 `tests/dropins/test_dropin_engine` (2026-09-25).
 
+**Composite's `fill` defaults to 0, whatever its YAML says.**
+`transition_composite.yml` documents `fill` as defaulting to 1, but the
+code reads it with `mlt_properties_get_int()` (`transition_composite.c`,
+7.40), so unset is 0 and a picture smaller than the project draws at its
+own size in the top-left corner (640x360 in 1080p: the top-left third).
+`EngineSync` and the writer set `fill=1`. Don't add `halign=centre`/
+`valign=middle` with it: the offset uses the unscaled size, uncovering the
+top left of every source and breaking hidden tracks. So a source of another
+aspect (4:3 in 16:9) sits left. Standalone repro and
+`tests/engine/test_composite_fill` (2026-09-25).
+
 ### Waveform cache notes
 
 `WaveformCache` opens its own throwaway `Mlt::Profile`/`Producer` per clip

@@ -743,6 +743,18 @@ void EngineSync::rebuildAll()
             field->plant_transition(*compositor, index - 1, index);
         } else {
             Mlt::Transition composite(*m_profile, "composite");
+            // Scale every picture up to the frame, keeping its aspect.
+            // transition_composite.yml says fill defaults to 1, but the code
+            // reads it with mlt_properties_get_int(), so unset is 0 (MLT
+            // 7.40, transition_composite.c:790): a 640x360 source in a
+            // 1080p project drew at its own size in the top-left third
+            // (standalone repro, 2026-09-25; found by M4 C's proxies, which
+            // are smaller than their project by design). Not centred:
+            // halign=centre/valign=middle with fill offsets by the unscaled
+            // size, uncovering the top left of every source and breaking
+            // hidden tracks (same repro), so a source of another aspect
+            // (4:3 in 16:9) sits left, as it always did.
+            composite.set("fill", 1);
             field->plant_transition(composite, index - 1, index);
         }
 

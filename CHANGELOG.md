@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.46.1
+
+- A video smaller than the project (720p or 640x360 in a 1080p project) now
+  fills the frame; it played at its own size in the top-left corner.
+
 ## 0.46.0
 
 - Missing media: a project whose files moved opens with those clips striped red
