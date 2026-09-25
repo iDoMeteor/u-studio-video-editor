@@ -10,6 +10,7 @@
 #include "app_window.h"
 #include "drop_ins.h"
 #include "dropins/registry.h"
+#include "settings.h"
 #include "snap_env.h"
 #include "stall_monitor.h"
 #include "core/log.h"
@@ -144,6 +145,10 @@ int main(int argc, char **argv)
     // locations; their factory paths before MLT starts (IP4), their
     // registration once it has. Kept for the whole run: modules stay loaded.
     static ustudio::dropins::DropInRegistry dropIns;
+    // Settings > Drop-ins: the ones switched off aren't loaded (read once;
+    // a change applies from the next start).
+    dropIns.setDisabled(ustudio::app::Settings().disabledDropIns());
+    dropIns.setKnown(knownDropIns());
     for (const UStudioDropInDescription *builtin : builtinDropIns())
         dropIns.addBuiltin(builtin);
     dropIns.loadModules();

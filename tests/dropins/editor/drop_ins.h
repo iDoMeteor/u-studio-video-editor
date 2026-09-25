@@ -6,6 +6,7 @@
 
 #include "dropins/api.h"
 
+#include <string>
 #include <vector>
 
 extern "C" const UStudioDropInDescription *ustudio_dropin_testdropin_describe(void);
@@ -15,4 +16,9 @@ inline std::vector<const UStudioDropInDescription *> builtinDropIns()
     return {
         ustudio_dropin_testdropin_describe(),
     };
+}
+
+inline std::vector<std::string> knownDropIns()
+{
+    return {"effects", "titles"};
 }

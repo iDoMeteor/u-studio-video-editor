@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.44.0
+
+- Settings › Drop-ins: see the installed drop-ins and switch each on or off
+  (from the next start), how to get the ones not installed, and why any
+  couldn't load. u Studio never downloads them.
+
 ## 0.43.1
 
 - Help's Keyboard Shortcuts lists "Nudge Selection Left 10 Frames" with its

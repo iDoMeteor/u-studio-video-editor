@@ -21,7 +21,11 @@ class DropInRegistry
         std::string name;
         std::string description;
         std::string path; // the module file; "" for a built-in
+        // Null for a disabled module: it isn't opened, so its name comes
+        // from its file (libustudio-dropin-<name>.so).
         const UStudioDropInDescription *describe = nullptr;
+        std::string version; // the app release it was built for; "" when not opened
+        bool enabled = true; // false: listed, but no factory paths and no registration
     };
 
     // $libdir/u-studio/drop-ins/ (baked in at build time). The Flatpak
@@ -33,11 +37,30 @@ class DropInRegistry
     // directories.
     static std::vector<std::string> searchDirectories();
 
+    // Settings > Drop-ins (GSettings "disabled-drop-ins"): set before
+    // addBuiltin()/loadModules(). A disabled module isn't even opened, so a
+    // drop-in that crashes on load can be switched off.
+    void setDisabled(std::vector<std::string> names)
+    {
+        m_disabled = std::move(names);
+    }
+    // The drop-ins this build knows of (the dropin_<name> options), for
+    // pointing at ones that aren't installed.
+    void setKnown(std::vector<std::string> names)
+    {
+        m_known = std::move(names);
+    }
+    const std::vector<std::string> &known() const
+    {
+        return m_known;
+    }
+
     void addBuiltin(const UStudioDropInDescription *describe);
     // Loads every libustudio-dropin-*.so in `directories` (default:
     // searchDirectories()). A module is refused -- logged and listed in
     // refusals() -- when it lacks ustudio_drop_in_describe, was built for
-    // another DROPIN_API_VERSION or app release, has no name, or repeats
+    // another DROPIN_API_VERSION or app release, has no name, has a name
+    // other than its file's (disabling goes by the file name), or repeats
     // one already registered (a built-in wins).
     void loadModules(const std::vector<std::string> &directories = searchDirectories());
     // Why a single module would be refused, or "" (for tests and loadModules).
@@ -50,10 +73,8 @@ class DropInRegistry
     {
         return m_entries;
     }
-    bool has(const std::string &name) const
-    {
-        return hasName(name);
-    }
+    // Loaded and enabled (so its effects play).
+    bool has(const std::string &name) const;
 
     // The program's registry (main() sets it once, at startup), for code
     // that needs to know which drop-ins this run has; null in tests.
@@ -66,8 +87,11 @@ class DropInRegistry
 
   private:
     bool hasName(const std::string &name) const;
+    bool isDisabled(const std::string &name) const;
     std::vector<Entry> m_entries;
     std::vector<std::string> m_refusals;
+    std::vector<std::string> m_disabled;
+    std::vector<std::string> m_known;
 };
 
 } // namespace ustudio::dropins

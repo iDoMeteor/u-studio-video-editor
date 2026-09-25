@@ -285,8 +285,9 @@ single-track skeleton.
   Editing/Project), and an About tab. The Controls tab and every control's
   tooltip come from one table, `src/app/ui_hints.{h,cpp}`: a hint names
   its action and the shortcut is looked up in `action_registry.cpp`, so a
-  tooltip can't show a stale key. Drop-ins add their own hints with
-  `registerHints()`. Settings dialog (header-bar gear
+  tooltip can't show a stale key. Drop-ins add their own hints, actions
+  (listed under their own category) and more through `ShellHost`
+  (`src/app/shell_host.h`). Settings dialog (header-bar gear
   button): General (autosave delay, recent-projects list size, maximum
   shuttle speed), Toggles (reopen the last project on startup, on by
   default and skipped when there's work to recover; snap while dragging;
@@ -297,7 +298,11 @@ single-track skeleton.
   Performance (default preview scale, worker threads, thumbnail and
   waveform jobs) and Locations (default project folder, where Open and
   Save As start; default export folder, where renders go, else the
-  project's folder, then Videos, then home) tabs, backed by
+  project's folder, then Videos, then home) and Drop-ins (each installed
+  drop-in with an on/off switch, applied from the next start, a switched-off
+  module not even opened; the ones this build knows of that aren't
+  installed, with the package to install; any that couldn't load, with
+  why; nothing is ever downloaded) tabs, backed by
   real `GSettings` persistence (`data/com.ustudio.VideoEditor.gschema.xml`)
   — an installed schema first; otherwise a binary run straight from
   `builddir` uses the build's own compiled schema (`builddir/data`, found

@@ -111,5 +111,10 @@
       <summary>Default render profile</summary>
       <description>The render profile the Render button uses: a built-in's name or one from render-profiles.ini.</description>
     </key>
+    <key name="disabled-drop-ins" type="as">
+      <default>[]</default>
+      <summary>Disabled drop-ins</summary>
+      <description>Names of installed drop-ins not to load (Settings, Drop-ins). Applies from the next start.</description>
+    </key>
   </schema>
 </schemalist>

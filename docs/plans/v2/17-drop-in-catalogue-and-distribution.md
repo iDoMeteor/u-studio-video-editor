@@ -201,6 +201,8 @@ removable.
   listed with how to get them: a link that opens GNOME Software on the
   extension, or the install command. The app itself never downloads or
   installs anything (CLAUDE.md: no network requests).
+
+> REVIEW: VE Core, 2026-09-25: built as Settings › Drop-ins (0.44.0). The switch writes GSettings `disabled-drop-ins`, which `main()` hands the registry before loading; a switched-off module is not even opened (its name comes from its file, so a module whose `describe()` name differs from its `libustudio-dropin-<name>.so` is refused), and a switched-off built-in is listed but gets no factory paths and no registration. "Not installed" lists the drop-ins this build has a `dropin_<name>` option for (effects, titles), with the RPM subpackage, the Flatpak extension and the build option as copyable text, not a GNOME Software link: the extension IDs don't exist until M7. A third group shows modules the loader refused and why. The render tool doesn't read the setting yet (it has no GSettings); M6 decides whether a render honours it.
 - A project that uses a drop-in that isn't installed or enabled opens
   normally, keeps that drop-in's data unchanged on save, plays without its
   effect, and says which drop-in is missing.

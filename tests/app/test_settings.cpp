@@ -38,4 +38,13 @@ TEST_CASE("Settings: schema found -- defaults match the gschema, get/set round-t
 
     settings.setWorkerThreads(3);
     CHECK(settings.workerThreads() == 3);
+
+    // Settings > Drop-ins: off, off again (no duplicate), on.
+    CHECK(settings.disabledDropIns().empty());
+    settings.setDropInEnabled("effects", false);
+    settings.setDropInEnabled("titles", false);
+    settings.setDropInEnabled("effects", false);
+    CHECK(settings.disabledDropIns() == std::vector<std::string>{"titles", "effects"});
+    settings.setDropInEnabled("titles", true);
+    CHECK(settings.disabledDropIns() == std::vector<std::string>{"effects"});
 }

@@ -79,7 +79,8 @@ TEST_CASE("drop-ins: modules load from the given directory; bad ones are refused
     CHECK(registry.entries()[0].path.ends_with("libustudio-dropin-moduledropin.so"));
 
     const std::vector<std::string> &refusals = registry.refusals();
-    CHECK(refusals.size() == 3);
+    CHECK(refusals.size() == 4);
+    CHECK(anyContains(refusals, "calls itself \"othername\" but its file is named for \"misnamed\""));
     CHECK(anyContains(refusals, "built for drop-in API " + std::to_string(DROPIN_API_VERSION + 1)));
     CHECK(anyContains(refusals, "built for u Studio 0.0.0-elsewhere"));
     CHECK(anyContains(refusals, "doesn't export ustudio_drop_in_describe"));
@@ -91,6 +92,33 @@ TEST_CASE("drop-ins: modules load from the given directory; bad ones are refused
     registry.registerAll(host);
     CHECK(anyContains(host.logged, "[moduledropin] registered in test"));
     CHECK(anyContains(host.logged, "render subcommand moduledropin-probe"));
+}
+
+TEST_CASE("drop-ins: disabled ones are listed but not loaded, registered or asked for paths")
+{
+    DropInRegistry registry;
+    registry.setDisabled({"testdropin", "moduledropin", "wrongapi"});
+    registry.setKnown({"testdropin", "effects"});
+    registry.addBuiltin(ustudio_dropin_testdropin_describe());
+    registry.loadModules({TEST_MODULE_DIR});
+    REQUIRE(registry.entries().size() == 3);
+    for (const DropInRegistry::Entry &entry : registry.entries())
+        CHECK_FALSE(entry.enabled);
+    CHECK(registry.entries()[0].name == "testdropin");
+    CHECK(registry.entries()[1].name == "moduledropin");
+    CHECK(registry.entries()[1].describe == nullptr); // never opened
+    CHECK(registry.entries()[2].name == "wrongapi");  // nor this: no refusal, since it wasn't looked at
+    CHECK_FALSE(anyContains(registry.refusals(), "drop-in API"));
+    CHECK_FALSE(registry.has("testdropin"));
+    CHECK(registry.known() == std::vector<std::string>{"testdropin", "effects"});
+
+    FactoryPaths paths;
+    registry.contributeFactoryPaths(paths);
+    CHECK(paths.frei0rPaths.empty());
+    CHECK(paths.mltModuleDirs.empty());
+    RecordingHost host;
+    registry.registerAll(host);
+    CHECK(host.logged.empty());
 }
 
 TEST_CASE("drop-ins: a module can't take a built-in's name")

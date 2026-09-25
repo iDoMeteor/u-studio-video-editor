@@ -6,6 +6,7 @@
 
 #include "dropins/api.h"
 
+#include <string>
 #include <vector>
 
 @DECLARATIONS@
@@ -13,4 +14,12 @@ inline std::vector<const UStudioDropInDescription *> builtinDropIns()
 {
     return {
 @LIST@    };
+}
+
+// Every drop-in this build knows of, built or not (the dropin_<name>
+// options): Settings > Drop-ins points at the ones that aren't installed.
+inline std::vector<std::string> knownDropIns()
+{
+    return {
+@KNOWN@    };
 }

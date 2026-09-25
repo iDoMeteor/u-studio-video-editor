@@ -280,4 +280,31 @@ void Settings::setDefaultRenderProfile(const std::string &name)
     setString("default-render-profile", name);
 }
 
+std::vector<std::string> Settings::disabledDropIns() const
+{
+    std::vector<std::string> names;
+    if (m_settings == nullptr)
+        return names;
+    gchar **values = g_settings_get_strv(m_settings, "disabled-drop-ins");
+    for (gchar **value = values; value != nullptr && *value != nullptr; ++value)
+        names.emplace_back(*value);
+    g_strfreev(values);
+    return names;
+}
+
+void Settings::setDropInEnabled(const std::string &name, bool enabled)
+{
+    if (m_settings == nullptr)
+        return;
+    std::vector<std::string> names = disabledDropIns();
+    std::erase(names, name);
+    if (!enabled)
+        names.push_back(name);
+    std::vector<const char *> values;
+    for (const std::string &n : names)
+        values.push_back(n.c_str());
+    values.push_back(nullptr);
+    g_settings_set_strv(m_settings, "disabled-drop-ins", values.data());
+}
+
 } // namespace ustudio::app

@@ -3,6 +3,7 @@
 #include <gio/gio.h>
 
 #include <string>
+#include <vector>
 
 namespace ustudio::app {
 
@@ -103,6 +104,10 @@ class Settings
     // The render profile the Render button uses (RenderProfileStore).
     std::string defaultRenderProfile() const;
     void setDefaultRenderProfile(const std::string &name);
+    // Settings > Drop-ins: installed drop-ins not to load, read once at
+    // startup (unloading native code at runtime isn't safe; doc 17).
+    std::vector<std::string> disabledDropIns() const;
+    void setDropInEnabled(const std::string &name, bool enabled);
 
     // False when the schema wasn't found (not installed, and
     // GSETTINGS_SCHEMA_DIR doesn't point at a compiled one) -- every

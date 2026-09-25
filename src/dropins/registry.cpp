@@ -72,6 +72,16 @@ bool DropInRegistry::hasName(const std::string &name) const
     return std::any_of(m_entries.begin(), m_entries.end(), [&](const Entry &e) { return e.name == name; });
 }
 
+bool DropInRegistry::has(const std::string &name) const
+{
+    return std::any_of(m_entries.begin(), m_entries.end(), [&](const Entry &e) { return e.name == name && e.enabled; });
+}
+
+bool DropInRegistry::isDisabled(const std::string &name) const
+{
+    return std::find(m_disabled.begin(), m_disabled.end(), name) != m_disabled.end();
+}
+
 void DropInRegistry::addBuiltin(const UStudioDropInDescription *describe)
 {
     if (std::string problem = problemWith(describe, USTUDIO_VERSION); !problem.empty()) {
@@ -82,8 +92,10 @@ void DropInRegistry::addBuiltin(const UStudioDropInDescription *describe)
     }
     if (hasName(describe->name))
         return;
-    m_entries.push_back({describe->name, describe->description ? describe->description : "", "", describe});
-    Log::info(std::string("[drop-ins] Built in: ") + describe->name);
+    const bool enabled = !isDisabled(describe->name);
+    m_entries.push_back(
+        {describe->name, describe->description ? describe->description : "", "", describe, USTUDIO_VERSION, enabled});
+    Log::info(std::string("[drop-ins] Built in: ") + describe->name + (enabled ? "" : " (disabled in Settings)"));
 }
 
 void DropInRegistry::loadModules(const std::vector<std::string> &directories)
@@ -106,6 +118,15 @@ void DropInRegistry::loadModules(const std::vector<std::string> &directories)
                 m_refusals.push_back(file.string() + ": " + why);
                 Log::warn("[drop-ins] Not loading " + file.string() + ": " + why);
             };
+            // libustudio-dropin-<name>.so
+            const std::string stem = file.filename().string();
+            const std::string fileName = stem.substr(18, stem.size() - 18 - 3);
+            if (isDisabled(fileName)) {
+                if (!hasName(fileName))
+                    m_entries.push_back({fileName, "", file.string(), nullptr, "", false});
+                Log::info("[drop-ins] Not loading " + fileName + ": disabled in Settings");
+                continue;
+            }
             // Local binding: a module's symbols don't leak into later ones.
             GModule *module = g_module_open(file.c_str(), G_MODULE_BIND_LOCAL);
             if (!module) {
@@ -124,6 +145,12 @@ void DropInRegistry::loadModules(const std::vector<std::string> &directories)
                 g_module_close(module);
                 continue;
             }
+            if (fileName != describe->name) {
+                refuse(std::string("it calls itself \"") + describe->name + "\" but its file is named for \"" +
+                       fileName + "\"");
+                g_module_close(module);
+                continue;
+            }
             if (hasName(describe->name)) {
                 refuse(std::string("a drop-in called \"") + describe->name + "\" is already registered");
                 g_module_close(module);
@@ -132,8 +159,8 @@ void DropInRegistry::loadModules(const std::vector<std::string> &directories)
             // Kept loaded for the process's life: unloading native code a
             // running graph may still call isn't safe (doc 17).
             g_module_make_resident(module);
-            m_entries.push_back(
-                {describe->name, describe->description ? describe->description : "", file.string(), describe});
+            m_entries.push_back({describe->name, describe->description ? describe->description : "", file.string(),
+                                 describe, describe->appVersion, true});
             Log::info("[drop-ins] Loaded " + std::string(describe->name) + " from " + file.string());
         }
     }
@@ -142,7 +169,7 @@ void DropInRegistry::loadModules(const std::vector<std::string> &directories)
 void DropInRegistry::contributeFactoryPaths(FactoryPaths &paths) const
 {
     for (const Entry &entry : m_entries)
-        if (entry.describe->contributeFactoryPaths)
+        if (entry.enabled && entry.describe->contributeFactoryPaths)
             entry.describe->contributeFactoryPaths(&paths);
 }
 
@@ -179,7 +206,7 @@ void BasicDropInHost::addRenderSubcommand(RenderSubcommand subcommand)
 void DropInRegistry::registerAll(DropInHost &host) const
 {
     for (const Entry &entry : m_entries)
-        if (entry.describe->registerDropIn)
+        if (entry.enabled && entry.describe->registerDropIn)
             entry.describe->registerDropIn(&host);
 }
 

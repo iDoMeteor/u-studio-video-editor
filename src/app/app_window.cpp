@@ -17,6 +17,7 @@
 #include "core/xml/backup.h"
 #include "dropins/registry.h"
 #include "pending_renders.h"
+#include "dropins_page.h"
 #include "render_profiles_page.h"
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
@@ -1264,7 +1265,7 @@ void AppWindow::showHelpDialog()
 void AppWindow::showSettingsDialog()
 {
     AdwDialog *dialog = ADW_DIALOG(adw_preferences_dialog_new());
-    adw_dialog_set_content_width(dialog, 720); // six tabs fit side by side
+    adw_dialog_set_content_width(dialog, 720); // seven tabs fit side by side
     adw_dialog_set_content_height(dialog, 520);
 
     auto addPage = [dialog](const char *title, const char *iconName) {
@@ -1445,6 +1446,13 @@ void AppWindow::showSettingsDialog()
                                buildRenderProfilesPage(*m_renderProfiles, *m_settings,
                                                        engine::h264HasQualityMode().value_or(true),
                                                        [this](int percent) { m_renderThreadsPercent = percent; }));
+
+    // --- Drop-ins (doc 17) ---
+    adw_preferences_dialog_add(
+        ADW_PREFERENCES_DIALOG(dialog), buildDropInsPage(dropins::DropInRegistry::current(), *m_settings, [dialog] {
+            adw_preferences_dialog_add_toast(ADW_PREFERENCES_DIALOG(dialog),
+                                             adw_toast_new("Restart u Studio to apply drop-in changes"));
+        }));
 
     // --- Keyboard Shortcuts (placeholder -- see action_registry.h's own
     // comment on the intended shape of the real rebinding UI later) ---

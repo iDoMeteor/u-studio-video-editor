@@ -9,7 +9,8 @@ builtin_dropin_deps = []
 # A module resolves the app's symbols against the running program, so the
 # programs export theirs when any drop-in is a module (src/app, src/render).
 dropin_any_module = false
-foreach name : ['effects', 'titles']
+known_dropin_names = ['effects', 'titles'] # one dropin_<name> option each
+foreach name : known_dropin_names
   mode = get_option('dropin_' + name)
   if mode == 'disabled'
     continue
@@ -38,6 +39,11 @@ endforeach
 drop_ins_conf = configuration_data()
 drop_ins_conf.set('DECLARATIONS', declarations)
 drop_ins_conf.set('LIST', list)
+known = ''
+foreach name : known_dropin_names
+  known += '        "' + name + '",\n'
+endforeach
+drop_ins_conf.set('KNOWN', known)
 configure_file(input: 'drop_ins.h.in', output: 'drop_ins.h', configuration: drop_ins_conf)
 
 drop_ins_dep = declare_dependency(
