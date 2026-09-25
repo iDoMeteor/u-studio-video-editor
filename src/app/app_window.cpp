@@ -15,6 +15,7 @@
 #include "core/model/profile_match.h"
 #include "core/model/retime.h"
 #include "core/xml/backup.h"
+#include "dropins/registry.h"
 #include "pending_renders.h"
 #include "render_profiles_page.h"
 #include "core/xml/reader.h"
@@ -2146,7 +2147,7 @@ void AppWindow::loadProjectFromPath(const std::string &requestedPath)
             m_pendingAutosaveCleanupMetaPath.clear();
             refreshTimeline();
             refreshMediaBrowser();
-            showStatus("Opened: " + path);
+            showStatus("Opened: " + path + unplayedEffectsNotice());
             // Enhancement #15: recorded regardless of how the project got
             // opened (dialog or the recent-projects menu itself), so
             // re-opening it later keeps bumping it back to the top.
@@ -2261,6 +2262,33 @@ void AppWindow::performNewProject()
 core::RenderProfile AppWindow::defaultRenderProfile() const
 {
     return m_renderProfiles->find(m_settings->defaultRenderProfile()).value_or(core::builtInRenderProfiles()[0]);
+}
+
+std::string AppWindow::unplayedEffectsNotice() const
+{
+    // IP2 (doc 15, "Gating"): effects whose drop-in isn't loaded are kept and
+    // saved unchanged, but don't play; say so, once, in one line.
+    const dropins::DropInRegistry *dropIns = dropins::DropInRegistry::current();
+    std::set<std::string> missing;
+    auto note = [&](const std::vector<core::Effect> &effects) {
+        for (const core::Effect &effect : effects)
+            if (!dropIns || !dropIns->has(effect.owner))
+                missing.insert(effect.owner.empty() ? "an unknown drop-in" : "“" + effect.owner + "”");
+    };
+    const core::Sequence &seq = m_model.sequence();
+    for (const auto &[id, clip] : seq.clips)
+        note(clip.effects);
+    for (const core::Track &track : seq.tracks)
+        note(track.effects);
+    note(seq.effects);
+    for (const core::AdjustmentBlock &block : seq.adjustmentBlocks)
+        note(block.effects);
+    if (missing.empty())
+        return {};
+    std::string owners;
+    for (const std::string &owner : missing)
+        owners += (owners.empty() ? "" : ", ") + owner;
+    return ". It has effects from " + owners + ", not installed: it plays without them.";
 }
 
 void AppWindow::setInitialProjectFolder(GtkFileDialog *dialog) const

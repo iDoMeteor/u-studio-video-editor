@@ -50,6 +50,15 @@ class DropInRegistry
     {
         return m_entries;
     }
+    bool has(const std::string &name) const
+    {
+        return hasName(name);
+    }
+
+    // The program's registry (main() sets it once, at startup), for code
+    // that needs to know which drop-ins this run has; null in tests.
+    static const DropInRegistry *current();
+    static void setCurrent(const DropInRegistry *registry);
     const std::vector<std::string> &refusals() const
     {
         return m_refusals;

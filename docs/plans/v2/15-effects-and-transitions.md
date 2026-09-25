@@ -456,6 +456,24 @@ native animation syntax, so `melt` renders effects without the editor
 paths. Generated luma maps are referenced by a `ustudio:luma` name and
 resolved from the data directory, so projects stay portable.
 
+**IP2 as built (format 5, 2026-09-25):** `core/xml/effect_io.{h,cpp}` writes
+each effect as a `<filter>`: native properties (`mlt_service`, each
+parameter by name, a keyframed one as an animation string from
+`core/model/animation.h`, `disable` when off) on every cut that plays the
+clip, dissolve tails and heads included, and the full model record in
+`ustudio:*` properties (typed values, keyframes with easing, mix, mask,
+owner) on the record entry, record playlist or sequence tractor, which the
+reader rebuilds from alone. Adjustment blocks and looks are never-played
+playlists; source parameters and recipes are `ustudio:*` properties.
+Verified: every field round-trips exactly (and saves byte-identical); a
+saved animated `brightness` plays animated through MLT's own xml producer;
+the format-4 fixture still loads. A project whose effects' drop-in isn't
+loaded opens with a one-line notice and plays without them.
+
+> REVIEW: VE Core, 2026-09-25: a cut's native keyframes are the owner's shifted by the cut's offset, and a keyframe outside the cut is replaced by one on its edge carrying the value interpolated linearly there (exact for linear and discrete, close for the others), because MLT reads negative positions as counted from the end. IP3 can reuse `keyframesForCut()` or compute the eased value itself.
+
+> REVIEW: VE Core, 2026-09-25: mix and masks are stored in the model record only; the native `mask_start` / `mask_apply` pair around a filter lands with FX1, when the engine applies them, so the file and the editor's playback don't disagree in between.
+
 Dissolves already play in `melt`: format 4 writes the same render graph
 the editor plays, dissolve sub-tractors included. Adjustment blocks still
 need a graph-level writer path, an FX3 deliverable.

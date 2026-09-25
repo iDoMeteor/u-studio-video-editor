@@ -140,7 +140,8 @@ struct Rect
 struct Param
 {
     std::string name; // MLT property name
-    std::variant<double, int64_t, bool, std::string, Color, Rect> value;
+    using Value = std::variant<double, int64_t, bool, std::string, Color, Rect>;
+    Value value;
     std::vector<Keyframe> keyframes; // empty = constant; positions relative to clip start
 
     bool operator==(const Param &) const = default;

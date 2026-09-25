@@ -14,6 +14,20 @@ namespace ustudio::dropins {
 
 namespace Log = core::Log;
 
+namespace {
+const DropInRegistry *s_current = nullptr;
+} // namespace
+
+const DropInRegistry *DropInRegistry::current()
+{
+    return s_current;
+}
+
+void DropInRegistry::setCurrent(const DropInRegistry *registry)
+{
+    s_current = registry;
+}
+
 std::vector<std::string> DropInRegistry::trustedDirectories()
 {
     return {USTUDIO_DROPIN_DIR};

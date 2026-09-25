@@ -432,3 +432,146 @@ TEST_CASE("XML: a format-3 project with a dissolve still opens")
     CHECK(loaded->clip(b).position == clipB.position);
     CHECK(loaded->clip(b).in == clipB.in);
 }
+
+// --- Format 5 (IP2, doc 15): effects and the rest of IP1's data ---------------
+
+namespace {
+
+std::string readFile(const fs::path &path)
+{
+    std::ifstream in(path);
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
+}
+
+Effect richEffect(const std::string &service)
+{
+    Effect effect;
+    effect.service = service;
+    effect.displayName = "Rich " + service;
+    effect.owner = "effects";
+    Param level;
+    level.name = "level";
+    level.value = 0.25;
+    level.keyframes = {{-5, 0.0, Easing::SmoothNatural}, {10, 0.5, Easing::BounceInOut}, {40, 1.0, Easing::Discrete}};
+    Param colour;
+    colour.name = "color";
+    colour.value = Color{255, 43, 214, 128};
+    Param rect;
+    rect.name = "rect";
+    rect.value = Rect{0.1, 0.2, 0.5, 0.25};
+    Param text;
+    text.name = "text";
+    text.value = std::string("a;b=c \"quoted\"");
+    Param count;
+    count.name = "count";
+    count.value = int64_t{7};
+    Param flag;
+    flag.name = "invert";
+    flag.value = true;
+    effect.params = {level, colour, rect, text, count, flag};
+    effect.mix = {0.75, {{0, 0.0, Easing::CubicIn}, {20, 1.0, Easing::Linear}}};
+    return effect;
+}
+
+} // namespace
+
+TEST_CASE("XML format 5: effects, masks, blocks, looks, source params and recipes round-trip exactly")
+{
+    TempProjectFile file("format5");
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, "color:red");
+    ClipId a = model.insertClip(track, asset, 0, 100, 199);
+    ClipId b = model.insertClip(track, asset, 100, 500, 599);
+    TransitionId dissolve = model.addTransition(track, a, b, 5, 5);
+    Param softness;
+    softness.name = "softness";
+    softness.value = 0.3;
+    model.setTransitionRecipe(dissolve, "wipe-left", {softness});
+
+    Effect clipEffect = richEffect("brightness");
+    clipEffect.mask =
+        EffectMask{"ellipse", {softness}, {0.1, {{0, 0.0, Easing::Linear}, {9, 0.4, Easing::QuadraticOut}}}, true};
+    model.addEffect(Model::EffectTarget::clip(a), clipEffect, 0);
+    Effect disabled = richEffect("volume");
+    disabled.enabled = false;
+    model.addEffect(Model::EffectTarget::clip(a), disabled, 1);
+    model.addEffect(Model::EffectTarget::track(track), richEffect("volume"), 0);
+    model.addEffect(Model::EffectTarget::sequence(), richEffect("brightness"), 0);
+    AdjustmentBlock block;
+    block.lane = 1;
+    block.start = 30;
+    block.length = 90;
+    block.fadeOut = FadeSpec{10};
+    block.effects = {richEffect("sepia")};
+    model.addAdjustmentBlock(block);
+    model.addLook(Look{{}, "Warm & \"grainy\"", {richEffect("sepia"), richEffect("brightness")}});
+    Param title;
+    title.name = "markup";
+    title.value = std::string("<b>Hello</b>");
+    title.keyframes = {{0, 0.0, Easing::Linear}};
+    model.setClipSourceParams(b, {title});
+    REQUIRE(model.check().empty());
+
+    REQUIRE(saveProject(model, file.path.string()).empty());
+    auto loaded = loadProject(file.path.string());
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->project() == model.project());
+
+    // Saved again, byte for byte the same file.
+    const std::string first = readFile(file.path);
+    REQUIRE(saveProject(*loaded, file.path.string()).empty());
+    CHECK(readFile(file.path) == first);
+}
+
+TEST_CASE("XML format 5: effects play in melt too -- native filters on every cut, animated per cut")
+{
+    TempProjectFile file("format5-native");
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model, "color:red");
+    ClipId a = model.insertClip(track, asset, 0, 100, 199);
+    ClipId b = model.insertClip(track, asset, 100, 500, 599);
+    model.addTransition(track, a, b, 5, 5); // a's last 10 frames play in the dissolve
+    Effect fade;
+    fade.service = "brightness";
+    Param level;
+    level.name = "level";
+    level.value = 1.0;
+    level.keyframes = {{0, 0.0, Easing::Linear}, {100, 1.0, Easing::CubicIn}};
+    fade.params = {level};
+    model.addEffect(Model::EffectTarget::clip(a), fade, 0);
+    REQUIRE(saveProject(model, file.path.string()).empty());
+    const std::string text = readFile(file.path);
+
+    CHECK(text.find("<property name=\"ustudio:format_version\">5</property>") != std::string::npos);
+    // The record (model) copy: the whole animation, as written.
+    CHECK(text.find("<property name=\"level\">0=0;100g=1</property>") != std::string::npos);
+    // a's exclusive cut (its first 95 frames): the value at its last frame
+    // interpolated there.
+    CHECK(text.find("<property name=\"level\">0=0;94=0.94</property>") != std::string::npos);
+    // a's tail inside the dissolve (frames 95-104 of a, extended by 5):
+    // starts at the interpolated value, ends past a's last keyframe.
+    CHECK(text.find("<property name=\"level\">0=0.95;5g=1</property>") != std::string::npos);
+}
+
+TEST_CASE("XML format 4 still loads (migration), and saves as format 5")
+{
+    const fs::path fixture = fs::path(TEST_DATA_DIR) / "format4.ustudio";
+    auto loaded = loadProject(fixture.string());
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->sequence().tracks.size() == 2);
+    CHECK(loaded->sequence().clips.size() == 3);
+    REQUIRE(loaded->sequence().transitions.size() == 1);
+    CHECK(loaded->sequence().transitions[0].recipe.empty());
+    CHECK(loaded->sequence().markers.size() == 1);
+    CHECK(loaded->sequence().effects.empty());
+
+    TempProjectFile file("format4-migrated");
+    REQUIRE(saveProject(*loaded, file.path.string()).empty());
+    auto again = loadProject(file.path.string());
+    REQUIRE(again.has_value());
+    CHECK(again->project() == loaded->project());
+}

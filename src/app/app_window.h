@@ -837,6 +837,9 @@ class AppWindow
     // Where the Open and Save As dialogs start: the default project folder,
     // if set and present.
     void setInitialProjectFolder(GtkFileDialog *dialog) const;
+    // ". It has effects from “x”, not installed: ..." when the project has
+    // effects no loaded drop-in plays (IP2), else "".
+    std::string unplayedEffectsNotice() const;
     // Where renders go: the default export folder, else the project's own
     // folder, else ~/Videos, else home.
     std::string exportFolder() const;

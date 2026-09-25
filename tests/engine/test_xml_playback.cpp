@@ -161,6 +161,43 @@ TEST_CASE("A file our writer saves plays via MLT's own xml producer, independent
     CHECK(frame->is_valid());
 }
 
+// IP2 (format 5): an effect saved with the project plays outside the editor
+// too, as a native <filter> MLT's xml producer attaches to the cut, with its
+// keyframes as an MLT animation string. brightness's "level" is animated
+// (filter_brightness.yml: animation: yes, 0 black ... 1 unchanged), so the
+// red clip goes from black to full red across its 50 frames.
+TEST_CASE("A saved effect plays via MLT's own xml producer, animated")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset asset;
+    asset.path = "color:red";
+    asset.info.hasVideo = true;
+    asset.info.lengthInSequenceFrames = 100;
+    ClipId clip = model.insertClip(track, model.addAsset(asset), 0, 0, 49);
+    Effect fade;
+    fade.service = "brightness";
+    Param level;
+    level.name = "level";
+    level.value = 1.0;
+    level.keyframes = {{0, 0.0, Easing::Linear}, {49, 1.0, Easing::Linear}};
+    fade.params = {level};
+    model.addEffect(Model::EffectTarget::clip(clip), fade, 0);
+
+    std::filesystem::path path = tempProjectPath("ustudio-xml-playback-effect");
+    RemoveOnExit cleanup{path};
+    REQUIRE(saveProject(model, path.string()).empty());
+
+    Mlt::Profile profile("atsc_1080p_30");
+    Mlt::Producer loaded(profile, ("xml:" + path.string()).c_str());
+    REQUIRE(loaded.is_valid());
+    auto redAt = [&](int position) { return sampleFrame(loaded, position, 1920, 1080).r; };
+    CHECK(redAt(0) < 20);
+    CHECK(std::abs(static_cast<int>(redAt(25)) - 128) < 30);
+    CHECK(redAt(49) > 235);
+}
+
 // doc 12's M1 box again, for everything the editor's own playback graph
 // does beyond a plain clip: a dissolve (the pair overlaps on the track, and
 // the clip after it must not shift), per-track volume, and a clip with its

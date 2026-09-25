@@ -144,6 +144,7 @@ int main(int argc, char **argv)
     for (const UStudioDropInDescription *builtin : builtinDropIns())
         dropIns.addBuiltin(builtin);
     dropIns.loadModules();
+    ustudio::dropins::DropInRegistry::setCurrent(&dropIns);
     ustudio::dropins::FactoryPaths factoryPaths;
     dropIns.contributeFactoryPaths(factoryPaths);
 

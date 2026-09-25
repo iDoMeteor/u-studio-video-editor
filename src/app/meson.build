@@ -107,14 +107,14 @@ app_window_lib = static_library(
   files('action_registry.cpp', 'app_window.cpp', 'import_queue.cpp', 'project_loader.cpp', 'render_profiles_page.cpp', 'save_queue.cpp', 'stall_monitor.cpp', 'ui_hints.cpp', 'timeline/timeline_renderer.cpp',
         'timeline/us_timeline_view.cpp'),
   app_tokens_h,
-  dependencies: [libustudio_engine_dep, app_timeline_dep, app_autosave_dep, app_settings_dep, app_portal_dep, app_render_queue_dep, gtk4_dep, adwaita_dep, gio_dep],
+  dependencies: [libustudio_engine_dep, libustudio_dropins_dep, app_timeline_dep, app_autosave_dep, app_settings_dep, app_portal_dep, app_render_queue_dep, gtk4_dep, adwaita_dep, gio_dep],
   cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
   install: false,
 )
 app_window_dep = declare_dependency(
   link_with: app_window_lib,
   include_directories: src_inc,
-  dependencies: [libustudio_engine_dep, app_timeline_dep, app_autosave_dep, app_settings_dep, app_portal_dep, app_render_queue_dep, gtk4_dep, adwaita_dep, gio_dep],
+  dependencies: [libustudio_engine_dep, libustudio_dropins_dep, app_timeline_dep, app_autosave_dep, app_settings_dep, app_portal_dep, app_render_queue_dep, gtk4_dep, adwaita_dep, gio_dep],
 )
 
 # --- Dependency-boundary guard: app/ must never see MLT or Pulse headers

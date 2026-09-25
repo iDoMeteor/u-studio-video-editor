@@ -5,6 +5,7 @@ test_core_exe = executable(
         'test_retime.cpp'),
   dependencies: [doctest_dep, libustudio_core_dep],
   include_directories: include_directories('../common'),
+  cpp_args: ['-DTEST_DATA_DIR="' + meson.current_source_dir() / 'data' + '"'],
   install: false,
 )
 

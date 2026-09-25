@@ -1,5 +1,7 @@
 #include "reader.h"
 
+#include "core/xml/effect_io.h"
+
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 
@@ -8,6 +10,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
+#include <tuple>
 #include <unordered_map>
 
 // See writer.cpp's identical comment: BAD_CAST is libxml2's C-style cast,
@@ -22,10 +25,12 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kFormatVersion = 4; // must match writer.cpp
+constexpr int kFormatVersion = 5; // must match writer.cpp
 // Oldest version this reader still opens. Format 3 differs from 4 only in
 // where the render structure and dissolve metadata live (see writer.cpp);
 // the record playlists and every ustudio: property it reads are identical.
+// 5 only adds (effects, source parameters, recipes, adjustment blocks,
+// looks), which an older file simply doesn't have.
 constexpr int kOldestReadableFormatVersion = 3;
 
 std::string attr(xmlNodePtr node, const char *name)
@@ -433,6 +438,7 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         track.locked = toBool(prop(node, "ustudio:locked"));
         track.volume = toDouble(prop(node, "ustudio:volume", "1"));
         size_t visualIndex = static_cast<size_t>(toI64(prop(node, "ustudio:visual_index")));
+        track.effects = xml_detail::readEffectFilters(node);
 
         for (xmlNodePtr entryNode = node->children; entryNode; entryNode = entryNode->next) {
             if (entryNode->type != XML_ELEMENT_NODE)
@@ -470,6 +476,8 @@ std::expected<Model, std::string> loadProject(const std::string &path)
                 clip.fadeIn = FadeSpec{toI64(*fadeIn)};
             if (std::optional<std::string> fadeOut = getProperty(entryNode, "ustudio:fade_out"))
                 clip.fadeOut = FadeSpec{toI64(*fadeOut)};
+            clip.sourceParams = xml_detail::readParams(entryNode, "ustudio:source_param.");
+            clip.effects = xml_detail::readEffectFilters(entryNode);
 
             track.clips.push_back(clip.id);
             seq.clips.emplace(clip.id, std::move(clip));
@@ -513,9 +521,43 @@ std::expected<Model, std::string> loadProject(const std::string &path)
             t.extendB = toI64(prop(node, "ustudio:transition_extend_b"));
             t.length = t.extendA + t.extendB;
             t.service = prop(node, "ustudio:transition_service", "luma");
+            t.recipe = prop(node, "ustudio:transition_recipe");
+            t.params = xml_detail::readParams(node, "ustudio:transition_param.");
             seq.transitions.push_back(std::move(t));
         }
     }
+
+    // Master effects (on the sequence tractor), adjustment blocks and looks
+    // (never-played playlists; writer.cpp's writeAdjustmentBlocksAndLooks).
+    seq.effects = xml_detail::readEffectFilters(tractor);
+    for (xmlNodePtr node = mlt->children; node; node = node->next) {
+        if (node->type != XML_ELEMENT_NODE || xmlStrcmp(node->name, BAD_CAST "playlist") != 0)
+            continue;
+        if (std::optional<std::string> blockId = getProperty(node, "ustudio:adjustment_block_id")) {
+            AdjustmentBlock block;
+            block.id = AdjustmentBlockId{toU64(*blockId)};
+            block.lane = static_cast<int>(toI64(prop(node, "ustudio:lane")));
+            block.start = toI64(prop(node, "ustudio:start"));
+            block.length = toI64(prop(node, "ustudio:length"));
+            if (std::optional<std::string> fadeIn = getProperty(node, "ustudio:fade_in"))
+                block.fadeIn = FadeSpec{toI64(*fadeIn)};
+            if (std::optional<std::string> fadeOut = getProperty(node, "ustudio:fade_out"))
+                block.fadeOut = FadeSpec{toI64(*fadeOut)};
+            block.effects = xml_detail::readEffectFilters(node);
+            seq.adjustmentBlocks.push_back(std::move(block));
+        } else if (std::optional<std::string> lookId = getProperty(node, "ustudio:look_id")) {
+            Look look;
+            look.id = LookId{toU64(*lookId)};
+            look.name = prop(node, "ustudio:look_name");
+            look.effects = xml_detail::readEffectFilters(node);
+            project.looks.push_back(std::move(look));
+        }
+    }
+    // Model's own order for blocks: lane, start, id.
+    std::sort(seq.adjustmentBlocks.begin(), seq.adjustmentBlocks.end(),
+              [](const AdjustmentBlock &x, const AdjustmentBlock &y) {
+                  return std::tie(x.lane, x.start, x.id.value) < std::tie(y.lane, y.start, y.id.value);
+              });
 
     // Same canonical order Model::addTransition keeps (by id). Format 4
     // writes dissolves track by track, which need not be id order.
@@ -540,6 +582,23 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         maxIdSeen = std::max(maxIdSeen, a.id.value);
     for (const Transition &t : seq.transitions)
         maxIdSeen = std::max(maxIdSeen, t.id.value);
+    auto seeEffects = [&maxIdSeen](const std::vector<Effect> &effects) {
+        for (const Effect &e : effects)
+            maxIdSeen = std::max(maxIdSeen, e.id.value);
+    };
+    for (const auto &[clipId, clipEntry] : seq.clips)
+        seeEffects(clipEntry.effects);
+    for (const Track &t : seq.tracks)
+        seeEffects(t.effects);
+    seeEffects(seq.effects);
+    for (const AdjustmentBlock &b : seq.adjustmentBlocks) {
+        maxIdSeen = std::max(maxIdSeen, b.id.value);
+        seeEffects(b.effects);
+    }
+    for (const Look &l : project.looks) {
+        maxIdSeen = std::max(maxIdSeen, l.id.value);
+        seeEffects(l.effects);
+    }
     project.nextId = std::max(project.nextId, maxIdSeen + 1);
 
     project.sequences.push_back(std::move(seq));

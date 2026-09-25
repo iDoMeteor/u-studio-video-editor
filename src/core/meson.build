@@ -7,12 +7,14 @@ libustudio_core_sources = files(
   'model/track_segments.cpp',
   'model/profile_match.cpp',
   'model/retime.cpp',
+  'model/animation.cpp',
   'commands/primitives.cpp',
   'commands/undo_stack.cpp',
   'commands/timeline_edits.cpp',
   'xml/writer.cpp',
   'xml/reader.cpp',
   'xml/backup.cpp',
+  'xml/effect_io.cpp',
   'render/render_profile.cpp',
 )
 

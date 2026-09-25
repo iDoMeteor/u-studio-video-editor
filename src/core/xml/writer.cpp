@@ -3,6 +3,7 @@
 #include "core/model/audio_level.h"
 #include "core/model/mlt_order.h"
 #include "core/model/track_segments.h"
+#include "core/xml/effect_io.h"
 
 #include <libxml/tree.h>
 
@@ -35,8 +36,18 @@ namespace fs = std::filesystem;
 
 // doc 09; 3 adds ustudio:position (below) and transitions; 4 splits each
 // track into a render playlist (what the tractor plays, matching EngineSync
-// exactly) and a record playlist (the model, what the reader reads).
-constexpr int kFormatVersion = 4;
+// exactly) and a record playlist (the model, what the reader reads); 5 adds
+// effects as <filter>s, clip source parameters, transition recipes,
+// adjustment blocks and looks (IP2, doc 15; core/xml/effect_io.h).
+constexpr int kFormatVersion = 5;
+
+// Every effect in `effects` as a <filter> under `parent` (effect_io.h).
+void writeEffects(xmlNodePtr parent, const std::vector<Effect> &effects, FrameIndex offset, FrameIndex length,
+                  bool withModel)
+{
+    for (const Effect &effect : effects)
+        xml_detail::writeEffectFilter(parent, effect, offset, length, withModel);
+}
 
 xmlNodePtr addProperty(xmlNodePtr parent, const std::string &name, const std::string &value)
 {
@@ -222,6 +233,8 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
         addProperty(entry, "ustudio:fade_in", std::to_string(clip.fadeIn->length));
     if (clip.fadeOut)
         addProperty(entry, "ustudio:fade_out", std::to_string(clip.fadeOut->length));
+    xml_detail::writeParams(entry, "ustudio:source_param.", clip.sourceParams);
+    writeEffects(entry, clip.effects, 0, clip.length(), true);
 }
 
 void writeRecordPlaylist(xmlNodePtr mlt, const Model &model, const Track &track, const std::string &playlistId,
@@ -242,6 +255,7 @@ void writeRecordPlaylist(xmlNodePtr mlt, const Model &model, const Track &track,
     addProperty(playlist, "ustudio:hidden", track.hidden ? "1" : "0");
     addProperty(playlist, "ustudio:locked", track.locked ? "1" : "0");
     addProperty(playlist, "ustudio:volume", doubleToString(track.volume));
+    writeEffects(playlist, track.effects, 0, std::max<FrameIndex>(model.sequence().length(), 1), true);
 
     FrameIndex cursor = 0;
     for (ClipId clipId : track.clips) {
@@ -262,12 +276,15 @@ void writeRecordPlaylist(xmlNodePtr mlt, const Model &model, const Track &track,
 
 // One cut of an asset inside a render playlist: an <entry> with the
 // segment's own source range.
-void writeRenderCut(xmlNodePtr playlist, const std::string &producerId, FrameIndex in, FrameIndex out)
+// With the clip's effects as native filters, animated for this cut
+// (it starts in - clip.in frames into the clip).
+void writeRenderCut(xmlNodePtr playlist, const std::string &producerId, FrameIndex in, FrameIndex out, const Clip &clip)
 {
     xmlNodePtr entry = xmlNewChild(playlist, nullptr, BAD_CAST "entry", nullptr);
     xmlNewProp(entry, BAD_CAST "producer", BAD_CAST producerId.c_str());
     xmlNewProp(entry, BAD_CAST "in", BAD_CAST std::to_string(in).c_str());
     xmlNewProp(entry, BAD_CAST "out", BAD_CAST std::to_string(out).c_str());
+    writeEffects(entry, clip.effects, in - clip.in, out - in + 1, false);
 }
 
 // The producer a clip's cuts come from, mirroring EngineSync's
@@ -330,11 +347,11 @@ std::string writeDissolveTractor(xmlNodePtr mlt, const Model &model, const Track
 
     xmlNodePtr tailA = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
     xmlNewProp(tailA, BAD_CAST "id", BAD_CAST(id + "_a").c_str());
-    writeRenderCut(tailA, producers.idFor(clipA), clipA.out - t.length + 1, clipA.out);
+    writeRenderCut(tailA, producers.idFor(clipA), clipA.out - t.length + 1, clipA.out, clipA);
 
     xmlNodePtr headB = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
     xmlNewProp(headB, BAD_CAST "id", BAD_CAST(id + "_b").c_str());
-    writeRenderCut(headB, producers.idFor(clipB), clipB.in, clipB.in + t.length - 1);
+    writeRenderCut(headB, producers.idFor(clipB), clipB.in, clipB.in + t.length - 1, clipB);
 
     xmlNodePtr tractor = xmlNewChild(mlt, nullptr, BAD_CAST "tractor", nullptr);
     xmlNewProp(tractor, BAD_CAST "id", BAD_CAST id.c_str());
@@ -358,6 +375,9 @@ std::string writeDissolveTractor(xmlNodePtr mlt, const Model &model, const Track
     addProperty(luma, "ustudio:transition_extend_a", std::to_string(t.extendA));
     addProperty(luma, "ustudio:transition_extend_b", std::to_string(t.extendB));
     addProperty(luma, "ustudio:transition_service", t.service);
+    if (!t.recipe.empty())
+        addProperty(luma, "ustudio:transition_recipe", t.recipe);
+    xml_detail::writeParams(luma, "ustudio:transition_param.", t.params);
 
     xmlNodePtr mix = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
     xmlNewProp(mix, BAD_CAST "in", BAD_CAST "0");
@@ -403,7 +423,8 @@ void writeRenderPlaylist(xmlNodePtr mlt, const Model &model, const Track &track,
             xmlNewProp(blank, BAD_CAST "length", BAD_CAST std::to_string(segment.start - cursor).c_str());
         }
         if (segment.kind == TrackSegment::Kind::Clip) {
-            writeRenderCut(playlist, producerIdByClip.at(segment.clip.value), segment.in, segment.out);
+            writeRenderCut(playlist, producerIdByClip.at(segment.clip.value), segment.in, segment.out,
+                           model.clip(segment.clip));
         } else {
             xmlNodePtr entry = xmlNewChild(playlist, nullptr, BAD_CAST "entry", nullptr);
             xmlNewProp(entry, BAD_CAST "producer",
@@ -418,6 +439,33 @@ void writeRenderPlaylist(xmlNodePtr mlt, const Model &model, const Track &track,
         xmlNodePtr filter = xmlNewChild(playlist, nullptr, BAD_CAST "filter", nullptr);
         addProperty(filter, "mlt_service", "volume");
         addProperty(filter, "level", doubleToString(linearToDecibels(track.volume)));
+    }
+    writeEffects(playlist, track.effects, 0, std::max<FrameIndex>(model.sequence().length(), 1), false);
+}
+
+// Adjustment blocks (played from FX4) and looks, each a never-played
+// playlist holding the record, like the record playlists.
+void writeAdjustmentBlocksAndLooks(xmlNodePtr mlt, const Project &project, const Sequence &seq)
+{
+    for (const AdjustmentBlock &block : seq.adjustmentBlocks) {
+        xmlNodePtr playlist = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
+        xmlNewProp(playlist, BAD_CAST "id", BAD_CAST("adjustment_" + std::to_string(block.id.value)).c_str());
+        addProperty(playlist, "ustudio:adjustment_block_id", std::to_string(block.id.value));
+        addProperty(playlist, "ustudio:lane", std::to_string(block.lane));
+        addProperty(playlist, "ustudio:start", std::to_string(block.start));
+        addProperty(playlist, "ustudio:length", std::to_string(block.length));
+        if (block.fadeIn)
+            addProperty(playlist, "ustudio:fade_in", std::to_string(block.fadeIn->length));
+        if (block.fadeOut)
+            addProperty(playlist, "ustudio:fade_out", std::to_string(block.fadeOut->length));
+        writeEffects(playlist, block.effects, 0, block.length, true);
+    }
+    for (const Look &look : project.looks) {
+        xmlNodePtr playlist = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
+        xmlNewProp(playlist, BAD_CAST "id", BAD_CAST("look_" + std::to_string(look.id.value)).c_str());
+        addProperty(playlist, "ustudio:look_id", std::to_string(look.id.value));
+        addProperty(playlist, "ustudio:look_name", look.name);
+        writeEffects(playlist, look.effects, 0, 1, true);
     }
 }
 
@@ -485,6 +533,8 @@ std::string saveProject(const Model &model, const std::string &path)
         writeRenderPlaylist(mlt, model, track, playlistId, producers);
     }
 
+    writeAdjustmentBlocksAndLooks(mlt, project, seq);
+
     xmlNodePtr blackProducer = xmlNewChild(mlt, nullptr, BAD_CAST "producer", nullptr);
     xmlNewProp(blackProducer, BAD_CAST "id", BAD_CAST "black");
     FrameIndex sequenceLength = std::max<FrameIndex>(seq.length(), 1);
@@ -531,6 +581,8 @@ std::string saveProject(const Model &model, const std::string &path)
         addProperty(mix, "sum", "1");
         addProperty(mix, "always_active", "1");
     }
+    // Master effects on the output (Sequence::effects).
+    writeEffects(tractor, seq.effects, 0, sequenceLength, true);
 
     std::string tmpPath = path + ".tmp";
     int written = xmlSaveFormatFileEnc(tmpPath.c_str(), doc, "UTF-8", 1);
