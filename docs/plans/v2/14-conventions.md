@@ -72,7 +72,7 @@ code written from now on must not make it harder.
 | `src/app/portal_path.cpp` | document-portal xattrs | stays Linux-only; a no-op elsewhere |
 | ~~`src/app/app_window.cpp`~~ | ~~`unistd.h`~~ | done: `platform::currentProcessId()` (autosave's owner pid) |
 | `src/engine/factory_policy.cpp` | a symlink farm for the curated module directory, `.so` filtering, `mallopt` | `platform::linkOrCopy()`, `platform::sharedLibrarySuffix()`, `platform::tuneAllocator()` |
-| `src/engine/engine_sync.cpp` | `dup2` to silence MLT's stdout encoder list | `platform::ScopedStdoutSilence` |
+| ~~`src/engine/engine_sync.cpp`~~ | ~~`dup2` to silence MLT's stdout encoder list~~ | done: `platform::ScopedStdoutSilence` |
 | `src/engine/engine.cpp` | `pthread_setname_np` | `platform::setThreadName()` |
 | `src/dropins/registry.cpp` | `libustudio-dropin-*.so` names | `platform::sharedLibrarySuffix()` |
 

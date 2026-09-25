@@ -8,6 +8,7 @@
 #include "core/model/mlt_order.h"
 #include "core/model/retime.h"
 #include "core/model/track_segments.h"
+#include "platform/console.h"
 
 #include <algorithm>
 #include <atomic>
@@ -20,8 +21,6 @@
 #include <variant>
 
 #include <cstdio>
-#include <fcntl.h>
-#include <unistd.h>
 
 namespace ustudio::engine {
 
@@ -945,28 +944,16 @@ const std::string &h264Encoder()
         Log::ScopedTimer timer("[engine] H.264 encoder query");
         // avformat's documented "list" value (consumer_avformat.yml):
         // start() fills the consumer's "vcodec" data with every encoder
-        // name, and also printf()s them all to stdout. That goes to
-        // /dev/null: fd 1 is swapped for the call, with stdout's buffer
-        // flushed on both sides so nothing written before lands there and
-        // nothing of the list leaks out after. The app writes nothing to
-        // stdout itself (logs go to stderr).
-        std::fflush(stdout);
-        const int savedStdout = ::dup(STDOUT_FILENO);
-        const int devNull = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
-        if (savedStdout >= 0 && devNull >= 0)
-            ::dup2(devNull, STDOUT_FILENO);
+        // name, and also printf()s them all to stdout, which is silenced
+        // for the call (platform::ScopedStdoutSilence).
         Mlt::Profile profile;
         Mlt::Consumer consumer(profile, "avformat");
         consumer.set("vcodec", "list");
-        consumer.start();
-        consumer.stop();
-        std::fflush(stdout);
-        if (savedStdout >= 0 && devNull >= 0)
-            ::dup2(savedStdout, STDOUT_FILENO);
-        if (devNull >= 0)
-            ::close(devNull);
-        if (savedStdout >= 0)
-            ::close(savedStdout);
+        {
+            platform::ScopedStdoutSilence silence;
+            consumer.start();
+            consumer.stop();
+        }
         auto *list = static_cast<mlt_properties>(consumer.get_data("vcodec"));
         std::string found;
         if (!list) {
