@@ -607,6 +607,30 @@ class AppWindow
     };
     static void tracedActionTrampoline(GSimpleAction *action, GVariant *parameter, gpointer data);
     static void timelineMotionTrampoline(GtkEventControllerMotion *controller, double x, double y, gpointer userData);
+    static void timelineLeaveTrampoline(GtkEventControllerMotion *controller, gpointer userData);
+    static gboolean hoverPreviewTimerTrampoline(gpointer userData);
+
+    // Hover preview (Settings > Toggles): resting the pointer on a video clip
+    // for kHoverPreviewDelayMs shows the source frame under it, about 240 px
+    // wide, with the timeline timecode. Its own small cache: the timeline's
+    // strips are smaller, and drop frames a redraw didn't ask for again.
+    std::unique_ptr<engine::ThumbnailCache> m_hoverThumbnails;
+    timeline::TextureCache m_hoverTextures{16};
+    GtkPopover *m_hoverPreview = nullptr;
+    GtkPicture *m_hoverPicture = nullptr;
+    GtkLabel *m_hoverTimecode = nullptr;
+    guint m_hoverTimerId = 0;
+    struct HoverTarget
+    {
+        std::string resource;
+        int sourceFrame = 0;
+        core::FrameIndex timelineFrame = 0;
+        double x = 0.0, y = 0.0;
+        bool waiting = false; // the delay has passed; showing once the frame is ready
+    } m_hover;
+    void onTimelineHover(double x, double y);
+    void showHoverPreviewIfReady();
+    void hideHoverPreview();
     static void rippleDeleteSelectedActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void addMarkerActivated(GSimpleAction *, GVariant *, gpointer userData);
     static void removeMarkerActivated(GSimpleAction *, GVariant *, gpointer userData);
@@ -785,6 +809,7 @@ class AppWindow
     bool m_followPlayhead = true;
     bool m_showTimelineThumbnails = true;
     bool m_showWaveforms = true;
+    bool m_showHoverPreview = true;
     void onSettingsToggleChanged(const std::string &key, bool active);
     // Settings > Locations: `key` is "project" or "export".
     void chooseDefaultFolder(const std::string &key, AdwActionRow *row);

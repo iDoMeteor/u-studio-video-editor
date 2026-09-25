@@ -73,6 +73,8 @@ class Settings
     void setShowTimelineThumbnails(bool show);
     bool showWaveforms() const;
     void setShowWaveforms(bool show);
+    bool showHoverPreview() const;
+    void setShowHoverPreview(bool show);
 
     // The project open when the app last ran ("" if it was untitled); what
     // "Reopen last project on startup" opens.

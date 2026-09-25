@@ -43,6 +43,8 @@ constexpr double kTrackRowHeight = 60.0;
 constexpr double kHandleWidth = 22.0;
 constexpr double kEdgeGrabWidth = 8.0;
 constexpr double kDragClickThreshold = 3.0; // below this, a "drag" is really just a click
+constexpr int kHoverPreviewWidth = 240;     // the hover preview's width in pixels
+constexpr guint kHoverPreviewDelayMs = 300; // how long the pointer rests before it shows
 // A slim strip at the top of each track row for the track's name; clips
 // draw below it.
 constexpr double kTrackLabelHeight = 14.0;
@@ -155,6 +157,7 @@ AppWindow::AppWindow(GtkApplication *app)
     m_followPlayhead = m_settings->followPlayhead();
     m_showTimelineThumbnails = m_settings->showTimelineThumbnails();
     m_showWaveforms = m_settings->showWaveforms();
+    m_showHoverPreview = m_settings->showHoverPreview();
 
     // One starting track, matching v1's "track 0 always exists" default --
     // not through the UndoStack, since this is the pristine starting
@@ -242,6 +245,9 @@ AppWindow::AppWindow(GtkApplication *app)
                 gtk_widget_queue_draw(m_timeline);
         },
         stripJobs, core::concurrency::Priority::Interactive);
+    m_hoverThumbnails = std::make_unique<engine::ThumbnailCache>(
+        *m_pool, [this] { showHoverPreviewIfReady(); }, 1, core::concurrency::Priority::Interactive, kHoverPreviewWidth,
+        64);
 
     // Single source of truth for the undo/redo buttons and the title's
     // dirty mark (audit A1): every place that used to call
@@ -355,7 +361,8 @@ void AppWindow::prepareForShutdown()
     m_saveQueue.reset();
     // The caches' jobs run on the pool: stop them before it goes. The
     // caches stay alive (a late draw may still ask them) but take no work.
-    for (engine::ThumbnailCache *cache : {m_thumbnails.get(), m_timelineThumbnails.get()})
+    hideHoverPreview();
+    for (engine::ThumbnailCache *cache : {m_thumbnails.get(), m_timelineThumbnails.get(), m_hoverThumbnails.get()})
         if (cache)
             cache->shutdown();
     if (m_waveforms)
@@ -645,6 +652,7 @@ void AppWindow::buildUi(GtkApplication *app)
 
     GtkEventController *motion = gtk_event_controller_motion_new();
     g_signal_connect(motion, "motion", G_CALLBACK(&AppWindow::timelineMotionTrampoline), this);
+    g_signal_connect(motion, "leave", G_CALLBACK(&AppWindow::timelineLeaveTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), motion);
 
     GtkGesture *click = gtk_gesture_click_new();
@@ -683,6 +691,26 @@ void AppWindow::buildUi(GtkApplication *app)
     GtkDropTarget *fileDropTarget = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
     g_signal_connect(fileDropTarget, "drop", G_CALLBACK(&AppWindow::timelineFileDropTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(fileDropTarget));
+
+    // The hover preview: never takes focus or the pointer, and sits a little
+    // above the pointer so moving onto it doesn't leave the timeline.
+    m_hoverPreview = GTK_POPOVER(gtk_popover_new());
+    gtk_popover_set_autohide(m_hoverPreview, FALSE);
+    gtk_popover_set_has_arrow(m_hoverPreview, FALSE);
+    gtk_popover_set_position(m_hoverPreview, GTK_POS_TOP);
+    gtk_popover_set_offset(m_hoverPreview, 0, -16);
+    gtk_widget_set_can_target(GTK_WIDGET(m_hoverPreview), FALSE);
+    gtk_widget_set_can_focus(GTK_WIDGET(m_hoverPreview), FALSE);
+    gtk_widget_add_css_class(GTK_WIDGET(m_hoverPreview), "hover-preview");
+    GtkWidget *hoverBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    m_hoverPicture = GTK_PICTURE(gtk_picture_new());
+    gtk_picture_set_content_fit(m_hoverPicture, GTK_CONTENT_FIT_CONTAIN);
+    gtk_box_append(GTK_BOX(hoverBox), GTK_WIDGET(m_hoverPicture));
+    m_hoverTimecode = GTK_LABEL(gtk_label_new(""));
+    gtk_widget_add_css_class(GTK_WIDGET(m_hoverTimecode), "timecode-label");
+    gtk_box_append(GTK_BOX(hoverBox), GTK_WIDGET(m_hoverTimecode));
+    gtk_popover_set_child(m_hoverPreview, hoverBox);
+    gtk_widget_set_parent(GTK_WIDGET(m_hoverPreview), GTK_WIDGET(m_timeline));
 
     // One popover, three possible actions — onTimelineRightClicked decides
     // which single one is relevant (clip under the cursor -> Delete Clip;
@@ -1280,6 +1308,7 @@ void AppWindow::showSettingsDialog()
     addToggle(timelineGroup, "show-timeline-thumbnails", "Show timeline thumbnails", "settings.timeline-thumbnails",
               m_showTimelineThumbnails);
     addToggle(timelineGroup, "show-waveforms", "Show waveforms", "settings.waveforms", m_showWaveforms);
+    addToggle(timelineGroup, "show-hover-preview", "Show hover preview", "settings.hover-preview", m_showHoverPreview);
 
     // --- Performance ---
     AdwPreferencesPage *performancePage = addPage("Performance", "power-profile-performance-symbolic");
@@ -1420,9 +1449,73 @@ void AppWindow::onSettingsToggleChanged(const std::string &key, bool active)
     } else if (key == "show-waveforms") {
         m_showWaveforms = active;
         m_settings->setShowWaveforms(active);
+    } else if (key == "show-hover-preview") {
+        m_showHoverPreview = active;
+        m_settings->setShowHoverPreview(active);
+        if (!active)
+            hideHoverPreview();
     }
     if (m_timeline)
         gtk_widget_queue_draw(m_timeline);
+}
+
+void AppWindow::onTimelineHover(double x, double y)
+{
+    // Moving re-arms the delay; the preview only shows once the pointer rests.
+    hideHoverPreview();
+    if (!m_showHoverPreview || m_timelineController.mode() != timeline::TimelineController::Mode::None)
+        return;
+    const timeline::ContextTarget target = m_timelineController.contextTargetAt(timelineContext(), x, y);
+    if (!m_model.hasClip(target.clip) || target.frame < 0)
+        return;
+    const core::Clip &clip = m_model.clip(target.clip);
+    if (m_model.track(clip.track).kind != core::Track::Kind::Video || !clip.videoEnabled ||
+        !m_model.hasAsset(clip.asset))
+        return;
+    const core::Asset &asset = m_model.asset(clip.asset);
+    if (asset.path.empty() || !asset.info.hasVideo)
+        return;
+    const core::FrameIndex offset = std::clamp<core::FrameIndex>(target.frame - clip.position, 0, clip.out - clip.in);
+    m_hover.resource = asset.path;
+    m_hover.sourceFrame = static_cast<int>(clip.in + offset);
+    m_hover.timelineFrame = target.frame;
+    m_hover.x = x;
+    m_hover.y = y;
+    m_hoverTimerId = g_timeout_add(kHoverPreviewDelayMs, &AppWindow::hoverPreviewTimerTrampoline, this);
+}
+
+void AppWindow::showHoverPreviewIfReady()
+{
+    if (!m_hover.waiting || !m_hoverThumbnails)
+        return;
+    const core::Rational fps = m_model.sequence().profile.fps;
+    const engine::ThumbnailCache::Data *data =
+        m_hoverThumbnails->frameThumbnail(m_hover.resource, m_hover.sourceFrame, fps.num, fps.den);
+    if (!data)
+        return; // the cache's onReady calls back here
+    GdkTexture *texture = m_hoverTextures.get(m_hover.resource + '\n' + std::to_string(m_hover.sourceFrame) + '@' +
+                                                  std::to_string(fps.num) + '/' + std::to_string(fps.den),
+                                              data->rgba, data->width, data->height);
+    if (!texture)
+        return;
+    m_hover.waiting = false;
+    gtk_picture_set_paintable(m_hoverPicture, GDK_PAINTABLE(texture));
+    gtk_widget_set_size_request(GTK_WIDGET(m_hoverPicture), data->width, data->height);
+    gtk_label_set_text(m_hoverTimecode, formatTimecode(static_cast<int>(m_hover.timelineFrame)).c_str());
+    const GdkRectangle at{static_cast<int>(m_hover.x), static_cast<int>(m_hover.y), 1, 1};
+    gtk_popover_set_pointing_to(m_hoverPreview, &at);
+    gtk_popover_popup(m_hoverPreview);
+}
+
+void AppWindow::hideHoverPreview()
+{
+    if (m_hoverTimerId != 0) {
+        g_source_remove(m_hoverTimerId);
+        m_hoverTimerId = 0;
+    }
+    m_hover.waiting = false;
+    if (m_hoverPreview && gtk_widget_get_visible(GTK_WIDGET(m_hoverPreview)))
+        gtk_popover_popdown(m_hoverPreview);
 }
 
 void AppWindow::setDefaultFolder(const std::string &key, const std::string &folder, AdwActionRow *row)
@@ -4737,9 +4830,25 @@ void AppWindow::unparentPopoverTrampoline(GtkWidget *, gpointer popover)
     gtk_widget_unparent(GTK_WIDGET(popover));
 }
 
-void AppWindow::timelineMotionTrampoline(GtkEventControllerMotion *, double x, double, gpointer userData)
+void AppWindow::timelineMotionTrampoline(GtkEventControllerMotion *, double x, double y, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->m_timelinePointerX = x;
+    auto *self = static_cast<AppWindow *>(userData);
+    self->m_timelinePointerX = x;
+    self->onTimelineHover(x, y);
+}
+
+void AppWindow::timelineLeaveTrampoline(GtkEventControllerMotion *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->hideHoverPreview();
+}
+
+gboolean AppWindow::hoverPreviewTimerTrampoline(gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    self->m_hoverTimerId = 0;
+    self->m_hover.waiting = true;
+    self->showHoverPreviewIfReady();
+    return G_SOURCE_REMOVE;
 }
 
 void AppWindow::timelineHScrollChangedTrampoline(GtkAdjustment *, gpointer userData)
@@ -4749,12 +4858,14 @@ void AppWindow::timelineHScrollChangedTrampoline(GtkAdjustment *, gpointer userD
 
 void AppWindow::timelineClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData)
 {
+    static_cast<AppWindow *>(userData)->hideHoverPreview(); // a press starts a click or a drag
     static_cast<AppWindow *>(userData)->onTimelineClicked(nPress, x, y,
                                                           timelineModifiers(GTK_EVENT_CONTROLLER(gesture)));
 }
 
 void AppWindow::timelineRightClickTrampoline(GtkGestureClick *, int, double x, double y, gpointer userData)
 {
+    static_cast<AppWindow *>(userData)->hideHoverPreview();
     static_cast<AppWindow *>(userData)->onTimelineRightClicked(x, y);
 }
 

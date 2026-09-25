@@ -183,6 +183,16 @@ void Settings::setShowWaveforms(bool show)
     setBool("show-waveforms", show);
 }
 
+bool Settings::showHoverPreview() const
+{
+    return getBool("show-hover-preview", true);
+}
+
+void Settings::setShowHoverPreview(bool show)
+{
+    setBool("show-hover-preview", show);
+}
+
 std::string Settings::lastProjectPath() const
 {
     return getString("last-project-path", "");

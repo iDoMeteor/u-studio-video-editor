@@ -47,8 +47,11 @@ class ThumbnailCache
     // `priority`: Interactive for the timeline's strips (on screen as they
     // are asked for), Background for the media browser (its list asks for
     // every row, shown or not).
+    // `width`: the thumbnails' width in pixels (height from the source's
+    // shape); `maxFrameThumbnails`: how many frame thumbnails are kept.
     ThumbnailCache(core::concurrency::ThreadPool &pool, std::function<void()> onReady, size_t maxJobs,
-                   core::concurrency::Priority priority);
+                   core::concurrency::Priority priority, int width = kDefaultWidth,
+                   size_t maxFrameThumbnails = kMaxFrameThumbnails);
     // Calls shutdown().
     ~ThumbnailCache();
 
@@ -86,6 +89,10 @@ class ThumbnailCache
     // Most jobs that ran at the same time so far (for tests).
     size_t peakConcurrentJobs() const;
     static constexpr size_t kMaxFrameThumbnails = 800;
+    // A media-browser row icon or a timeline strip, not a preview -- kept
+    // small so dozens of imports don't hold full-resolution frames. Height
+    // follows the source's own aspect ratio; callers letterbox.
+    static constexpr int kDefaultWidth = 120;
 
   private:
     struct Job
@@ -111,6 +118,8 @@ class ThumbnailCache
     core::concurrency::ThreadPool &m_pool;
     const size_t m_maxJobs;
     const core::concurrency::Priority m_priority;
+    const int m_width;
+    const size_t m_maxFrameThumbnails;
     mutable std::mutex m_mutex;
     std::map<std::string, Data> m_cache;
     std::deque<std::string> m_frameOrder; // frame-thumbnail keys, oldest first

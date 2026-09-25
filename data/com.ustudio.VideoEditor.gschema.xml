@@ -85,6 +85,11 @@
       <summary>Show waveforms</summary>
       <description>Clips with sound show their waveform on the timeline.</description>
     </key>
+    <key name="show-hover-preview" type="b">
+      <default>true</default>
+      <summary>Show hover preview</summary>
+      <description>Resting the pointer on a video clip shows its frame under the pointer.</description>
+    </key>
     <key name="default-project-folder" type="s">
       <default>""</default>
       <summary>Default project folder</summary>

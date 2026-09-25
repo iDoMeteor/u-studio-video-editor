@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.38.0
+
+- Hover preview: rest the pointer on a video clip to see the frame under it
+  with its timecode (Settings > Toggles to turn it off).
+
 ## 0.37.0
 
 - Render queue: the Render button shows progress, a queue count, and

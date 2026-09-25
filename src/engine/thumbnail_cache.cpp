@@ -11,20 +11,10 @@ namespace ustudio::engine {
 
 namespace Log = ustudio::core::Log;
 
-namespace {
-// A media-browser row icon, not a preview -- kept small on purpose so a
-// project with dozens of imports doesn't decode/hold full-resolution
-// frames just to draw a list of thumbnails. Height varies with the
-// source's own aspect ratio (computed per job below); callers letterbox
-// to a fixed row height the same way m_preview already does
-// (GTK_CONTENT_FIT_CONTAIN), rather than this cache forcing a fixed
-// aspect itself.
-constexpr int kThumbnailWidth = 120;
-} // namespace
-
 ThumbnailCache::ThumbnailCache(core::concurrency::ThreadPool &pool, std::function<void()> onReady, size_t maxJobs,
-                               core::concurrency::Priority priority)
-    : m_pool(pool), m_maxJobs(std::max<size_t>(1, maxJobs)), m_priority(priority), m_onReady(std::move(onReady))
+                               core::concurrency::Priority priority, int width, size_t maxFrameThumbnails)
+    : m_pool(pool), m_maxJobs(std::max<size_t>(1, maxJobs)), m_priority(priority), m_width(std::max(1, width)),
+      m_maxFrameThumbnails(std::max<size_t>(1, maxFrameThumbnails)), m_onReady(std::move(onReady))
 {}
 
 ThumbnailCache::~ThumbnailCache()
@@ -69,7 +59,7 @@ const ThumbnailCache::Data *ThumbnailCache::frameThumbnail(const std::string &re
     // Evicted here, on the main thread, never by a job: a pointer this
     // returned is used before the next call, so eviction can't pull an entry
     // out from under a caller.
-    while (m_frameOrder.size() > kMaxFrameThumbnails) {
+    while (m_frameOrder.size() > m_maxFrameThumbnails) {
         m_cache.erase(m_frameOrder.front());
         m_frameOrder.pop_front();
     }
@@ -250,7 +240,7 @@ void ThumbnailCache::runBatch(const std::string &batchKey, std::stop_token stop)
                 int srcHeight = 0;
                 uint8_t *image = frame->get_image(format, srcWidth, srcHeight);
                 if (image && srcWidth > 0 && srcHeight > 0) {
-                    int dstWidth = kThumbnailWidth;
+                    int dstWidth = m_width;
                     int dstHeight = std::max(1, dstWidth * srcHeight / srcWidth);
                     data.rgba.resize(static_cast<size_t>(dstWidth) * static_cast<size_t>(dstHeight) * 4);
                     // Nearest-neighbour downsample: a thumbnail is small

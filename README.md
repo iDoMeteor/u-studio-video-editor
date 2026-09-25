@@ -275,7 +275,9 @@ single-track skeleton.
   button): General (autosave delay, recent-projects list size, maximum
   shuttle speed), Toggles (reopen the last project on startup, on by
   default and skipped when there's work to recover; snap while dragging;
-  follow the playhead while playing; timeline thumbnails; waveforms),
+  follow the playhead while playing; timeline thumbnails; waveforms; hover
+  preview, which after a 300 ms rest on a video clip shows the source
+  frame under the pointer, 240 px wide, with its timecode),
   Performance (default preview scale, worker threads, thumbnail and
   waveform jobs) and Locations (default project folder, where Open and
   Save As start; default export folder, where renders go, else the
