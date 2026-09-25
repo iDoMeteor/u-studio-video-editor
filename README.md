@@ -54,7 +54,8 @@ single-track skeleton.
   seconds or whole minutes/hours — whichever keeps ticks at least ~60px
   apart at the current zoom (enhancement #12, 2026-09-23).
   Zoom with Ctrl+mouse wheel (the frame under the pointer stays put) or
-  `+`/`-`, and `0` to fit the whole project; scroll sideways with
+  `+`/`-`, and `0` to fit the whole project (also the zoom buttons at the
+  left of the header bar's right-hand side); scroll sideways with
   Shift+wheel, a touchpad swipe or the scrollbar under the tracks, and
   vertically when there are more tracks than fit. The view follows the
   playhead a page at a time. The zoom/scroll maths is

@@ -29,6 +29,9 @@ std::vector<HintSpec> &registry()
         {"header.render",        "Header bar", "Render the project to an MP4 file", "H.264 and AAC at the project's own size and frame rate", nullptr, nullptr},
         {"header.help",          "Header bar", "Help",                  nullptr, nullptr, nullptr},
         {"header.settings",      "Header bar", "Settings",              nullptr, nullptr, nullptr},
+        {"header.zoom-out",      "Header bar", "Zoom the timeline out",  nullptr, "zoom-out", nullptr},
+        {"header.zoom-in",       "Header bar", "Zoom the timeline in",   nullptr, "zoom-in", nullptr},
+        {"header.zoom-fit",      "Header bar", "Fit the whole timeline", nullptr, "zoom-fit", nullptr},
 
         // --- Transport ---
         {"transport.seek-home",       "Transport", "Go to start",           nullptr, "seek-home", nullptr},

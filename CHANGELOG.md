@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.34.0
+
+- Header bar: zoom out / zoom in / fit buttons, and the buttons regrouped
+  (Import, Add track, media browser | Undo, Redo on the left; zoom |
+  project | Render | Settings, Help on the right).
+
 ## 0.33.0
 
 - The Save button saves in place (Save As for an untitled project);

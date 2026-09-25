@@ -45,6 +45,13 @@ window {
   font-family: "Space Grotesk", sans-serif;
 }
 
+/* Header bar button groups (app_window.cpp): the gap between groups is
+   what separates them, no divider lines. */
+.header-group {
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
 .timeline-area {
   background-color: @ink_800;
   border: 1px solid @ink_500;

@@ -324,16 +324,25 @@ void AppWindow::buildUi(GtkApplication *app)
     m_windowTitle = ADW_WINDOW_TITLE(adw_window_title_new("u Studio", nullptr));
     adw_header_bar_set_title_widget(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_windowTitle));
 
+    // Header buttons come in groups, spaced apart by the .header-group CSS
+    // class: left is Import, Add track, media browser | Undo, Redo.
+    auto headerGroup = [] {
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+        gtk_widget_add_css_class(box, "header-group");
+        return box;
+    };
+
+    GtkWidget *mediaGroup = headerGroup();
     GtkWidget *importButton = gtk_button_new_with_label("Import…");
     gtk_widget_add_css_class(importButton, "suggested-action");
     setTooltip(importButton, "header.import");
     g_signal_connect(importButton, "clicked", G_CALLBACK(&AppWindow::importClickedTrampoline), this);
-    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), importButton);
+    gtk_box_append(GTK_BOX(mediaGroup), importButton);
 
     GtkWidget *addTrackButton = gtk_button_new_from_icon_name("list-add-symbolic");
     setTooltip(addTrackButton, "header.add-track");
     g_signal_connect(addTrackButton, "clicked", G_CALLBACK(&AppWindow::addTrackClickedTrampoline), this);
-    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), addTrackButton);
+    gtk_box_append(GTK_BOX(mediaGroup), addTrackButton);
 
     // Verified against the installed Adwaita symbolic icon set
     // (/usr/share/icons/Adwaita/symbolic/actions/sidebar-show-symbolic.svg)
@@ -342,32 +351,47 @@ void AppWindow::buildUi(GtkApplication *app)
     setTooltip(toggleMediaBrowserButton, "header.media-browser");
     g_signal_connect(toggleMediaBrowserButton, "clicked", G_CALLBACK(&AppWindow::toggleMediaBrowserClickedTrampoline),
                       this);
-    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), toggleMediaBrowserButton);
+    gtk_box_append(GTK_BOX(mediaGroup), toggleMediaBrowserButton);
 
+    GtkWidget *historyGroup = headerGroup();
     m_undoButton = GTK_BUTTON(gtk_button_new_from_icon_name("edit-undo-symbolic"));
     setTooltip(GTK_WIDGET(m_undoButton), "header.undo");
     g_signal_connect(m_undoButton, "clicked", G_CALLBACK(&AppWindow::undoClickedTrampoline), this);
-    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_undoButton));
+    gtk_box_append(GTK_BOX(historyGroup), GTK_WIDGET(m_undoButton));
 
     m_redoButton = GTK_BUTTON(gtk_button_new_from_icon_name("edit-redo-symbolic"));
     setTooltip(GTK_WIDGET(m_redoButton), "header.redo");
     g_signal_connect(m_redoButton, "clicked", G_CALLBACK(&AppWindow::redoClickedTrampoline), this);
-    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_redoButton));
+    gtk_box_append(GTK_BOX(historyGroup), GTK_WIDGET(m_redoButton));
+    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), mediaGroup);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(headerBar), historyGroup);
 
+    // The right-hand side reads, left to right: zoom | project (New, Open,
+    // Recent, Reload, Save) | Render | Settings, Help. Zoom comes first, the
+    // quickest to reach (owner, 2026-09-25). pack_end places right to left,
+    // so the groups are packed in reverse at the end.
+
+    GtkWidget *zoomGroup = headerGroup();
+    auto addZoomButton = [&](const char *iconName, const char *actionName, const char *hintKey) {
+        GtkWidget *button = gtk_button_new_from_icon_name(iconName);
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(button), actionName);
+        setTooltip(button, hintKey);
+        gtk_box_append(GTK_BOX(zoomGroup), button);
+    };
+    addZoomButton("zoom-out-symbolic", "win.zoom-out", "header.zoom-out");
+    addZoomButton("zoom-in-symbolic", "win.zoom-in", "header.zoom-in");
+    addZoomButton("zoom-fit-best-symbolic", "win.zoom-fit", "header.zoom-fit");
+
+    GtkWidget *projectGroup = headerGroup();
     GtkWidget *newProjectButton = gtk_button_new_from_icon_name("document-new-symbolic");
     setTooltip(newProjectButton, "header.new-project");
     g_signal_connect(newProjectButton, "clicked", G_CALLBACK(&AppWindow::newProjectClickedTrampoline), this);
-    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), newProjectButton);
-
-    GtkWidget *reloadButton = gtk_button_new_from_icon_name("view-refresh-symbolic");
-    setTooltip(reloadButton, "header.reload");
-    g_signal_connect(reloadButton, "clicked", G_CALLBACK(&AppWindow::reloadProjectClickedTrampoline), this);
-    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), reloadButton);
+    gtk_box_append(GTK_BOX(projectGroup), newProjectButton);
 
     GtkWidget *openButton = gtk_button_new_from_icon_name("document-open-symbolic");
     setTooltip(openButton, "header.open");
     g_signal_connect(openButton, "clicked", G_CALLBACK(&AppWindow::openProjectClickedTrampoline), this);
-    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), openButton);
+    gtk_box_append(GTK_BOX(projectGroup), openButton);
 
     // Enhancement #15: recent projects, next to Open. refreshRecentProjectsMenu()
     // (called once below, and again after every successful save/open)
@@ -377,9 +401,14 @@ void AppWindow::buildUi(GtkApplication *app)
     setTooltip(recentProjectsButton, "header.recent");
     m_recentProjectsPopover = GTK_POPOVER(gtk_popover_new());
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(recentProjectsButton), GTK_WIDGET(m_recentProjectsPopover));
-    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), recentProjectsButton);
+    gtk_box_append(GTK_BOX(projectGroup), recentProjectsButton);
     g_signal_connect(gtk_recent_manager_get_default(), "changed",
                      G_CALLBACK(&AppWindow::recentManagerChangedTrampoline), this);
+
+    GtkWidget *reloadButton = gtk_button_new_from_icon_name("view-refresh-symbolic");
+    setTooltip(reloadButton, "header.reload");
+    g_signal_connect(reloadButton, "clicked", G_CALLBACK(&AppWindow::reloadProjectClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(projectGroup), reloadButton);
 
     GtkWidget *saveButton = gtk_button_new_from_icon_name("document-save-symbolic");
     setTooltip(saveButton, "header.save");
@@ -388,22 +417,27 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(saveRightClick), GDK_BUTTON_SECONDARY);
     g_signal_connect(saveRightClick, "pressed", G_CALLBACK(&AppWindow::saveButtonRightClickTrampoline), this);
     gtk_widget_add_controller(saveButton, GTK_EVENT_CONTROLLER(saveRightClick));
-    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), saveButton);
+    gtk_box_append(GTK_BOX(projectGroup), saveButton);
 
     GtkWidget *renderButton = gtk_button_new_with_label("Render…");
     setTooltip(renderButton, "header.render");
     g_signal_connect(renderButton, "clicked", G_CALLBACK(&AppWindow::renderClickedTrampoline), this);
-    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), renderButton);
+
+    GtkWidget *appGroup = headerGroup();
+    GtkWidget *settingsButton = gtk_button_new_from_icon_name("preferences-system-symbolic");
+    setTooltip(settingsButton, "header.settings");
+    g_signal_connect(settingsButton, "clicked", G_CALLBACK(&AppWindow::settingsClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(appGroup), settingsButton);
 
     GtkWidget *helpButton = gtk_button_new_from_icon_name("system-help-symbolic");
     setTooltip(helpButton, "header.help");
     g_signal_connect(helpButton, "clicked", G_CALLBACK(&AppWindow::helpClickedTrampoline), this);
-    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), helpButton);
+    gtk_box_append(GTK_BOX(appGroup), helpButton);
 
-    GtkWidget *settingsButton = gtk_button_new_from_icon_name("preferences-system-symbolic");
-    setTooltip(settingsButton, "header.settings");
-    g_signal_connect(settingsButton, "clicked", G_CALLBACK(&AppWindow::settingsClickedTrampoline), this);
-    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), settingsButton);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), appGroup);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), renderButton);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), projectGroup);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), zoomGroup);
 
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbarView), headerBar);
 
