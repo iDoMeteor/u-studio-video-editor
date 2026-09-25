@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,15 @@ FactoryPolicy &sharedFactoryPolicy()
 {
     static FactoryPolicy policy;
     return policy;
+}
+
+// A scratch output name no other process uses: concurrent copies of this
+// test once read each other's half-written files under shared names.
+fs::path scratchPath(const std::string &name)
+{
+    static int counter = 0;
+    return fs::temp_directory_path() /
+           ("ustudio-render-test-" + std::to_string(::getpid()) + "-" + std::to_string(++counter) + "-" + name);
 }
 
 // RAII so a scratch output (and any stray "<path>.part") is removed even if
@@ -61,7 +71,7 @@ TEST_CASE("renderProject: a successful render lands at outputPath with no .part 
     sharedFactoryPolicy();
     Model model = makeShortProject();
 
-    fs::path outputPath = fs::temp_directory_path() / "ustudio-render-test-success.mp4";
+    fs::path outputPath = scratchPath("success.mp4");
     RemoveOnExit guard{outputPath};
     std::error_code ec;
     fs::remove(outputPath, ec);
@@ -87,7 +97,7 @@ TEST_CASE("renderProject: an unopenable output path leaves no output or .part fi
     // The rename step below is what actually catches this: it fails
     // because the .part file was never created, which is the real signal
     // that something went wrong.
-    fs::path outputPath = fs::temp_directory_path() / "ustudio-render-test-nonexistent-dir" / "out.mp4";
+    fs::path outputPath = scratchPath("nonexistent-dir") / "out.mp4";
     RemoveOnExit guard{outputPath};
 
     std::string error;
@@ -114,7 +124,7 @@ TEST_CASE("renderProject: onProgress fires with the tractor's real total length 
     // touches more than a single frame, unlike the 5-frame clips above.
     model.insertClip(track, assetId, 0, 0, 59); // 60 frames
 
-    fs::path outputPath = fs::temp_directory_path() / "ustudio-render-test-progress.mp4";
+    fs::path outputPath = scratchPath("progress.mp4");
     RemoveOnExit guard{outputPath};
     std::error_code ec;
     fs::remove(outputPath, ec);
@@ -151,7 +161,7 @@ TEST_CASE("renderProject: a cancelled render stops promptly and leaves nothing b
     asset.info.lengthInSequenceFrames = 100'000;
     model.insertClip(track, model.addAsset(asset), 0, 0, 30 * 60 - 1); // a minute
 
-    fs::path outputPath = fs::temp_directory_path() / "ustudio-render-test-cancel.mp4";
+    fs::path outputPath = scratchPath("cancel.mp4");
     RemoveOnExit guard{outputPath};
     std::atomic<bool> cancel{false};
     std::atomic<bool> started{false};
@@ -180,7 +190,7 @@ TEST_CASE("renderProject: a profile's height scales the output at the project's 
     sharedFactoryPolicy();
     Model model = makeShortProject();
 
-    fs::path outputPath = fs::temp_directory_path() / "ustudio-render-test-720p.mp4";
+    fs::path outputPath = scratchPath("720p.mp4");
     RemoveOnExit guard{outputPath};
     RenderProfile profile{.name = "720p draft", .height = 720, .quality = RenderProfile::Quality::Draft};
     std::string error;
@@ -204,7 +214,7 @@ TEST_CASE("renderProject: a thread budget renders the same frames as none")
     // What avformat reads back for a render (its length estimate for a file
     // this short is 4 either way, so the two are compared, not a constant).
     auto renderedLength = [&](const std::string &name, int budget) {
-        fs::path outputPath = fs::temp_directory_path() / name;
+        fs::path outputPath = scratchPath(name);
         RemoveOnExit guard{outputPath};
         std::string error;
         REQUIRE(renderProject(model, outputPath.string(), error, {}, nullptr, legacyRenderProfile(), budget));

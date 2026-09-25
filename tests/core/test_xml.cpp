@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <unistd.h>
 #include <fstream>
 #include <random>
 #include <sstream>
@@ -15,14 +16,14 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// A unique path per test case under the scratch build directory -- never
+// A unique path per test case and process under the scratch build directory -- never
 // touches real project files, cleaned up at the end of each test.
 struct TempProjectFile
 {
     fs::path path;
 
     explicit TempProjectFile(const std::string &name)
-        : path(fs::temp_directory_path() / ("ustudio-xml-test-" + name + ".ustudio"))
+        : path(fs::temp_directory_path() / ("ustudio-xml-test-" + std::to_string(::getpid()) + "-" + name + ".ustudio"))
     {}
     ~TempProjectFile()
     {

@@ -331,7 +331,8 @@ TEST_CASE("autosave: findRecoverable finds an untitled autosave with no target f
 
 TEST_CASE("autosave: findRecoverable offers an autosave newer than its target, not one older")
 {
-    std::string targetPath = (fs::temp_directory_path() / "doctest-autosave-target.ustudio").string();
+    std::string targetPath =
+        (fs::temp_directory_path() / ("doctest-autosave-target-" + std::to_string(::getpid()) + ".ustudio")).string();
     Guard targetGuard{{targetPath}};
     {
         std::ofstream(targetPath) << "<mlt/>";
