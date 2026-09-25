@@ -16,7 +16,7 @@ using namespace ustudio::app;
 
 TEST_CASE("Settings: schema not found -- every getter falls back to its default, every setter is a silent no-op")
 {
-    Settings settings;
+    Settings settings(""); // no build-dir fallback either
     CHECK_FALSE(settings.isPersistent());
 
     CHECK(settings.autosaveDelayMinutes() == Settings::kDefaultAutosaveDelayMinutes);
@@ -38,4 +38,14 @@ TEST_CASE("Settings: schema not found -- every getter falls back to its default,
     CHECK(settings.shuttleMaxSpeed() == doctest::Approx(Settings::kDefaultShuttleMaxSpeed));
     CHECK(settings.recentProjectsMax() == Settings::kDefaultRecentProjectsMax);
     CHECK(settings.workerThreads() == Settings::kDefaultWorkerThreads);
+}
+
+TEST_CASE("Settings: without GSETTINGS_SCHEMA_DIR, a binary in builddir finds builddir/data's schema")
+{
+    // This binary is builddir/tests/app/test_settings_missing_schema; the
+    // environment hides every installed schema, as for the owner's launch.
+    Settings settings;
+    CHECK(settings.isPersistent());
+    settings.setAutosaveDelayMinutes(7);
+    CHECK(settings.autosaveDelayMinutes() == 7);
 }

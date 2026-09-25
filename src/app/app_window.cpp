@@ -527,6 +527,14 @@ void AppWindow::buildUi(GtkApplication *app)
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), zoomGroup);
 
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbarView), headerBar);
+    // Without a schema nothing in Settings survives a restart (reopen-last-
+    // project included); say so where it can't be missed, not only in the
+    // Settings dialog.
+    if (!m_settings->isPersistent()) {
+        AdwBanner *banner = ADW_BANNER(adw_banner_new("Settings can't be saved: schema not found"));
+        adw_banner_set_revealed(banner, TRUE);
+        adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbarView), GTK_WIDGET(banner));
+    }
 
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_VERTICAL);
     gtk_paned_set_resize_start_child(GTK_PANED(paned), TRUE);

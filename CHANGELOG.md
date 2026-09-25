@@ -10,6 +10,12 @@ docs-only changes are not listed (CLAUDE.md).
   import (undo reverts both); importing a clip at a different rate notes
   that frames will repeat or be skipped. Rates show as 23.976/29.97/59.94.
 
+## 0.40.2
+
+- Settings now persist when the editor is run straight from its build
+  directory (they silently reset on every launch before, so "reopen last
+  project" never had anything to reopen); a banner says so if they can't.
+
 ## 0.40.1
 
 - Launched from a snap app's terminal (VS Code's), the editor no longer
