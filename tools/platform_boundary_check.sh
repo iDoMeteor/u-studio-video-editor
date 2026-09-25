@@ -3,6 +3,8 @@
 # The files doc 14's migration list still names are allowed until they move.
 # usage: platform_boundary_check.sh <source root> <stamp to touch>
 set -e
+# The stamp path is relative to the build directory: resolve it before cd.
+case "$2" in /*) stamp="$2" ;; *) stamp="$PWD/$2" ;; esac
 cd "$1"
 include='^[[:space:]]*#[[:space:]]*include[[:space:]]*<(unistd\.h|fcntl\.h|dlfcn\.h|signal\.h|csignal|glib-unix\.h|sys/)'
 proc='"/proc/'
@@ -14,4 +16,4 @@ if [ -n "$found" ]; then
     echo "POSIX/Linux-only code outside src/platform/ (ADR-017): add a platform:: function instead."
     exit 1
 fi
-touch "$2"
+touch "$stamp"
