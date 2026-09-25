@@ -191,7 +191,10 @@ single-track skeleton.
   OpenH264, which has no CRF), or exact bitrates. Built-ins: "High
   quality" (the default) and "Draft (legacy)", the fixed bitrates every
   render used before 0.36; duplicate one to make your own, kept in
-  `$XDG_CONFIG_HOME/ustudio/render-profiles.ini`. Other frame rates aren't
+  `$XDG_CONFIG_HOME/ustudio/render-profiles.ini`. A global Render threads setting
+  (Settings > Render, default 80% of the hardware threads, warns above
+  80%) splits the render between MLT's parallel frame rendering and the
+  encoder; it applies from the next render. Other frame rates aren't
   supported yet: the avformat consumer's `frame_rate_num` only relabels
   the stream. Renders run one at a time from a queue, each fixed when
   queued (the project as it was, the profile, the output path). The Render

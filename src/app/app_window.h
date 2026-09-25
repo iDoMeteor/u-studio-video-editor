@@ -944,6 +944,9 @@ class AppWindow
     // stops it before MLT closes (post-M3 audit P2) and keeps what didn't
     // finish for the next launch (pending_renders).
     std::unique_ptr<RenderQueue> m_renderQueue;
+    // Settings > Render > Render threads; read by the render backend on its
+    // thread as each render starts, so a running render keeps its own.
+    std::atomic<int> m_renderThreadsPercent{Settings::kDefaultRenderThreadsPercent};
     bool m_stopRenderConfirmed = false; // "Quit" was chosen while rendering
     // The Render button: a progress fill under its label, a queued-count
     // badge, and after a render, "Open Render" until clicked.

@@ -823,7 +823,7 @@ std::optional<bool> h264HasQualityMode()
 
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int, int)> onProgress, const std::atomic<bool> *cancel,
-                   const core::RenderProfile &profile)
+                   const core::RenderProfile &profile, int threadBudget)
 {
     Log::ScopedTimer timer("[engine] renderProject total");
     EngineSync renderSync(model); // its own Profile/Tractor, independent of any live one
@@ -887,7 +887,22 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     consumer.set("ar", "48000");
     consumer.set("channels", 2);
     consumer.set("pix_fmt", "yuv420p");
-    consumer.set("real_time", -1); // render every frame; don't drop frames to keep up with a clock
+    // Negative real_time: render every frame, never drop to keep up with a
+    // clock, on that many threads (consumer_avformat.yml). "threads" is the
+    // encoder's (consumer_avformat.c: 0 = the codec's automatic count). Both
+    // measured on a generated 1080p project (doc 19, MT5): -8 gave output
+    // bit-identical to -1 (PSNR inf on all 600 frames, same frame count and
+    // audio), 20% faster on a composited graph; real_time > 1 being broken
+    // is sdl2 playback's problem (doc 05), not the avformat consumer's.
+    if (threadBudget > 0) {
+        const core::RenderThreads threads = core::splitRenderThreads(threadBudget);
+        consumer.set("real_time", -threads.frames);
+        consumer.set("threads", threads.encoder);
+        Log::info("[engine] Render threads: " + std::to_string(threads.frames) + " frame, " +
+                  std::to_string(threads.encoder) + " encoder (budget " + std::to_string(threadBudget) + ")");
+    } else {
+        consumer.set("real_time", -1);
+    }
     consumer.connect(renderSync.tractor());
 
     // Registered before run() (which blocks until the render finishes),

@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace ustudio::app {
@@ -21,6 +23,9 @@ struct RenderPage
 {
     RenderProfileStore *store = nullptr;
     Settings *settings = nullptr;
+    std::function<void(int)> onThreadsChanged;
+    AdwSpinRow *threadsRow = nullptr;
+    GtkWidget *threadsWarning = nullptr;
     AdwComboRow *profileRow = nullptr;
     std::vector<std::string> names; // parallel to profileRow's model
     GtkWidget *removeButton = nullptr;
@@ -37,12 +42,34 @@ struct RenderPage
 };
 
 void profileSelectedTrampoline(AdwComboRow *row, GParamSpec *pspec, gpointer userData);
+void threadsChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
 void qualityChangedTrampoline(AdwComboRow *row, GParamSpec *pspec, gpointer userData);
 void newClickedTrampoline(GtkButton *button, gpointer userData);
 void duplicateClickedTrampoline(GtkButton *button, gpointer userData);
 void removeClickedTrampoline(GtkButton *button, gpointer userData);
 void defaultClickedTrampoline(GtkButton *button, gpointer userData);
 void saveClickedTrampoline(GtkButton *button, gpointer userData);
+
+constexpr int kThreadsWarnAbove = 80;
+
+// "12 of 16 threads", and above kThreadsWarnAbove a warning (it doesn't stop
+// anything).
+void updateThreadsRow(RenderPage &page)
+{
+    const int percent = static_cast<int>(adw_spin_row_get_value(page.threadsRow));
+    const int hardware = static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
+    std::string subtitle =
+        std::to_string(core::renderThreadBudget(percent, hardware)) + " of " + std::to_string(hardware) + " threads";
+    const bool warn = percent > kThreadsWarnAbove;
+    if (warn)
+        subtitle += ". Above 80% the desktop may stutter while rendering";
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(page.threadsRow), subtitle.c_str());
+    gtk_widget_set_visible(page.threadsWarning, warn);
+    if (warn)
+        gtk_widget_add_css_class(GTK_WIDGET(page.threadsRow), "warning");
+    else
+        gtk_widget_remove_css_class(GTK_WIDGET(page.threadsRow), "warning");
+}
 
 core::RenderProfile shownProfile(const RenderPage &page)
 {
@@ -148,16 +175,33 @@ GtkWidget *headerButton(const char *label, const char *hintId, GCallback onClick
 
 } // namespace
 
-AdwPreferencesPage *buildRenderProfilesPage(RenderProfileStore &store, Settings &settings, bool qualityMode)
+AdwPreferencesPage *buildRenderProfilesPage(RenderProfileStore &store, Settings &settings, bool qualityMode,
+                                            std::function<void(int percent)> onThreadsChanged)
 {
     auto *page = new RenderPage;
     page->store = &store;
     page->settings = &settings;
+    page->onThreadsChanged = std::move(onThreadsChanged);
     AdwPreferencesPage *prefs = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
     adw_preferences_page_set_title(prefs, "Render");
     adw_preferences_page_set_icon_name(prefs, "video-x-generic-symbolic");
     g_object_set_data_full(G_OBJECT(prefs), "ustudio-render-page", page,
                            [](gpointer data) { delete static_cast<RenderPage *>(data); });
+
+    // Global, above the profiles: applies to every render from the next one.
+    AdwPreferencesGroup *renderingGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    adw_preferences_group_set_title(renderingGroup, "Rendering");
+    adw_preferences_page_add(prefs, renderingGroup);
+    page->threadsRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(10.0, 100.0, 5.0));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(page->threadsRow), "Render threads (%)");
+    setTooltip(GTK_WIDGET(page->threadsRow), "render-profiles.threads");
+    adw_spin_row_set_digits(page->threadsRow, 0);
+    adw_spin_row_set_value(page->threadsRow, static_cast<double>(settings.renderThreadsPercent()));
+    page->threadsWarning = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+    adw_action_row_add_prefix(ADW_ACTION_ROW(page->threadsRow), page->threadsWarning);
+    g_signal_connect(page->threadsRow, "notify::value", G_CALLBACK(threadsChangedTrampoline), page);
+    adw_preferences_group_add(renderingGroup, GTK_WIDGET(page->threadsRow));
+    updateThreadsRow(*page);
 
     AdwPreferencesGroup *profilesGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
     adw_preferences_group_set_title(profilesGroup, "Profiles");
@@ -247,6 +291,16 @@ void profileSelectedTrampoline(AdwComboRow *row, GParamSpec *, gpointer userData
         return;
     setStatus(*page, "");
     showProfile(*page, page->names[selected]);
+}
+
+void threadsChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+{
+    auto *page = static_cast<RenderPage *>(userData);
+    const int percent = static_cast<int>(adw_spin_row_get_value(row));
+    page->settings->setRenderThreadsPercent(percent);
+    updateThreadsRow(*page);
+    if (page->onThreadsChanged)
+        page->onThreadsChanged(percent);
 }
 
 void qualityChangedTrampoline(AdwComboRow *, GParamSpec *, gpointer userData)

@@ -285,11 +285,13 @@ class EngineSync
 // audit P2: MLT must not be torn down under a running render).
 //
 // `profile` picks size and quality (core::encoderSettings()); the default is
-// the pre-profile settings, which the engine tests rely on.
+// the pre-profile settings, which the engine tests rely on. `threadBudget`
+// > 0 caps the render's threads (core::splitRenderThreads()); 0 leaves
+// MLT's defaults (one render thread, the encoder's automatic count).
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int currentFrame, int totalFrames)> onProgress = {},
                    const std::atomic<bool> *cancel = nullptr,
-                   const core::RenderProfile &profile = core::legacyRenderProfile());
+                   const core::RenderProfile &profile = core::legacyRenderProfile(), int threadBudget = 0);
 
 // The H.264 encoder renderProject uses: libx264 where ffmpeg has it,
 // otherwise libopenh264 (stock Fedora's ffmpeg-free ships only that one;

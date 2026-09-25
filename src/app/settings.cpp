@@ -223,6 +223,18 @@ void Settings::setDefaultExportFolder(const std::string &folder)
     setString("default-export-folder", folder);
 }
 
+int Settings::renderThreadsPercent() const
+{
+    return m_settings != nullptr ? g_settings_get_int(m_settings, "render-threads-percent")
+                                 : kDefaultRenderThreadsPercent;
+}
+
+void Settings::setRenderThreadsPercent(int percent)
+{
+    if (m_settings != nullptr)
+        g_settings_set_int(m_settings, "render-threads-percent", percent);
+}
+
 std::string Settings::defaultRenderProfile() const
 {
     return getString("default-render-profile", "High quality");

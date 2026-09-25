@@ -337,6 +337,27 @@ after the window's first second. That first second has first-show stalls
   checking frame-exact output against `-1` on a generated project before
   adopting it.
 
+**Done in-process, 0.40.0 (2026-09-25):** Settings > Render > Render
+threads, a percentage of the hardware threads (default 80%), split by
+`core::splitRenderThreads()` into `real_time = -frames` (budget/4, 1–8)
+and the encoder's `threads` (1.5 × the rest, as x264's own automatic
+choice assumes). `-8` was bit-identical to `-1` (PSNR inf on all 600
+frames, same frame and audio timing). Measured on the dev machine (16
+threads), a generated 20 s 1080p30 project, High quality (x264 CRF 18,
+slow), standalone repro against MLT 7.40:
+
+| Setting | Simple graph (one clip) | Composited (two 1080p tracks, affine PIP) |
+|---|---|---|
+| Before (`real_time -1`, x264 automatic = 24 threads) | 7.6 s (11.0 cores) | 26.0 s (5.5 cores) |
+| Budget 1 (`-1`, 1 encoder thread) | 40.0 s | 62.6 s |
+| 80% = 12 (`-3`, 14 encoder threads) | 7.8 s (10.5 cores) | 22.7 s (6.9 cores) |
+| 100% = 16 (`-4`, 18 encoder threads) | 7.8 s | 22.8 s |
+
+Encoder threads matter most on a simple graph (encode-bound); frame
+threads help only once the graph is heavy (-4 to -8: about 20%, no gain
+past 8). 80% already saturates this machine, so 100% adds nothing. Moving
+export out of process is still to do.
+
 ### MT6 — Drop-ins inherit the model
 
 The drop-in host (doc 15, IP1–IP6) documents each hook's thread:

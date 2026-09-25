@@ -195,3 +195,25 @@ TEST_CASE("renderProject: a profile's height scales the output at the project's 
     CHECK(rendered.get_int("meta.media.width") == 1280);
     CHECK(rendered.get_int("meta.media.height") == 720);
 }
+
+TEST_CASE("renderProject: a thread budget renders the same frames as none")
+{
+    sharedFactoryPolicy();
+    Model model = makeShortProject();
+
+    // What avformat reads back for a render (its length estimate for a file
+    // this short is 4 either way, so the two are compared, not a constant).
+    auto renderedLength = [&](const std::string &name, int budget) {
+        fs::path outputPath = fs::temp_directory_path() / name;
+        RemoveOnExit guard{outputPath};
+        std::string error;
+        REQUIRE(renderProject(model, outputPath.string(), error, {}, nullptr, legacyRenderProfile(), budget));
+        Mlt::Profile probeProfile;
+        Mlt::Producer rendered(probeProfile, "avformat", outputPath.string().c_str());
+        REQUIRE(rendered.is_valid());
+        return rendered.get_length();
+    };
+    // 12: three frame threads (real_time = -3) and 14 encoder threads.
+    CHECK(renderedLength("ustudio-render-test-threads.mp4", 12) ==
+          renderedLength("ustudio-render-test-no-threads.mp4", 0));
+}

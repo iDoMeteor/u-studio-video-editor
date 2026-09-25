@@ -100,6 +100,12 @@
       <summary>Default export folder</summary>
       <description>Where renders go; empty for the project's folder, then Videos, then home.</description>
     </key>
+    <key name="render-threads-percent" type="i">
+      <range min="10" max="100"/>
+      <default>80</default>
+      <summary>Render threads</summary>
+      <description>How much of the machine a render may use, as a percentage of its hardware threads. Applies from the next render.</description>
+    </key>
     <key name="default-render-profile" type="s">
       <default>"High quality"</default>
       <summary>Default render profile</summary>

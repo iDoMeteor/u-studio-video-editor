@@ -69,3 +69,21 @@ TEST_CASE("render profiles: names")
     CHECK_FALSE(renderProfileNameProblem("High quality", mine).empty());
     CHECK_FALSE(renderProfileNameProblem("a[b]", mine).empty());
 }
+
+TEST_CASE("render threads: the budget and its split")
+{
+    CHECK(renderThreadBudget(80, 16) == 12); // floor(12.8)
+    CHECK(renderThreadBudget(100, 16) == 16);
+    CHECK(renderThreadBudget(10, 4) == 1); // at least one
+    CHECK(renderThreadBudget(80, 0) == 1);
+
+    RenderThreads one = splitRenderThreads(1);
+    CHECK(one.frames == 1);
+    CHECK(one.encoder == 1);
+    RenderThreads twelve = splitRenderThreads(12);
+    CHECK(twelve.frames == 3);
+    CHECK(twelve.encoder == 14); // 1.5 x 9, rounded
+    RenderThreads many = splitRenderThreads(64);
+    CHECK(many.frames == 8); // no gain past 8 (doc 19)
+    CHECK(many.encoder == 84);
+}

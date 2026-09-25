@@ -1,5 +1,6 @@
 #include "core/render/render_profile.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace ustudio::core {
@@ -94,6 +95,20 @@ EncoderSettings encoderSettings(const RenderProfile &profile, const Profile &pro
         settings.videoBitrate = std::llround(preset.bitsPerPixel * width * height * fps);
     }
     return settings;
+}
+
+RenderThreads splitRenderThreads(int budget)
+{
+    budget = std::max(1, budget);
+    RenderThreads threads;
+    threads.frames = std::clamp(budget / 4, 1, 8);
+    threads.encoder = std::max(1, static_cast<int>(std::lround(1.5 * (budget - threads.frames))));
+    return threads;
+}
+
+int renderThreadBudget(int percent, int hardwareThreads)
+{
+    return std::max(1, std::max(1, hardwareThreads) * std::clamp(percent, 0, 100) / 100);
 }
 
 std::string renderProfileNameProblem(const std::string &name, const std::vector<RenderProfile> &others)

@@ -114,6 +114,7 @@ std::vector<HintSpec> &registry()
         {"settings.hover-preview",   "Settings", "Thumbnails in clip tooltips", "A video clip's tooltip shows the frame under the pointer", nullptr, nullptr},
         {"settings.project-folder",  "Settings", "Default project folder",  "Where Open and Save As start", nullptr, nullptr},
         {"settings.export-folder",   "Settings", "Default export folder",   "Where renders go; unset, the project's own folder, then Videos, then your home folder", nullptr, nullptr},
+        {"render-profiles.threads",  "Settings", "Render threads",          "How much of the machine a render may use, split between drawing frames and encoding; applies from the next render", nullptr, nullptr},
         {"render-profiles.profile",  "Settings", "Render profile",  "The profile shown below; the one marked (default) is what Render uses", nullptr, nullptr},
         {"render-profiles.set-default", "Settings", "Make this the profile Render uses", nullptr, nullptr, nullptr},
         {"render-profiles.new",      "Settings", "New render profile",      "Starts from High quality", nullptr, nullptr},

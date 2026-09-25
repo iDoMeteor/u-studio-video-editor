@@ -197,11 +197,15 @@ AppWindow::AppWindow(GtkApplication *app)
     // list to find out, so it's asked once, off the main thread, and nothing
     // waits for it. A render asks too, if it gets there first.
     m_pool->submit([](std::stop_token) { engine::h264Encoder(); });
+    m_renderThreadsPercent = m_settings->renderThreadsPercent();
     m_renderQueue = std::make_unique<RenderQueue>(
-        [](const RenderJob &job, std::string &error, std::function<void(int, int)> onProgress,
-           const std::atomic<bool> &cancel) {
+        [this](const RenderJob &job, std::string &error, std::function<void(int, int)> onProgress,
+               const std::atomic<bool> &cancel) {
             core::Model model(*job.snapshot);
-            return engine::renderProject(model, job.outputPath, error, std::move(onProgress), &cancel, job.profile);
+            const int budget = core::renderThreadBudget(
+                m_renderThreadsPercent.load(), static_cast<int>(std::max(1u, std::thread::hardware_concurrency())));
+            return engine::renderProject(model, job.outputPath, error, std::move(onProgress), &cancel, job.profile,
+                                         budget);
         },
         [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
@@ -1411,9 +1415,10 @@ void AppWindow::showSettingsDialog()
     addFolderRow("export", "Default export folder", "settings.export-folder");
 
     // --- Render ---
-    adw_preferences_dialog_add(
-        ADW_PREFERENCES_DIALOG(dialog),
-        buildRenderProfilesPage(*m_renderProfiles, *m_settings, engine::h264HasQualityMode().value_or(true)));
+    adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog),
+                               buildRenderProfilesPage(*m_renderProfiles, *m_settings,
+                                                       engine::h264HasQualityMode().value_or(true),
+                                                       [this](int percent) { m_renderThreadsPercent = percent; }));
 
     // --- Keyboard Shortcuts (placeholder -- see action_registry.h's own
     // comment on the intended shape of the real rebinding UI later) ---

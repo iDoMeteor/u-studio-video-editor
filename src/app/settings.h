@@ -87,6 +87,12 @@ class Settings
     std::string defaultExportFolder() const;
     void setDefaultExportFolder(const std::string &folder);
 
+    // Settings > Render > Render threads: a percentage of the machine's
+    // hardware threads (core::renderThreadBudget()).
+    static constexpr int kDefaultRenderThreadsPercent = 80;
+    int renderThreadsPercent() const;
+    void setRenderThreadsPercent(int percent);
+
     // The render profile the Render button uses (RenderProfileStore).
     std::string defaultRenderProfile() const;
     void setDefaultRenderProfile(const std::string &name);

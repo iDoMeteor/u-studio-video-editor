@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.40.0
+
+- Settings > Render > Render threads: how much of the machine a render may
+  use (default 80%); renders of composited projects are about 20% faster.
+
 ## 0.39.0
 
 - The hover preview is now part of the clip tooltip: the frame under the

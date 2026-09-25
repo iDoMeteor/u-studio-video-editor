@@ -57,6 +57,20 @@ struct EncoderSettings
 // the output's pixel rate.
 EncoderSettings encoderSettings(const RenderProfile &profile, const Profile &project, bool qualityMode);
 
+// A render's thread budget (Settings > Render > Render threads) split
+// between MLT's parallel frame rendering (the avformat consumer's
+// real_time = -frames) and the encoder (its "threads"). Measured on the dev
+// machine (doc 19, MT5): frames beyond 8 add nothing, and x264 needs about
+// 1.5 threads per core it's given, as its own automatic choice assumes.
+struct RenderThreads
+{
+    int frames = 1;
+    int encoder = 1;
+};
+RenderThreads splitRenderThreads(int budget);
+// floor(percent% of hardwareThreads), at least 1.
+int renderThreadBudget(int percent, int hardwareThreads);
+
 // Empty if `name` can be a user profile's name, else why not. `others` are
 // the user profiles it must not clash with (built-ins are checked here).
 std::string renderProfileNameProblem(const std::string &name, const std::vector<RenderProfile> &others);
