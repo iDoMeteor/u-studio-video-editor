@@ -4,6 +4,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace ustudio::app::autosave {
 
@@ -104,5 +105,34 @@ std::optional<Recoverable> findRecoverable(const std::set<std::string> &excludeM
 //   `delayUsec`.
 bool autosaveDue(int64_t nowUsec, int64_t lastEditUsec, int64_t unsavedSinceUsec, int64_t delayUsec,
                  int64_t heartbeatUsec);
+
+// Deletes `<dir>/<base>.ustudio` and its `.meta`, whichever exist.
+void removeAutosavePair(const std::string &dir, const std::string &base);
+
+// Which autosaves this session wrote, so it can take back the ones a save
+// or a clean quit makes stale, and never another session's (a named
+// project's autosave has the same name in every session, so a crashed
+// earlier session's would otherwise be deleted along with ours). Main
+// thread; returns base names for removeAutosavePair().
+class OwnAutosaves
+{
+  public:
+    explicit OwnAutosaves(std::string sessionId) : m_sessionId(std::move(sessionId)) {}
+
+    // An autosave of the project at `originalPath` ("" untitled) landed.
+    void written(const std::string &originalPath);
+    // A save to `newPath` landed; the project was at `oldPath` before it.
+    // The old name's autosave is stale if the name changed (untitled ->
+    // Save As, or a Save As to another path); the new name's too when
+    // nothing was edited since (`clean`).
+    std::vector<std::string> saved(const std::string &oldPath, const std::string &newPath, bool clean);
+    // Quitting with nothing unsaved: every autosave of ours is stale.
+    std::vector<std::string> quitClean();
+
+  private:
+    std::vector<std::string> take(const std::string &base);
+    std::string m_sessionId;
+    std::set<std::string> m_written;
+};
 
 } // namespace ustudio::app::autosave

@@ -297,4 +297,44 @@ bool autosaveDue(int64_t nowUsec, int64_t lastEditUsec, int64_t unsavedSinceUsec
     return nowUsec - lastEditUsec >= delayUsec || nowUsec - unsavedSinceUsec >= delayUsec - heartbeatUsec;
 }
 
+void removeAutosavePair(const std::string &dir, const std::string &base)
+{
+    std::error_code ec;
+    for (const char *suffix : {".ustudio", ".meta"})
+        std::filesystem::remove(std::filesystem::path(dir) / (base + suffix), ec);
+}
+
+void OwnAutosaves::written(const std::string &originalPath)
+{
+    m_written.insert(baseNameFor(originalPath, m_sessionId));
+}
+
+std::vector<std::string> OwnAutosaves::take(const std::string &base)
+{
+    if (m_written.erase(base) == 0)
+        return {};
+    return {base};
+}
+
+std::vector<std::string> OwnAutosaves::saved(const std::string &oldPath, const std::string &newPath, bool clean)
+{
+    std::vector<std::string> stale;
+    const std::string oldBase = baseNameFor(oldPath, m_sessionId);
+    const std::string newBase = baseNameFor(newPath, m_sessionId);
+    if (oldBase != newBase)
+        for (std::string &base : take(oldBase))
+            stale.push_back(std::move(base));
+    if (clean)
+        for (std::string &base : take(newBase))
+            stale.push_back(std::move(base));
+    return stale;
+}
+
+std::vector<std::string> OwnAutosaves::quitClean()
+{
+    std::vector<std::string> stale(m_written.begin(), m_written.end());
+    m_written.clear();
+    return stale;
+}
+
 } // namespace ustudio::app::autosave

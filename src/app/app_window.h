@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "action_registry.h"
+#include "autosave.h"
 #include "render_profiles.h"
 #include "render_queue.h"
 #include "core/commands/undo_stack.h"
@@ -993,6 +994,10 @@ class AppWindow : public ShellHost
     // Fresh per launch (a UUID) -- makes two untitled sessions autosave to
     // different files instead of overwriting each other, per doc 09.
     std::string m_autosaveSessionId;
+    // The autosaves this session wrote, taken back when a save or a clean
+    // quit makes them stale (so only unsaved work is ever offered).
+    std::unique_ptr<autosave::OwnAutosaves> m_ownAutosaves;
+    void removeStaleAutosaves(const std::vector<std::string> &bases);
     gint64 m_lastEditMonotonicUsec = 0;
     // When the oldest edit not yet in an autosave happened; 0 = none
     // pending. Set by the first rebuild after an autosave, cleared by

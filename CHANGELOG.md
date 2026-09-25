@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.45.2
+
+- Saving an untitled project, or quitting with nothing unsaved, no longer
+  leaves an autosave behind that the next launch offers to recover (which
+  also stopped the last project reopening).
+
 ## 0.45.1
 
 - A long status message (an import of many files at another frame rate)
