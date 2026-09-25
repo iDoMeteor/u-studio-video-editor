@@ -905,6 +905,17 @@ a real one. `EngineSync::mediaUnavailable` fires (main thread, from
 `verify()` skips its resource-match check for these clips, since the
 placeholder's resource is the intended fallback, not a sync bug.
 
+**A filter on a cut animates from the cut's `in`, only if you set it.**
+A cut's frames carry their position in the *source*, and
+`mlt_filter_get_position()` returns that position minus the filter's own
+`in` (`mlt_filter.c`, 7.40). A filter attached to a cut of source frames
+100–194 with the default in 0 read its animation from frame 100 onwards,
+so a fade keyed 0→94 started most of the way through. Give the filter the
+cut's in/out: `engine::attachToCut()` does, for drop-in extensions (IP3),
+and the project writer puts the same `in`/`out` on a clip entry's native
+`<filter>`. Confirmed with a standalone repro and
+`tests/dropins/test_dropin_engine` (2026-09-25).
+
 ### Waveform cache notes
 
 `WaveformCache` opens its own throwaway `Mlt::Profile`/`Producer` per clip
