@@ -15,6 +15,18 @@ int64_t currentProcessId()
     return static_cast<int64_t>(::getpid());
 }
 
+std::filesystem::path executablePath()
+{
+    std::error_code ec;
+    std::filesystem::path path = std::filesystem::read_symlink("/proc/self/exe", ec);
+    return ec ? std::filesystem::path() : path;
+}
+
+const char *executableSuffix()
+{
+    return "";
+}
+
 // kill(pid, 0) sends no signal, it only probes (POSIX kill(2)): ESRCH is
 // no such process; EPERM is one owned by someone else, which exists.
 bool processExists(int64_t pid)

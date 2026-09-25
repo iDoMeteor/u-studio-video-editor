@@ -68,7 +68,7 @@ code written from now on must not make it harder.
 | `src/core/xml/writer.cpp` | `fcntl.h`, `unistd.h` (fsync for atomic save) | `platform::syncFile()` |
 | ~~`src/app/autosave.cpp`~~ | ~~`/proc/<pid>/stat` start time for process liveness~~ | done: `platform::processExists()`, `platform::processStartTime()` |
 | `src/app/main.cpp` | `g_unix_signal_add` for SIGTERM and SIGINT | `platform::installQuitHandlers()` (console and session-end handlers on Windows) |
-| `src/app/settings.cpp`, `src/app/snap_env.cpp` | `/proc/self/exe` | `platform::executablePath()` |
+| ~~`src/app/settings.cpp`, `src/app/snap_env.cpp`~~ | ~~`/proc/self/exe`~~ | done: `platform::executablePath()` (snap_env's `environ` scrub is a Linux-only feature: the port wraps it in an `#ifdef` with a no-op, ADR-017 rule 5) |
 | `src/app/portal_path.cpp` | document-portal xattrs | stays Linux-only; a no-op elsewhere |
 | ~~`src/app/app_window.cpp`~~ | ~~`unistd.h`~~ | done: `platform::currentProcessId()` (autosave's owner pid) |
 | `src/engine/factory_policy.cpp` | a symlink farm for the curated module directory, `.so` filtering, `mallopt` | `platform::linkOrCopy()`, `platform::sharedLibrarySuffix()`, `platform::tuneAllocator()` |

@@ -36,14 +36,14 @@ app_autosave_dep = declare_dependency(
 app_settings_lib = static_library(
   'ustudio_app_settings',
   files('settings.cpp', 'render_profiles.cpp', 'snap_env.cpp'),
-  dependencies: [gio_dep, glib_dep, libustudio_core_dep],
+  dependencies: [gio_dep, glib_dep, libustudio_core_dep, libustudio_platform_dep],
   include_directories: src_inc,
   install: false,
 )
 app_settings_dep = declare_dependency(
   link_with: app_settings_lib,
   include_directories: src_inc,
-  dependencies: [gio_dep, glib_dep, libustudio_core_dep],
+  dependencies: [gio_dep, glib_dep, libustudio_core_dep, libustudio_platform_dep],
 )
 
 # GLib-only, like the two libraries above, so tests/app/ can exercise it

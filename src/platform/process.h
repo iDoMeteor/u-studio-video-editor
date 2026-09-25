@@ -5,11 +5,18 @@
 // with the port). Includes std and OS headers only: no GTK, GLib or MLT.
 
 #include <cstdint>
+#include <filesystem>
 
 namespace ustudio::platform {
 
 // This process's id (autosave's owner record, audit A5).
 int64_t currentProcessId();
+
+// This program's own file, resolved ("" if unknown): the schema fallback
+// and finding u-studio-render next to the editor.
+std::filesystem::path executablePath();
+// What executables end in here: "" on Linux, ".exe" on Windows.
+const char *executableSuffix();
 
 // Whether a process with this id exists, including one another user owns
 // (autosave's owner check). pid <= 0 never does.

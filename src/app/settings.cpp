@@ -1,5 +1,7 @@
 #include "settings.h"
 
+#include "platform/process.h"
+
 #include "core/log.h"
 
 #include <filesystem>
@@ -59,8 +61,8 @@ Settings::Settings(const std::string &fallbackSchemaDir)
 std::string Settings::builddirSchemaDir()
 {
     std::error_code ec;
-    const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
-    if (ec)
+    const std::filesystem::path exe = platform::executablePath();
+    if (exe.empty())
         return {};
     const std::filesystem::path dir = exe.parent_path() / ".." / ".." / "data";
     const std::filesystem::path canonical = std::filesystem::weakly_canonical(dir, ec);

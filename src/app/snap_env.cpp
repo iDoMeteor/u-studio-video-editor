@@ -1,5 +1,7 @@
 #include "snap_env.h"
 
+#include "platform/process.h"
+
 #include <cstdlib>
 #include <filesystem>
 #include <sstream>
@@ -100,8 +102,7 @@ std::vector<EnvChange> snapEnvironmentFixes(const std::map<std::string, std::str
 
 std::vector<std::string> scrubSnapEnvironment()
 {
-    std::error_code ec;
-    if (std::filesystem::read_symlink("/proc/self/exe", ec).string().starts_with("/snap/"))
+    if (platform::executablePath().string().starts_with("/snap/"))
         return {}; // we are the snap: its environment is ours
     std::map<std::string, std::string> env;
     for (char **entry = environ; entry && *entry; ++entry) {

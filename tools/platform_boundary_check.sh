@@ -9,7 +9,7 @@ cd "$1"
 include='^[[:space:]]*#[[:space:]]*include[[:space:]]*<(unistd\.h|fcntl\.h|dlfcn\.h|signal\.h|csignal|glib-unix\.h|sys/)'
 proc='"/proc/'
 # Not yet migrated (doc 14, "Migration list"): strike a line when its file moves.
-allowed='^src/(core/xml/writer\.cpp|app/main\.cpp|app/settings\.cpp|app/snap_env\.cpp|app/portal_path\.cpp|engine/factory_policy\.cpp|engine/engine\.cpp|dropins/registry\.cpp):'
+allowed='^src/(core/xml/writer\.cpp|app/main\.cpp|app/portal_path\.cpp|engine/factory_policy\.cpp|engine/engine\.cpp|dropins/registry\.cpp):'
 found=$(grep -rnE -e "$include" -e "$proc" src --include='*.cpp' --include='*.h' | grep -v '^src/platform/' | grep -vE "$allowed" || true)
 if [ -n "$found" ]; then
     echo "$found"
