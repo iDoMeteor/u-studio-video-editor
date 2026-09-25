@@ -31,6 +31,50 @@ Short, because a `.clang-format` and the compiler enforce most of it.
   to `$XDG_STATE_HOME/ustudio/logs/`. Routing through `g_log_structured` is
   optional later; not a v2 requirement.
 
+## Portability (ADR-017)
+
+Windows 10/11 is a secondary launch target. The port is scheduled later, but
+code written from now on must not make it harder.
+
+- **OS-specific calls live in `src/platform/`**, behind std-only interfaces,
+  one implementation file per OS (`*_linux.cpp`, later `*_windows.cpp`).
+  That covers `/proc`, `unistd.h`, `fcntl.h`, `sys/*`, `dlfcn.h`, signals,
+  symlinks, `dup2`/fd tricks, thread naming and allocator tuning.
+  `src/platform/` includes std and OS headers only: no GTK, GLib or MLT.
+- **Already portable, use directly:** `std::filesystem`, `std::thread`,
+  GLib's `g_get_user_*_dir()`, `GSubprocess`, GModule, GIO's
+  default-app launching, GSettings.
+- **Paths:** `std::filesystem::path` throughout. No hard-coded `/tmp`, `~`
+  or `/`-joined absolute paths. Tests use the scratch helper or
+  `temp_directory_path()`.
+- **Names:** shared-library and executable suffixes come from `platform::`
+  (`.so`/`.dll`, `""`/`.exe`).
+- **Child processes:** `GSubprocess`, cancelled through a `platform::`
+  helper.
+- **Linux-only features** (document portal, snap scrub, `mallopt`) are fine
+  behind `src/platform/` or an `#ifdef` with a working no-op elsewhere.
+- **Text and file names:** write UTF-8 with `\n`. Never assume ASCII file
+  names.
+- **"When passing by":** when a change touches a file on the list below,
+  move that file's OS-specific code into `src/platform/` as a separate
+  small commit, and strike it from the list. No big-bang refactor. The
+  first such commit creates `src/platform/` and its meson boundary check.
+
+### Migration list (survey 2026-09-25)
+
+| File | Linux-only code | Likely `platform::` helper |
+|---|---|---|
+| `src/core/xml/writer.cpp` | `fcntl.h`, `unistd.h` (fsync for atomic save) | `platform::syncFile()` |
+| `src/app/autosave.cpp` | `/proc/<pid>/stat` start time for process liveness | `platform::processStartTime(pid)` |
+| `src/app/main.cpp` | `g_unix_signal_add` for SIGTERM and SIGINT | `platform::installQuitHandlers()` (console and session-end handlers on Windows) |
+| `src/app/settings.cpp`, `src/app/snap_env.cpp` | `/proc/self/exe` | `platform::executablePath()` |
+| `src/app/portal_path.cpp` | document-portal xattrs | stays Linux-only; a no-op elsewhere |
+| `src/app/app_window.cpp` | `unistd.h` | check what it's for; remove or wrap |
+| `src/engine/factory_policy.cpp` | a symlink farm for the curated module directory, `.so` filtering, `mallopt` | `platform::linkOrCopy()`, `platform::sharedLibrarySuffix()`, `platform::tuneAllocator()` |
+| `src/engine/engine_sync.cpp` | `dup2` to silence MLT's stdout encoder list | `platform::ScopedStdoutSilence` |
+| `src/engine/engine.cpp` | `pthread_setname_np` | `platform::setThreadName()` |
+| `src/dropins/registry.cpp` | `libustudio-dropin-*.so` names | `platform::sharedLibrarySuffix()` |
+
 ## GTK / GObject
 
 - `GObjectPtr<T>`: RAII holder (`ref_sink` on construction from floating,

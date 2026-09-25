@@ -42,7 +42,12 @@ to `meson.build`.
 
 Platform: Fedora (owner's machine, Wayland, PipeWire) first; any modern
 GNOME desktop second; Flatpak is the reference shipped artifact from M7.
-Windows/macOS are not targets.
+**Windows 10/11 is a secondary launch target** (ADR-017, 2026-09-25): the
+port itself is scheduled later, but all new code must stay portable. No
+POSIX/Linux-only calls (`/proc`, `unistd.h`, signals, symlinks, `.so`
+names, hard-coded `/tmp` paths) outside `src/platform/`, and move existing
+ones there as a small side commit whenever you touch the file anyway (doc
+14's migration list). macOS is not a target.
 
 The owner's use case: 1080p/4K livestream and promo editing for the Unicorn
 Tears brand. The design system at
@@ -77,6 +82,8 @@ src/app/                  GTK4/libadwaita shell, built imperatively (no .ui file
   autosave.*              Autosave and crash recovery (doc 09)
   style/style.css         Unicorn Tears tokens on libadwaita named colours (GResource)
 src/render/               u-studio-render headless CLI (placeholder until M6)
+src/platform/             (ADR-017) every OS-specific call behind std-only
+                          interfaces, one file per OS; std + OS headers only
 tests/                    doctest suites: core/, engine/, app/
 tools/                    Build-time scripts (gen_tokens.py: style.css -> tokens.h)
 data/                     Desktop file, metainfo, icons, GResource manifest
@@ -154,6 +161,8 @@ the rest by review.
 | `src/engine/` | core, `mlt++`, GLib (dispatch only) | GTK, libadwaita |
 | `src/app/` | core, engine headers, GTK, libadwaita, GIO | any `<mlt…>` header |
 | `src/render/` | core, engine | GTK |
+| `src/platform/` | std, OS headers | GTK, GLib, MLT |
+| everything else | `platform::` for OS-specific work | `/proc`, `unistd.h`, `sys/*`, signals, symlinks (ADR-017) |
 
 - **Model → engine → screen, never backwards** (ADR-003). UI state comes
   from `core::Model`, never from MLT objects.

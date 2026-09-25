@@ -2,7 +2,7 @@
 
 One page each. Status is one of Proposed / Accepted / Superseded by ADR-nnn.
 All were **Proposed** as of 2026-09-12 pending team review; each file
-carries its own current status (ADR-011 to ADR-016 are Accepted).
+carries its own current status (ADR-011 to ADR-017 are Accepted).
 
 | ADR | Decision |
 |-----|----------|
@@ -22,3 +22,4 @@ carries its own current status (ADR-011 to ADR-016 are Accepted).
 | [014](014-drop-in-loading-and-distribution.md) | Drop-ins build built-in or as loadable modules; core ships with effects and titles, everything else is an opt-in package |
 | [015](015-ai-generation-network-boundary.md) | AI generation runs in a separate networked helper; the editor stays network-free |
 | [016](016-concurrency-model.md) | The main thread does UI and commands only; an engine thread, a worker pool and child processes do the rest, on immutable model snapshots |
+| [017](017-windows-secondary-target.md) | Windows 10/11 is a secondary launch target; OS-specific code lives behind `src/platform/`, new code stays portable, existing Linux-only sites migrate when touched |
