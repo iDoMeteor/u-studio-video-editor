@@ -25,7 +25,20 @@ scene clips), `stills/` (a few PNGs) and `finals/unicorn-dj-final.mp4`
 of the owner's AI-generated projects (unicorn DJ at 1080p30, zizzle zap
 zone at 1344×768@25).
 
-## Run
+## One command (the rolling series)
+
+```sh
+tools/demo-tour/make_demo.sh            # records the main checkout
+```
+
+Stages the media once into `~/.cache/ustudio-demo-media` (copies from the
+owner's drive, read-only), builds a separate release `builddir-demo`,
+records, and saves `u-studio-demo-<date>-v<version>.mp4` into
+`/home/jj/projects/u-studio-video-editor-projects/demo-videos/`. It never
+overwrites or removes a video there; a repeat run the same day gets `-2`,
+`-3`, and so on.
+
+## Run by hand
 
 ```sh
 TOUR_MEDIA=/path/to/media ./run_tour.sh /tmp/tour-out 1   # 1 = record
