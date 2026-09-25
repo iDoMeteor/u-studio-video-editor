@@ -2026,6 +2026,45 @@ std::vector<int> AppWindow::cutBoundariesAllTracks() const
     return boundaries;
 }
 
+void AppWindow::moveSelectedClipAcrossTracks(int direction)
+{
+    core::ClipId clipId = m_timelineController.selection().single();
+    if (!clipId.isValid() || !m_model.hasClip(clipId))
+        return;
+    for (const core::Transition &t : m_model.sequence().transitions) {
+        if (t.a == clipId || t.b == clipId) {
+            showStatus("This clip is in a dissolve; remove the dissolve to move it to another track.");
+            return;
+        }
+    }
+    const std::vector<core::Track> &tracks = m_model.sequence().tracks;
+    const core::Clip &clip = m_model.clip(clipId);
+    const core::FrameIndex position = clip.position;
+    int row = 0;
+    while (row < static_cast<int>(tracks.size()) && tracks[static_cast<size_t>(row)].id != clip.track)
+        ++row;
+    const core::Track::Kind kind = tracks[static_cast<size_t>(row)].kind;
+    if (tracks[static_cast<size_t>(row)].locked) {
+        showStatus("This clip's track is locked.");
+        return;
+    }
+    for (int r = row + direction; r >= 0 && r < static_cast<int>(tracks.size()); r += direction) {
+        const core::Track &target = tracks[static_cast<size_t>(r)];
+        if (target.kind != kind)
+            continue; // a video clip stays on video tracks, audio on audio
+        // MoveClip checks everything else (a clip in the way, a locked
+        // track) and leaves the model untouched when it refuses: the first
+        // track it accepts is the nearest free one.
+        if (m_undoStack.execute(std::make_unique<core::MoveClip>(clipId, target.id, position))) {
+            m_activeTrack = r;
+            refreshTimeline();
+            showStatus("Moved the clip to " + tracks[static_cast<size_t>(r)].name + ".");
+            return;
+        }
+    }
+    showStatus(direction < 0 ? "No free track above for this clip." : "No free track below for this clip.");
+}
+
 void AppWindow::onSeekPreviousCut(bool activeTrackOnly)
 {
     if (m_model.sequence().tracks.empty())
@@ -4521,6 +4560,16 @@ void AppWindow::activeTrackTopActivated(GSimpleAction *, GVariant *, gpointer us
     auto *self = static_cast<AppWindow *>(userData);
     if (self->m_model.sequence().tracks.empty())
         return;
+    // One clip selected: move it up instead; several: ask for one.
+    size_t selected = self->m_timelineController.selection().clips().size();
+    if (selected == 1) {
+        self->moveSelectedClipAcrossTracks(-1);
+        return;
+    }
+    if (selected > 1) {
+        self->showStatus("Select just one clip to move it to another track.");
+        return;
+    }
     self->m_activeTrack = 0;
     gtk_widget_queue_draw(GTK_WIDGET(self->m_timeline));
 }
@@ -4531,6 +4580,15 @@ void AppWindow::activeTrackBottomActivated(GSimpleAction *, GVariant *, gpointer
     int trackCount = static_cast<int>(self->m_model.sequence().tracks.size());
     if (trackCount <= 0)
         return;
+    size_t selected = self->m_timelineController.selection().clips().size();
+    if (selected == 1) {
+        self->moveSelectedClipAcrossTracks(+1);
+        return;
+    }
+    if (selected > 1) {
+        self->showStatus("Select just one clip to move it to another track.");
+        return;
+    }
     self->m_activeTrack = trackCount - 1;
     gtk_widget_queue_draw(GTK_WIDGET(self->m_timeline));
 }

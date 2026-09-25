@@ -273,6 +273,12 @@ class AppWindow
     // Every clip boundary on every track, plus 0 and the last frame, sorted
     // and deduplicated.
     std::vector<int> cutBoundariesAllTracks() const;
+    // Shift+S/Shift+D with exactly one clip selected (owner, 2026-09-25):
+    // move it to the nearest track above (-1) or below (+1) of the same kind
+    // where it fits at the same position, skipping tracks where it would
+    // land on another clip or that are locked (MoveClip refuses those). A
+    // clip in a dissolve is refused. The active track follows the clip.
+    void moveSelectedClipAcrossTracks(int direction);
     // Every clip boundary on the active track, plus 0 and totalFrames(),
     // sorted and deduplicated -- shared by the two methods above, and (as
     // cutBoundariesForTrack(m_activeTrack)) the active-track case of the

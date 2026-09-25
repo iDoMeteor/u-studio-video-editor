@@ -174,7 +174,7 @@ shipped bindings are the owner's and are the source of truth
 | A / F | previous / next cut on any track |
 | Shift+A / Shift+F | previous / next cut on the active track |
 | S / D | active track up / down |
-| Shift+S / Shift+D | active track to the top / bottom track |
+| Shift+S / Shift+D | the selected clip up / down to the nearest free track of its kind; with nothing selected, active track to the top / bottom |
 | X | split the active track's clip at the playhead |
 | Delete / Shift+Delete | delete / ripple delete |
 | I / O | set loop in / out |

@@ -80,8 +80,12 @@ single-track skeleton.
   `A`/`F` jump the playhead to the previous/next cut (a clip's start or
   end, or the timeline's own start/end) on any track, and `Shift+A`/
   `Shift+F` to the previous/next cut on the active track only. `S`/`D` move
-  which track is active up/down, the same target a plain click sets, and
-  `Shift+S`/`Shift+D` jump it to the top/bottom track.
+  which track is active up/down, the same target a plain click sets.
+  `Shift+S`/`Shift+D` move a single selected clip to the nearest track
+  above/below where it fits at the same position (same kind of track;
+  tracks where it would overlap a clip, or locked ones, are skipped; a
+  clip in a dissolve is refused), or with nothing selected jump the
+  active track to the top/bottom.
 - Split the active track's clip at the playhead (`X`, or the scissors
   button in the transport bar).
 - Transport buttons around the play button: go to start, shuttle reverse,

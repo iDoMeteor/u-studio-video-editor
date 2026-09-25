@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.30.0
+
+- `Shift+S`/`Shift+D` move a single selected clip up/down to the nearest
+  track where it fits (skipping tracks where it would overlap another
+  clip); with nothing selected they still jump to the top/bottom track.
+
 ## 0.29.0
 
 - `A`/`F` now jump to the previous/next cut on any track; `Shift+A`/
