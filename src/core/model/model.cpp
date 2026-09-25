@@ -1,9 +1,24 @@
 #include "model.h"
 
+#include "core/log.h"
+
 #include <algorithm>
 #include <cassert>
 
 namespace ustudio::core {
+
+namespace {
+// A caller broke one of Model's preconditions (commands validate first, in
+// their apply()). Debug builds stop here, after logging which; a release
+// build (NDEBUG) logs it and the caller takes a safe path -- the plain
+// assert()s these replace compiled out and left an end() iterator
+// dereferenced or erased.
+void preconditionFailed(const char *what)
+{
+    Log::error(std::string("[model] ") + what);
+    assert(false && "Model precondition failed; the log says which");
+}
+} // namespace
 
 Model Model::createEmpty(Profile profile)
 {
@@ -61,7 +76,12 @@ Sequence &Model::activeSequence()
         if (seq.id == m_project.activeSequence)
             return seq;
     }
-    assert(false && "Model: no active sequence -- Project invariant violated");
+    preconditionFailed("no active sequence -- Project invariant violated");
+    if (m_project.sequences.empty()) {
+        Sequence empty;
+        empty.id = m_project.activeSequence;
+        m_project.sequences.push_back(std::move(empty));
+    }
     return m_project.sequences.front();
 }
 
@@ -71,8 +91,9 @@ const Sequence &Model::activeSequence() const
         if (seq.id == m_project.activeSequence)
             return seq;
     }
-    assert(false && "Model: no active sequence -- Project invariant violated");
-    return m_project.sequences.front();
+    preconditionFailed("no active sequence -- Project invariant violated");
+    static const Sequence kNone;
+    return m_project.sequences.empty() ? kNone : m_project.sequences.front();
 }
 
 const Sequence &Model::sequence() const
@@ -95,7 +116,11 @@ const Asset &Model::asset(AssetId id) const
 {
     const auto &bin = m_project.bin;
     auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
-    assert(it != bin.end() && "Model::asset: unknown AssetId");
+    if (it == bin.end()) {
+        preconditionFailed("Model::asset: unknown AssetId");
+        static const Asset kNone;
+        return kNone;
+    }
     return *it;
 }
 
@@ -108,7 +133,11 @@ const Clip &Model::clip(ClipId id) const
 {
     const auto &clips = activeSequence().clips;
     auto it = clips.find(id);
-    assert(it != clips.end() && "Model::clip: unknown ClipId");
+    if (it == clips.end()) {
+        preconditionFailed("Model::clip: unknown ClipId");
+        static const Clip kNone;
+        return kNone;
+    }
     return it->second;
 }
 
@@ -116,7 +145,12 @@ Clip &Model::mutableClip(ClipId id)
 {
     auto &clips = activeSequence().clips;
     auto it = clips.find(id);
-    assert(it != clips.end() && "Model::mutableClip: unknown ClipId");
+    if (it == clips.end()) {
+        preconditionFailed("Model::mutableClip: unknown ClipId");
+        static Clip scratch; // somewhere harmless for the caller's writes
+        scratch = Clip{};
+        return scratch;
+    }
     return it->second;
 }
 
@@ -130,7 +164,11 @@ const Track &Model::track(TrackId id) const
 {
     const auto &tracks = activeSequence().tracks;
     auto it = std::find_if(tracks.begin(), tracks.end(), [id](const Track &entry) { return entry.id == id; });
-    assert(it != tracks.end() && "Model::track: unknown TrackId");
+    if (it == tracks.end()) {
+        preconditionFailed("Model::track: unknown TrackId");
+        static const Track kNone;
+        return kNone;
+    }
     return *it;
 }
 
@@ -146,7 +184,11 @@ const Transition &Model::transition(TransitionId id) const
     const auto &transitions = activeSequence().transitions;
     auto it = std::find_if(transitions.begin(), transitions.end(),
                            [id](const Transition &entry) { return entry.id == id; });
-    assert(it != transitions.end() && "Model::transition: unknown TransitionId");
+    if (it == transitions.end()) {
+        preconditionFailed("Model::transition: unknown TransitionId");
+        static const Transition kNone;
+        return kNone;
+    }
     return *it;
 }
 
@@ -168,7 +210,12 @@ Track &Model::mutableTrack(TrackId id)
 {
     auto &tracks = activeSequence().tracks;
     auto it = std::find_if(tracks.begin(), tracks.end(), [id](const Track &entry) { return entry.id == id; });
-    assert(it != tracks.end() && "Model::mutableTrack: unknown TrackId");
+    if (it == tracks.end()) {
+        preconditionFailed("Model::mutableTrack: unknown TrackId");
+        static Track scratch; // somewhere harmless for the caller's writes
+        scratch = Track{};
+        return scratch;
+    }
     return *it;
 }
 
@@ -206,7 +253,10 @@ void Model::removeAsset(AssetId id)
 {
     auto &bin = m_project.bin;
     auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
-    assert(it != bin.end() && "Model::removeAsset: unknown AssetId");
+    if (it == bin.end()) {
+        preconditionFailed("Model::removeAsset: unknown AssetId");
+        return;
+    }
     bin.erase(it);
     notify(AssetChanged{id});
 }
@@ -215,7 +265,10 @@ void Model::extendAssetLength(AssetId id, FrameIndex minimumLength)
 {
     auto &bin = m_project.bin;
     auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
-    assert(it != bin.end() && "Model::extendAssetLength: unknown AssetId");
+    if (it == bin.end()) {
+        preconditionFailed("Model::extendAssetLength: unknown AssetId");
+        return;
+    }
     if (minimumLength <= it->info.lengthInSequenceFrames)
         return;
     it->info.lengthInSequenceFrames = minimumLength;
@@ -226,7 +279,10 @@ void Model::setAssetLength(AssetId id, FrameIndex length)
 {
     auto &bin = m_project.bin;
     auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
-    assert(it != bin.end() && "Model::setAssetLength: unknown AssetId");
+    if (it == bin.end()) {
+        preconditionFailed("Model::setAssetLength: unknown AssetId");
+        return;
+    }
     if (length == it->info.lengthInSequenceFrames)
         return;
     it->info.lengthInSequenceFrames = length;
@@ -257,7 +313,10 @@ void Model::removeTrack(TrackId id)
 {
     auto &tracks = activeSequence().tracks;
     auto it = std::find_if(tracks.begin(), tracks.end(), [id](const Track &entry) { return entry.id == id; });
-    assert(it != tracks.end() && "Model::removeTrack: unknown TrackId");
+    if (it == tracks.end()) {
+        preconditionFailed("Model::removeTrack: unknown TrackId");
+        return;
+    }
 
     size_t index = static_cast<size_t>(std::distance(tracks.begin(), it));
 
@@ -316,7 +375,10 @@ void Model::removeMarker(MarkerId id)
 {
     auto &markers = activeSequence().markers;
     auto it = std::find_if(markers.begin(), markers.end(), [id](const Marker &m) { return m.id == id; });
-    assert(it != markers.end() && "Model::removeMarker: unknown MarkerId");
+    if (it == markers.end()) {
+        preconditionFailed("Model::removeMarker: unknown MarkerId");
+        return;
+    }
     markers.erase(it);
     notify(MarkersChanged{});
 }
@@ -325,7 +387,10 @@ void Model::setMarker(MarkerId id, FrameIndex at, std::string text)
 {
     auto &markers = activeSequence().markers;
     auto it = std::find_if(markers.begin(), markers.end(), [id](const Marker &m) { return m.id == id; });
-    assert(it != markers.end() && "Model::setMarker: unknown MarkerId");
+    if (it == markers.end()) {
+        preconditionFailed("Model::setMarker: unknown MarkerId");
+        return;
+    }
     it->at = at;
     it->text = std::move(text);
     std::stable_sort(markers.begin(), markers.end(), [](const Marker &a, const Marker &b) { return a.at < b.at; });
@@ -342,7 +407,11 @@ const Marker &Model::marker(MarkerId id) const
 {
     const auto &markers = activeSequence().markers;
     auto it = std::find_if(markers.begin(), markers.end(), [id](const Marker &m) { return m.id == id; });
-    assert(it != markers.end() && "Model::marker: unknown MarkerId");
+    if (it == markers.end()) {
+        preconditionFailed("Model::marker: unknown MarkerId");
+        static const Marker kNone;
+        return kNone;
+    }
     return *it;
 }
 
@@ -357,7 +426,10 @@ void Model::moveTrack(TrackId id, size_t newIndex)
 {
     auto &tracks = activeSequence().tracks;
     auto it = std::find_if(tracks.begin(), tracks.end(), [id](const Track &entry) { return entry.id == id; });
-    assert(it != tracks.end() && "Model::moveTrack: unknown TrackId");
+    if (it == tracks.end()) {
+        preconditionFailed("Model::moveTrack: unknown TrackId");
+        return;
+    }
 
     Track moved = std::move(*it);
     tracks.erase(it);
@@ -442,8 +514,15 @@ void Model::resizeClip(ClipId id, FrameIndex newIn, FrameIndex newOut, FrameInde
 
 ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRightId)
 {
+    if (!hasClip(id)) {
+        preconditionFailed("Model::splitClip: unknown ClipId");
+        return ClipId{};
+    }
     Clip &left = mutableClip(id);
-    assert(at > left.position && at < left.end() && "Model::splitClip: split point must be strictly inside the clip");
+    if (at <= left.position || at >= left.end()) {
+        preconditionFailed("Model::splitClip: split point must be strictly inside the clip");
+        return ClipId{};
+    }
 
     FrameIndex offsetIntoClip = at - left.position;
 
@@ -613,13 +692,18 @@ void Model::retargetTransitionClip(TransitionId id, ClipId oldClip, ClipId newCl
 {
     auto &transitions = activeSequence().transitions;
     auto it = std::find_if(transitions.begin(), transitions.end(), [id](const Transition &t) { return t.id == id; });
-    assert(it != transitions.end() && "Model::retargetTransitionClip: unknown TransitionId");
+    if (it == transitions.end()) {
+        preconditionFailed("Model::retargetTransitionClip: unknown TransitionId");
+        return;
+    }
     if (it->a == oldClip)
         it->a = newClip;
     else if (it->b == oldClip)
         it->b = newClip;
-    else
-        assert(false && "Model::retargetTransitionClip: oldClip is not referenced by this transition");
+    else {
+        preconditionFailed("Model::retargetTransitionClip: oldClip is not referenced by this transition");
+        return;
+    }
     notify(TransitionChanged{id});
 }
 

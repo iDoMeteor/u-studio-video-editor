@@ -34,3 +34,16 @@ bench_snapshot_exe = executable(
   install: false,
 )
 benchmark('core-snapshot', bench_snapshot_exe)
+
+# Model's release-build safety: core compiled again, here, with NDEBUG, so
+# the precondition asserts are gone and the safe paths behind them run.
+test_model_release_exe = executable(
+  'test_model_release',
+  files('test_model_release.cpp'),
+  libustudio_core_sources,
+  cpp_args: ['-DNDEBUG'],
+  dependencies: [doctest_dep, libxml2_dep, threads_dep],
+  include_directories: [src_inc, include_directories('../common')],
+  install: false,
+)
+test('core-model-release', test_model_release_exe)
