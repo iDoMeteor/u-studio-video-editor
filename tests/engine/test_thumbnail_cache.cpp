@@ -121,7 +121,10 @@ TEST_CASE("ThumbnailCache: a second request for the same resource before it's re
         2, ustudio::core::concurrency::Priority::Interactive);
 
     CHECK(cache.thumbnailFor("color:blue") == nullptr);
-    CHECK(cache.thumbnailFor("color:blue") == nullptr); // still in flight -- must not double-queue
+    // Still in flight, or (a generator decodes in a moment on a pool thread)
+    // already done: either way it must not queue a second decode, which the
+    // readyCount check below catches.
+    cache.thumbnailFor("color:blue");
 
     bool ready = pumpMainContextUntil(
         [&] {
@@ -277,12 +280,18 @@ TEST_CASE("ThumbnailCache and WaveformCache never block the caller while their w
 
     ThumbnailCache thumbnails(testPool(), [] {}, 2, ustudio::core::concurrency::Priority::Interactive);
     WaveformCache waveforms(testPool(), [] {}, 2);
-    double worstMs = 0.0;
+    // Every request's duration. A request that waited on a decode (the
+    // cache holding its lock while decoding, say) would be slow again and
+    // again; a loaded machine instead produces the odd spike, in any call
+    // alike (16 test processes in parallel, 2026-09-24: single samples up to
+    // 27 ms in cache calls and 26 ms in a plain allocating control, with
+    // quiet runs at 0.02-0.04 ms). So: the 99th percentile, plus a bound
+    // well under one decode.
+    std::vector<double> ms;
     auto timed = [&](auto call) {
         auto start = std::chrono::steady_clock::now();
         call();
-        worstMs = std::max(worstMs,
-                           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        ms.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
     };
     for (int round = 0; round < 3; ++round) {
         for (int frame = 0; frame < 4 * fps; frame += 1)
@@ -292,9 +301,13 @@ TEST_CASE("ThumbnailCache and WaveformCache never block the caller while their w
         while (g_main_context_iteration(nullptr, FALSE)) {
         }
     }
-    MESSAGE("slowest request while decoding: " << worstMs << " ms");
+    std::sort(ms.begin(), ms.end());
+    const double p99 = ms[ms.size() * 99 / 100];
+    const double worst = ms.back();
+    MESSAGE("requests while decoding: " << ms.size() << ", p99 " << p99 << " ms, slowest " << worst << " ms");
 #if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__) // timings mean nothing there
-    CHECK(worstMs < 5.0); // a frame at 60 Hz is 16 ms; a request must be a small part of one
+    CHECK(p99 < 1.0);
+    CHECK(worst < 50.0);
 #endif
 }
 

@@ -82,20 +82,21 @@ void WaveformCache::schedule()
                 std::vector<float> peaks;
                 if (!stop.stop_requested())
                     peaks = compute(job);
-                std::lock_guard<std::mutex> lock(m_mutex);
-                --m_running;
-                if (stop.stop_requested() || m_quit) {
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    --m_running;
                     m_inFlight.erase(job.key);
-                    return;
+                    if (stop.stop_requested() || m_quit)
+                        return;
+                    m_cache.emplace(job.key, std::move(peaks));
+                    schedule();
                 }
-                m_cache.emplace(job.key, std::move(peaks));
-                m_inFlight.erase(job.key);
-                // Through MainThreadDispatcher rather than a raw g_idle_add():
-                // one hand-off mechanism for every worker-to-main-thread
-                // post, with a lifetime guard, and the one place the TSan
+                // Outside the lock, like the thumbnail cache's. Through
+                // MainThreadDispatcher rather than a raw g_idle_add(): one
+                // hand-off mechanism for every worker-to-main-thread post,
+                // with a lifetime guard, and the one place the TSan
                 // annotations for that hand-off live (sanitizer report S5).
                 MainThreadDispatcher::post(m_lifetime, m_onReady);
-                schedule();
             },
             core::concurrency::Priority::Interactive));
     }
