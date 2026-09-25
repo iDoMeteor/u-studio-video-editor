@@ -18,6 +18,7 @@
 #include "core/concurrency/thread_pool.h"
 #include "core/model/model.h"
 #include "engine/dispatcher.h"
+#include "core/audio/align.h"
 #include "engine/engine.h"
 #include "engine/engine_sync.h"
 #include "engine/thumbnail_cache.h"
@@ -405,6 +406,16 @@ class AppWindow
     void onEditClipNameClicked();
     void onRemoveClipNameClicked();
     void onRemoveTransitionClicked();
+    // "Sync Tracks (Audio)" (owner, 2026-09-25): two clips selected, the
+    // right-clicked one is the anchor; the other moves by the offset that
+    // lines its sound up with the anchor's, found on the pool
+    // (core::audio::align) within +/- kSyncSearchSeconds.
+    void onSyncClipsClicked();
+    void applySyncResult(core::ClipId anchor, core::ClipId other, core::UndoStack::State stateBefore,
+                         uint64_t generation, std::optional<core::audio::Alignment> alignment,
+                         const std::string &error);
+    static constexpr double kSyncSearchSeconds = 5.0;
+    static void syncClipsClickedTrampoline(GtkButton *button, gpointer userData);
     void onAddTransitionClicked();
     // Opens the inline name-edit popover anchored over track `row`'s
     // label strip, or over `clip`, pre-filled with its current name.
@@ -739,6 +750,8 @@ class AppWindow
     GtkWidget *m_removeClipNameButton = nullptr;
     GtkWidget *m_removeTransitionButton = nullptr;
     GtkWidget *m_addTransitionButton = nullptr;
+    GtkWidget *m_syncClipsButton = nullptr;
+    core::ClipId m_contextMenuClip; // the clip right-clicked, if any
     GtkScale *m_trackVolumeScale = nullptr;
     // "value-changed" fires while merely repositioning the slider to the
     // right-clicked track's current volume (see onTimelineRightClicked) --

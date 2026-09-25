@@ -135,3 +135,13 @@ test_engine_thread_exe = executable(
 )
 
 test('engine-thread', test_engine_thread_exe, timeout: 180)
+
+# "Sync tracks (audio)": decoding and matching on a rendered file.
+test_audio_sync_exe = executable(
+  'test_audio_sync',
+  files('test_audio_sync.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+
+test('engine-audio-sync', test_audio_sync_exe, timeout: 120)

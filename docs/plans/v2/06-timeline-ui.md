@@ -174,6 +174,7 @@ shipped bindings are the owner's and are the source of truth
 | A / F | previous / next cut on any track, or marker |
 | Shift+A / Shift+F | previous / next cut on the active track |
 | S / D | active track up / down |
+| (menu) Sync Tracks (Audio) | two clips selected: the right-clicked one stays, the other moves to line its sound up with it (±5 s) |
 | Shift+S / Shift+D | the selected clip up / down to the nearest free track of its kind; with nothing selected, active track to the top / bottom |
 | X | split the active track's clip at the playhead |
 | Delete / Shift+Delete | delete / ripple delete |

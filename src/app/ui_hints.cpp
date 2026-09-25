@@ -80,6 +80,7 @@ std::vector<HintSpec> &registry()
         {"track-menu.close-gap",         "Timeline menu", "Close gap",          "Moves everything after the gap earlier; dissolves stay", nullptr, nullptr},
         {"track-menu.add-transition",    "Timeline menu", "Add transition",     "A half-second dissolve where two clips touch", nullptr, nullptr},
         {"track-menu.remove-transition", "Timeline menu", "Remove transition",  nullptr, nullptr, nullptr},
+        {"track-menu.sync-audio",     "Timeline menu", "Sync tracks (audio)", "With two clips selected, right-click the one to keep still: the other moves so their sound lines up (within 5 seconds)", nullptr, nullptr},
         {"track-menu.volume",            "Timeline menu", "Track volume",       nullptr, nullptr, nullptr},
         {"track-menu.lock",              "Timeline menu", "Lock or unlock the track", "A locked track's clips can't be changed; it can still be reordered", nullptr, nullptr},
         {"track-menu.hide",              "Timeline menu", "Hide or show the track", "A hidden track isn't seen in the preview or the render; the tracks under it show through", nullptr, nullptr},

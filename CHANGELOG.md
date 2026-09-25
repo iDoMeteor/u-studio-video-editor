@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.32.0
+
+- "Sync Tracks (Audio)": with two clips selected, right-click the one to
+  keep still and the other moves so their sound lines up (within 5 s).
+
 ## 0.31.0
 
 - `A`/`F` also stop at markers.

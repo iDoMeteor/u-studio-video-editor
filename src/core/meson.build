@@ -1,5 +1,6 @@
 libustudio_core_sources = files(
   'log.cpp',
+  'audio/align.cpp',
   'concurrency/thread_pool.cpp',
   'model/model.cpp',
   'model/mlt_order.cpp',

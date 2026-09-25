@@ -87,6 +87,14 @@ single-track skeleton.
   tracks where it would overlap a clip, or locked ones, are skipped; a
   clip in a dissolve is refused), or with nothing selected jump the
   active track to the top/bottom.
+- Sync two clips by their sound: select two clips that overlap, or
+  nearly (within 5 seconds), right-click the one that should stay put
+  and choose "Sync Tracks (Audio)". The other clip moves so its sound
+  lines up with the first's, frame-accurate, as one undo step. It's for
+  cutting between several recordings of the same event. The match runs in
+  the background (`core/audio/align`, `engine/audio_sync`). A weak or
+  ambiguous match, a clip without sound, or a move that would land on
+  another clip is reported and nothing moves.
 - Split the active track's clip at the playhead (`X`, or the scissors
   button in the transport bar).
 - Transport buttons around the play button: go to start, shuttle reverse,

@@ -11,6 +11,7 @@
 #include "core/commands/transaction.h"
 #include "core/log.h"
 #include "core/trace.h"
+#include "engine/audio_sync.h"
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
 
@@ -662,6 +663,12 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_removeTransitionButton, "clicked", G_CALLBACK(&AppWindow::removeTransitionClickedTrampoline),
                       this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeTransitionButton);
+
+    m_syncClipsButton = gtk_button_new_with_label("Sync Tracks (Audio)");
+    gtk_widget_add_css_class(m_syncClipsButton, "flat");
+    setTooltip(m_syncClipsButton, "track-menu.sync-audio");
+    g_signal_connect(m_syncClipsButton, "clicked", G_CALLBACK(&AppWindow::syncClipsClickedTrampoline), this);
+    gtk_box_append(GTK_BOX(contextMenuBox), m_syncClipsButton);
 
     // Shown when the right-click landed near the boundary between two
     // touching, not-yet-linked clips (see onTimelineRightClicked) -- an
@@ -2265,8 +2272,12 @@ void AppWindow::onTimelineRightClicked(double x, double y)
     m_contextMenuTransitionId = target.transition;
     m_contextMenuAddTransitionA = target.addTransitionA;
     m_contextMenuAddTransitionB = target.addTransitionB;
+    m_contextMenuClip = target.clip;
 
     gtk_widget_set_visible(m_removeTransitionButton, m_contextMenuTransitionId.isValid());
+    const std::set<core::ClipId> &selectedClips = m_timelineController.selection().clips();
+    gtk_widget_set_visible(m_syncClipsButton, target.clip.isValid() && selectedClips.size() == 2 &&
+                                                  selectedClips.contains(target.clip));
     gtk_widget_set_visible(m_addTransitionButton, m_contextMenuAddTransitionA.isValid());
 
     gtk_widget_set_visible(m_deleteClipButton, m_contextMenuClipStartFrame >= 0);
@@ -2478,6 +2489,117 @@ void AppWindow::onRemoveClipNameClicked()
             return;
         }
     }
+}
+
+void AppWindow::onSyncClipsClicked()
+{
+    gtk_popover_popdown(m_trackContextMenu);
+    const std::set<core::ClipId> &selected = m_timelineController.selection().clips();
+    const core::ClipId anchor = m_contextMenuClip;
+    if (selected.size() != 2 || !selected.contains(anchor) || !m_model.hasClip(anchor))
+        return;
+    const core::ClipId other = *selected.begin() == anchor ? *std::next(selected.begin()) : *selected.begin();
+    const core::Clip &a = m_model.clip(anchor);
+    const core::Clip &b = m_model.clip(other);
+    auto hasSound = [&](const core::Clip &clip) {
+        return clip.audioEnabled && m_model.hasAsset(clip.asset) && m_model.asset(clip.asset).info.hasAudio;
+    };
+    if (!hasSound(a) || !hasSound(b)) {
+        showStatus("Both clips need sound to sync by it.");
+        return;
+    }
+    for (const core::Transition &t : m_model.sequence().transitions) {
+        if (t.a == other || t.b == other) {
+            showStatus("The clip to move is in a dissolve; remove the dissolve to sync it.");
+            return;
+        }
+    }
+    if (m_model.track(b.track).locked) {
+        showStatus("The clip to move is on a locked track.");
+        return;
+    }
+
+    // Only what can line up within the search range is decoded: the stretch
+    // of timeline where the clips overlap, widened by the range, capped.
+    const double fps = sequenceFps();
+    const core::FrameIndex reach = static_cast<core::FrameIndex>(std::ceil(kSyncSearchSeconds * fps));
+    const core::FrameIndex windowStart = std::max(a.position, b.position) - reach;
+    const core::FrameIndex windowEnd =
+        std::min({a.end(), b.end(), windowStart + reach + static_cast<core::FrameIndex>(120.0 * fps)}) + reach;
+    auto spanFor = [&](const core::Clip &clip) {
+        const core::FrameIndex start = std::max(clip.position, windowStart);
+        const core::FrameIndex end = std::min(clip.end(), windowEnd);
+        return engine::AudioSpan{m_model.asset(clip.asset).path, clip.in + (start - clip.position),
+                                 std::max<core::FrameIndex>(0, end - start), start};
+    };
+    const engine::AudioSpan spanA = spanFor(a);
+    const engine::AudioSpan spanB = spanFor(b);
+    if (spanA.frames <= 0 || spanB.frames <= 0) {
+        showStatus("The clips are too far apart to sync (they must overlap, give or take " +
+                   std::to_string(static_cast<int>(kSyncSearchSeconds)) + " seconds).");
+        return;
+    }
+
+    showStatus("Syncing by audio…");
+    const core::Rational rate = m_model.sequence().profile.fps;
+    const core::UndoStack::State stateBefore = m_undoStack.state();
+    const uint64_t generation = m_projectGeneration;
+    m_pool->submit(
+        [this, spanA, spanB, rate, anchor, other, stateBefore, generation,
+         token = std::weak_ptr<void>(m_lifetime)](std::stop_token stop) {
+            core::trace::Scope trace("sync: decode and match");
+            std::optional<core::audio::Alignment> alignment;
+            std::string error;
+            auto envA = engine::decodeEnvelope(spanA, rate);
+            auto envB = stop.stop_requested() ? std::nullopt : engine::decodeEnvelope(spanB, rate);
+            if (!envA || !envB)
+                error = "Couldn't read the sound of one of the clips (silent, or the file can't be opened).";
+            else if (!(alignment = core::audio::align(*envA, *envB, kSyncSearchSeconds * 1000.0, 2'000.0)))
+                error = "The clips don't overlap for long enough to compare their sound (2 seconds or more).";
+            engine::MainThreadDispatcher::post(token, [this, anchor, other, stateBefore, generation, alignment,
+                                                       error] {
+                applySyncResult(anchor, other, stateBefore, generation, alignment, error);
+            });
+        },
+        core::concurrency::Priority::Interactive);
+}
+
+void AppWindow::applySyncResult(core::ClipId anchor, core::ClipId other, core::UndoStack::State stateBefore,
+                                uint64_t generation, std::optional<core::audio::Alignment> alignment,
+                                const std::string &error)
+{
+    // Measured against the timeline as it was: any edit since makes the
+    // offset meaningless.
+    if (generation != m_projectGeneration || m_undoStack.state() != stateBefore || !m_model.hasClip(anchor) ||
+        !m_model.hasClip(other)) {
+        showStatus("The timeline changed while syncing; sync again.");
+        return;
+    }
+    if (!error.empty()) {
+        showStatus(error);
+        return;
+    }
+    if (!alignment->confident) {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf),
+                      "Couldn't find a confident audio match (best %.2f, next best %.2f); nothing moved.",
+                      alignment->correlation, alignment->runnerUp);
+        showStatus(buf);
+        return;
+    }
+    const core::FrameIndex shift = static_cast<core::FrameIndex>(std::llround(alignment->shiftMs * sequenceFps() / 1000.0));
+    if (shift == 0) {
+        showStatus("Already in sync.");
+        return;
+    }
+    const core::Clip &b = m_model.clip(other);
+    if (!m_undoStack.execute(std::make_unique<core::MoveClip>(other, b.track, b.position + shift))) {
+        showStatus("Can't sync: the clip would land on another clip on its track (or before the start). Nothing moved.");
+        return;
+    }
+    refreshTimeline();
+    showStatus("Synced: moved the clip " + std::to_string(std::abs(shift)) + (std::abs(shift) == 1 ? " frame " : " frames ") +
+               (shift > 0 ? "later." : "earlier."));
 }
 
 void AppWindow::onRemoveTransitionClicked()
@@ -4156,6 +4278,11 @@ void AppWindow::removeClipNameClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::removeTransitionClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onRemoveTransitionClicked();
+}
+
+void AppWindow::syncClipsClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSyncClipsClicked();
 }
 
 void AppWindow::addTransitionClickedTrampoline(GtkButton *, gpointer userData)
