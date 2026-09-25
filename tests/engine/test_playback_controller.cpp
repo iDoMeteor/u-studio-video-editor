@@ -152,26 +152,45 @@ TEST_CASE("PlaybackController: null-consumer position test -- frame-show deliver
     REQUIRE(consumer.is_valid());
     consumer.set("real_time", 1);
 
-    std::mutex mutex;
-    std::vector<int> positions;
+    // Shown positions, appended on the consumer's thread.
+    struct Shown
+    {
+        std::mutex mutex;
+        std::vector<int> positions;
+    } shown;
     Mlt::Event *event = consumer.listen(
-        "consumer-frame-show", &positions, [](mlt_properties, void *self, mlt_event_data data) {
+        "consumer-frame-show", &shown, [](mlt_properties, void *self, mlt_event_data data) {
             Mlt::Frame frame(Mlt::EventData(data).to_frame());
             if (!frame.is_valid())
                 return;
-            static_cast<std::vector<int> *>(self)->push_back(frame.get_position());
+            auto *target = static_cast<Shown *>(self);
+            std::lock_guard<std::mutex> lock(target->mutex);
+            target->positions.push_back(frame.get_position());
         });
     REQUIRE(event->is_valid());
 
     REQUIRE(consumer.connect(*tractor) == 0);
     REQUIRE(consumer.start() == 0);
 
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (std::chrono::steady_clock::now() < deadline && consumer.position() < 19)
+    // Waits for the last frame to be *shown*, not for the consumer's
+    // read-ahead position (which can reach the end while showing still
+    // lags: flaked twice under TSan with the suites in parallel, seeing
+    // only frame 0). A generous deadline, since pacing isn't what's tested.
+    auto lastShown = [&shown] {
+        std::lock_guard<std::mutex> lock(shown.mutex);
+        return shown.positions.empty() ? -1 : shown.positions.back();
+    };
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (std::chrono::steady_clock::now() < deadline && lastShown() < 19)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     consumer.stop();
     delete event;
 
+    std::vector<int> positions;
+    {
+        std::lock_guard<std::mutex> lock(shown.mutex);
+        positions = shown.positions;
+    }
     REQUIRE_FALSE(positions.empty());
     CHECK(positions.front() == 0);
     CHECK(positions.back() >= 19);
