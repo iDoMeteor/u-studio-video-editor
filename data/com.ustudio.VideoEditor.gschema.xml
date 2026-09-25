@@ -95,5 +95,10 @@
       <summary>Default export folder</summary>
       <description>Where renders go; empty for the project's folder, then Videos, then home.</description>
     </key>
+    <key name="default-render-profile" type="s">
+      <default>"High quality"</default>
+      <summary>Default render profile</summary>
+      <description>The render profile the Render button uses: a built-in's name or one from render-profiles.ini.</description>
+    </key>
   </schema>
 </schemalist>

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "action_registry.h"
+#include "render_profiles.h"
 #include "core/commands/undo_stack.h"
 #include "core/concurrency/thread_pool.h"
 #include "core/model/model.h"
@@ -771,6 +772,9 @@ class AppWindow
     // selection, and onShuttleForward/onAutosaveHeartbeat/
     // refreshRecentProjectsMenu all read from it too.
     std::unique_ptr<Settings> m_settings;
+    std::unique_ptr<RenderProfileStore> m_renderProfiles;
+    // The default profile, or High quality if that one's gone.
+    core::RenderProfile defaultRenderProfile() const;
     // Settings > Toggles, cached here so they still work for the session
     // when the schema is missing (Settings' setters are then no-ops).
     bool m_snapWhileDragging = true;

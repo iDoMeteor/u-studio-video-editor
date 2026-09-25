@@ -787,8 +787,14 @@ const std::string &h264Encoder()
     return encoder;
 }
 
+bool h264HasQualityMode()
+{
+    return h264Encoder() == "libx264";
+}
+
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
-                   std::function<void(int, int)> onProgress, const std::atomic<bool> *cancel)
+                   std::function<void(int, int)> onProgress, const std::atomic<bool> *cancel,
+                   const core::RenderProfile &profile)
 {
     Log::ScopedTimer timer("[engine] renderProject total");
     EngineSync renderSync(model); // its own Profile/Tractor, independent of any live one
@@ -822,8 +828,33 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     consumer.set("vcodec", h264Encoder().c_str());
     consumer.set("acodec", "aac");
     consumer.set("f", "mp4");
-    consumer.set("vb", "922698");
-    consumer.set("ab", "126422");
+    // Verified with a standalone repro (2026-09-25, MLT 7.40, libx264):
+    // "crf" and "preset" pass through to x264 as AVOptions (its SEI read
+    // back "rc=crf ... crf=18.0", and preset=slow gave subme=8), and
+    // "width"/"height" -- documented in consumer_avformat.yml as overriding
+    // the profile -- scale the output. "frame_rate_num/den" only relabel
+    // the stream's rate (60 frames at 60 fps played 1 s, not 2), so the
+    // output always keeps the project's frame rate.
+    const core::EncoderSettings settings =
+        core::encoderSettings(profile, model.sequence().profile, h264HasQualityMode());
+    if (settings.width > 0 && settings.height > 0) {
+        consumer.set("width", settings.width);
+        consumer.set("height", settings.height);
+        consumer.set("sample_aspect_num", 1);
+        consumer.set("sample_aspect_den", 1);
+    }
+    if (settings.crf >= 0) {
+        consumer.set("crf", settings.crf);
+        consumer.set("preset", settings.preset.c_str());
+    } else {
+        consumer.set("vb", std::to_string(settings.videoBitrate).c_str());
+    }
+    consumer.set("ab", std::to_string(settings.audioBitrate).c_str());
+    Log::info("[engine] Render profile \"" + profile.name + "\": " +
+              (settings.crf >= 0 ? "crf " + std::to_string(settings.crf) + " " + settings.preset
+                                 : "vb " + std::to_string(settings.videoBitrate)) +
+              (settings.width > 0 ? ", " + std::to_string(settings.width) + "x" + std::to_string(settings.height)
+                                  : std::string()));
     consumer.set("ar", "48000");
     consumer.set("channels", 2);
     consumer.set("pix_fmt", "yuv420p");

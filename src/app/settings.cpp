@@ -213,4 +213,14 @@ void Settings::setDefaultExportFolder(const std::string &folder)
     setString("default-export-folder", folder);
 }
 
+std::string Settings::defaultRenderProfile() const
+{
+    return getString("default-render-profile", "High quality");
+}
+
+void Settings::setDefaultRenderProfile(const std::string &name)
+{
+    setString("default-render-profile", name);
+}
+
 } // namespace ustudio::app

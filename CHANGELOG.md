@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.36.0
+
+- Render profiles (Settings > Render): output height and quality presets,
+  or exact bitrates. The Render button uses the default profile, now
+  "High quality" (x264 CRF 18); the old fixed bitrates are kept as
+  "Draft (legacy)".
+
 ## 0.35.0
 
 - Settings: new Toggles tab (reopen last project on startup, snapping,

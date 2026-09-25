@@ -113,6 +113,14 @@ std::vector<HintSpec> &registry()
         {"settings.waveforms",       "Settings", "Show waveforms",          "Clips with sound show their waveform", nullptr, nullptr},
         {"settings.project-folder",  "Settings", "Default project folder",  "Where Open and Save As start", nullptr, nullptr},
         {"settings.export-folder",   "Settings", "Default export folder",   "Where renders go; unset, the project's own folder, then Videos, then your home folder", nullptr, nullptr},
+        {"render-profiles.profile",  "Settings", "Render profile",  "The profile shown below; the one marked (default) is what Render uses", nullptr, nullptr},
+        {"render-profiles.set-default", "Settings", "Make this the profile Render uses", nullptr, nullptr, nullptr},
+        {"render-profiles.new",      "Settings", "New render profile",      "Starts from High quality", nullptr, nullptr},
+        {"render-profiles.duplicate", "Settings", "Copy this profile",      "Built-in profiles can't be changed; change a copy", nullptr, nullptr},
+        {"render-profiles.remove",   "Settings", "Remove this profile",     nullptr, nullptr, nullptr},
+        {"render-profiles.save",     "Settings", "Save this profile",       nullptr, nullptr, nullptr},
+        {"render-profiles.resolution", "Settings", "Output height",         "Project keeps the project's size; others scale to that height at the project's shape", nullptr, nullptr},
+        {"render-profiles.quality",  "Settings", "Quality",                 "Draft is fastest and smallest, Max slowest and largest; Exact bitrates sets them directly", nullptr, nullptr},
     };
     // clang-format on
     return hints;

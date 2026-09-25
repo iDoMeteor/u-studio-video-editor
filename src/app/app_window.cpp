@@ -13,6 +13,7 @@
 #include "core/trace.h"
 #include "engine/audio_sync.h"
 #include "core/xml/backup.h"
+#include "render_profiles_page.h"
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
 
@@ -148,6 +149,7 @@ AppWindow::AppWindow(GtkApplication *app)
     // Before buildUi(): its transport-bar preview-scale dropdown reads
     // defaultPreviewScale() for its initial selection.
     m_settings = std::make_unique<Settings>();
+    m_renderProfiles = std::make_unique<RenderProfileStore>(RenderProfileStore::defaultPath());
     m_snapWhileDragging = m_settings->snapWhileDragging();
     m_followPlayhead = m_settings->followPlayhead();
     m_showTimelineThumbnails = m_settings->showTimelineThumbnails();
@@ -1141,7 +1143,7 @@ void AppWindow::showHelpDialog()
 void AppWindow::showSettingsDialog()
 {
     AdwDialog *dialog = ADW_DIALOG(adw_preferences_dialog_new());
-    adw_dialog_set_content_width(dialog, 680); // five tabs fit side by side
+    adw_dialog_set_content_width(dialog, 720); // six tabs fit side by side
     adw_dialog_set_content_height(dialog, 520);
 
     auto addPage = [dialog](const char *title, const char *iconName) {
@@ -1315,10 +1317,14 @@ void AppWindow::showSettingsDialog()
     addFolderRow("project", "Default project folder", "settings.project-folder");
     addFolderRow("export", "Default export folder", "settings.export-folder");
 
+    // --- Render ---
+    adw_preferences_dialog_add(ADW_PREFERENCES_DIALOG(dialog),
+                               buildRenderProfilesPage(*m_renderProfiles, *m_settings, engine::h264HasQualityMode()));
+
     // --- Keyboard Shortcuts (placeholder -- see action_registry.h's own
     // comment on the intended shape of the real rebinding UI later) ---
     AdwPreferencesPage *shortcutsPage = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
-    adw_preferences_page_set_title(shortcutsPage, "Keyboard Shortcuts");
+    adw_preferences_page_set_title(shortcutsPage, "Shortcuts");
     adw_preferences_page_set_icon_name(shortcutsPage, "preferences-desktop-keyboard-shortcuts-symbolic");
     AdwPreferencesGroup *comingSoonGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
     adw_preferences_group_set_title(comingSoonGroup, "Coming Soon");
@@ -1961,6 +1967,11 @@ void AppWindow::performNewProject()
     showStatus("New project.");
 }
 
+core::RenderProfile AppWindow::defaultRenderProfile() const
+{
+    return m_renderProfiles->find(m_settings->defaultRenderProfile()).value_or(core::builtInRenderProfiles()[0]);
+}
+
 void AppWindow::setInitialProjectFolder(GtkFileDialog *dialog) const
 {
     const std::string folder = m_settings->defaultProjectFolder();
@@ -2029,7 +2040,9 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
         m_renderThread.join(); // the last one, already finished
     m_renderCancel = false;
     m_renderRunning = true;
-    showStatus("Rendering to " + path + " … (this can take a while — the window will stay responsive)");
+    core::RenderProfile profile = defaultRenderProfile();
+    showStatus("Rendering “" + profile.name + "” to " + path +
+               " … (this can take a while — the window will stay responsive)");
 
     // Owned and joined, not detached (post-M3 audit P2): prepareForShutdown()
     // cancels and joins it before MLT is torn down. AppWindow itself is never
@@ -2042,7 +2055,7 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
     // own independent Model after this point -- a real render *queue* that
     // could serialize renders against edits is M6 territory, out of scope
     // here, but this closes the actual data race.
-    m_renderThread = std::thread([this, path, snapshot = m_model]() mutable {
+    m_renderThread = std::thread([this, path, profile, snapshot = m_model]() mutable {
         std::string err;
         // Enhancement #13: renderProject() calls this from the SAME
         // thread its own consumer.run() blocks on (this detached
@@ -2069,7 +2082,7 @@ void AppWindow::onRenderFinished(GObject *sourceObject, GAsyncResult *result)
                     },
                     progress);
             },
-            &m_renderCancel);
+            &m_renderCancel, profile);
         m_renderRunning = false;
 
         struct Result

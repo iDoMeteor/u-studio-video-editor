@@ -181,12 +181,20 @@ single-track skeleton.
   every clip on it. Hovering a clip shows a tooltip with its name (or
   "(unnamed)"), start/end timecodes, length (timecode and frame count),
   and source file.
-- Render the project to an MP4 at the sequence's own size and frame rate
-  (1920×1080, 30fps by default): H.264 (libx264, or libopenh264 where
-  ffmpeg lacks it), yuv420p, AAC 48kHz stereo, via the header bar's
-  "Render…" button. Runs on a background thread, with a live
-  percentage in the status bar while it runs (enhancement #13,
-  2026-09-23).
+- Render the project to an MP4 at the sequence's frame rate: H.264
+  (libx264, or libopenh264 where ffmpeg lacks it), yuv420p, AAC 48kHz
+  stereo, via the header bar's "Render…" button, with the default render
+  profile. Profiles (Settings > Render) set the output height (Project,
+  2160p, 1440p, 1080p, 720p; the width follows the project's shape) and
+  the quality: Draft/Good/High/Max are x264 CRF 28/23/18/14 with presets
+  veryfast/medium/slow/slower (bitrates scaled to the picture size on
+  OpenH264, which has no CRF), or exact bitrates. Built-ins: "High
+  quality" (the default) and "Draft (legacy)", the fixed bitrates every
+  render used before 0.36; duplicate one to make your own, kept in
+  `$XDG_CONFIG_HOME/ustudio/render-profiles.ini`. Other frame rates aren't
+  supported yet: the avformat consumer's `frame_rate_num` only relabels
+  the stream. Runs on a background thread, with a live percentage in the
+  status bar while it runs (enhancement #13, 2026-09-23).
 - Save/load a project as MLT XML with `ustudio:` namespaced properties
   (see "Project files" below), plus autosave and crash recovery. Autosave
   fires 2 minutes (configurable) after the last edit, on focus loss, and

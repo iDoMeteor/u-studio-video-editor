@@ -5,6 +5,7 @@
 #include "core/model/model_event.h"
 #include "core/model/signal.h"
 #include "core/model/track_segments.h"
+#include "core/render/render_profile.h"
 
 #include <mlt++/Mlt.h>
 
@@ -282,15 +283,24 @@ class EngineSync
 // consumer is stopped, the .part file removed, and this returns false with
 // `error` "Render cancelled". The app sets it to quit mid-render (post-M3
 // audit P2: MLT must not be torn down under a running render).
+//
+// `profile` picks size and quality (core::encoderSettings()); the default is
+// the pre-profile settings, which the engine tests rely on.
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int currentFrame, int totalFrames)> onProgress = {},
-                   const std::atomic<bool> *cancel = nullptr);
+                   const std::atomic<bool> *cancel = nullptr,
+                   const core::RenderProfile &profile = core::legacyRenderProfile());
 
 // The H.264 encoder renderProject uses: libx264 where ffmpeg has it,
 // otherwise libopenh264 (stock Fedora's ffmpeg-free ships only that one;
 // given an unknown vcodec, avformat writes an MP4 with no video stream at
 // all). Empty if neither is present. Asked of MLT once per process; needs
-// the Factory initialised.
+// the Factory initialised. FactoryPolicy asks at startup, so later calls
+// (the main thread's included) only read the cached answer.
 const std::string &h264Encoder();
+
+// True when that encoder has a constant-quality (CRF) mode: libx264 does,
+// OpenH264 doesn't.
+bool h264HasQualityMode();
 
 } // namespace ustudio::engine

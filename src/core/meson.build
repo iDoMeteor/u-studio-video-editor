@@ -11,6 +11,7 @@ libustudio_core_sources = files(
   'xml/writer.cpp',
   'xml/reader.cpp',
   'xml/backup.cpp',
+  'render/render_profile.cpp',
 )
 
 threads_dep = dependency('threads')

@@ -85,6 +85,10 @@ class Settings
     std::string defaultExportFolder() const;
     void setDefaultExportFolder(const std::string &folder);
 
+    // The render profile the Render button uses (RenderProfileStore).
+    std::string defaultRenderProfile() const;
+    void setDefaultRenderProfile(const std::string &name);
+
     // False when the schema wasn't found (not installed, and
     // GSETTINGS_SCHEMA_DIR doesn't point at a compiled one) -- every
     // setter above is then a no-op. The Settings dialog shows a note when

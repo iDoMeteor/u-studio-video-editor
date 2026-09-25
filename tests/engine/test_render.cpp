@@ -8,6 +8,7 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -172,4 +173,25 @@ TEST_CASE("renderProject: a cancelled render stops promptly and leaves nothing b
     CHECK(stopMs < 2000.0);
     CHECK_FALSE(fs::exists(outputPath));
     CHECK_FALSE(fs::exists(outputPath.string() + ".part"));
+}
+
+TEST_CASE("renderProject: a profile's height scales the output at the project's aspect")
+{
+    sharedFactoryPolicy();
+    Model model = makeShortProject();
+
+    fs::path outputPath = fs::temp_directory_path() / "ustudio-render-test-720p.mp4";
+    RemoveOnExit guard{outputPath};
+    RenderProfile profile{.name = "720p draft", .height = 720, .quality = RenderProfile::Quality::Draft};
+    std::string error;
+    REQUIRE(renderProject(model, outputPath.string(), error, {}, nullptr, profile));
+
+    // avformat's own metadata, filled in on the first decoded frame (as in
+    // EngineSync::probeMediaFile()).
+    Mlt::Profile probeProfile;
+    Mlt::Producer rendered(probeProfile, "avformat", outputPath.string().c_str());
+    REQUIRE(rendered.is_valid());
+    std::unique_ptr<Mlt::Frame> frame(rendered.get_frame());
+    CHECK(rendered.get_int("meta.media.width") == 1280);
+    CHECK(rendered.get_int("meta.media.height") == 720);
 }

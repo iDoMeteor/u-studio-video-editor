@@ -16,6 +16,14 @@ test(
   env: {'XDG_STATE_HOME': meson.current_build_dir() / 'autosave-test-state'},
 )
 
+test_render_profiles_exe = executable(
+  'test_render_profiles',
+  files('test_render_profiles.cpp'),
+  dependencies: [doctest_dep, app_settings_dep],
+  install: false,
+)
+test('app-render-profiles', test_render_profiles_exe)
+
 test_settings_exe = executable(
   'test_settings',
   files('test_settings.cpp'),
