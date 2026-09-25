@@ -332,9 +332,13 @@ threads; it submits jobs to the pool.
       clips on 8 tracks and 200 ms at 500; a burst of edits costs at most
       one build beyond the last one. (Input never blocks, the 500-clip
       target and the burst bound are met; 5,000 clips measured 525 ms.)
-- [ ] The routine soak (`playback_soak`, 10 min of generated 1080p H.264,
+- [x] The routine soak (`playback_soak`, 10 min of generated 1080p H.264,
       more than 64 clips so tracks are chunked) holds real time. The
-      recorded 4K60 runs above are history.
+      recorded 4K60 runs above are history. (0.28.1, 2026-09-24: 100 × 10 s
+      1080p30 clips at preview Half; every frame shown, 18,012 in 600 s;
+      0 skipped; the playhead a steady 2 frames behind; RSS 359–388 MB.
+      The tool drives EngineSync and PlaybackController directly, so it
+      measures playback throughput, not the engine thread's queue.)
 - [ ] `just tsan` and `just asan` pass on every suite.
 - [ ] Export runs in `u-studio-render`; killing the editor doesn't stop it.
 - [ ] Each parallel change has a recorded before/after measurement.
