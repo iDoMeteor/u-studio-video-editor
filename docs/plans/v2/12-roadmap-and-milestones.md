@@ -304,3 +304,24 @@ from anything v2 currently scopes, not a media-bin extension:
 - Two distinct capture inputs (desktop audio+video vs. mic-only
   narration) likely means two different service/pipeline shapes, not
   one flag.
+
+Cross-track transitions (owner idea, 2026-09-25; to be considered later):
+select two clips on different tracks that overlap or butt, right-click,
+"Add transition". This is MLT's native composition model, as kdenlive
+uses it: a transition planted between the two tracks for just that time
+range, with `luma` for the picture and `mix` for the sound. That is
+simpler for the engine than today's same-track dissolve sub-tractors.
+- **Overlapping clips:** the transition covers the overlap. Its direction
+  follows timing: an upper clip that starts later fades in; one that ends
+  earlier fades out.
+- **Butting clips: supported** (owner). There's no overlap, so it borrows
+  handle footage beyond each clip's in/out point, as same-track dissolves
+  do. That needs free space on each clip's track next to the cut.
+- **Types:** every transition type the editor supports (owner), including
+  M5's wipes (doc 15).
+- **Open: moving or trimming either clip.** Strip the transition (T1, as
+  same-track dissolves do), or carry it along while the clips still
+  overlap. Undecided (owner, "not sure").
+- **Touches:** the project model and `.ustudio` format (ADR-004),
+  add/remove commands and undo, the T1 strip rules, timeline drawing,
+  `EngineSync`, and tests.
