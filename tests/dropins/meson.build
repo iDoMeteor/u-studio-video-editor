@@ -4,7 +4,7 @@ test_dropin_args = ['-DUSTUDIO_VERSION="' + meson.project_version() + '"']
 
 test_dropin_builtin = static_library(
   'ustudio_test_dropin',
-  files('test_dropin.cpp', 'engine/test_extension.cpp'),
+  files('test_dropin.cpp', 'engine/test_extension.cpp', 'engine/test_probe.cpp'),
   cpp_args: test_dropin_args + ['-DTEST_DROPIN_NAME="testdropin"'],
   include_directories: src_inc,
   dependencies: [mltpp_dep, mlt_dep],
@@ -58,3 +58,20 @@ test_dropin_engine_exe = executable(
   install: false,
 )
 test('dropin-engine', test_dropin_engine_exe, depends: test_dropin_modules, timeout: 120)
+
+# IP6: u-studio-render's command line with the test drop-in's subcommand,
+# built in and as a module (linked and exported as for dropin-engine).
+if get_option('render_tool')
+  test_dropin_render_exe = executable(
+    'test_dropin_render',
+    files('test_dropin_render.cpp'),
+    cpp_args: ['-DTEST_MODULE_DIR="' + test_dropin_module_dir + '"'],
+    include_directories: include_directories('.'),
+    link_with: [test_dropin_builtin, libustudio_render_cli],
+    link_whole: [libustudio_core, libustudio_engine, libustudio_dropins],
+    export_dynamic: true,
+    dependencies: [doctest_dep, libustudio_dropins_dep],
+    install: false,
+  )
+  test('dropin-render', test_dropin_render_exe, depends: test_dropin_modules, timeout: 120)
+endif

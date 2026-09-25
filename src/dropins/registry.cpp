@@ -156,6 +156,26 @@ void BasicDropInHost::addEngineExtension(engine::EngineExtensionFactory factory)
     engine::registerEngineExtension(std::move(factory));
 }
 
+void BasicDropInHost::addRenderSubcommand(RenderSubcommand subcommand)
+{
+    const std::string &name = subcommand.name;
+    const bool wellFormed = !name.empty() && name.front() != '-' && std::all_of(name.begin(), name.end(), [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+    });
+    if (!wellFormed || name == "help" || !subcommand.run) {
+        Log::warn("[dropins] refused render subcommand \"" + name +
+                  "\": needs a lowercase name (not \"help\") and a run function");
+        return;
+    }
+    const bool taken = std::any_of(m_renderSubcommands.begin(), m_renderSubcommands.end(),
+                                   [&](const RenderSubcommand &existing) { return existing.name == name; });
+    if (taken) {
+        Log::warn("[dropins] refused render subcommand --" + name + ": already registered by another drop-in");
+        return;
+    }
+    m_renderSubcommands.push_back(std::move(subcommand));
+}
+
 void DropInRegistry::registerAll(DropInHost &host) const
 {
     for (const Entry &entry : m_entries)

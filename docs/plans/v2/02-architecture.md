@@ -112,6 +112,7 @@ src/
       tokens.h            the few colours cairo/snapshot code needs
   render/
     main.cpp              CLI
+    render_cli.h/.cpp     argument dispatch, drop-ins' subcommands (IP6, doc 15)
 data/
   com.ustudio.VideoEditor.desktop
   com.ustudio.VideoEditor.metainfo.xml

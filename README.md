@@ -490,8 +490,9 @@ milestone M6). Full rationale in
   overrides. Compiled into the binary via GResource
   (`data/ustudio.gresource.xml`), loaded at startup with
   `gtk_css_provider_load_from_resource()`.
-- `src/render/main.cpp` — placeholder; the real headless render CLI
-  (`u-studio-render`) is milestone M6.
+- `src/render/` — `u-studio-render`: runs drop-ins' subcommands
+  (`--help` lists them; `render_cli.h`); the real headless render CLI is
+  milestone M6.
 - `tests/core/`, `tests/engine/`, `tests/app/` — doctest suites (vendored under
   `subprojects/doctest/`, no system package needed). `tests/engine/`
   needs MLT but no display and no media files.

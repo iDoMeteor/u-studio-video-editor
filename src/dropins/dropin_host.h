@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dropins/api.h"
+#include "dropins/render_subcommand.h"
 #include "engine/engine_extension.h"
 #include "engine/factory_policy.h"
 
@@ -32,6 +33,10 @@ class DropInHost
     // IP3: every graph this program builds (the live one, each render's)
     // gets its own instance from `factory` (engine/engine_extension.h).
     virtual void addEngineExtension(engine::EngineExtensionFactory factory) = 0;
+    // IP6: a u-studio-render subcommand (render_subcommand.h). The editor's
+    // host keeps them too but never runs them; a taken or invalid name is
+    // refused with a warning.
+    virtual void addRenderSubcommand(RenderSubcommand subcommand) = 0;
 };
 
 // The host with no integration points of its own yet: logging and which
@@ -47,9 +52,16 @@ class BasicDropInHost : public DropInHost
     }
     void log(const std::string &message) override;
     void addEngineExtension(engine::EngineExtensionFactory factory) override;
+    void addRenderSubcommand(RenderSubcommand subcommand) override;
+    // In registration order.
+    const std::vector<RenderSubcommand> &renderSubcommands() const
+    {
+        return m_renderSubcommands;
+    }
 
   private:
     std::string m_program;
+    std::vector<RenderSubcommand> m_renderSubcommands;
 };
 
 } // namespace ustudio::dropins

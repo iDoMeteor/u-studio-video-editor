@@ -31,6 +31,10 @@ struct RecordingHost : DropInHost
     {
         logged.push_back("engine extension");
     }
+    void addRenderSubcommand(ustudio::dropins::RenderSubcommand subcommand) override
+    {
+        logged.push_back("render subcommand " + subcommand.name);
+    }
 };
 
 bool anyContains(const std::vector<std::string> &lines, const std::string &text)
@@ -58,6 +62,7 @@ TEST_CASE("drop-ins: a built-in drop-in contributes factory paths and registers"
     RecordingHost host;
     registry.registerAll(host);
     CHECK(anyContains(host.logged, "[testdropin] registered in test"));
+    CHECK(anyContains(host.logged, "render subcommand testdropin-probe"));
 }
 
 TEST_CASE("drop-ins: modules load from the given directory; bad ones are refused with a reason")
@@ -80,6 +85,7 @@ TEST_CASE("drop-ins: modules load from the given directory; bad ones are refused
     RecordingHost host;
     registry.registerAll(host);
     CHECK(anyContains(host.logged, "[moduledropin] registered in test"));
+    CHECK(anyContains(host.logged, "render subcommand moduledropin-probe"));
 }
 
 TEST_CASE("drop-ins: a module can't take a built-in's name")

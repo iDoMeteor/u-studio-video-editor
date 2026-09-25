@@ -7,6 +7,7 @@
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
 #include "engine/test_extension.h"
+#include "engine/test_probe.h"
 
 #include <string>
 
@@ -23,6 +24,10 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
     host->log(std::string("[") + TEST_DROPIN_NAME + "] registered in " + host->program());
     // IP3: every graph gets its own extension instance.
     host->addEngineExtension([] { return ustudio::testdropin::makeTestExtension(TEST_DROPIN_NAME); });
+    // IP6: u-studio-render --<name>-probe <service> [frames].
+    host->addRenderSubcommand({std::string(TEST_DROPIN_NAME) + "-probe",
+                               "Pull frames of color:red through an MLT filter; one JSON line (tests only)",
+                               &ustudio::testdropin::runProbe});
 }
 
 #ifdef TEST_WRONG_API
