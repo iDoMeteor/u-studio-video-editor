@@ -244,6 +244,49 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
     CHECK(engine.totalFrames() == 40'000 + 19 * 10 + 10);
 }
 
+TEST_CASE("Engine: a burst of edits while playing is latest-wins too")
+{
+    // While playing, every shown frame queues a drain on the engine thread,
+    // so edits never sit next to each other in the queue: collapsing must
+    // hop over drains, or every edit is its own build and restart.
+    sharedFactoryPolicy();
+    Model model = makeModel(300);
+    Engine engine(model.snapshot(), PreviewScale::Full);
+    Frames frames;
+    frames.attach(engine);
+    int rebuilds = 0;
+    engine.rebuilt.connect([&] { ++rebuilds; });
+    REQUIRE(engine.syncForTesting());
+    engine.play(1.0);
+    REQUIRE(pumpUntil([&] { return frames.positions.size() > 5; }, std::chrono::seconds(5)));
+
+    TrackId track = model.sequence().tracks.front().id;
+    AssetId asset = model.project().bin.front().id;
+    std::vector<std::shared_ptr<const Project>> burst;
+    for (int i = 0; i < 20; ++i) {
+        model.insertClip(track, asset, 5'000 + i * 10, 0, 9);
+        burst.push_back(model.snapshot());
+    }
+    rebuilds = 0;
+    int rebuildsAtLastEdit = 0;
+    for (const auto &snapshot : burst) {
+        rebuildsAtLastEdit = rebuilds;
+        engine.publish(snapshot);
+        // Let frames (and their drains) arrive between edits.
+        pumpUntil([] { return false; }, std::chrono::milliseconds(15));
+    }
+    REQUIRE(engine.syncForTesting());
+    engine.pause();
+    CAPTURE(rebuilds);
+    CAPTURE(rebuildsAtLastEdit);
+    // The guarantee: at most one build beyond the last edit (plus the one
+    // that may have been running when it arrived). How many finish during
+    // the burst depends on machine speed; one per edit (20) was the bug.
+    CHECK(rebuilds - rebuildsAtLastEdit <= 2);
+    CHECK(rebuilds < 10);
+    CHECK(engine.totalFrames() == 5'000 + 19 * 10 + 10);
+}
+
 TEST_CASE("Engine: shutdown during playback is clean, repeated")
 {
     sharedFactoryPolicy();

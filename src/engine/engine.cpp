@@ -40,21 +40,33 @@ class Engine::Thread
         m_thread = std::jthread([this, project = std::move(project), scale] { run(project, scale); });
     }
 
-    // Appends in order; a snapshot straight after another one replaces it
-    // (latest wins), keeping a reset flag if either had one.
+    // Appends in order, except that a snapshot replaces the newest pending
+    // one when nothing but internal frame drains sits between them (latest
+    // wins), keeping a reset flag if either had one. While playing, a drain
+    // lands between every two edits, so collapsing only adjacent snapshots
+    // never collapsed anything then (review of 4c30666). A main-thread
+    // command in between keeps both: a seek sent after an edit must run on
+    // that edit's graph, or it clamps to the old length.
     void enqueue(Entry entry)
     {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            if (!entry.command && !entry.shutdown && !m_queue.empty() && !m_queue.back().command &&
-                !m_queue.back().shutdown) {
-                Entry &last = m_queue.back();
-                last.reset = last.reset || entry.reset;
-                last.snapshot = std::move(entry.snapshot);
-                last.seq = entry.seq;
-            } else {
-                m_queue.push_back(std::move(entry));
+            bool merged = false;
+            if (isSnapshot(entry)) {
+                for (auto it = m_queue.rbegin(); it != m_queue.rend(); ++it) {
+                    if (it->command && it->seq == kInternal)
+                        continue; // a drain: safe to hop over
+                    if (isSnapshot(*it)) {
+                        it->reset = it->reset || entry.reset;
+                        it->snapshot = std::move(entry.snapshot);
+                        it->seq = entry.seq;
+                        merged = true;
+                    }
+                    break;
+                }
             }
+            if (!merged)
+                m_queue.push_back(std::move(entry));
         }
         m_cv.notify_one();
     }
@@ -191,6 +203,10 @@ class Engine::Thread
         int height = 0;
         int position = 0;
     };
+    static bool isSnapshot(const Entry &entry)
+    {
+        return !entry.command && !entry.shutdown;
+    }
     static constexpr double kSlowEntryMs = 50.0;
     static constexpr uint64_t kInternal = UINT64_MAX; // engine-originated work, not a main-thread command
 

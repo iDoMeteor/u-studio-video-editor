@@ -214,9 +214,23 @@ void PlaybackController::play(double speed)
     // play() froze at the seeked position indefinitely; confirmed fixed by
     // this line alone. Harmless when nothing was ever paused/scrubbed
     // (mlt_properties_set_int on a property that's already 0 is a no-op).
-    if (m_consumer)
-        m_consumer->set("refresh", 0);
+    //
+    // Speed first, then purge, then the wake. The consumer spends one
+    // "refresh" per frame it shows at speed 0 and waits when none are left
+    // (consumer_sdl2_audio.c, refresh_count), and while paused the
+    // read-ahead thread holds a frame it fetched at speed 0
+    // (mlt_consumer.c: buffer 1 at speed 0). A play() landing before that
+    // frame is shown -- which the engine thread makes routine, right behind
+    // setTractor()'s pause -- let stale speed-0 frames use up the wakes,
+    // and the consumer then waited for good: playback never started in 5
+    // of 20 "burst of edits while playing" runs with the speed set first,
+    // 0 of 20 with the purge (2026-09-24). kdenlive's VideoWidget also
+    // sets the speed before the refresh, and purges on speed changes.
     m_tractor->set_speed(speed);
+    if (m_consumer) {
+        m_consumer->purge();
+        m_consumer->set("refresh", 0);
+    }
     m_speed.store(speed);
     m_playing.store(speed != 0.0);
 }

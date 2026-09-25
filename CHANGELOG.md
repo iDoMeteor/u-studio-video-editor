@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.28.1
+
+- Fixed: pressing play right after an edit could leave playback stuck on
+  one frame.
+- Fixed: a quick run of edits while playing rebuilt playback once per
+  edit instead of catching up with the latest one.
+
 ## 0.28.0
 
 - Edits no longer freeze the window while playback catches up: rebuilding
