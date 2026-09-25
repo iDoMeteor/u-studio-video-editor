@@ -146,7 +146,9 @@ test_engine_thread_exe = executable(
   install: false,
 )
 
-test('engine-thread', test_engine_thread_exe, timeout: 180)
+# Serial: one case holds façade calls to a 1 ms median, which a machine
+# loaded with the rest of the suite can't meet. The budget's meaning stays.
+test('engine-thread', test_engine_thread_exe, timeout: 180, is_parallel: false)
 
 # "Sync tracks (audio)": decoding and matching on a rendered file.
 test_audio_sync_exe = executable(
