@@ -34,25 +34,28 @@ fmt:
 #   suppression can match. verify_asan_link_order=0 allows the preload.
 #   These libraries don't define malloc, so ASan's interception still works.
 asan_ffmpeg := "/lib64/libavutil.so.60 /lib64/libavcodec.so.62 /lib64/libavformat.so.62 /lib64/libswscale.so.9 /lib64/libswresample.so.6 /lib64/libx264.so.165"
-asan:
+asan *tests:
     [ -d builddir-asan ] || meson setup builddir-asan -Db_sanitize=address,undefined -Db_lundef=false -Dtests=enabled
     meson compile -C builddir-asan
     LD_PRELOAD="{{asan_ffmpeg}}" \
     ASAN_OPTIONS=detect_leaks=1:fast_unwind_on_malloc=0:verify_asan_link_order=0:detect_stack_use_after_return=1:halt_on_error=1 \
     UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
     LSAN_OPTIONS=suppressions={{justfile_directory()}}/tests/sanitizers/lsan.supp \
-        meson test -C builddir-asan -t 6 --print-errorlogs
+        meson test -C builddir-asan -t 6 --print-errorlogs {{tests}}
 
+# Both sanitizer recipes take optional test names (`just tsan engine-thread`)
+# to run only those tests; with none they run the whole suite.
+#
 # tsan: ThreadSanitizer. ignore_noninstrumented_modules hides accesses from
 # uninstrumented libraries (GLib's futex-based main-context lock looks like a
 # race to TSan). report_thread_leaks=0 because the only thread leaks are
 # threads created inside MLT modules that are unloaded before exit, and our
 # own threads are std::thread, which terminate() if not joined anyway.
-tsan:
+tsan *tests:
     [ -d builddir-tsan ] || meson setup builddir-tsan -Db_sanitize=thread -Db_lundef=false -Dtests=enabled
     meson compile -C builddir-tsan
     TSAN_OPTIONS=ignore_noninstrumented_modules=1:report_thread_leaks=0:second_deadlock_stack=1:halt_on_error=1 \
-        meson test -C builddir-tsan -t 10 --print-errorlogs
+        meson test -C builddir-tsan -t 10 --print-errorlogs {{tests}}
 
 # The factory-policy test alone -- the "no Qt in the process" proof.
 check-qt: build

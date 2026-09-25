@@ -265,13 +265,21 @@ with `meson test`.
   media.
 - Sanitiser builds (`-Db_sanitize=address,undefined`) are the standard for
   anything touching threads or MLT lifetime.
-- **Before landing** (not before every commit) a change that touches
-  threads, MLT object lifetime, or the concurrency code (`core/concurrency/`,
-  the dispatcher, pool jobs, worker caches, `PlaybackController`), run both
-  `just asan` and `just tsan` and report their pass counts. They take about
-  6½ and 4½ minutes on the dev machine (2026-09-24, incremental build
-  included). Docs, UI-only and pure-core changes need only
-  `meson test`.
+- Sanitizer runs are tiered (owner, 2026-09-25). The full suites take
+  about 6½ min (`just asan`) and 4½ min (`just tsan`) on the dev machine,
+  so they are not run for every landing:
+  - **Most thread-touching changes** (pool jobs, worker caches, queues,
+    anything that posts across threads): before landing, run the tests
+    that exercise the changed code under both sanitizers, e.g.
+    `just asan engine-thread` / `just tsan engine-thread` (the recipes take
+    meson test names), and report the pass counts.
+  - **The full suites, before landing,** only for changes to the engine
+    thread (`engine::Engine`), `core/concurrency/`, the dispatcher, or
+    `PlaybackController` / MLT object lifetime.
+  - **Otherwise, the full suites once per batch** of such changes or at the
+    end of the working day, whichever comes first; report the counts then.
+  - Run ASan and TSan concurrently, each in its own subshell with its own
+    `cd`. Docs, UI-only and pure-core changes need only `meson test`.
 
 ---
 
