@@ -7,6 +7,16 @@ test_factory_policy_exe = executable(
 
 test('engine-factory-policy', test_factory_policy_exe)
 
+subdir('factory_paths')
+test_factory_paths_exe = executable(
+  'test_factory_paths',
+  files('test_factory_paths.cpp'),
+  cpp_args: ['-DTEST_MODULE_DIR="' + factory_paths_module_dir + '"'],
+  dependencies: [doctest_dep, libustudio_engine_dep],
+  install: false,
+)
+test('engine-factory-paths', test_factory_paths_exe, depends: factory_paths_module)
+
 test_engine_sync_exe = executable(
   'test_engine_sync',
   files('test_engine_sync.cpp'),

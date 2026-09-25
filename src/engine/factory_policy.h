@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 // ADR-007: Mlt::Factory::init() with no directory argument dlopens every
 // module in the system MLT module directory, including libmltqt6.so and
@@ -23,10 +24,27 @@
 // directory the second time, undoing the whole policy.
 namespace ustudio::engine {
 
+// IP4 (doc 15): what drop-ins add before Mlt::Factory::init() -- plugin
+// search paths (the effects drop-in's curated FREI0R_PATH, OFX_PLUGIN_PATH)
+// and extra MLT module directories (the titles drop-in's
+// libmltustudio.so). Collected by dropins::DropInRegistry.
+struct FactoryPaths
+{
+    std::vector<std::string> frei0rPaths;
+    std::vector<std::string> ofxPaths;
+    std::vector<std::string> mltModuleDirs;
+};
+
 class FactoryPolicy
 {
   public:
-    FactoryPolicy();
+    // `paths` from the drop-ins: the modules in `mltModuleDirs` join the
+    // curated directory under the same denylist (so ADR-007 holds for them
+    // too; a system module of the same name wins), and FREI0R_PATH /
+    // OFX_PLUGIN_PATH are set to exactly the contributed lists before
+    // init, when MLT's frei0r and OpenFX modules read them. With none, the
+    // environment is left alone.
+    explicit FactoryPolicy(const FactoryPaths &paths = {});
     ~FactoryPolicy();
 
     // Raises MLT's process-wide limit on live avformat decoders to fit

@@ -11,12 +11,12 @@ libustudio_dropins = static_library(
     '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
     '-DUSTUDIO_DROPIN_DIR="' + dropin_install_dir + '"',
   ],
-  dependencies: [libustudio_core_dep, gmodule_dep],
+  dependencies: [libustudio_engine_dep, gmodule_dep],
   include_directories: src_inc,
   install: false,
 )
 libustudio_dropins_dep = declare_dependency(
   link_with: libustudio_dropins,
   include_directories: src_inc,
-  dependencies: [libustudio_core_dep, gmodule_dep],
+  dependencies: [libustudio_engine_dep, gmodule_dep],
 )

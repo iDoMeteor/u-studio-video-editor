@@ -8,12 +8,14 @@
 
 namespace ustudio::dropins {
 class DropInHost;
-struct FactoryPaths;
 } // namespace ustudio::dropins
+namespace ustudio::engine {
+struct FactoryPaths;
+} // namespace ustudio::engine
 
 // Bumped with any change to DropInHost, FactoryPaths, or an integration
 // point a drop-in can see. Modules must match it exactly.
-#define DROPIN_API_VERSION 1
+#define DROPIN_API_VERSION 2 // 2: FactoryPaths is engine::FactoryPaths (IP4)
 
 extern "C" {
 
@@ -24,7 +26,7 @@ struct UStudioDropInDescription
     const char *appVersion;  // the app release it was built with (meson's project version)
     const char *description; // one line, for Settings > Drop-ins
     // IP4: before Mlt::Factory::init (may be null).
-    void (*contributeFactoryPaths)(ustudio::dropins::FactoryPaths *paths);
+    void (*contributeFactoryPaths)(ustudio::engine::FactoryPaths *paths);
     // IP3, IP5, IP6: once MLT is up and the host exists.
     void (*registerDropIn)(ustudio::dropins::DropInHost *host);
 };

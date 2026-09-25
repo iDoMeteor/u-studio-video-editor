@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dropins/api.h"
+#include "engine/factory_policy.h"
 
 #include <string>
 #include <utility>
@@ -9,13 +10,8 @@
 namespace ustudio::dropins {
 
 // IP4: search paths and MLT module directories a drop-in needs before
-// Mlt::Factory::init() (the curated FREI0R_PATH, titles' MLT module).
-struct FactoryPaths
-{
-    std::vector<std::string> frei0rPaths;
-    std::vector<std::string> ofxPaths;
-    std::vector<std::string> mltModuleDirs;
-};
+// Mlt::Factory::init() (engine/factory_policy.h).
+using FactoryPaths = engine::FactoryPaths;
 
 // What registerDropIn() receives: the integration points IP3, IP5 and IP6
 // (doc 15). Pure virtual, so a module calls it through the vtable and links

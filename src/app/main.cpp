@@ -148,7 +148,7 @@ int main(int argc, char **argv)
     ustudio::dropins::FactoryPaths factoryPaths;
     dropIns.contributeFactoryPaths(factoryPaths);
 
-    ustudio::engine::FactoryPolicy factoryPolicy;
+    ustudio::engine::FactoryPolicy factoryPolicy(factoryPaths);
     static ustudio::dropins::BasicDropInHost dropInHost("editor");
     dropIns.registerAll(dropInHost);
 

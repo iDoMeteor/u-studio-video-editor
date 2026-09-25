@@ -20,7 +20,7 @@ int main(int argc, char **argv)
     dropIns.loadModules();
     ustudio::dropins::FactoryPaths factoryPaths;
     dropIns.contributeFactoryPaths(factoryPaths);
-    ustudio::engine::FactoryPolicy factoryPolicy;
+    ustudio::engine::FactoryPolicy factoryPolicy(factoryPaths);
     ustudio::dropins::BasicDropInHost host("render");
     dropIns.registerAll(host);
 

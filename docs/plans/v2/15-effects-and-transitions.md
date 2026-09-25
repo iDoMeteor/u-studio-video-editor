@@ -319,6 +319,19 @@ effect and clip commands, undo all and redo all equal, `check()` and
 
 > REVIEW: VE Core, 2026-09-25: effect ids are unique project-wide (`check()`), so `Model::splitClip` gives the right half's effects new ids (kept across redo by `SplitClip`) and shifts their keyframes by the split offset.
 
+**IP4 as built (2026-09-25):** `engine::FactoryPaths` (in
+`factory_policy.h`; `dropins::FactoryPaths` names it, and
+`DROPIN_API_VERSION` went to 2 with the move) reaches
+`FactoryPolicy(const FactoryPaths &)`: before `Mlt::Factory::init()` it
+sets `FREI0R_PATH` and `OFX_PLUGIN_PATH` to exactly the contributed lists
+(untouched when there are none), and links every `.so` in the contributed
+module directories into the curated module directory through the same
+denylist as the system's, after them, so a system module keeps its name.
+The warm-up, log-level and decoder-limit order after init is unchanged.
+`engine-factory-paths` checks a stand-in module is linked and registered,
+a Qt-named one denied, a system name kept, and no Qt mapped;
+`engine-factory-policy` is unchanged and passes.
+
 ### Not purely additive
 
 Three changes can't be pure drop-ins and are reviewed as such:

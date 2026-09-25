@@ -89,7 +89,7 @@ fs::path moduleCacheBaseDir()
 // every module in USTUDIO_MLT_MODULE_DIR except the denylist. Returns the
 // curated directory path, or empty on any failure (caller falls back to
 // default init).
-std::string buildCuratedModuleDir()
+std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDirs)
 {
     fs::path base = moduleCacheBaseDir();
     if (base.empty())
@@ -160,6 +160,35 @@ std::string buildCuratedModuleDir()
         return {};
     }
 
+    // Drop-ins' module directories (IP4): their modules join the same
+    // directory, through the same denylist, after the system's, so a
+    // system module keeps its name.
+    for (const std::string &dir : contributedDirs) {
+        std::error_code dirEc;
+        if (!fs::is_directory(dir, dirEc)) {
+            Log::warn("[engine] FactoryPolicy: drop-in module directory " + dir + " not found");
+            continue;
+        }
+        for (const auto &entry : fs::directory_iterator(dir, dirEc)) {
+            std::string name = entry.path().filename().string();
+            if (!name.ends_with(".so"))
+                continue;
+            if (isDenied(name, deny)) {
+                Log::warn("[engine] FactoryPolicy: drop-in module " + entry.path().string() + " is denied (ADR-007)");
+                ++skipped;
+                continue;
+            }
+            std::error_code symlinkEc;
+            fs::create_symlink(entry.path(), curated / name, symlinkEc);
+            if (symlinkEc) {
+                Log::warn("[engine] FactoryPolicy: drop-in module " + name + " not linked: " + symlinkEc.message());
+                continue;
+            }
+            ++linked;
+            Log::info("[engine] FactoryPolicy: drop-in module " + entry.path().string());
+        }
+    }
+
     Log::info("[engine] FactoryPolicy: curated MLT module dir " + curated.string() + " (" + std::to_string(linked) +
               " linked, " + std::to_string(skipped) + " denied)");
     return curated.string();
@@ -186,7 +215,21 @@ void warmUpLazyModuleState()
 
 } // namespace
 
-FactoryPolicy::FactoryPolicy()
+namespace {
+// Sets `name` to the colon-joined `paths`, if there are any.
+void setSearchPath(const char *name, const std::vector<std::string> &paths)
+{
+    if (paths.empty())
+        return;
+    std::string value;
+    for (const std::string &path : paths)
+        value += (value.empty() ? "" : ":") + path;
+    ::setenv(name, value.c_str(), 1);
+    Log::info(std::string("[engine] FactoryPolicy: ") + name + "=" + value + " (from drop-ins)");
+}
+} // namespace
+
+FactoryPolicy::FactoryPolicy(const FactoryPaths &paths)
 {
 #ifdef __GLIBC__
     // Process-wide, so it runs here: FactoryPolicy is constructed once, on
@@ -210,7 +253,10 @@ FactoryPolicy::FactoryPolicy()
     // 4,000 at 2,000 dissolves, against vm.max_map_count's default 65,530.
     mallopt(M_MMAP_THRESHOLD, 4 * 1024 * 1024);
 #endif
-    std::string curated = buildCuratedModuleDir();
+    // Read by MLT's frei0r and OpenFX modules when init() loads them.
+    setSearchPath("FREI0R_PATH", paths.frei0rPaths);
+    setSearchPath("OFX_PLUGIN_PATH", paths.ofxPaths);
+    std::string curated = buildCuratedModuleDir(paths.mltModuleDirs);
     if (!curated.empty()) {
         Mlt::Factory::init(curated.c_str());
         m_moduleDirectoryUsed = curated;
