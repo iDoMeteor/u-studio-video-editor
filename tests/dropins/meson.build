@@ -22,3 +22,21 @@ test_dropins_exe = executable(
   install: false,
 )
 test('dropins', test_dropins_exe, depends: test_dropin_modules)
+
+# The test drop-in's core layer: effect commands on Model's IP1 mutators,
+# and IP1's property test.
+test_dropin_core = static_library(
+  'ustudio_test_dropin_core',
+  files('core/effect_commands.cpp'),
+  dependencies: [libustudio_core_dep],
+  install: false,
+)
+test_dropin_model_exe = executable(
+  'test_dropin_model',
+  files('test_dropin_model.cpp'),
+  include_directories: include_directories('core'),
+  link_with: test_dropin_core,
+  dependencies: [doctest_dep, libustudio_core_dep],
+  install: false,
+)
+test('dropin-model', test_dropin_model_exe, timeout: 120)

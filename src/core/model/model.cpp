@@ -3,6 +3,8 @@
 #include "core/log.h"
 
 #include <algorithm>
+#include <tuple>
+#include <unordered_map>
 #include <cassert>
 
 namespace ustudio::core {
@@ -17,6 +19,24 @@ void preconditionFailed(const char *what)
 {
     Log::error(std::string("[model] ") + what);
     assert(false && "Model precondition failed; the log says which");
+}
+
+void shiftKeyframes(std::vector<Keyframe> &keyframes, FrameIndex by)
+{
+    for (Keyframe &keyframe : keyframes)
+        keyframe.at += by;
+}
+
+void shiftEffectKeyframes(Effect &effect, FrameIndex by)
+{
+    for (Param &param : effect.params)
+        shiftKeyframes(param.keyframes, by);
+    shiftKeyframes(effect.mix.keyframes, by);
+    if (effect.mask) {
+        for (Param &param : effect.mask->params)
+            shiftKeyframes(param.keyframes, by);
+        shiftKeyframes(effect.mask->feather.keyframes, by);
+    }
 }
 } // namespace
 
@@ -512,7 +532,8 @@ void Model::resizeClip(ClipId id, FrameIndex newIn, FrameIndex newOut, FrameInde
     notify(ClipResized{id});
 }
 
-ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRightId)
+ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRightId,
+                        std::vector<EffectId> *rightEffectIds)
 {
     if (!hasClip(id)) {
         preconditionFailed("Model::splitClip: unknown ClipId");
@@ -545,6 +566,21 @@ ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRig
     notify(BatchBegin{});
     ClipId rightId = insertClip(left.track, right.asset, right.position, right.in, right.out, reuseRightId);
     Clip &insertedRight = mutableClip(rightId);
+    // The right half's effects are its own (ids are unique project-wide),
+    // animated from the same point in time: keyframes are relative to the
+    // clip's start, so they shift by the split offset (those now before the
+    // start stay, so interpolation into it is unchanged).
+    const bool reuse = rightEffectIds && rightEffectIds->size() == right.effects.size();
+    if (rightEffectIds && !reuse)
+        rightEffectIds->clear();
+    for (size_t i = 0; i < right.effects.size(); ++i) {
+        Effect &copy = right.effects[i];
+        copy.id = reuse ? (*rightEffectIds)[i] : EffectId{allocateId()};
+        reserveId(copy.id.value);
+        if (rightEffectIds && !reuse)
+            rightEffectIds->push_back(copy.id);
+        shiftEffectKeyframes(copy, -offsetIntoClip);
+    }
     insertedRight.effects = right.effects;
     insertedRight.audioEnabled = right.audioEnabled;
     insertedRight.videoEnabled = right.videoEnabled;
@@ -707,6 +743,330 @@ void Model::retargetTransitionClip(TransitionId id, ClipId oldClip, ClipId newCl
     notify(TransitionChanged{id});
 }
 
+// --- Effects, adjustment blocks, looks (IP1) --------------------------------
+
+std::vector<Effect> *Model::mutableEffects(EffectTarget target)
+{
+    Sequence &seq = activeSequence();
+    switch (target.kind) {
+    case EffectTarget::Kind::Clip:
+        if (auto it = seq.clips.find(ClipId{target.id}); it != seq.clips.end())
+            return &it->second.effects;
+        return nullptr;
+    case EffectTarget::Kind::Track:
+        for (Track &track : seq.tracks)
+            if (track.id.value == target.id)
+                return &track.effects;
+        return nullptr;
+    case EffectTarget::Kind::Sequence:
+        return &seq.effects;
+    case EffectTarget::Kind::AdjustmentBlock:
+        if (AdjustmentBlock *block = mutableAdjustmentBlock(AdjustmentBlockId{target.id}))
+            return &block->effects;
+        return nullptr;
+    }
+    return nullptr;
+}
+
+bool Model::hasEffectTarget(EffectTarget target) const
+{
+    return const_cast<Model *>(this)->mutableEffects(target) != nullptr;
+}
+
+const std::vector<Effect> &Model::effects(EffectTarget target) const
+{
+    if (const std::vector<Effect> *list = const_cast<Model *>(this)->mutableEffects(target))
+        return *list;
+    preconditionFailed("Model::effects: unknown effect target");
+    static const std::vector<Effect> kNone;
+    return kNone;
+}
+
+std::optional<std::pair<Model::EffectTarget, size_t>> Model::findEffect(EffectId id) const
+{
+    const Sequence &seq = activeSequence();
+    auto search = [id](const std::vector<Effect> &list) -> std::optional<size_t> {
+        for (size_t i = 0; i < list.size(); ++i)
+            if (list[i].id == id)
+                return i;
+        return std::nullopt;
+    };
+    for (const auto &[clipId, clip] : seq.clips)
+        if (auto index = search(clip.effects))
+            return std::make_pair(EffectTarget::clip(clipId), *index);
+    for (const Track &track : seq.tracks)
+        if (auto index = search(track.effects))
+            return std::make_pair(EffectTarget::track(track.id), *index);
+    if (auto index = search(seq.effects))
+        return std::make_pair(EffectTarget::sequence(), *index);
+    for (const AdjustmentBlock &block : seq.adjustmentBlocks)
+        if (auto index = search(block.effects))
+            return std::make_pair(EffectTarget::adjustmentBlock(block.id), *index);
+    return std::nullopt;
+}
+
+Effect *Model::mutableEffect(EffectId id)
+{
+    auto found = findEffect(id);
+    if (!found)
+        return nullptr;
+    return &(*mutableEffects(found->first))[found->second];
+}
+
+const Effect &Model::effect(EffectId id) const
+{
+    if (const Effect *found = const_cast<Model *>(this)->mutableEffect(id))
+        return *found;
+    preconditionFailed("Model::effect: unknown EffectId");
+    static const Effect kNone;
+    return kNone;
+}
+
+EffectId Model::addEffect(EffectTarget target, Effect effect, size_t index, std::optional<EffectId> reuseId)
+{
+    std::vector<Effect> *list = mutableEffects(target);
+    if (!list) {
+        preconditionFailed("Model::addEffect: unknown effect target");
+        return EffectId{};
+    }
+    effect.id = reuseId.value_or(EffectId{allocateId()});
+    reserveId(effect.id.value);
+    const EffectId id = effect.id;
+    list->insert(list->begin() + static_cast<std::ptrdiff_t>(std::min(index, list->size())), std::move(effect));
+    notify(EffectChanged{id});
+    return id;
+}
+
+Effect Model::removeEffect(EffectId id)
+{
+    auto found = findEffect(id);
+    if (!found) {
+        preconditionFailed("Model::removeEffect: unknown EffectId");
+        return {};
+    }
+    std::vector<Effect> &list = *mutableEffects(found->first);
+    Effect removed = std::move(list[found->second]);
+    list.erase(list.begin() + static_cast<std::ptrdiff_t>(found->second));
+    notify(EffectChanged{id});
+    return removed;
+}
+
+void Model::moveEffect(EffectId id, size_t newIndex)
+{
+    auto found = findEffect(id);
+    if (!found) {
+        preconditionFailed("Model::moveEffect: unknown EffectId");
+        return;
+    }
+    std::vector<Effect> &list = *mutableEffects(found->first);
+    Effect moved = std::move(list[found->second]);
+    list.erase(list.begin() + static_cast<std::ptrdiff_t>(found->second));
+    list.insert(list.begin() + static_cast<std::ptrdiff_t>(std::min(newIndex, list.size())), std::move(moved));
+    notify(EffectChanged{id});
+}
+
+void Model::setEffectEnabled(EffectId id, bool enabled)
+{
+    Effect *target = mutableEffect(id);
+    if (!target) {
+        preconditionFailed("Model::setEffectEnabled: unknown EffectId");
+        return;
+    }
+    target->enabled = enabled;
+    notify(EffectChanged{id});
+}
+
+void Model::setEffectParam(EffectId id, Param param)
+{
+    Effect *target = mutableEffect(id);
+    if (!target) {
+        preconditionFailed("Model::setEffectParam: unknown EffectId");
+        return;
+    }
+    const std::string name = param.name;
+    auto it = std::find_if(target->params.begin(), target->params.end(),
+                           [&](const Param &existing) { return existing.name == name; });
+    if (it != target->params.end())
+        *it = std::move(param);
+    else
+        target->params.push_back(std::move(param));
+    notify(EffectParamChanged{id, name});
+}
+
+void Model::setEffectMix(EffectId id, KeyframedValue mix)
+{
+    Effect *target = mutableEffect(id);
+    if (!target) {
+        preconditionFailed("Model::setEffectMix: unknown EffectId");
+        return;
+    }
+    target->mix = std::move(mix);
+    notify(EffectParamChanged{id, "mix"});
+}
+
+void Model::setEffectMask(EffectId id, std::optional<EffectMask> mask)
+{
+    Effect *target = mutableEffect(id);
+    if (!target) {
+        preconditionFailed("Model::setEffectMask: unknown EffectId");
+        return;
+    }
+    target->mask = std::move(mask);
+    notify(EffectChanged{id});
+}
+
+AdjustmentBlock *Model::mutableAdjustmentBlock(AdjustmentBlockId id)
+{
+    for (AdjustmentBlock &block : activeSequence().adjustmentBlocks)
+        if (block.id == id)
+            return &block;
+    return nullptr;
+}
+
+bool Model::hasAdjustmentBlock(AdjustmentBlockId id) const
+{
+    return const_cast<Model *>(this)->mutableAdjustmentBlock(id) != nullptr;
+}
+
+const AdjustmentBlock &Model::adjustmentBlock(AdjustmentBlockId id) const
+{
+    if (const AdjustmentBlock *block = const_cast<Model *>(this)->mutableAdjustmentBlock(id))
+        return *block;
+    preconditionFailed("Model::adjustmentBlock: unknown AdjustmentBlockId");
+    static const AdjustmentBlock kNone;
+    return kNone;
+}
+
+namespace {
+// Blocks kept sorted by lane, then start, then id: a stable order for the
+// writer and for equality after undo.
+void sortAdjustmentBlocks(std::vector<AdjustmentBlock> &blocks)
+{
+    std::sort(blocks.begin(), blocks.end(), [](const AdjustmentBlock &a, const AdjustmentBlock &b) {
+        return std::tie(a.lane, a.start, a.id.value) < std::tie(b.lane, b.start, b.id.value);
+    });
+}
+} // namespace
+
+AdjustmentBlockId Model::addAdjustmentBlock(AdjustmentBlock block, std::optional<AdjustmentBlockId> reuseId)
+{
+    block.id = reuseId.value_or(AdjustmentBlockId{allocateId()});
+    reserveId(block.id.value);
+    // Effects arriving without ids get them here; with ids (redo, a
+    // restored block) they're kept.
+    for (Effect &effect : block.effects) {
+        if (!effect.id.isValid())
+            effect.id = EffectId{allocateId()};
+        reserveId(effect.id.value);
+    }
+    const AdjustmentBlockId id = block.id;
+    auto &blocks = activeSequence().adjustmentBlocks;
+    blocks.push_back(std::move(block));
+    sortAdjustmentBlocks(blocks);
+    notify(AdjustmentBlockChanged{id});
+    return id;
+}
+
+AdjustmentBlock Model::removeAdjustmentBlock(AdjustmentBlockId id)
+{
+    auto &blocks = activeSequence().adjustmentBlocks;
+    auto it = std::find_if(blocks.begin(), blocks.end(), [id](const AdjustmentBlock &b) { return b.id == id; });
+    if (it == blocks.end()) {
+        preconditionFailed("Model::removeAdjustmentBlock: unknown AdjustmentBlockId");
+        return {};
+    }
+    AdjustmentBlock removed = std::move(*it);
+    blocks.erase(it);
+    notify(AdjustmentBlockChanged{id});
+    return removed;
+}
+
+void Model::setAdjustmentBlockRange(AdjustmentBlockId id, int lane, FrameIndex start, FrameIndex length)
+{
+    AdjustmentBlock *block = mutableAdjustmentBlock(id);
+    if (!block) {
+        preconditionFailed("Model::setAdjustmentBlockRange: unknown AdjustmentBlockId");
+        return;
+    }
+    block->lane = lane;
+    block->start = start;
+    block->length = length;
+    sortAdjustmentBlocks(activeSequence().adjustmentBlocks);
+    notify(AdjustmentBlockChanged{id});
+}
+
+void Model::setAdjustmentBlockFades(AdjustmentBlockId id, std::optional<FadeSpec> fadeIn,
+                                    std::optional<FadeSpec> fadeOut)
+{
+    AdjustmentBlock *block = mutableAdjustmentBlock(id);
+    if (!block) {
+        preconditionFailed("Model::setAdjustmentBlockFades: unknown AdjustmentBlockId");
+        return;
+    }
+    block->fadeIn = fadeIn;
+    block->fadeOut = fadeOut;
+    notify(AdjustmentBlockChanged{id});
+}
+
+LookId Model::addLook(Look look, std::optional<LookId> reuseId)
+{
+    look.id = reuseId.value_or(LookId{allocateId()});
+    reserveId(look.id.value);
+    // Effects arriving without ids get them here; with ids (redo, a
+    // restored block) they're kept.
+    for (Effect &effect : look.effects) {
+        if (!effect.id.isValid())
+            effect.id = EffectId{allocateId()};
+        reserveId(effect.id.value);
+    }
+    const LookId id = look.id;
+    m_project.looks.push_back(std::move(look));
+    notify(LooksChanged{});
+    return id;
+}
+
+Look Model::removeLook(LookId id)
+{
+    auto &looks = m_project.looks;
+    auto it = std::find_if(looks.begin(), looks.end(), [id](const Look &l) { return l.id == id; });
+    if (it == looks.end()) {
+        preconditionFailed("Model::removeLook: unknown LookId");
+        return {};
+    }
+    Look removed = std::move(*it);
+    looks.erase(it);
+    notify(LooksChanged{});
+    return removed;
+}
+
+bool Model::hasLook(LookId id) const
+{
+    return std::any_of(m_project.looks.begin(), m_project.looks.end(), [id](const Look &l) { return l.id == id; });
+}
+
+void Model::setClipSourceParams(ClipId id, std::vector<Param> params)
+{
+    if (!hasClip(id)) {
+        preconditionFailed("Model::setClipSourceParams: unknown ClipId");
+        return;
+    }
+    mutableClip(id).sourceParams = std::move(params);
+    notify(ClipSourceChanged{id});
+}
+
+void Model::setTransitionRecipe(TransitionId id, std::string recipe, std::vector<Param> params)
+{
+    auto &transitions = activeSequence().transitions;
+    auto it = std::find_if(transitions.begin(), transitions.end(), [id](const Transition &t) { return t.id == id; });
+    if (it == transitions.end()) {
+        preconditionFailed("Model::setTransitionRecipe: unknown TransitionId");
+        return;
+    }
+    it->recipe = std::move(recipe);
+    it->params = std::move(params);
+    notify(TransitionChanged{id});
+}
+
 // --- Invariants (doc 03) -----------------------------------------------------
 
 std::vector<std::string> Model::check() const
@@ -841,6 +1201,78 @@ std::vector<std::string> Model::check() const
         if (linkedLength > clipEntry.length()) {
             problems.push_back("clip " + std::to_string(clipId.value) +
                                " has combined transition overlap longer than its own length");
+        }
+    }
+
+    // IP1 (doc 15): effect ids unique project-wide and allocated; keyframes
+    // sorted, strictly, by position (they may lie past the owner's end
+    // after a trim, or before its start after a split, so trimming back
+    // restores the animation); mix within 0-1; adjustment blocks valid and
+    // not overlapping on their lane; look ids allocated.
+    {
+        std::unordered_map<uint64_t, int> effectIds;
+        auto keyframesSorted = [](const std::vector<Keyframe> &keyframes) {
+            for (size_t i = 1; i < keyframes.size(); ++i)
+                if (keyframes[i].at <= keyframes[i - 1].at)
+                    return false;
+            return true;
+        };
+        auto checkEffects = [&](const std::vector<Effect> &list, const std::string &where) {
+            for (const Effect &effect : list) {
+                const std::string name = "effect " + std::to_string(effect.id.value) + " on " + where;
+                if (!effect.id.isValid() || effect.id.value >= m_project.nextId)
+                    problems.push_back(name + " has an id not below nextId");
+                if (++effectIds[effect.id.value] == 2)
+                    problems.push_back(name + " shares its id with another effect");
+                bool sorted = keyframesSorted(effect.mix.keyframes);
+                for (const Param &param : effect.params)
+                    sorted = sorted && keyframesSorted(param.keyframes);
+                if (effect.mask) {
+                    sorted = sorted && keyframesSorted(effect.mask->feather.keyframes);
+                    for (const Param &param : effect.mask->params)
+                        sorted = sorted && keyframesSorted(param.keyframes);
+                }
+                if (!sorted)
+                    problems.push_back(name + " has keyframes out of order");
+                bool mixInRange = effect.mix.value >= 0.0 && effect.mix.value <= 1.0;
+                for (const Keyframe &keyframe : effect.mix.keyframes)
+                    mixInRange = mixInRange && keyframe.value >= 0.0 && keyframe.value <= 1.0;
+                if (!mixInRange)
+                    problems.push_back(name + " has a mix outside 0-1");
+            }
+        };
+        for (const auto &[clipId, clipEntry] : seq.clips) {
+            checkEffects(clipEntry.effects, "clip " + std::to_string(clipId.value));
+            for (const Param &param : clipEntry.sourceParams)
+                if (!keyframesSorted(param.keyframes))
+                    problems.push_back("clip " + std::to_string(clipId.value) + "'s source parameter " + param.name +
+                                       " has keyframes out of order");
+        }
+        for (const Track &trackEntry : seq.tracks)
+            checkEffects(trackEntry.effects, "track " + std::to_string(trackEntry.id.value));
+        checkEffects(seq.effects, "the sequence");
+        std::unordered_map<uint64_t, int> blockIds;
+        for (size_t i = 0; i < seq.adjustmentBlocks.size(); ++i) {
+            const AdjustmentBlock &block = seq.adjustmentBlocks[i];
+            const std::string name = "adjustment block " + std::to_string(block.id.value);
+            checkEffects(block.effects, name);
+            if (!block.id.isValid() || block.id.value >= m_project.nextId)
+                problems.push_back(name + " has an id not below nextId");
+            if (++blockIds[block.id.value] == 2)
+                problems.push_back(name + " shares its id");
+            if (block.lane < 0 || block.start < 0 || block.length <= 0)
+                problems.push_back(name + " has a negative lane or start, or no length");
+            for (size_t j = i + 1; j < seq.adjustmentBlocks.size(); ++j) {
+                const AdjustmentBlock &other = seq.adjustmentBlocks[j];
+                if (other.lane == block.lane && other.start < block.end() && block.start < other.end())
+                    problems.push_back(name + " overlaps adjustment block " + std::to_string(other.id.value) +
+                                       " on lane " + std::to_string(block.lane));
+            }
+        }
+        for (const Look &look : m_project.looks) {
+            checkEffects(look.effects, "look " + std::to_string(look.id.value));
+            if (!look.id.isValid() || look.id.value >= m_project.nextId)
+                problems.push_back("look " + std::to_string(look.id.value) + " has an id not below nextId");
         }
     }
 

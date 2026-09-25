@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <optional>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -122,7 +123,11 @@ class Model
     // Splits at an absolute track position strictly inside the clip's span.
     // Returns the id of the new right-hand clip; the original clip (now the
     // left half) keeps its id.
-    ClipId splitClip(ClipId, FrameIndex at, std::optional<ClipId> reuseRightId = std::nullopt);
+    // The right half's effects are copies under new ids, their keyframes
+    // shifted to its start; `rightEffectIds` (if given) supplies those ids
+    // when non-empty (redo) and receives them otherwise.
+    ClipId splitClip(ClipId, FrameIndex at, std::optional<ClipId> reuseRightId = std::nullopt,
+                     std::vector<EffectId> *rightEffectIds = nullptr);
     // Toggles which of a clip's media streams the engine actually plays
     // (EngineSync sets video_index/audio_index=-1 on the cut for whichever
     // is false). Used directly by SplitAudio's two sides -- the extracted
@@ -178,6 +183,81 @@ class Model
     bool hasMarker(MarkerId) const;
     const Marker &marker(MarkerId) const;
 
+    // --- Effects, adjustment blocks, looks (IP1, doc 15) ---------------------
+    // The commands that use these live in the drop-ins (doc 15, "Commands");
+    // Model only keeps the data consistent. Every mutator validates its ids
+    // (preconditionFailed() otherwise) and emits one event.
+
+    // Where an effect lives: a clip's, a track's, the sequence's (master) or
+    // an adjustment block's stack.
+    struct EffectTarget
+    {
+        enum class Kind
+        {
+            Clip,
+            Track,
+            Sequence,
+            AdjustmentBlock
+        } kind = Kind::Sequence;
+        uint64_t id = 0; // the clip's, track's or block's id; unused for Sequence
+
+        bool operator==(const EffectTarget &) const = default;
+        static EffectTarget clip(ClipId id)
+        {
+            return {Kind::Clip, id.value};
+        }
+        static EffectTarget track(TrackId id)
+        {
+            return {Kind::Track, id.value};
+        }
+        static EffectTarget sequence()
+        {
+            return {Kind::Sequence, 0};
+        }
+        static EffectTarget adjustmentBlock(AdjustmentBlockId id)
+        {
+            return {Kind::AdjustmentBlock, id.value};
+        }
+    };
+    bool hasEffectTarget(EffectTarget) const;
+    const std::vector<Effect> &effects(EffectTarget) const;
+    // Where effect `id` is (target, index in its stack), if anywhere.
+    std::optional<std::pair<EffectTarget, size_t>> findEffect(EffectId) const;
+    bool hasEffect(EffectId id) const
+    {
+        return findEffect(id).has_value();
+    }
+    const Effect &effect(EffectId) const;
+
+    // Inserts at `index` (clamped to the stack's size); `effect.id` is
+    // replaced by a new id, or by `reuseId` (redo).
+    EffectId addEffect(EffectTarget, Effect effect, size_t index, std::optional<EffectId> reuseId = std::nullopt);
+    // Returns what was removed, for the command's undo.
+    Effect removeEffect(EffectId);
+    void moveEffect(EffectId, size_t newIndex); // within its stack, clamped
+    void setEffectEnabled(EffectId, bool enabled);
+    // Replaces the parameter called `param.name` (adds it if absent).
+    // EffectParamChanged: the engine may apply it in place.
+    void setEffectParam(EffectId, Param param);
+    void setEffectMix(EffectId, KeyframedValue mix); // EffectParamChanged{"mix"}
+    void setEffectMask(EffectId, std::optional<EffectMask> mask);
+
+    // Effects in `block` (or `look`) without ids are given new ones.
+    AdjustmentBlockId addAdjustmentBlock(AdjustmentBlock block,
+                                         std::optional<AdjustmentBlockId> reuseId = std::nullopt);
+    AdjustmentBlock removeAdjustmentBlock(AdjustmentBlockId);
+    void setAdjustmentBlockRange(AdjustmentBlockId, int lane, FrameIndex start, FrameIndex length);
+    void setAdjustmentBlockFades(AdjustmentBlockId, std::optional<FadeSpec> fadeIn, std::optional<FadeSpec> fadeOut);
+    bool hasAdjustmentBlock(AdjustmentBlockId) const;
+    const AdjustmentBlock &adjustmentBlock(AdjustmentBlockId) const;
+
+    LookId addLook(Look look, std::optional<LookId> reuseId = std::nullopt);
+    Look removeLook(LookId);
+    bool hasLook(LookId) const;
+
+    void setClipSourceParams(ClipId, std::vector<Param> params);
+    void setTransitionRecipe(TransitionId, std::string recipe, std::vector<Param> params);
+
     // Verbatim restore, used by Command::revert paths (core/commands) that
     // captured a full Clip/Track at apply time (e.g. RemoveClip, RemoveTrack)
     // -- unlike insertClip/addTrack, these don't derive any field, they just
@@ -213,6 +293,9 @@ class Model
     std::vector<std::string> check() const;
 
   private:
+    std::vector<Effect> *mutableEffects(EffectTarget);
+    Effect *mutableEffect(EffectId);
+    AdjustmentBlock *mutableAdjustmentBlock(AdjustmentBlockId);
     Project m_project;
     mutable std::shared_ptr<const Project> m_snapshot; // null = none since the last edit
 

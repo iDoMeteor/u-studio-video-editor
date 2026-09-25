@@ -398,6 +398,7 @@ class SplitClip : public Command
     FrameIndex m_oldOut = 0;
     std::optional<FadeSpec> m_oldFadeOut;
     ClipId m_rightId;
+    std::vector<EffectId> m_rightEffectIds; // the right half's effects, the same on redo
     bool m_appliedBefore = false;
     // Set only when an outgoing transition survived (wasn't stripped)
     // and was repointed from m_clip to m_rightId -- revert() repoints

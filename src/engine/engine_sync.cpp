@@ -25,6 +25,18 @@
 
 namespace ustudio::engine {
 
+// core::Easing is MLT's mlt_keyframe_type value for value (IP1, doc 15): the
+// engine maps it by casting, so pin the ends and the smooth variants here,
+// against the installed MLT headers.
+static_assert(static_cast<int>(core::Easing::Discrete) == mlt_keyframe_discrete);
+static_assert(static_cast<int>(core::Easing::Linear) == mlt_keyframe_linear);
+static_assert(static_cast<int>(core::Easing::SmoothLoose) == mlt_keyframe_smooth_loose);
+static_assert(static_cast<int>(core::Easing::SmoothNatural) == mlt_keyframe_smooth_natural);
+static_assert(static_cast<int>(core::Easing::SmoothTight) == mlt_keyframe_smooth_tight);
+static_assert(static_cast<int>(core::Easing::SinusoidalIn) == mlt_keyframe_sinusoidal_in);
+static_assert(static_cast<int>(core::Easing::ExponentialInOut) == mlt_keyframe_exponential_in_out);
+static_assert(static_cast<int>(core::Easing::BounceInOut) == mlt_keyframe_bounce_in_out);
+
 namespace Log = ustudio::core::Log;
 
 namespace {

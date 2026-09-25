@@ -3,6 +3,7 @@
 #include "ids.h"
 
 #include <cstddef>
+#include <string>
 #include <variant>
 
 namespace ustudio::core {
@@ -59,9 +60,30 @@ struct TrackReordered
 {
     TrackId track;
 };
+// An effect added, removed, moved, enabled or disabled, or its mask
+// changed: the graph's shape changes.
 struct EffectChanged
 {
     EffectId effect;
+};
+// One parameter (or "mix") of an effect changed value: the engine may apply
+// it to the live filter without a rebuild (doc 15, IP3's applyInPlace).
+struct EffectParamChanged
+{
+    EffectId effect;
+    std::string param;
+};
+struct AdjustmentBlockChanged
+{
+    AdjustmentBlockId block;
+};
+// A look added to or removed from the bin (never reaches MLT).
+struct LooksChanged
+{};
+// A clip's sourceParams changed (a drop-in-generated clip, e.g. a title).
+struct ClipSourceChanged
+{
+    ClipId clip;
 };
 struct TransitionAdded
 {
@@ -99,7 +121,8 @@ struct BatchEnd
 // consistent (doc 03) -- listeners never observe a half-applied mutation.
 using ModelEvent = std::variant<ClipInserted, ClipRemoved, ClipMoved, ClipResized, ClipFlagsChanged, ClipRenamed,
                                 TrackAdded, TrackRemoved, TrackFlagsChanged, TrackVolumeChanged, TrackRenamed,
-                                TrackReordered, EffectChanged, TransitionAdded, TransitionRemoved, TransitionChanged,
-                                AssetChanged, SequenceProfileChanged, MarkersChanged, BatchBegin, BatchEnd>;
+                                TrackReordered, EffectChanged, EffectParamChanged, AdjustmentBlockChanged, LooksChanged,
+                                ClipSourceChanged, TransitionAdded, TransitionRemoved, TransitionChanged, AssetChanged,
+                                SequenceProfileChanged, MarkersChanged, BatchBegin, BatchEnd>;
 
 } // namespace ustudio::core

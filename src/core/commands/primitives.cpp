@@ -717,7 +717,8 @@ bool SplitClip::apply(Model &model)
 
     m_oldOut = shrunk.out;
     m_oldFadeOut = shrunk.fadeOut;
-    m_rightId = model.splitClip(m_clip, m_at, m_appliedBefore ? std::optional<ClipId>(m_rightId) : std::nullopt);
+    m_rightId = model.splitClip(m_clip, m_at, m_appliedBefore ? std::optional<ClipId>(m_rightId) : std::nullopt,
+                                &m_rightEffectIds);
     m_appliedBefore = true;
 
     // A surviving outgoing transition still says `a == m_clip`, but

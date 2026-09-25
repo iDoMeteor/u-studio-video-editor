@@ -62,18 +62,65 @@ struct Asset
     bool operator==(const Asset &) const = default;
 };
 
+// How a keyframe eases into the next one: MLT's mlt_keyframe_type one for
+// one, same order and values (verified against ~/Repos/mlt at v7.40.0,
+// src/framework/mlt_types.h), so the engine maps it by value (doc 15,
+// "Animation strings").
+enum class Easing
+{
+    Discrete = 0, // holds until the next keyframe
+    Linear,
+    SmoothLoose,   // Catmull-Rom; may overshoot (MLT's "smooth")
+    SmoothNatural, // centripetal, natural slope, no overshoot
+    SmoothTight,   // centripetal, flat at each keyframe
+    SinusoidalIn,
+    SinusoidalOut,
+    SinusoidalInOut,
+    QuadraticIn,
+    QuadraticOut,
+    QuadraticInOut,
+    CubicIn,
+    CubicOut,
+    CubicInOut,
+    QuarticIn,
+    QuarticOut,
+    QuarticInOut,
+    QuinticIn,
+    QuinticOut,
+    QuinticInOut,
+    ExponentialIn,
+    ExponentialOut,
+    ExponentialInOut,
+    CircularIn,
+    CircularOut,
+    CircularInOut,
+    BackIn,
+    BackOut,
+    BackInOut,
+    ElasticIn,
+    ElasticOut,
+    ElasticInOut,
+    BounceIn,
+    BounceOut,
+    BounceInOut,
+};
+
 struct Keyframe
 {
-    FrameIndex at = 0;
+    FrameIndex at = 0; // relative to the owner's start (clip, block); may lie past its end after a trim
     double value = 0.0;
-    enum class Interp
-    {
-        Linear,
-        Smooth,
-        Hold
-    } interp = Interp::Linear;
+    Easing easing = Easing::Linear;
 
     bool operator==(const Keyframe &) const = default;
+};
+
+// A number that may be animated: `value` when `keyframes` is empty.
+struct KeyframedValue
+{
+    double value = 0.0;
+    std::vector<Keyframe> keyframes;
+
+    bool operator==(const KeyframedValue &) const = default;
 };
 
 struct Color
@@ -99,6 +146,17 @@ struct Param
     bool operator==(const Param &) const = default;
 };
 
+// Limits an effect to a region (doc 15, "Mix and masks").
+struct EffectMask
+{
+    std::string shape;         // "rectangle", "ellipse", or a luma map's name
+    std::vector<Param> params; // the shape's geometry, keyframable
+    KeyframedValue feather;
+    bool invert = false;
+
+    bool operator==(const EffectMask &) const = default;
+};
+
 struct Effect
 {
     EffectId id;
@@ -106,6 +164,11 @@ struct Effect
     std::string displayName;
     bool enabled = true;
     std::vector<Param> params;
+    KeyframedValue mix{1.0, {}}; // wet/dry, 0-1
+    std::optional<EffectMask> mask;
+    // The drop-in that applies it ("effects", "audio-polish"; doc 17): an
+    // effect whose owner isn't loaded is kept, saved and shown, not played.
+    std::string owner;
 
     bool operator==(const Effect &) const = default;
 };
@@ -129,6 +192,9 @@ struct Clip
     std::string name; // defaults to asset displayName
     std::vector<Effect> effects;
     std::optional<FadeSpec> fadeIn, fadeOut;
+    // Parameters of the clip's own producer, for clips a drop-in generates
+    // (titles, doc 16). Empty for media.
+    std::vector<Param> sourceParams;
 
     FrameIndex length() const
     {
@@ -177,8 +243,41 @@ struct Transition
     FrameIndex extendA = 0, extendB = 0;
     FrameIndex length = 0;        // == extendA + extendB
     std::string service = "luma"; // "luma" (dissolve) in v2.0; "mix" for audio auto
+    // A drop-in's transition recipe (wipes, motion, blends; doc 15,
+    // "Transitions") and its parameters. "" is the plain dissolve, played
+    // with `service`; an unknown recipe also plays as that.
+    std::string recipe;
+    std::vector<Param> params;
 
     bool operator==(const Transition &) const = default;
+};
+
+// Effects on everything beneath it for a time range, on the FX lane
+// `lane` above the tracks (doc 15, "FX lane").
+struct AdjustmentBlock
+{
+    AdjustmentBlockId id;
+    int lane = 0;
+    FrameIndex start = 0;
+    FrameIndex length = 0;
+    std::vector<Effect> effects;
+    std::optional<FadeSpec> fadeIn, fadeOut;
+
+    FrameIndex end() const
+    {
+        return start + length;
+    }
+    bool operator==(const AdjustmentBlock &) const = default;
+};
+
+// A saved effect stack in the project bin (doc 15, "Looks").
+struct Look
+{
+    LookId id;
+    std::string name;
+    std::vector<Effect> effects;
+
+    bool operator==(const Look &) const = default;
 };
 
 struct Marker
@@ -213,6 +312,8 @@ struct Sequence
     std::unordered_map<ClipId, Clip> clips;
     std::vector<Transition> transitions;
     std::vector<Marker> markers;
+    std::vector<Effect> effects; // master effects on the output
+    std::vector<AdjustmentBlock> adjustmentBlocks;
 
     FrameIndex length() const
     {
@@ -228,6 +329,7 @@ struct Sequence
 struct Project
 {
     std::vector<Asset> bin;
+    std::vector<Look> looks;
     std::vector<Sequence> sequences; // exactly 1 in v2.0; the type allows more
     SequenceId activeSequence;
     uint64_t nextId = 1;                         // id allocator state; 0 is reserved for "invalid"

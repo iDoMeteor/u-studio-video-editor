@@ -18,6 +18,33 @@ FrameIndex retimeFrame(FrameIndex frame, Rational from, Rational to)
     return (2 * numerator + denominator) / (2 * denominator);
 }
 
+namespace {
+
+template <class At> void retimeKeyframes(std::vector<Keyframe> &keyframes, const At &at)
+{
+    for (Keyframe &keyframe : keyframes)
+        keyframe.at = at(keyframe.at);
+}
+
+// Keyframes can lie before an owner's start after a split (negative):
+// scaled as magnitudes so they stay mirrored around it.
+template <class At> void retimeEffects(std::vector<Effect> &effects, const At &at)
+{
+    auto signedAt = [&at](FrameIndex frame) { return frame < 0 ? -at(-frame) : at(frame); };
+    for (Effect &effect : effects) {
+        for (Param &param : effect.params)
+            retimeKeyframes(param.keyframes, signedAt);
+        retimeKeyframes(effect.mix.keyframes, signedAt);
+        if (effect.mask) {
+            for (Param &param : effect.mask->params)
+                retimeKeyframes(param.keyframes, signedAt);
+            retimeKeyframes(effect.mask->feather.keyframes, signedAt);
+        }
+    }
+}
+
+} // namespace
+
 Project retime(const Project &project, Rational fps)
 {
     Project result = project;
@@ -43,10 +70,9 @@ Project retime(const Project &project, Rational fps)
         clip.position = position;
         clip.in = at(was.in);
         clip.out = clip.in + length - 1;
-        for (Effect &effect : clip.effects)
-            for (Param &param : effect.params)
-                for (Keyframe &keyframe : param.keyframes)
-                    keyframe.at = at(keyframe.at);
+        retimeEffects(clip.effects, at);
+        for (Param &param : clip.sourceParams)
+            retimeKeyframes(param.keyframes, at);
         for (std::optional<FadeSpec> *fade : {&clip.fadeIn, &clip.fadeOut})
             if (*fade)
                 (*fade)->length = std::clamp<FrameIndex>(at((*fade)->length), 1, length);
@@ -54,10 +80,21 @@ Project retime(const Project &project, Rational fps)
         need = std::max(need, clip.out + 1);
     }
     for (Track &track : seq.tracks)
-        for (Effect &effect : track.effects)
-            for (Param &param : effect.params)
-                for (Keyframe &keyframe : param.keyframes)
-                    keyframe.at = at(keyframe.at);
+        retimeEffects(track.effects, at);
+    retimeEffects(seq.effects, at);
+    // Adjustment blocks: both ends rounded, like clips.
+    for (AdjustmentBlock &block : seq.adjustmentBlocks) {
+        const FrameIndex start = at(block.start);
+        const FrameIndex end = at(block.end());
+        block.start = start;
+        block.length = std::max<FrameIndex>(1, end - start);
+        retimeEffects(block.effects, at);
+        for (std::optional<FadeSpec> *fade : {&block.fadeIn, &block.fadeOut})
+            if (*fade)
+                (*fade)->length = std::clamp<FrameIndex>(at((*fade)->length), 1, block.length);
+    }
+    for (Look &look : result.looks)
+        retimeEffects(look.effects, at);
 
     // Dissolves: the overlap the rounded clips now have is the new length.
     std::vector<Transition> transitions;
@@ -72,6 +109,8 @@ Project retime(const Project &project, Rational fps)
         transition.length = length;
         transition.extendA = std::clamp<FrameIndex>(at(transition.extendA), 0, length);
         transition.extendB = length - transition.extendA;
+        for (Param &param : transition.params)
+            retimeKeyframes(param.keyframes, at);
         transitions.push_back(transition);
     }
     seq.transitions = std::move(transitions);

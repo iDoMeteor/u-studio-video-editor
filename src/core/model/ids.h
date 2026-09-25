@@ -44,6 +44,10 @@ struct MarkerTag
 {};
 struct TransitionTag
 {};
+struct AdjustmentBlockTag
+{};
+struct LookTag
+{};
 struct SequenceTag
 {};
 
@@ -54,6 +58,8 @@ using EffectId = Id<EffectTag>;
 using MarkerId = Id<MarkerTag>;
 using TransitionId = Id<TransitionTag>;
 using SequenceId = Id<SequenceTag>;
+using AdjustmentBlockId = Id<AdjustmentBlockTag>;
+using LookId = Id<LookTag>;
 
 } // namespace ustudio::core
 

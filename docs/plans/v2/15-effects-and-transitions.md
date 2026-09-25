@@ -300,6 +300,25 @@ The timeline provider in IP5 is ideally part of M3's timeline widget (doc
 06, ADR-008). If M3 closes without it, FX4 adds it as its own integration
 commit.
 
+**IP1 as built (2026-09-25):** `types.h` has `Easing` (MLT's
+`mlt_keyframe_type`, value for value, pinned by `static_assert`s in
+`engine_sync.cpp`), `KeyframedValue`, `EffectMask`, `Effect::mix`, `mask`,
+`owner`, `Clip::sourceParams`, `Transition::recipe` and `params`,
+`AdjustmentBlock`, `Sequence::effects` and `adjustmentBlocks`, and
+`Project::looks`. `Model` has `EffectTarget` (clip, track, sequence,
+adjustment block) and mutators for each: add, remove, move and enable an
+effect; `setEffectParam` and `setEffectMix` (event `EffectParamChanged`);
+masks, adjustment blocks, looks, source params, transition recipes. The
+test drop-in's `core/` has the commands and IP1's property test (random
+effect and clip commands, undo all and redo all equal, `check()` and
+`snapshot() == project()` after every step).
+
+> REVIEW: VE Core, 2026-09-25: keyframes are required to be sorted, not to lie inside their owner's length. A trim would otherwise have to destroy keyframes that extending the clip again should bring back, and a split's right half keeps the left part's keyframes (shifted, so negative) so interpolation into its start doesn't change. The engine (IP3) clamps when it writes animation strings.
+
+> REVIEW: VE Core, 2026-09-25: `Transition::service` stays beside `recipe`: `recipe` empty (every existing project) means the plain dissolve played with `service`, which is what the engine and format 4 already use; FX3's recipes resolve to services in the engine. Smaller than replacing the field and migrating every reader.
+
+> REVIEW: VE Core, 2026-09-25: effect ids are unique project-wide (`check()`), so `Model::splitClip` gives the right half's effects new ids (kept across redo by `SplitClip`) and shifts their keyframes by the split offset.
+
 ### Not purely additive
 
 Three changes can't be pure drop-ins and are reviewed as such:

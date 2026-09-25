@@ -109,6 +109,7 @@ TEST_CASE("retime: dissolves keep length = extendA + extendB, and fades and keyf
     Clip &clipA = project.sequences[0].clips.at(a);
     clipA.fadeIn = FadeSpec{10};
     Effect effect;
+    effect.id = EffectId{project.nextId++}; // allocated, as Model::addEffect would
     effect.service = "volume";
     Param gain;
     gain.name = "level";
@@ -172,4 +173,31 @@ TEST_CASE("ChangeSequenceFrameRate: moves everything, undoes exactly, refuses th
     CHECK_FALSE(undo.execute(std::make_unique<ChangeSequenceFrameRate>(Rational{30, 1})));
     CHECK_FALSE(undo.execute(std::make_unique<ChangeSequenceFrameRate>(Rational{60, 2})));
     CHECK(model.project() == before);
+}
+
+TEST_CASE("retime: adjustment blocks, master effects, mix and looks move with the rate (IP1)")
+{
+    Model model = Model::createEmpty(at({30, 1}));
+    Effect master;
+    master.service = "brightness";
+    master.mix = {0.5, {{0, 0.0, Easing::CubicIn}, {30, 1.0, Easing::Linear}}};
+    model.addEffect(Model::EffectTarget::sequence(), master, 0);
+    AdjustmentBlock block;
+    block.start = 45;
+    block.length = 30;
+    block.fadeIn = FadeSpec{15};
+    block.effects = {master};
+    AdjustmentBlockId blockId = model.addAdjustmentBlock(block);
+    model.addLook(Look{{}, "warm", {master}});
+    REQUIRE(model.check().empty());
+
+    Project doubled = retime(model.project(), {60, 1});
+    Model up(doubled);
+    CHECK(up.check().empty());
+    CHECK(up.sequence().effects[0].mix.keyframes[1].at == 60);
+    CHECK(up.adjustmentBlock(blockId).start == 90);
+    CHECK(up.adjustmentBlock(blockId).length == 60);
+    CHECK(up.adjustmentBlock(blockId).fadeIn->length == 30);
+    CHECK(up.adjustmentBlock(blockId).effects[0].mix.keyframes[1].at == 60);
+    CHECK(doubled.looks[0].effects[0].mix.keyframes[1].at == 60);
 }
