@@ -287,6 +287,10 @@ void AppWindow::prepareForShutdown()
     m_pool.reset();
     if (m_engine)
         m_engine->shutdown();
+    if (m_refreshSourceId != 0) {
+        g_source_remove(m_refreshSourceId);
+        m_refreshSourceId = 0;
+    }
 }
 
 void AppWindow::buildUi(GtkApplication *app)
@@ -1399,8 +1403,7 @@ AppWindow::importProbedToTrack(const std::string &path, const engine::EngineSync
 
     if (!m_undoStack.execute(std::move(composite)))
         return std::unexpected("Could not import: " + path);
-    refreshTimeline();
-    refreshMediaBrowser();
+    queueRefresh();
     return position + length;
 }
 
@@ -1411,8 +1414,19 @@ std::expected<void, std::string> AppWindow::importProbedAssetOnly(const std::str
     if (!m_undoStack.execute(
             std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, m_model.sequence().profile.fps))))
         return std::unexpected("Could not import: " + path);
-    refreshMediaBrowser();
+    queueRefresh();
     return {};
+}
+
+void AppWindow::queueRefresh()
+{
+    // One refresh for a whole burst of imports, not one per file: each
+    // refreshMediaBrowser() rebuilds every row, so fifty imports cost
+    // fifty growing rebuilds (17 ms each by the end, doc 19 MT2). Idle
+    // priority runs after the paced applies (G_PRIORITY_DEFAULT posts).
+    if (m_refreshSourceId == 0)
+        m_refreshSourceId =
+            g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, &AppWindow::queuedRefreshTrampoline, this, nullptr);
 }
 
 void AppWindow::cancelProjectJobs()
@@ -2650,11 +2664,13 @@ void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, i
 
 void AppWindow::onWaveformReady()
 {
+    core::trace::Scope trace("onWaveformReady");
     gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
 }
 
 void AppWindow::onThumbnailReady()
 {
+    core::trace::Scope trace("onThumbnailReady");
     // Audit A4: a thumbnail finishing while the panel is hidden has
     // nothing on screen to update -- rebuilding it anyway means N full
     // rebuilds (destroying and recreating every row) for N assets
@@ -2775,6 +2791,7 @@ void AppWindow::openRecentProject(const std::string &path)
 
 void AppWindow::refreshMediaBrowser()
 {
+    core::trace::Scope trace("refreshMediaBrowser");
     GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(m_mediaBrowserList));
     while (child) {
         GtkWidget *next = gtk_widget_get_next_sibling(child);
@@ -3326,6 +3343,7 @@ void AppWindow::onTimelineHScrollChanged()
 
 void AppWindow::refreshTimeline()
 {
+    core::trace::Scope trace("refreshTimeline");
     m_clips.clear();
     const core::Sequence &seq = m_model.sequence();
     for (size_t row = 0; row < seq.tracks.size(); ++row) {
@@ -3749,6 +3767,15 @@ void AppWindow::offerRecoveryIfAny()
 
 // ---- GTK/GObject trampolines: static C-linkage-compatible callbacks that
 // forward straight into the owning AppWindow instance. ----
+
+gboolean AppWindow::queuedRefreshTrampoline(gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    self->m_refreshSourceId = 0;
+    self->refreshTimeline();
+    self->refreshMediaBrowser();
+    return G_SOURCE_REMOVE;
+}
 
 void AppWindow::importClickedTrampoline(GtkButton *, gpointer userData)
 {

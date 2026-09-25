@@ -134,6 +134,11 @@ class AppWindow
     // A close waiting for a write to land (see onCloseRequest()) retries
     // once nothing is left to write.
     void onSaveQueueSettled();
+    // Coalesces the timeline and media-browser refresh after imports into
+    // one idle callback (queuedRefreshTrampoline).
+    void queueRefresh();
+    guint m_refreshSourceId = 0; // 0 = none queued
+    static gboolean queuedRefreshTrampoline(gpointer userData);
     // Always opens the "Save Project" dialog (Save As), regardless of
     // m_currentProjectPath -- bound to Ctrl+Shift+S and the "Save
     // project…" button. See saveInPlaceOrPrompt() for Ctrl+S's "save in

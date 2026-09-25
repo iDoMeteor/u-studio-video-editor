@@ -236,6 +236,33 @@ longer subscribes to the live Model.
   project swap is one rebuild. `renderProject()` builds from its model's
   snapshot the same way.
 
+**Pieces 2–4: the engine thread (0.28.0, fixes in 0.28.1).**
+`engine::Engine` owns one `std::jthread` holding EngineSync and
+PlaybackController (README, "Playback engine notes"). Measured on
+2026-09-24; stall-monitor numbers are from the real Wayland desktop
+(hardware GL). Under Xvfb, software painting of each 1080p frame alone
+stalls the main loop 20–60 ms, about 27 times a second, so it can't judge
+the 16 ms criterion.
+- **100 edits in 10 s while playing 1080p** (120-clip project, alternating
+  nudges every 100 ms): no main-loop iteration over 16 ms during the edits.
+  54 builds for 100 edits (latest wins), each about 215 ms on the engine
+  thread (graph plus consumer restart).
+- **50-file import** (1080p H.264, window already up): no iteration over
+  16 ms. That needed one app fix: imports refresh the timeline and media
+  browser once per burst (`queueRefresh()`), not once per file, where the
+  media browser's full rebuild had reached 17 ms by the fiftieth file.
+- **Latency, publish to first frame of the new graph** (release, 8 tracks,
+  median of 8): 161 ms at 500 clips (target 200: met); 525 ms at 5,000
+  (472–649; target 500: **missed by about 5%**). That's roughly 300 ms of
+  build, 170 ms of consumer restart and the first frame. The lever, if
+  wanted, is per-track incremental rebuild or a cheaper restart.
+- **Found and fixed on the way** (0.28.1):
+  - Latest-wins didn't hold while playing. Every shown frame queues a drain
+    on the engine thread, so snapshots are folded across drains now.
+  - `play()` right behind `setTractor()`'s pause sometimes never started
+    (MLT's read-ahead holds speed-0 frames that use up the sdl2 consumer's
+    refresh wakes). `play()` now sets the speed, purges, then refreshes.
+
 - `EngineSync` and `PlaybackController` move to the engine thread. The main
   thread talks to them through a small command queue (play, pause, seek,
   loop, volume, preview scale, "new snapshot") and receives state
@@ -292,17 +319,19 @@ threads; it submits jobs to the pool.
 
 ## Acceptance
 
-- [ ] During each of these, no main-loop iteration exceeds 16 ms (stall
+- [x] During each of these, no main-loop iteration exceeds 16 ms (stall
       monitor): importing 50 files (checked at MT2: MT1 moved the probing
       off, but each apply's `rebuildAll` stays on the main thread until
       then); saving a 5,000-clip project; 100 edits in 10 s while playing
       1080p (owner direction 2026-09-24: HD is the primary target; 4K
-      throughput is MT4's, run on demand).
+      throughput is MT4's, run on demand). (Save: MT1. Import and edits:
+      MT2, on the Wayland desktop; see "Pieces 2–4".)
 - [ ] Edits while playing never block input; playback picks up the newest
       graph within one rebuild: in a release build, from publishing the
       snapshot to the first frame of the new graph, at most 500 ms at 5,000
       clips on 8 tracks and 200 ms at 500; a burst of edits costs at most
-      one build beyond the last one.
+      one build beyond the last one. (Input never blocks, the 500-clip
+      target and the burst bound are met; 5,000 clips measured 525 ms.)
 - [ ] The routine soak (`playback_soak`, 10 min of generated 1080p H.264,
       more than 64 clips so tracks are chunked) holds real time. The
       recorded 4K60 runs above are history.
