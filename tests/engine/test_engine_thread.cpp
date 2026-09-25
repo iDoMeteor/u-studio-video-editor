@@ -14,6 +14,7 @@
 
 #include <glib.h>
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include <vector>
@@ -204,6 +205,7 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
     TrackId track = model.sequence().tracks.front().id;
     AssetId asset = model.project().bin.front().id;
     double slowestCallMs = 0;
+    std::vector<double> callMs;
     for (int i = 0; i < 20; ++i) {
         model.insertClip(track, asset, 30'000 + i * 10, 0, 9);
         auto start = std::chrono::steady_clock::now();
@@ -211,20 +213,32 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
         engine.seek(i);
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         slowestCallMs = std::max(slowestCallMs, ms);
+        callMs.push_back(ms);
     }
+    std::sort(callMs.begin(), callMs.end());
+    const double medianCallMs = callMs[callMs.size() / 2];
     REQUIRE(engine.syncForTesting());
     CAPTURE(rebuilds);
     CAPTURE(slowestCallMs);
+    CAPTURE(medianCallMs);
     // Each publish is followed by a seek, so snapshots don't sit next to
     // each other in the queue: the burst collapses only where the engine
     // fell behind. It must never take more builds than edits.
     CHECK(rebuilds >= 1);
     CHECK(rebuilds <= 20);
     CHECK(engine.totalFrames() == 30'000 + 19 * 10 + 10);
-    if (kSanitized)
-        MESSAGE("sanitizer build: slowest publish+seek " << slowestCallMs << " ms, reported, not checked");
-    else
-        CHECK(slowestCallMs < 16.0);
+    // The question is whether a call ever waits on a build: that would take
+    // as long as the build (well over 100 ms at 2,000 clips). A call is a
+    // queue append, so the typical one is far under a millisecond; under
+    // heavy load a descheduled main thread can still stretch one (18 ms,
+    // once in 16 runs alongside both sanitizer suites), which isn't waiting.
+    if (kSanitized) {
+        MESSAGE("sanitizer build: publish+seek median " << medianCallMs << " ms, slowest " << slowestCallMs
+                                                        << " ms, reported, not checked");
+    } else {
+        CHECK(medianCallMs < 1.0);
+        CHECK(slowestCallMs < 50.0);
+    }
 
     // Back to back with nothing between, twenty publishes collapse to at
     // most one build beyond the one already running.
