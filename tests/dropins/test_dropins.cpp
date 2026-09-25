@@ -35,6 +35,10 @@ struct RecordingHost : DropInHost
     {
         logged.push_back("render subcommand " + subcommand.name);
     }
+    void addShellExtension(ustudio::dropins::ShellExtension) override
+    {
+        logged.push_back("shell extension");
+    }
 };
 
 bool anyContains(const std::vector<std::string> &lines, const std::string &text)
@@ -63,6 +67,7 @@ TEST_CASE("drop-ins: a built-in drop-in contributes factory paths and registers"
     registry.registerAll(host);
     CHECK(anyContains(host.logged, "[testdropin] registered in test"));
     CHECK(anyContains(host.logged, "render subcommand testdropin-probe"));
+    CHECK(anyContains(host.logged, "shell extension"));
 }
 
 TEST_CASE("drop-ins: modules load from the given directory; bad ones are refused with a reason")

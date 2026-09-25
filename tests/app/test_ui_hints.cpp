@@ -30,7 +30,7 @@ TEST_CASE("ui hints: every named action exists, and no text types a shortcut in 
         INFO(hint.id);
         if (hint.action != nullptr) {
             bool found = false;
-            for (const ActionSpec &spec : actionSpecs())
+            for (const ActionSpec &spec : allActionSpecs())
                 found = found || std::strcmp(spec.name, hint.action) == 0;
             CHECK(found);
         }

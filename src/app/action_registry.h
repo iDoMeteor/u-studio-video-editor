@@ -33,6 +33,31 @@ struct ActionSpec
     void (*activated)(GSimpleAction *, GVariant *, gpointer);
 };
 
+// The shell's own actions.
 const std::vector<ActionSpec> &actionSpecs();
+
+// Doc 15 IP5: actions a drop-in adds through ShellHost::addActions(), each
+// activated with the drop-in's own `target` as user data (the shell's pass
+// the window). Strings must outlive the process -- static tables, like
+// HintSpec's. Main thread.
+struct ContributedAction
+{
+    ActionSpec spec;
+    gpointer target;
+};
+
+// Records the acceptable ones and returns them. Refused, with a warning: no
+// name, label, category or handler, or a name already taken. An
+// accelerator another action already has is dropped (warned), so a drop-in
+// can't take Space from the shell.
+std::vector<ContributedAction> contributeActions(const std::vector<ActionSpec> &specs, gpointer target);
+const std::vector<ContributedAction> &contributedActions();
+
+// Every action: the shell's table, then the contributions in order. What
+// Help's Keyboard Shortcuts tab and shortcutLabel() read.
+std::vector<ActionSpec> allActionSpecs();
+
+// Tests only: forget the contributions.
+void clearContributedActions();
 
 } // namespace ustudio::app

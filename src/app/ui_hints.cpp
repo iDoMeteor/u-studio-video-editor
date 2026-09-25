@@ -162,7 +162,7 @@ std::string shortcutLabel(const char *actionName)
     std::string result;
     if (actionName == nullptr)
         return result;
-    for (const ActionSpec &spec : actionSpecs()) {
+    for (const ActionSpec &spec : allActionSpecs()) {
         if (std::strcmp(spec.name, actionName) != 0)
             continue;
         // gtk_accelerator_get_label() turns a parsed accelerator back into

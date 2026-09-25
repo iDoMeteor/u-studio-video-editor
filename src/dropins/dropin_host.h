@@ -5,11 +5,20 @@
 #include "engine/engine_extension.h"
 #include "engine/factory_policy.h"
 
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
 
+namespace ustudio::app {
+class ShellHost; // app/shell_host.h: GTK, so only its name here
+} // namespace ustudio::app
+
 namespace ustudio::dropins {
+
+// IP5: what a drop-in does to the editor window once it exists (its
+// inspector pages, actions, overlays; app/shell_host.h).
+using ShellExtension = std::function<void(app::ShellHost &)>;
 
 // IP4: search paths and MLT module directories a drop-in needs before
 // Mlt::Factory::init() (engine/factory_policy.h).
@@ -37,6 +46,9 @@ class DropInHost
     // host keeps them too but never runs them; a taken or invalid name is
     // refused with a warning.
     virtual void addRenderSubcommand(RenderSubcommand subcommand) = 0;
+    // IP5: called once with the editor window's ShellHost after its UI is
+    // built. The render tool's host keeps them too but has no window.
+    virtual void addShellExtension(ShellExtension extension) = 0;
 };
 
 // The host with no integration points of its own yet: logging and which
@@ -53,6 +65,14 @@ class BasicDropInHost : public DropInHost
     void log(const std::string &message) override;
     void addEngineExtension(engine::EngineExtensionFactory factory) override;
     void addRenderSubcommand(RenderSubcommand subcommand) override;
+    void addShellExtension(ShellExtension extension) override
+    {
+        m_shellExtensions.push_back(std::move(extension));
+    }
+    const std::vector<ShellExtension> &shellExtensions() const
+    {
+        return m_shellExtensions;
+    }
     // In registration order.
     const std::vector<RenderSubcommand> &renderSubcommands() const
     {
@@ -62,6 +82,7 @@ class BasicDropInHost : public DropInHost
   private:
     std::string m_program;
     std::vector<RenderSubcommand> m_renderSubcommands;
+    std::vector<ShellExtension> m_shellExtensions;
 };
 
 } // namespace ustudio::dropins

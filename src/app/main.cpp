@@ -27,7 +27,9 @@ void applyStyle(GtkApplication *)
     g_object_unref(provider);
 }
 
-void onActivate(GtkApplication *app, gpointer /*userData*/)
+// `userData`: the drop-ins' host (main()), whose shell extensions the window
+// runs (doc 15 IP5).
+void onActivate(GtkApplication *app, gpointer userData)
 {
     // "activate" fires more than once per process: G_APPLICATION_DEFAULT_
     // FLAGS makes this app single-instance, so GApplication re-delivers
@@ -68,7 +70,8 @@ void onActivate(GtkApplication *app, gpointer /*userData*/)
     // Stashed on `app` (not just leaked) so onShutdown below can reach its
     // PlaybackController and stop the Mlt::Consumer before Factory::close()
     // runs, and so the re-activation check above can find it.
-    auto *window = new AppWindow(app);
+    const auto *dropInHost = static_cast<const dropins::BasicDropInHost *>(userData);
+    auto *window = new AppWindow(app, dropInHost->shellExtensions());
     g_object_set_data(G_OBJECT(app), "ustudio-window", window);
     gtk_window_present(GTK_WINDOW(window->widget()));
 }
@@ -153,7 +156,7 @@ int main(int argc, char **argv)
     dropIns.registerAll(dropInHost);
 
     AdwApplication *app = adw_application_new("com.ustudio.VideoEditor", G_APPLICATION_DEFAULT_FLAGS);
-    g_signal_connect(app, "activate", G_CALLBACK(ustudio::app::onActivate), nullptr);
+    g_signal_connect(app, "activate", G_CALLBACK(ustudio::app::onActivate), &dropInHost);
     g_signal_connect(app, "shutdown", G_CALLBACK(ustudio::app::onShutdown), nullptr);
     g_unix_signal_add(SIGTERM, ustudio::app::onQuitSignal, app);
     g_unix_signal_add(SIGINT, ustudio::app::onQuitSignal, app);

@@ -139,7 +139,7 @@ std::string localPathFor(GFile *file, bool createIfMissing = false)
 }
 } // namespace
 
-AppWindow::AppWindow(GtkApplication *app)
+AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtension> &shellExtensions)
 {
     // Before buildUi(): its transport-bar preview-scale dropdown reads
     // defaultPreviewScale() for its initial selection.
@@ -270,6 +270,9 @@ AppWindow::AppWindow(GtkApplication *app)
             if (m_timeline)
                 gtk_widget_queue_draw(m_timeline);
         }
+        // IP5: drop-ins' inspector pages refresh, the selection already
+        // pruned.
+        m_shellProjectChanged.emit();
     });
 
     gchar *sessionUuid = g_uuid_string_random();
@@ -278,6 +281,11 @@ AppWindow::AppWindow(GtkApplication *app)
 
     buildUi(app);
     installActions(app);
+    // Doc 15 IP5: the drop-ins' pages, actions and overlays, into the
+    // finished shell (shell_hosts.cpp).
+    m_hasShellExtensions = !shellExtensions.empty();
+    for (const dropins::ShellExtension &extension : shellExtensions)
+        extension(*this);
     g_signal_connect(m_window, "notify::is-active", G_CALLBACK(&AppWindow::windowActiveChangedTrampoline), this);
     g_signal_connect(m_window, "close-request", G_CALLBACK(&AppWindow::closeRequestTrampoline), this);
     // Heartbeat, not a one-shot timer reset on every edit: simpler to
@@ -378,6 +386,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_window_set_default_size(GTK_WINDOW(m_window), 1100, 700);
 
     GtkWidget *toolbarView = adw_toolbar_view_new();
+    m_toolbarView = ADW_TOOLBAR_VIEW(toolbarView);
 
     GtkWidget *headerBar = adw_header_bar_new();
     m_windowTitle = ADW_WINDOW_TITLE(adw_window_title_new("u Studio", nullptr));
@@ -619,6 +628,7 @@ void AppWindow::buildUi(GtkApplication *app)
                      m_mediaBrowserContextMenu);
 
     GtkWidget *previewFrame = gtk_frame_new(nullptr);
+    m_previewFrame = previewFrame;
     gtk_widget_add_css_class(previewFrame, "preview-frame");
     gtk_widget_set_hexpand(previewFrame, TRUE);
     m_preview = GTK_PICTURE(gtk_picture_new());
@@ -905,7 +915,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // At least one row; the rest scroll, so the transport below is never
     // pushed out of a short window. Drag the divider above to see more.
     gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(timelineScroller),
-                                               static_cast<int>(kTrackRowHeight));
+                                               static_cast<int>(rowLayout().spanOf(0)));
     gtk_widget_set_vexpand(timelineScroller, TRUE);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(timelineScroller), timelineOverlay);
     gtk_box_append(GTK_BOX(bottomBox), timelineScroller);
@@ -1033,6 +1043,7 @@ void AppWindow::buildUi(GtkApplication *app)
 
     gtk_paned_set_end_child(GTK_PANED(paned), bottomBox);
 
+    m_mainPaned = paned;
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbarView), paned);
     adw_application_window_set_content(m_window, toolbarView);
 }
@@ -1109,7 +1120,8 @@ GtkWidget *AppWindow::buildShortcutsPage() const
     // category list separately.
     std::vector<std::pair<std::string, AdwPreferencesGroup *>> groups;
 
-    for (const ActionSpec &spec : actionSpecs()) {
+    // The shell's actions, then the drop-ins' under their own categories.
+    for (const ActionSpec &spec : allActionSpecs()) {
         AdwPreferencesGroup *group = nullptr;
         for (auto &entry : groups) {
             if (entry.first == spec.category) {
@@ -1722,8 +1734,19 @@ void AppWindow::onImportClicked()
 
     GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
     GtkFileFilter *mediaFilter = newMediaFilter();
+    for (const ImportHandler &handler : m_importHandlers) // IP5: a drop-in's files are media too
+        for (const std::string &extension : handler.extensions)
+            gtk_file_filter_add_suffix(mediaFilter, extension.c_str());
     g_list_store_append(filters, mediaFilter);
     g_object_unref(mediaFilter);
+    for (const ImportHandler &handler : m_importHandlers) { // and each on its own
+        GtkFileFilter *filter = gtk_file_filter_new();
+        gtk_file_filter_set_name(filter, handler.description.c_str());
+        for (const std::string &extension : handler.extensions)
+            gtk_file_filter_add_suffix(filter, extension.c_str());
+        g_list_store_append(filters, filter);
+        g_object_unref(filter);
+    }
     GtkFileFilter *allFilter = gtk_file_filter_new();
     gtk_file_filter_set_name(allFilter, "All Files");
     gtk_file_filter_add_pattern(allFilter, "*");
@@ -1773,6 +1796,10 @@ void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
 void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::TrackId> trackId,
                             std::optional<core::FrameIndex> position)
 {
+    // IP5: files a drop-in opens itself go to it first, in order; the rest
+    // follow them on the track.
+    if (!m_importHandlers.empty())
+        paths = importWithHandlers(std::move(paths), trackId, position);
     if (paths.empty() || !m_importQueue)
         return;
     struct State
@@ -2948,15 +2975,32 @@ void AppWindow::onTimelineClicked(int nPress, double x, double y, timeline::Modi
 {
     if (nPress < 2)
         return;
+    if (overlayClaimsPress(x, y, nPress))
+        return;
     timeline::TimelineOutcome outcome = m_timelineController.click(timelineContext(), nPress, x, y, mods);
     applyTimelineOutcome(outcome);
+}
+
+timeline::RowLayout AppWindow::rowLayout() const
+{
+    timeline::RowLayout layout{kTrackRowHeight, kTrackLabelHeight, {}};
+    // IP5: a drop-in's lanes under the tracks; none without one.
+    if (!m_timelineOverlays.empty()) {
+        for (const core::Track &track : m_model.sequence().tracks) {
+            double lane = 0.0;
+            for (const timeline::TimelineOverlayProvider *overlay : m_timelineOverlays)
+                lane += std::max(overlay->laneHeight(m_model, track), 0.0);
+            layout.lanes.push_back(lane);
+        }
+    }
+    return layout;
 }
 
 timeline::TimelineContext AppWindow::timelineContext() const
 {
     return timeline::TimelineContext{.model = m_model,
                                      .viewport = m_viewport,
-                                     .layout = timeline::RowLayout{kTrackRowHeight, kTrackLabelHeight},
+                                     .layout = rowLayout(),
                                      .handleWidth = kHandleWidth,
                                      .edgeGrabPx = kEdgeGrabWidth,
                                      .dragThresholdPx = kDragClickThreshold,
@@ -3080,8 +3124,8 @@ void AppWindow::onTimelineRightClicked(double x, double y)
         m_suppressTrackVolumeSignal = false;
     }
 
-    GdkRectangle rect{static_cast<int>(x), static_cast<int>(row * kTrackRowHeight), 1,
-                      static_cast<int>(kTrackRowHeight)};
+    GdkRectangle rect{static_cast<int>(x), static_cast<int>(rowLayout().rowTop(row)), 1,
+                      static_cast<int>(rowLayout().spanOf(row))};
     gtk_popover_set_pointing_to(m_trackContextMenu, &rect);
     gtk_popover_popup(m_trackContextMenu);
 }
@@ -3483,6 +3527,8 @@ bool AppWindow::onTrackDragBegin(double x, double y, timeline::Modifiers mods)
 {
     if (m_model.sequence().tracks.empty())
         return false;
+    if (overlayClaimsPress(x, y, 1))
+        return true;
     timeline::TimelineOutcome outcome = m_timelineController.press(timelineContext(), x, y, mods);
     applyTimelineOutcome(outcome);
     return true;
@@ -3518,12 +3564,6 @@ PangoLayout *newLabelLayout(GtkWidget *widget, bool monospace)
 
 } // namespace
 
-void AppWindow::addTimelineOverlay(const timeline::TimelineOverlayProvider *overlay)
-{
-    m_timelineOverlays.push_back(overlay);
-    gtk_widget_queue_draw(m_timeline);
-}
-
 void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int height)
 {
     core::trace::Scope trace("timeline snapshot");
@@ -3533,7 +3573,7 @@ void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int heigh
         .model = m_model,
         .viewport = m_viewport,
         .controller = m_timelineController,
-        .layout = timeline::RowLayout{kTrackRowHeight, kTrackLabelHeight},
+        .layout = rowLayout(),
         .handleWidth = kHandleWidth,
         .activeRow = m_activeTrack,
         .nameEditRow = m_inlineEditKind == InlineEditKind::Track ? m_inlineEditTrackRow : -1,
@@ -3557,7 +3597,7 @@ void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int heigh
                                                std::to_string(fps.den),
                                            data->rgba, data->width, data->height);
         },
-        .overlays = m_timelineOverlays,
+        .overlays = {m_timelineOverlays.begin(), m_timelineOverlays.end()},
         .labelLayout = layout,
     };
     // Settings > Toggles: without a callback the renderer neither draws nor
@@ -3568,6 +3608,7 @@ void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int heigh
         scene.thumbnailFor = nullptr;
     timeline::snapshotTimeline(snapshot, scene, width, height);
     g_object_unref(layout);
+    noteSelectionForShell();
 }
 
 void AppWindow::snapshotPlayheadOverlay(GtkSnapshot *snapshot, int width, int height)
@@ -3576,7 +3617,7 @@ void AppWindow::snapshotPlayheadOverlay(GtkSnapshot *snapshot, int width, int he
     if (trackCount <= 0 || sequenceFrames() <= 0)
         return;
     timeline::snapshotPlayhead(snapshot, m_viewport, m_engine->currentFrame(), kHandleWidth, width,
-                               std::min(static_cast<double>(height), trackCount * kTrackRowHeight));
+                               std::min(static_cast<double>(height), rowLayout().contentHeight(trackCount)));
 }
 
 void AppWindow::snapshotRulerView(GtkSnapshot *snapshot, int width, int height)
@@ -3606,6 +3647,7 @@ void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, i
         gtk_picture_set_paintable(m_preview, GDK_PAINTABLE(texture));
         g_object_unref(texture);
     }
+    redrawPreviewOverlays(); // IP5: handles follow the frame (none without drop-ins)
 
     refreshTransport(frameNumber);
 }
@@ -3958,7 +4000,7 @@ gboolean AppWindow::onTimelineDrop(const GValue *value, double x, double y)
         return FALSE;
     const core::Asset &asset = m_model.asset(assetId);
 
-    int row = std::clamp(static_cast<int>(y / kTrackRowHeight), 0, trackCount - 1);
+    int row = rowLayout().clampedRowAt(y, trackCount);
     core::TrackId trackId = trackIdForRow(row);
     if (m_model.track(trackId).locked) {
         showStatus("Can't drop onto a locked track.");
@@ -3992,7 +4034,7 @@ gboolean AppWindow::onTimelineFileDrop(GdkFileList *files, double x, double y)
     if (trackCount <= 0 || !files)
         return FALSE;
 
-    int row = std::clamp(static_cast<int>(y / kTrackRowHeight), 0, trackCount - 1);
+    int row = rowLayout().clampedRowAt(y, trackCount);
     core::TrackId trackId = trackIdForRow(row);
     if (m_model.track(trackId).locked) {
         showStatus("Can't drop onto a locked track.");
@@ -4097,7 +4139,7 @@ void AppWindow::beginTrackNameEdit(int row)
     m_inlineEditTrackRow = row;
 
     const core::Track &track = m_model.track(trackIdForRow(row));
-    GdkRectangle anchor{static_cast<int>(kHandleWidth), static_cast<int>(row * kTrackRowHeight), 160,
+    GdkRectangle anchor{static_cast<int>(kHandleWidth), static_cast<int>(rowLayout().rowTop(row)), 160,
                         static_cast<int>(kTrackLabelHeight)};
     showInlineNameEditor(anchor, track.name);
 }
@@ -4114,7 +4156,7 @@ void AppWindow::beginClipNameEdit(const ClipDisplay &clip)
     double right = std::min(xForFrame(clip.startFrame + clip.frames), static_cast<double>(widgetWidth));
     int anchorX = static_cast<int>(left);
     int anchorW = std::max(static_cast<int>(right - left), 40);
-    double rowY = clip.trackIndex * kTrackRowHeight + kTrackLabelHeight;
+    double rowY = rowLayout().rowTop(clip.trackIndex) + kTrackLabelHeight;
     GdkRectangle anchor{anchorX, static_cast<int>(rowY), anchorW,
                         static_cast<int>(kTrackRowHeight - kTrackLabelHeight)};
     showInlineNameEditor(anchor, clip.name);
@@ -4302,7 +4344,7 @@ void AppWindow::refreshTimeline()
     }
 
     int trackCount = static_cast<int>(seq.tracks.size());
-    int height = std::max(trackCount, 1) * static_cast<int>(kTrackRowHeight);
+    int height = static_cast<int>(trackCount > 0 ? rowLayout().contentHeight(trackCount) : kTrackRowHeight);
     gtk_widget_set_size_request(GTK_WIDGET(m_timeline), -1, height);
     updateViewportGeometry();
 

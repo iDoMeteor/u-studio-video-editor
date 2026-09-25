@@ -100,6 +100,7 @@ src/
       transport_bar.*
       bin_panel.*         asset list/grid, import, drag source
       effects_panel.*     effect stack for selection
+      shell_host.h, shell_hosts.*  drop-ins' UI hosts: inspector, actions, hints, overlays, import (IP5, doc 15)
       export_dialog.*
     timeline/
       timeline_view.*     custom GtkWidget (snapshot vfunc), viewport, hit-test

@@ -39,3 +39,8 @@ leak:libx264.so
 # p11-kit's library constructor (newlocale), pulled in by libavformat -> GnuTLS
 # when the libraries above are preloaded.
 leak:_p11_kit_init
+
+# GDK's display GL setup, reached from gtk_init_check() in the GTK-widget
+# tests (dropin-shell): the EGL driver's own state, allocated once per
+# process when the display opens and never freed by GTK.
+leak:gdk_display_init_egl

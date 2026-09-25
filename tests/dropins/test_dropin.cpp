@@ -6,6 +6,7 @@
 
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
+#include "app/test_shell.h"
 #include "engine/test_extension.h"
 #include "engine/test_probe.h"
 
@@ -28,6 +29,8 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
     host->addRenderSubcommand({std::string(TEST_DROPIN_NAME) + "-probe",
                                "Pull frames of color:red through an MLT filter; one JSON line (tests only)",
                                &ustudio::testdropin::runProbe});
+    // IP5: the editor window's hosts, once it exists.
+    host->addShellExtension([](ustudio::app::ShellHost &shell) { ustudio::testdropin::extendShell(shell); });
 }
 
 #ifdef TEST_WRONG_API

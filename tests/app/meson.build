@@ -102,6 +102,15 @@ test_ui_hints_exe = executable(
 
 test('app-ui-hints', test_ui_hints_exe)
 
+# Doc 15 IP5: row lanes, the preview mapping, contributed actions.
+test_shell_hosts_exe = executable(
+  'test_shell_hosts',
+  files('test_shell_hosts.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+test('app-shell-hosts', test_shell_hosts_exe)
+
 test_viewport_exe = executable(
   'test_viewport',
   files('test_viewport.cpp'),

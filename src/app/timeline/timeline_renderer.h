@@ -14,21 +14,38 @@
 namespace ustudio::core {
 class Model;
 struct Clip;
+struct Track;
 } // namespace ustudio::core
 
 namespace ustudio::app::timeline {
 
 // ADR-013 / doc 15 IP5's timeline hook: a drop-in paints over the tracks
 // after the clips (adjustment regions, curve overlays, the FX lane's
-// markings). Registered with the window, called on every timeline
-// snapshot; it must be as cheap as the clips' own drawing. Extra lane
-// height below a track arrives with per-track row heights (doc 06).
+// markings), may give a track a lane of its own under the clips, and may
+// claim a click. Registered with the window (ShellHost::
+// addTimelineOverlay()); painting runs on every timeline snapshot and must
+// be as cheap as the clips' own drawing. Main thread only.
 class TimelineOverlayProvider
 {
   public:
     virtual ~TimelineOverlayProvider() = default;
     virtual void paintOverlay(GtkSnapshot *snapshot, const core::Model &model, const Viewport &viewport,
                               const RowLayout &layout, double width, double height) const = 0;
+    // Extra height under `track`'s clips (RowLayout::lanes); lanes from
+    // several providers add up. Asked on every refresh, so it may change
+    // with the model (a lane appears when a track gains a curve).
+    virtual double laneHeight(const core::Model &, const core::Track &) const
+    {
+        return 0.0;
+    }
+    // A primary-button press at (x, y) in timeline coordinates, before the
+    // timeline's own handling; true claims it (the timeline does nothing
+    // more with it).
+    virtual bool pressed(const core::Model &, const Viewport &, const RowLayout &, double /*x*/, double /*y*/,
+                         int /*nPress*/)
+    {
+        return false;
+    }
 };
 
 // What one timeline snapshot draws from. Everything here is read-only.

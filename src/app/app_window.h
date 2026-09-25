@@ -29,6 +29,8 @@
 #include "project_loader.h"
 #include "save_queue.h"
 #include "settings.h"
+#include "shell_host.h"
+#include "dropins/dropin_host.h"
 #include "timeline/timeline_controller.h"
 #include "timeline/texture_cache.h"
 #include "timeline/timeline_renderer.h"
@@ -76,7 +78,7 @@ struct ClipDisplay
 // backwards"; doc 19 MT2). The engine thread rebuilds the graph and swaps
 // it into playback on its own; this window only ever talks to
 // engine::Engine, whose state it reads from a main-thread mirror.
-class AppWindow
+class AppWindow : public ShellHost
 {
     // action_registry.cpp's table stores pointers to the private static
     // trampolines below (playPauseActivated and friends) -- see
@@ -85,10 +87,40 @@ class AppWindow
     friend const std::vector<ActionSpec> &actionSpecs();
 
   public:
-    // ADR-013 / doc 15 IP5: a drop-in's timeline overlay, painted over the
-    // tracks on every timeline redraw. Not owned; must outlive the window.
-    void addTimelineOverlay(const timeline::TimelineOverlayProvider *overlay);
-    explicit AppWindow(GtkApplication *app);
+    // `shellExtensions`: the drop-ins' (doc 15 IP5), called once the UI is
+    // built.
+    explicit AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtension> &shellExtensions = {});
+
+    // ShellHost (shell_host.h; implemented in shell_hosts.cpp).
+    const core::Model &model() const override
+    {
+        return m_model;
+    }
+    bool execute(std::unique_ptr<core::Command> command) override;
+    core::Signal<> &projectChanged() override
+    {
+        return m_shellProjectChanged;
+    }
+    core::FrameIndex currentFrame() const override;
+    void showStatus(const std::string &text) override;
+    ShellSelection currentSelection() const override;
+    core::Signal<> &selectionChanged() override
+    {
+        return m_shellSelectionChanged;
+    }
+    void addInspectorPage(const InspectorPage &page) override;
+    void addActions(const std::vector<ActionSpec> &specs, gpointer target) override;
+    void addHints(const std::vector<HintSpec> &hints) override;
+    void setTooltip(GtkWidget *widget, const char *hintId) override
+    {
+        app::setTooltip(widget, hintId);
+    }
+    void addPreviewOverlay(GtkWidget *overlay) override;
+    PreviewMapping previewMapping() const override;
+    void redrawPreviewOverlays() override;
+    void addTimelineOverlay(timeline::TimelineOverlayProvider *provider) override;
+    void redrawTimeline() override;
+    void addImportHandler(ImportHandler handler) override;
 
     GtkWidget *widget() const
     {
@@ -490,7 +522,6 @@ class AppWindow
     void refreshPlayButtonIcon();
     void refreshLoopStatusLabel();
     void updateWindowTitle();
-    void showStatus(const std::string &text);
     std::string formatTimecode(int frame) const;
     // True if `path` names the same file as one of the project's own bin
     // assets (audit A6) -- Save and Render both refuse to write there
@@ -767,8 +798,35 @@ class AppWindow
     // already do, since the ruler occupies its own vertical space rather
     // than the top of the track grid.
     GtkWidget *m_rulerArea = nullptr;
-    // ADR-013's timeline hook: drop-ins' overlays, painted after the clips.
-    std::vector<const timeline::TimelineOverlayProvider *> m_timelineOverlays;
+    // Doc 15 IP5's hosts (shell_hosts.cpp). All empty, null or false with
+    // no drop-in, and then nothing below changes the window.
+    std::vector<timeline::TimelineOverlayProvider *> m_timelineOverlays;
+    std::vector<ImportHandler> m_importHandlers;
+    core::Signal<> m_shellProjectChanged;
+    core::Signal<> m_shellSelectionChanged;
+    ShellSelection m_lastShellSelection;
+    guint m_shellSelectionIdleId = 0;
+    bool m_hasShellExtensions = false;
+    AdwToolbarView *m_toolbarView = nullptr;
+    GtkWidget *m_mainPaned = nullptr; // the toolbar view's content until an inspector wraps it
+    GtkWidget *m_previewFrame = nullptr;
+    AdwOverlaySplitView *m_inspectorSplit = nullptr;
+    AdwViewStack *m_inspectorStack = nullptr;
+    GtkOverlay *m_previewOverlay = nullptr;
+    std::vector<GtkWidget *> m_previewOverlays;
+    // The layout the timeline draws and hit-tests with: uniform rows plus
+    // any drop-in lanes.
+    timeline::RowLayout rowLayout() const;
+    // A drop-in's timeline overlay claims a press before the timeline does.
+    bool overlayClaimsPress(double x, double y, int nPress);
+    // Called after each timeline snapshot: a changed selection is posted to
+    // selectionChanged from an idle (never from inside the draw).
+    void noteSelectionForShell();
+    static gboolean shellSelectionIdleTrampoline(gpointer userData);
+    // Hands each path a handler claims to it, in order; returns the rest,
+    // with `position` moved past what the handlers placed.
+    std::vector<std::string> importWithHandlers(std::vector<std::string> paths, std::optional<core::TrackId> trackId,
+                                                std::optional<core::FrameIndex> &position);
     // doc 06's Viewport: zoom and horizontal scroll for the timeline, the
     // ruler and the playhead overlay alike. m_timelineHAdjustment mirrors
     // it for the scrollbar under the timeline (in pixels).

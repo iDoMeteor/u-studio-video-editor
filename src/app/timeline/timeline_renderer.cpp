@@ -248,13 +248,13 @@ void drawRows(GtkSnapshot *s, const TimelineScene &scene, double width)
     const auto &tracks = scene.model.sequence().tracks;
     const TimelineController::Preview &preview = scene.controller.preview();
     bool reordering = scene.controller.mode() == Mode::TrackReorder;
-    const double rowH = scene.layout.rowHeight;
     const double hw = scene.handleWidth;
 
     for (size_t i = 0; i < tracks.size(); ++i) {
         int row = static_cast<int>(i);
         const core::Track &track = tracks[i];
         double y = scene.layout.rowTop(row);
+        const double rowH = scene.layout.spanOf(row); // with its lane, if a drop-in adds one
 
         // Flat tints, not glows (glow is for selection and focus only).
         if (track.locked)
@@ -294,7 +294,7 @@ void snapshotTimeline(GtkSnapshot *s, const TimelineScene &scene, double width, 
         return;
     drawRows(s, scene, width);
 
-    const double contentHeight = static_cast<double>(tracks.size()) * scene.layout.rowHeight;
+    const double contentHeight = scene.layout.contentHeight(static_cast<int>(tracks.size()));
     graphene_rect_t area = rect(scene.handleWidth, 0, std::max(width - scene.handleWidth, 0.0), contentHeight);
     gtk_snapshot_push_clip(s, &area);
 

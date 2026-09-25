@@ -1,6 +1,13 @@
 #include "action_registry.h"
 
 #include "app_window.h"
+#include "core/log.h"
+
+#include <gtk/gtk.h>
+
+#include <algorithm>
+#include <cstring>
+#include <string>
 
 namespace ustudio::app {
 
@@ -73,6 +80,77 @@ const std::vector<ActionSpec> &actionSpecs()
     };
     // clang-format on
     return kSpecs;
+}
+
+namespace {
+
+std::vector<ContributedAction> &contributions()
+{
+    static std::vector<ContributedAction> list;
+    return list;
+}
+
+// Accelerators compared as GTK parses them ("<Ctrl>s" == "<Control>s").
+bool sameAccel(const char *a, const char *b)
+{
+    guint keyA = 0, keyB = 0;
+    GdkModifierType modsA{}, modsB{};
+    if (!gtk_accelerator_parse(a, &keyA, &modsA) || !gtk_accelerator_parse(b, &keyB, &modsB))
+        return std::strcmp(a, b) == 0;
+    return keyA == keyB && modsA == modsB;
+}
+
+} // namespace
+
+std::vector<ContributedAction> contributeActions(const std::vector<ActionSpec> &specs, gpointer target)
+{
+    std::vector<ContributedAction> accepted;
+    for (const ActionSpec &spec : specs) {
+        const std::string name = spec.name != nullptr ? spec.name : "";
+        if (name.empty() || spec.label == nullptr || spec.category == nullptr || spec.activated == nullptr) {
+            core::Log::warn("[actions] refused contributed action '" + name +
+                            "': needs a name, label, category and handler");
+            continue;
+        }
+        std::vector<ActionSpec> existing = allActionSpecs();
+        if (std::any_of(existing.begin(), existing.end(), [&](const ActionSpec &e) { return name == e.name; })) {
+            core::Log::warn("[actions] refused contributed action '" + name + "': the name is taken");
+            continue;
+        }
+        ActionSpec kept = spec;
+        kept.accels.clear();
+        for (const char *accel : spec.accels) {
+            bool taken = std::any_of(existing.begin(), existing.end(), [&](const ActionSpec &e) {
+                return std::any_of(e.accels.begin(), e.accels.end(),
+                                   [&](const char *a) { return sameAccel(a, accel); });
+            });
+            if (taken)
+                core::Log::warn("[actions] '" + name + "' can't have " + accel + ": another action has it");
+            else
+                kept.accels.push_back(accel);
+        }
+        contributions().push_back({kept, target});
+        accepted.push_back({kept, target});
+    }
+    return accepted;
+}
+
+const std::vector<ContributedAction> &contributedActions()
+{
+    return contributions();
+}
+
+std::vector<ActionSpec> allActionSpecs()
+{
+    std::vector<ActionSpec> all = actionSpecs();
+    for (const ContributedAction &action : contributions())
+        all.push_back(action.spec);
+    return all;
+}
+
+void clearContributedActions()
+{
+    contributions().clear();
 }
 
 } // namespace ustudio::app
