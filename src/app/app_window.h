@@ -404,7 +404,8 @@ class AppWindow
     // query-tooltip handler (GTK4's mechanism for a per-region tooltip on
     // a custom-drawn widget): true + gtk_tooltip_set_* if (x, y) is over a
     // clip, false to suppress the tooltip anywhere else.
-    gboolean onTimelineQueryTooltip(int x, int y, GtkTooltip *tooltip);
+    // The clip tooltip's text: name, in–out, length, source.
+    std::string clipTooltipText(core::ClipId clip) const;
     void onEditClipNameClicked();
     void onRemoveClipNameClicked();
     void onRemoveTransitionClicked();
@@ -610,25 +611,32 @@ class AppWindow
     static void timelineLeaveTrampoline(GtkEventControllerMotion *controller, gpointer userData);
     static gboolean hoverPreviewTimerTrampoline(gpointer userData);
 
-    // Hover preview (Settings > Toggles): resting the pointer on a video clip
-    // for kHoverPreviewDelayMs shows the source frame under it, about 240 px
-    // wide, with the timeline timecode. Its own small cache: the timeline's
-    // strips are smaller, and drop frames a redraw didn't ask for again.
+    // The clip tooltip: resting the pointer on a clip for
+    // kHoverPreviewDelayMs shows its name, in–out, length and source, and
+    // on a video clip (Settings > Toggles > thumbnails in clip tooltips) the
+    // source frame under the pointer, about 240 px wide, with the timeline
+    // timecode on top. A popover styled as a tooltip, not a GtkTooltip:
+    // GTK 4 fixes the tooltip delay at 500 ms. The frames have their own
+    // small cache: the timeline's strips are smaller, and drop frames a
+    // redraw didn't ask for again.
     std::unique_ptr<engine::ThumbnailCache> m_hoverThumbnails;
     timeline::TextureCache m_hoverTextures{16};
     GtkPopover *m_hoverPreview = nullptr;
     GtkPicture *m_hoverPicture = nullptr;
     GtkLabel *m_hoverTimecode = nullptr;
+    GtkLabel *m_hoverText = nullptr;
     guint m_hoverTimerId = 0;
     struct HoverTarget
     {
-        std::string resource;
+        std::string resource; // "" for no thumbnail (audio, or the toggle's off)
         int sourceFrame = 0;
         core::FrameIndex timelineFrame = 0;
+        std::string text;
         double x = 0.0, y = 0.0;
-        bool waiting = false; // the delay has passed; showing once the frame is ready
+        bool waiting = false; // shown; the thumbnail is still to come
     } m_hover;
     void onTimelineHover(double x, double y);
+    void showHoverPreview();
     void showHoverPreviewIfReady();
     void hideHoverPreview();
     static void rippleDeleteSelectedActivated(GSimpleAction *, GVariant *, gpointer userData);
@@ -699,8 +707,6 @@ class AppWindow
     static void clearLoopClickedTrampoline(GtkButton *button, gpointer userData);
     static void volumeChangedTrampoline(GtkRange *range, gpointer userData);
     static void previewScaleChangedTrampoline(GtkDropDown *dropdown, GParamSpec *pspec, gpointer userData);
-    static gboolean timelineQueryTooltipTrampoline(GtkWidget *widget, int x, int y, gboolean keyboardMode,
-                                                   GtkTooltip *tooltip, gpointer userData);
     static void editClipNameClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeClipNameClickedTrampoline(GtkButton *button, gpointer userData);
     static void removeTransitionClickedTrampoline(GtkButton *button, gpointer userData);

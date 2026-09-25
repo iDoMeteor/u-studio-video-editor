@@ -87,8 +87,8 @@
     </key>
     <key name="show-hover-preview" type="b">
       <default>true</default>
-      <summary>Show hover preview</summary>
-      <description>Resting the pointer on a video clip shows its frame under the pointer.</description>
+      <summary>Thumbnails in clip tooltips</summary>
+      <description>A video clip's tooltip shows the source frame under the pointer.</description>
     </key>
     <key name="default-project-folder" type="s">
       <default>""</default>

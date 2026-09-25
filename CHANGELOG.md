@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.39.0
+
+- The hover preview is now part of the clip tooltip: the frame under the
+  pointer and its timecode above the clip's name, in–out, length and
+  source (Settings > Toggles > Thumbnails in clip tooltips).
+
 ## 0.38.1
 
 - No more floods of FFmpeg "deprecated pixel format used" warnings with

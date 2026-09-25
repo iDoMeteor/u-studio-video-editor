@@ -111,7 +111,7 @@ std::vector<HintSpec> &registry()
         {"settings.follow-playhead", "Settings", "Follow playhead while playing", "The timeline turns a page when the playhead runs off it during playback", nullptr, nullptr},
         {"settings.timeline-thumbnails", "Settings", "Show timeline thumbnails", "Video clips show frames from their source", nullptr, nullptr},
         {"settings.waveforms",       "Settings", "Show waveforms",          "Clips with sound show their waveform", nullptr, nullptr},
-        {"settings.hover-preview",   "Settings", "Show hover preview",      "Resting the pointer on a video clip shows the frame under it", nullptr, nullptr},
+        {"settings.hover-preview",   "Settings", "Thumbnails in clip tooltips", "A video clip's tooltip shows the frame under the pointer", nullptr, nullptr},
         {"settings.project-folder",  "Settings", "Default project folder",  "Where Open and Save As start", nullptr, nullptr},
         {"settings.export-folder",   "Settings", "Default export folder",   "Where renders go; unset, the project's own folder, then Videos, then your home folder", nullptr, nullptr},
         {"render-profiles.profile",  "Settings", "Render profile",  "The profile shown below; the one marked (default) is what Render uses", nullptr, nullptr},

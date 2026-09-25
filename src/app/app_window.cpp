@@ -670,11 +670,6 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(drag, "drag-end", G_CALLBACK(&AppWindow::trackDragEndTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(drag));
 
-    // query-tooltip (GTK4's per-region-tooltip mechanism for a custom-drawn
-    // widget) -- onTimelineQueryTooltip hit-tests (x, y) against m_clips.
-    gtk_widget_set_has_tooltip(GTK_WIDGET(m_timeline), TRUE);
-    g_signal_connect(m_timeline, "query-tooltip", G_CALLBACK(&AppWindow::timelineQueryTooltipTrampoline), this);
-
     // Drop target for dragging a media browser row onto the timeline
     // (refreshMediaBrowser() puts a matching GtkDragSource, carrying the
     // asset's AssetId::value as a G_TYPE_INT64, on each row).
@@ -692,8 +687,9 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(fileDropTarget, "drop", G_CALLBACK(&AppWindow::timelineFileDropTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(fileDropTarget));
 
-    // The hover preview: never takes focus or the pointer, and sits a little
-    // above the pointer so moving onto it doesn't leave the timeline.
+    // The clip tooltip (see m_hoverPreview's declaration): never takes focus
+    // or the pointer, and sits a little above the pointer so moving onto it
+    // doesn't leave the timeline.
     m_hoverPreview = GTK_POPOVER(gtk_popover_new());
     gtk_popover_set_autohide(m_hoverPreview, FALSE);
     gtk_popover_set_has_arrow(m_hoverPreview, FALSE);
@@ -704,11 +700,19 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_add_css_class(GTK_WIDGET(m_hoverPreview), "hover-preview");
     GtkWidget *hoverBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     m_hoverPicture = GTK_PICTURE(gtk_picture_new());
-    gtk_picture_set_content_fit(m_hoverPicture, GTK_CONTENT_FIT_CONTAIN);
+    gtk_picture_set_content_fit(m_hoverPicture, GTK_CONTENT_FIT_SCALE_DOWN); // never larger than it is
+    gtk_widget_set_halign(GTK_WIDGET(m_hoverPicture), GTK_ALIGN_CENTER);     // its own size, not the text's width
     gtk_box_append(GTK_BOX(hoverBox), GTK_WIDGET(m_hoverPicture));
     m_hoverTimecode = GTK_LABEL(gtk_label_new(""));
     gtk_widget_add_css_class(GTK_WIDGET(m_hoverTimecode), "timecode-label");
     gtk_box_append(GTK_BOX(hoverBox), GTK_WIDGET(m_hoverTimecode));
+    m_hoverText = GTK_LABEL(gtk_label_new(""));
+    gtk_label_set_xalign(m_hoverText, 0.0f);
+    // Long source paths wrap, as a GTK tooltip's would.
+    gtk_label_set_wrap(m_hoverText, TRUE);
+    gtk_label_set_wrap_mode(m_hoverText, PANGO_WRAP_WORD_CHAR);
+    gtk_label_set_max_width_chars(m_hoverText, 60);
+    gtk_box_append(GTK_BOX(hoverBox), GTK_WIDGET(m_hoverText));
     gtk_popover_set_child(m_hoverPreview, hoverBox);
     gtk_widget_set_parent(GTK_WIDGET(m_hoverPreview), GTK_WIDGET(m_timeline));
 
@@ -1308,7 +1312,8 @@ void AppWindow::showSettingsDialog()
     addToggle(timelineGroup, "show-timeline-thumbnails", "Show timeline thumbnails", "settings.timeline-thumbnails",
               m_showTimelineThumbnails);
     addToggle(timelineGroup, "show-waveforms", "Show waveforms", "settings.waveforms", m_showWaveforms);
-    addToggle(timelineGroup, "show-hover-preview", "Show hover preview", "settings.hover-preview", m_showHoverPreview);
+    addToggle(timelineGroup, "show-hover-preview", "Thumbnails in clip tooltips", "settings.hover-preview",
+              m_showHoverPreview);
 
     // --- Performance ---
     AdwPreferencesPage *performancePage = addPage("Performance", "power-profile-performance-symbolic");
@@ -1461,27 +1466,45 @@ void AppWindow::onSettingsToggleChanged(const std::string &key, bool active)
 
 void AppWindow::onTimelineHover(double x, double y)
 {
-    // Moving re-arms the delay; the preview only shows once the pointer rests.
+    // Moving re-arms the delay; the tooltip only shows once the pointer rests.
     hideHoverPreview();
-    if (!m_showHoverPreview || m_timelineController.mode() != timeline::TimelineController::Mode::None)
+    if (m_timelineController.mode() != timeline::TimelineController::Mode::None)
         return;
     const timeline::ContextTarget target = m_timelineController.contextTargetAt(timelineContext(), x, y);
     if (!m_model.hasClip(target.clip) || target.frame < 0)
         return;
-    const core::Clip &clip = m_model.clip(target.clip);
-    if (m_model.track(clip.track).kind != core::Track::Kind::Video || !clip.videoEnabled ||
-        !m_model.hasAsset(clip.asset))
+    m_hover = HoverTarget{};
+    m_hover.text = clipTooltipText(target.clip);
+    if (m_hover.text.empty())
         return;
-    const core::Asset &asset = m_model.asset(clip.asset);
-    if (asset.path.empty() || !asset.info.hasVideo)
-        return;
-    const core::FrameIndex offset = std::clamp<core::FrameIndex>(target.frame - clip.position, 0, clip.out - clip.in);
-    m_hover.resource = asset.path;
-    m_hover.sourceFrame = static_cast<int>(clip.in + offset);
     m_hover.timelineFrame = target.frame;
     m_hover.x = x;
     m_hover.y = y;
+    const core::Clip &clip = m_model.clip(target.clip);
+    if (m_showHoverPreview && m_model.track(clip.track).kind == core::Track::Kind::Video && clip.videoEnabled &&
+        m_model.hasAsset(clip.asset)) {
+        const core::Asset &asset = m_model.asset(clip.asset);
+        if (!asset.path.empty() && asset.info.hasVideo) {
+            const core::FrameIndex offset =
+                std::clamp<core::FrameIndex>(target.frame - clip.position, 0, clip.out - clip.in);
+            m_hover.resource = asset.path;
+            m_hover.sourceFrame = static_cast<int>(clip.in + offset);
+        }
+    }
     m_hoverTimerId = g_timeout_add(kHoverPreviewDelayMs, &AppWindow::hoverPreviewTimerTrampoline, this);
+}
+
+void AppWindow::showHoverPreview()
+{
+    gtk_label_set_text(m_hoverText, m_hover.text.c_str());
+    gtk_label_set_text(m_hoverTimecode, formatTimecode(static_cast<int>(m_hover.timelineFrame)).c_str());
+    gtk_widget_set_visible(GTK_WIDGET(m_hoverTimecode), !m_hover.resource.empty());
+    gtk_widget_set_visible(GTK_WIDGET(m_hoverPicture), FALSE);
+    m_hover.waiting = !m_hover.resource.empty();
+    const GdkRectangle at{static_cast<int>(m_hover.x), static_cast<int>(m_hover.y), 1, 1};
+    gtk_popover_set_pointing_to(m_hoverPreview, &at);
+    gtk_popover_popup(m_hoverPreview);
+    showHoverPreviewIfReady();
 }
 
 void AppWindow::showHoverPreviewIfReady()
@@ -1501,10 +1524,7 @@ void AppWindow::showHoverPreviewIfReady()
     m_hover.waiting = false;
     gtk_picture_set_paintable(m_hoverPicture, GDK_PAINTABLE(texture));
     gtk_widget_set_size_request(GTK_WIDGET(m_hoverPicture), data->width, data->height);
-    gtk_label_set_text(m_hoverTimecode, formatTimecode(static_cast<int>(m_hover.timelineFrame)).c_str());
-    const GdkRectangle at{static_cast<int>(m_hover.x), static_cast<int>(m_hover.y), 1, 1};
-    gtk_popover_set_pointing_to(m_hoverPreview, &at);
-    gtk_popover_popup(m_hoverPreview);
+    gtk_widget_set_visible(GTK_WIDGET(m_hoverPicture), TRUE);
 }
 
 void AppWindow::hideHoverPreview()
@@ -4001,27 +4021,17 @@ gboolean AppWindow::onInlineNameEditKeyPressed(guint keyval)
     return GDK_EVENT_PROPAGATE;
 }
 
-gboolean AppWindow::onTimelineQueryTooltip(int x, int y, GtkTooltip *tooltip)
+std::string AppWindow::clipTooltipText(core::ClipId id) const
 {
-    for (const auto &clip : m_clips) {
-        double rowY = clip.trackIndex * kTrackRowHeight;
-        if (x < kHandleWidth)
+    for (const ClipDisplay &clip : m_clips) {
+        if (clip.id != id)
             continue;
-        double clipX = xForFrame(clip.startFrame);
-        double clipW = static_cast<double>(clip.frames) * m_viewport.pxPerFrame();
-
-        if (x < clipX || x >= clipX + clipW || y < rowY || y >= rowY + kTrackRowHeight)
-            continue;
-
         std::string name = clip.name.empty() ? std::string("(unnamed)") : clip.name;
-        std::string text = name + "\n" + formatTimecode(clip.startFrame) + " – " +
-                            formatTimecode(clip.startFrame + clip.frames) + "\nLength: " +
-                            formatTimecode(clip.frames) + " (" + std::to_string(clip.frames) + " frames)\nSource: " +
-                            (clip.resource.empty() ? std::string("(none)") : clip.resource);
-        gtk_tooltip_set_text(tooltip, text.c_str());
-        return TRUE;
+        return name + "\n" + formatTimecode(clip.startFrame) + " – " + formatTimecode(clip.startFrame + clip.frames) +
+               "\nLength: " + formatTimecode(clip.frames) + " (" + std::to_string(clip.frames) +
+               " frames)\nSource: " + (clip.resource.empty() ? std::string("(none)") : clip.resource);
     }
-    return FALSE;
+    return {};
 }
 
 core::TrackId AppWindow::trackIdForRow(int row) const
@@ -4846,8 +4856,7 @@ gboolean AppWindow::hoverPreviewTimerTrampoline(gpointer userData)
 {
     auto *self = static_cast<AppWindow *>(userData);
     self->m_hoverTimerId = 0;
-    self->m_hover.waiting = true;
-    self->showHoverPreviewIfReady();
+    self->showHoverPreview();
     return G_SOURCE_REMOVE;
 }
 
@@ -4932,12 +4941,6 @@ void AppWindow::syncClipsClickedTrampoline(GtkButton *, gpointer userData)
 void AppWindow::addTransitionClickedTrampoline(GtkButton *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onAddTransitionClicked();
-}
-
-gboolean AppWindow::timelineQueryTooltipTrampoline(GtkWidget *, int x, int y, gboolean, GtkTooltip *tooltip,
-                                                   gpointer userData)
-{
-    return static_cast<AppWindow *>(userData)->onTimelineQueryTooltip(x, y, tooltip);
 }
 
 void AppWindow::inlineNameEditActivateTrampoline(GtkEntry *, gpointer userData)
