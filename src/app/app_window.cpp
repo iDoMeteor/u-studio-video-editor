@@ -1056,6 +1056,11 @@ void AppWindow::buildUi(GtkApplication *app)
 
     m_statusLabel = GTK_LABEL(gtk_label_new(""));
     gtk_widget_set_halign(GTK_WIDGET(m_statusLabel), GTK_ALIGN_START);
+    // Never wider than the window gives it: a long status (an import of
+    // many files) once widened the whole window past the screen. The full
+    // text is its tooltip (showStatus()).
+    gtk_label_set_ellipsize(m_statusLabel, PANGO_ELLIPSIZE_END);
+    gtk_widget_set_hexpand(GTK_WIDGET(m_statusLabel), TRUE);
     gtk_widget_add_css_class(GTK_WIDGET(m_statusLabel), "dim-label");
     gtk_box_append(GTK_BOX(bottomBox), GTK_WIDGET(m_statusLabel));
 
@@ -1997,7 +2002,13 @@ void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::
             // Format notes (doc 13 R7) ride on the summary: the first video
             // set the project's format, or a clip's rate differs from it.
             std::string notes;
-            for (const std::string &note : std::exchange(m_importNotes, {}))
+            std::vector<std::string> collected = std::exchange(m_importNotes, {});
+            // Grouped by rate, one short sentence however many files.
+            if (std::string rates =
+                    core::frameRateSummary(std::exchange(m_importRates, {}), m_model.sequence().profile.fps);
+                !rates.empty())
+                collected.push_back(std::move(rates));
+            for (const std::string &note : collected)
                 notes += " " + note + (note.ends_with(".") ? "" : ".");
             if (state->failures.empty())
                 showStatus((total == 1 ? "Imported: " + state->lastImported
@@ -2076,7 +2087,7 @@ core::FrameIndex AppWindow::lengthAtRate(const engine::EngineSync::ProbedMedia &
 
 void AppWindow::noteImportedRate(const std::string &path, const engine::EngineSync::ProbedMedia &probed, bool adopted)
 {
-    const std::string name = std::filesystem::path(path).filename().string();
+    const std::string name = core::utf8String(core::pathFromUtf8(path).filename());
     const core::Profile &profile = m_model.sequence().profile;
     if (adopted) {
         m_importNotes.push_back("The project now matches " + name + ": " + std::to_string(profile.width) + "×" +
@@ -2084,8 +2095,7 @@ void AppWindow::noteImportedRate(const std::string &path, const engine::EngineSy
         return;
     }
     if (!probed.isStillImage)
-        if (std::string note = core::frameRateNote(name, probed.fps, profile.fps); !note.empty())
-            m_importNotes.push_back(std::move(note));
+        m_importRates.emplace_back(name, probed.fps);
 }
 
 std::expected<void, std::string> AppWindow::importProbedAssetOnly(const std::string &path,
@@ -4594,6 +4604,7 @@ void AppWindow::updateWindowTitle()
 void AppWindow::showStatus(const std::string &text)
 {
     gtk_label_set_text(m_statusLabel, text.c_str());
+    gtk_widget_set_tooltip_text(GTK_WIDGET(m_statusLabel), text.c_str());
     // Every user-visible outcome (import result, save/open/render success
     // or failure, split/delete/close-gap/lock/volume messages, refusals)
     // goes through this one function -- logging it here, once, instead of

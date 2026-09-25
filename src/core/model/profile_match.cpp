@@ -56,4 +56,54 @@ std::string frameRateNote(const std::string &fileName, Rational clipFps, Rationa
            (clip < project ? ", so frames will repeat" : ", so frames will be skipped");
 }
 
+std::string frameRateSummary(const std::vector<std::pair<std::string, Rational>> &clips, Rational projectFps)
+{
+    struct Group
+    {
+        Rational fps;
+        int count = 0;
+        bool slower = false; // than the project: frames repeat
+    };
+    std::vector<Group> groups;
+    const std::pair<std::string, Rational> *only = nullptr;
+    int differing = 0;
+    for (const auto &clip : clips) {
+        if (frameRateNote(clip.first, clip.second, projectFps).empty())
+            continue;
+        ++differing;
+        only = &clip;
+        const long long mine = static_cast<long long>(clip.second.num) * projectFps.den;
+        const long long project = static_cast<long long>(projectFps.num) * clip.second.den;
+        auto same = std::find_if(groups.begin(), groups.end(), [&](const Group &g) {
+            return static_cast<long long>(g.fps.num) * clip.second.den ==
+                   static_cast<long long>(clip.second.num) * g.fps.den;
+        });
+        if (same == groups.end())
+            groups.push_back({clip.second, 1, mine < project});
+        else
+            ++same->count;
+    }
+    if (differing == 0)
+        return {};
+    if (differing == 1)
+        return frameRateNote(only->first, only->second, projectFps);
+    std::sort(groups.begin(), groups.end(), [](const Group &a, const Group &b) {
+        return static_cast<long long>(a.fps.num) * b.fps.den < static_cast<long long>(b.fps.num) * a.fps.den;
+    });
+    const bool mixed = std::any_of(groups.begin(), groups.end(), [&](const Group &g) { return g.slower; }) &&
+                       std::any_of(groups.begin(), groups.end(), [&](const Group &g) { return !g.slower; });
+    std::string text;
+    for (const Group &group : groups) {
+        if (!text.empty())
+            text += ", ";
+        text += std::to_string(group.count) + (group.count == 1 ? " is " : " are ") + formatFps(group.fps) + " fps";
+        if (mixed)
+            text += group.slower ? " (frames will repeat)" : " (frames will be skipped)";
+    }
+    text += "; the project is " + formatFps(projectFps);
+    if (!mixed)
+        text += groups.front().slower ? ", so frames will repeat" : ", so frames will be skipped";
+    return text;
+}
+
 } // namespace ustudio::core

@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.45.1
+
+- A long status message (an import of many files at another frame rate)
+  no longer widens the window past the screen: it's cut short with the full
+  text on hover, and rate notes are grouped ("8 are 25 fps; the project is
+  30, so frames will repeat").
+
 ## 0.45.0
 
 - Import Folder (Ctrl+Shift+I, or drop a folder): every file under it into the

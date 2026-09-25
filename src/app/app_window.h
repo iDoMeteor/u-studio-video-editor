@@ -177,6 +177,9 @@ class AppWindow : public ShellHost
     // Queues the import summary's note about format or rate.
     void noteImportedRate(const std::string &path, const engine::EngineSync::ProbedMedia &probed, bool adopted);
     std::vector<std::string> m_importNotes;
+    // This import's clips and their rates, summarised at the end
+    // (core::frameRateSummary()).
+    std::vector<std::pair<std::string, core::Rational>> m_importRates;
     std::expected<void, std::string>
     importProbedAssetOnly(const std::string &path, const engine::EngineSync::ProbedMedia &probed, uint64_t batchKey);
     // Open, New, Reload and Recover replace the project: imports still

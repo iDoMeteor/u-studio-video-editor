@@ -111,3 +111,26 @@ TEST_CASE("retimeFrame: rounds half up, exactly")
     // An hour at 60000/1001 doesn't overflow.
     CHECK(retimeFrame(215784, {60000, 1001}, {30, 1}) == 108000);
 }
+
+TEST_CASE("frameRateSummary: one short sentence however many files, grouped by rate")
+{
+    const Rational p30{30, 1};
+    std::vector<std::pair<std::string, Rational>> clips;
+    for (int i = 0; i < 8; ++i)
+        clips.emplace_back("chunk_00" + std::to_string(i) + ".mp4", Rational{25, 1});
+    CHECK(frameRateSummary(clips, p30) == "8 are 25 fps; the project is 30, so frames will repeat");
+
+    clips.emplace_back("match.mp4", p30); // matching clips aren't counted
+    clips.emplace_back("fast.mp4", Rational{60, 1});
+    clips.emplace_back("ntsc.mp4", Rational{24000, 1001});
+    CHECK(frameRateSummary(clips, p30) == "1 is 23.976 fps (frames will repeat), 8 are 25 fps (frames will repeat), "
+                                          "1 is 60 fps (frames will be skipped); the project is 30");
+
+    CHECK(frameRateSummary({{"a.mp4", Rational{60, 1}}, {"b.mp4", Rational{50, 1}}}, p30) ==
+          "1 is 50 fps, 1 is 60 fps; the project is 30, so frames will be skipped");
+    // One differing file: the per-file sentence.
+    CHECK(frameRateSummary({{"one.mp4", Rational{25, 1}}, {"ok.mp4", p30}}, p30) ==
+          frameRateNote("one.mp4", Rational{25, 1}, p30));
+    CHECK(frameRateSummary({{"ok.mp4", p30}, {"still.png", Rational{0, 0}}}, p30).empty());
+    CHECK(frameRateSummary({}, p30).empty());
+}
