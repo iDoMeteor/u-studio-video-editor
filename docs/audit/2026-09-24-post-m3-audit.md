@@ -67,6 +67,8 @@ Also worth reporting (MLT 7.40, found during doc 19 MT1):
   `FactoryPolicy`. Upstream could allocate the buffers lazily, or size
   them to the frame's real channels and samples.
 - The loader's `dictionary` and `normalizers` and avformat's `avformat_initialised` are initialised lazily with no lock (`producer_loader.c:87`, `:207`; `avformat/factory.c:56`). Parallel probes crashed in `attach_normalizers` about 1 run in 7. We work around it by warming them up in `FactoryPolicy` (`606d171`); upstream could use a once-guard.
+- `consumer_sdl2_audio.c`: a `play()` straight after a stop/pause sometimes never started. The read-ahead thread keeps producing speed-0 frames, and each one uses up a refresh wake-up (`refresh_cond`), so the refresh that should have started playback at the new speed is consumed before the speed change is seen (doc 19 MT2, 0.28.1). We work around it in `PlaybackController::play()`: set the speed, purge, then refresh. Upstream could re-check the speed after waking instead of counting wake-ups.
+- `mlt_cache` keeps at most 4 avformat producers' decoder state alive process-wide (`"producer_avformat"`) and evicts the least recently used when another decodes. Producers decoding on other threads (our thumbnail and waveform pool jobs next to playback) evict each other's state mid-decode, and playback crashed in `producer_get_audio` → `init_cache` → `mlt_properties_get` (reproduced 2026-09-24, doc 19 MT3). We raise the limit to threads + 2 per track (as kdenlive does) in `FactoryPolicy::raiseAvformatDecoderLimit()`; upstream could keep an entry alive while it's in use, or document that the limit must cover every concurrent decoder.
 
 ## What was run
 
