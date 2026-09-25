@@ -380,7 +380,14 @@ void AppWindow::buildUi(GtkApplication *app)
 
     GtkWidget *headerBar = adw_header_bar_new();
     m_windowTitle = ADW_WINDOW_TITLE(adw_window_title_new("u Studio", nullptr));
-    adw_header_bar_set_title_widget(ADW_HEADER_BAR(headerBar), GTK_WIDGET(m_windowTitle));
+    // The title is a button: its subtitle shows the project's size and rate,
+    // and clicking it changes the rate (onProjectFrameRateClicked()).
+    GtkWidget *titleButton = gtk_button_new();
+    gtk_widget_add_css_class(titleButton, "flat");
+    gtk_button_set_child(GTK_BUTTON(titleButton), GTK_WIDGET(m_windowTitle));
+    setTooltip(titleButton, "header.project-format");
+    g_signal_connect(titleButton, "clicked", G_CALLBACK(&AppWindow::projectFrameRateClickedTrampoline), this);
+    adw_header_bar_set_title_widget(ADW_HEADER_BAR(headerBar), titleButton);
 
     // Header buttons come in groups, spaced apart by the .header-group CSS
     // class: left is Import, Add track, media browser | Undo, Redo.
@@ -1540,6 +1547,62 @@ void AppWindow::hideHoverPreview()
     m_hover.waiting = false;
     if (m_hoverPreview && gtk_widget_get_visible(GTK_WIDGET(m_hoverPreview)))
         gtk_popover_popdown(m_hoverPreview);
+}
+
+void AppWindow::onProjectFrameRateClicked()
+{
+    const core::Rational current = m_model.sequence().profile.fps;
+    std::vector<core::Rational> rates;
+    GtkStringList *labels = gtk_string_list_new(nullptr);
+    guint selected = 0;
+    for (const core::Rational &rate : core::renderFrameRates()) {
+        if (rate.num <= 0)
+            continue; // "Project" means nothing here
+        if (static_cast<int64_t>(rate.num) * current.den == static_cast<int64_t>(current.num) * rate.den)
+            selected = static_cast<guint>(rates.size());
+        rates.push_back(rate);
+        gtk_string_list_append(labels, (core::formatFps(rate) + " fps").c_str());
+    }
+    GtkWidget *dropdown = gtk_drop_down_new(G_LIST_MODEL(labels), nullptr);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(dropdown), selected);
+
+    AdwDialog *dialog = adw_alert_dialog_new(
+        "Project frame rate",
+        ("Now " + core::formatFps(current) +
+         " fps. Changing it keeps every clip, dissolve, fade and marker at its time: positions move to the "
+         "nearest frame at the new rate. You can undo it.")
+            .c_str());
+    adw_alert_dialog_set_extra_child(ADW_ALERT_DIALOG(dialog), dropdown);
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "change", "Change");
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "change", ADW_RESPONSE_SUGGESTED);
+    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
+
+    struct Context
+    {
+        AppWindow *self;
+        std::vector<core::Rational> rates;
+        GtkDropDown *dropdown;
+    };
+    auto *ctx = new Context{this, std::move(rates), GTK_DROP_DOWN(g_object_ref(dropdown))};
+    adw_alert_dialog_choose(
+        ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            std::unique_ptr<Context> owned(static_cast<Context *>(userData));
+            const std::string response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+            const guint index = gtk_drop_down_get_selected(owned->dropdown);
+            g_object_unref(owned->dropdown);
+            if (response != "change" || index >= owned->rates.size())
+                return;
+            AppWindow *self = owned->self;
+            const core::Rational fps = owned->rates[index];
+            if (self->m_undoStack.execute(std::make_unique<core::ChangeSequenceFrameRate>(fps)))
+                self->showStatus("The project is now " + core::formatFps(fps) + " fps.");
+            else
+                self->showStatus("The project is already " + core::formatFps(fps) + " fps.");
+        },
+        ctx);
+    g_object_unref(labels);
 }
 
 void AppWindow::setDefaultFolder(const std::string &key, const std::string &folder, AdwActionRow *row)
@@ -4300,6 +4363,10 @@ void AppWindow::updateWindowTitle()
     // beside its buttons at the default width.
     gtk_window_set_title(GTK_WINDOW(m_window), (docName + " — u Studio" + dirtyMark).c_str());
     adw_window_title_set_title(m_windowTitle, (docName + dirtyMark).c_str());
+    const core::Profile &format = m_model.sequence().profile;
+    adw_window_title_set_subtitle(m_windowTitle, (std::to_string(format.width) + "×" + std::to_string(format.height) +
+                                                  " · " + core::formatFps(format.fps) + " fps")
+                                                     .c_str());
     // What "Reopen last project on startup" opens next launch. Every change
     // of m_currentProjectPath comes through here (see above).
     if (m_settings->lastProjectPath() != m_currentProjectPath)
@@ -5072,6 +5139,16 @@ void AppWindow::renderMenuItemClickedTrampoline(GtkButton *button, gpointer user
                                             ? self->m_renderProfiles->find(name).value_or(self->defaultRenderProfile())
                                             : self->defaultRenderProfile();
     self->queueRender(profile, self->autoRenderPath(profile));
+}
+
+void AppWindow::projectFrameRateClickedTrampoline(GtkButton *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onProjectFrameRateClicked();
+}
+
+void AppWindow::projectFrameRateActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onProjectFrameRateClicked();
 }
 
 void AppWindow::saveButtonRightClickTrampoline(GtkGestureClick *, int, double, double, gpointer userData)

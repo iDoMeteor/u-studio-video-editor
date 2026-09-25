@@ -106,6 +106,9 @@ class Model
     // The active sequence's size and rate, as they are: nothing is retimed
     // (see core/model/retime.h for that).
     void setSequenceProfile(const Profile &profile);
+    // The active sequence and the bin wholesale (a frame-rate change moves
+    // every position and asset length at once; core/model/retime.h).
+    void replaceSequenceAndBin(Sequence sequence, std::vector<Asset> bin);
     // Deliberately NOT gated by Track::locked (matches setTrackVolume's own
     // comment): a track's name is a label, not content, so it stays
     // editable the same way toggling the lock itself does.

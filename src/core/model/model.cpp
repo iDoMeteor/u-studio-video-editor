@@ -293,6 +293,13 @@ void Model::setSequenceProfile(const Profile &profile)
     notify(SequenceProfileChanged{});
 }
 
+void Model::replaceSequenceAndBin(Sequence sequence, std::vector<Asset> bin)
+{
+    activeSequence() = std::move(sequence);
+    m_project.bin = std::move(bin);
+    notify(SequenceProfileChanged{});
+}
+
 MarkerId Model::addMarker(FrameIndex at, std::string text, std::optional<MarkerId> reuseId)
 {
     MarkerId id = reuseId ? *reuseId : MarkerId{allocateId()};

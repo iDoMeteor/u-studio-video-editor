@@ -215,11 +215,16 @@ against MLT 7.40, `~/Repos/mlt` at v7.40.0 for the source).
   MLT's `consumer` producer wrapper didn't rescale length and gave NaN
   audio. Checked: 30 → 60, 60 → 30 and 24 → 29.97 by frame count,
   duration, picture per frame and beep on every cut.
-- **FR2, change the sequence's rate (next, about 2 days).** A command with
-  undo (sequence snapshot) reusing `retime()`; the engine already rebuilds
-  on a new profile (`EngineSync::setProject()` → `rebuildOnNewProfile()`,
-  stopping the consumer first). UI with a confirmation, since it rewrites
-  every position. Full sanitizer suites.
+- **FR2, change the sequence's rate (done, 0.43.0).** `ChangeSequenceFrameRate`
+  applies `retime()` to the sequence and bin as one undo step (undo
+  restores both exactly; the same rate is refused), checked with
+  `Model::check()` before anything changes; `Model::replaceSequenceAndBin()`
+  emits `SequenceProfileChanged`. The engine needed no new code:
+  `EngineSync::setProject()` sees the new profile and rebuilds on it,
+  stopping the consumer before the old graph and profile go
+  (`tests/engine/test_engine_thread.cpp`: 30 ↔ 59.94 three times while
+  playing). The header title shows the format and opens the change, with a
+  confirmation; "Project Frame Rate…" is also an action.
 - **FR3, VFR detection (optional, not scheduled; needs the owner's call).**
   Sources whose own frame rate varies (phones, screen recordings) are
   already handled correctly by the time mapping above. Detecting them

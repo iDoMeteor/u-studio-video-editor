@@ -220,6 +220,28 @@ class SetSequenceProfile : public Command
     Profile m_oldProfile;
 };
 
+// The sequence's frame rate, with everything already on it moved to the
+// same times at the new rate (core::retime(): clips, dissolves, fades,
+// keyframes, markers, asset lengths). Refuses the rate it already has, and
+// a result Model::check() rejects. Undo restores the sequence and bin as
+// they were, exactly.
+class ChangeSequenceFrameRate : public Command
+{
+  public:
+    explicit ChangeSequenceFrameRate(Rational fps);
+    std::string label() const override
+    {
+        return "Change project frame rate";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    Rational m_fps;
+    Sequence m_oldSequence;
+    std::vector<Asset> m_oldBin;
+};
+
 // Also not gated by Track::locked, for the same reason as SetTrackVolume
 // above: a name is a label, not content.
 class RenameTrack : public Command

@@ -141,3 +141,35 @@ TEST_CASE("retime: the same rate, or a bad one, changes nothing")
     CHECK(retime(model.project(), {60, 2}) == model.project());
     CHECK(retime(model.project(), {0, 1}) == model.project());
 }
+
+#include "core/commands/primitives.h"
+#include "core/commands/undo_stack.h"
+
+TEST_CASE("ChangeSequenceFrameRate: moves everything, undoes exactly, refuses the same rate")
+{
+    Model model = Model::createEmpty(at({30, 1}));
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = longAsset(model, 3000);
+    ClipId a = model.insertClip(track, asset, 0, 0, 299);
+    ClipId b = model.insertClip(track, asset, 300, 600, 899);
+    model.addTransition(track, a, b, 10, 10);
+    model.addMarker(450, "middle");
+    const Project before = model.project();
+    UndoStack undo(model);
+
+    REQUIRE(undo.execute(std::make_unique<ChangeSequenceFrameRate>(Rational{60000, 1001})));
+    CHECK(model.sequence().profile.fps == Rational{60000, 1001});
+    CHECK(model.check().empty());
+    CHECK(model.sequence().markers[0].at == 899); // 15 s at 59.94 = 899.1
+    CHECK(model.clip(b).position == retimeFrame(before.sequences[0].clips.at(b).position, {30, 1}, {60000, 1001}));
+
+    undo.undo();
+    CHECK(model.project() == before);
+    undo.redo();
+    CHECK(model.sequence().profile.fps == Rational{60000, 1001});
+    undo.undo();
+
+    CHECK_FALSE(undo.execute(std::make_unique<ChangeSequenceFrameRate>(Rational{30, 1})));
+    CHECK_FALSE(undo.execute(std::make_unique<ChangeSequenceFrameRate>(Rational{60, 2})));
+    CHECK(model.project() == before);
+}

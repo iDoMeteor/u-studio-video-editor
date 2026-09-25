@@ -8,6 +8,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/commands/primitives.h"
 #include "core/model/model.h"
 #include "engine/engine.h"
 #include "engine/factory_policy.h"
@@ -302,6 +303,38 @@ TEST_CASE("Engine: a burst of edits while playing is latest-wins too")
     CHECK(rebuilds - rebuildsAtLastEdit <= 3);
     CHECK(rebuilds < 10);
     CHECK(engine.totalFrames() == 5'000 + 19 * 10 + 10);
+}
+
+TEST_CASE("Engine: a frame-rate change while playing rebuilds on the new rate (FR2)")
+{
+    // The sequence's rate changes under a playing engine, back and forth:
+    // EngineSync::setProject() sees a new profile and rebuilds on it,
+    // stopping the consumer before the old graph and profile go.
+    sharedFactoryPolicy();
+    Model model = makeModel(30); // 300 frames at 30 fps: 10 s
+    Engine engine(model.snapshot(), PreviewScale::Full);
+    Frames frames;
+    frames.attach(engine);
+    REQUIRE(engine.syncForTesting());
+    engine.play(1.0);
+    REQUIRE(pumpUntil([&] { return frames.positions.size() > 5; }, std::chrono::seconds(5)));
+
+    for (int round = 0; round < 3; ++round) {
+        for (Rational fps : {Rational{60000, 1001}, Rational{30, 1}}) {
+            ChangeSequenceFrameRate change(fps);
+            REQUIRE(change.apply(model));
+            engine.publish(model.snapshot());
+            REQUIRE(engine.syncForTesting());
+            CAPTURE(fps.num);
+            CHECK(engine.fps() == doctest::Approx(static_cast<double>(fps.num) / fps.den));
+            CHECK(engine.totalFrames() == (fps.num == 30 ? 300 : 599)); // 10 s at 59.94 = 599.4
+            // Still playing on the new graph.
+            const size_t before = frames.positions.size();
+            CHECK(pumpUntil([&] { return frames.positions.size() > before + 3; }, std::chrono::seconds(5)));
+        }
+    }
+    engine.pause();
+    engine.shutdown();
 }
 
 TEST_CASE("Engine: shutdown during playback is clean, repeated")

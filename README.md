@@ -181,6 +181,10 @@ single-track skeleton.
   every clip on it. Hovering a clip shows a tooltip with its name (or
   "(unnamed)"), start/end timecodes, length (timecode and frame count),
   and source file.
+- The header title shows the project's size and rate ("1920×1080 · 30
+  fps"); click it to change the project's frame rate. Every clip, dissolve,
+  fade, keyframe and marker keeps its time (positions move to the nearest
+  frame at the new rate), as one undoable step.
 - Mixed frame rates: clips of any rate (23.976 to 60 fps) play, seek and
   render on one timeline; MLT takes each source's frame nearest in time.
   A new, empty project takes its size and rate from the first video

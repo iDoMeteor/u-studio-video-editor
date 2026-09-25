@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.43.0
+
+- Change the project's frame rate: click the title (it now shows the
+  project's size and rate). Everything keeps its timing; undo reverts it.
+
 ## 0.42.0
 
 - Render profiles have a frame rate: render a 30 fps project at 60, 24 at

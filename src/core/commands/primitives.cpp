@@ -1,5 +1,7 @@
 #include "primitives.h"
 
+#include "core/model/retime.h"
+
 #include <algorithm>
 
 namespace ustudio::core {
@@ -287,6 +289,29 @@ bool SetSequenceProfile::apply(Model &model)
 void SetSequenceProfile::revert(Model &model)
 {
     model.setSequenceProfile(m_oldProfile);
+}
+
+ChangeSequenceFrameRate::ChangeSequenceFrameRate(Rational fps) : m_fps(fps) {}
+
+bool ChangeSequenceFrameRate::apply(Model &model)
+{
+    const Rational current = model.sequence().profile.fps;
+    if (m_fps.num <= 0 || m_fps.den <= 0 ||
+        static_cast<int64_t>(current.num) * m_fps.den == static_cast<int64_t>(m_fps.num) * current.den)
+        return false;
+    Project retimed = retime(model.project(), m_fps);
+    Model check(retimed);
+    if (!check.check().empty())
+        return false;
+    m_oldSequence = model.sequence();
+    m_oldBin = model.project().bin;
+    model.replaceSequenceAndBin(check.sequence(), retimed.bin);
+    return true;
+}
+
+void ChangeSequenceFrameRate::revert(Model &model)
+{
+    model.replaceSequenceAndBin(m_oldSequence, m_oldBin);
 }
 
 RenameTrack::RenameTrack(TrackId track, std::string name) : m_track(track), m_name(std::move(name)) {}
