@@ -6,6 +6,7 @@
 #include "timeline/us_timeline_view.h"
 #include "ui_hints.h"
 #include "core/commands/composite_command.h"
+#include "platform/process.h"
 #include "core/commands/primitives.h"
 #include "core/commands/timeline_edits.h"
 #include "core/commands/transaction.h"
@@ -23,7 +24,6 @@
 #include "core/xml/writer.h"
 
 #include <pango/pangocairo.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cctype>
@@ -4506,7 +4506,7 @@ void AppWindow::performAutosave()
     autosave::Meta meta;
     meta.originalPath = m_currentProjectPath;
     meta.timestampUnix = static_cast<int64_t>(std::time(nullptr));
-    meta.ownerPid = static_cast<int64_t>(getpid()); // audit A5: lets a later launch skip a still-live owner
+    meta.ownerPid = platform::currentProcessId(); // audit A5: lets a later launch skip a still-live owner
     // audit A3: cross-checked against ownerPid in ownerAlive() so a
     // later, unrelated process reusing this same pid isn't mistaken for
     // this instance still being alive.

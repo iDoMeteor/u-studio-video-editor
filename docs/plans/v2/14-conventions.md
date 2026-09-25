@@ -58,7 +58,8 @@ code written from now on must not make it harder.
 - **"When passing by":** when a change touches a file on the list below,
   move that file's OS-specific code into `src/platform/` as a separate
   small commit, and strike it from the list. No big-bang refactor. The
-  first such commit creates `src/platform/` and its meson boundary check.
+  first such commit created `src/platform/` and its meson boundary check
+  (`tools/platform_boundary_check.sh`, whose allowlist is this list).
 
 ### Migration list (survey 2026-09-25)
 
@@ -69,7 +70,7 @@ code written from now on must not make it harder.
 | `src/app/main.cpp` | `g_unix_signal_add` for SIGTERM and SIGINT | `platform::installQuitHandlers()` (console and session-end handlers on Windows) |
 | `src/app/settings.cpp`, `src/app/snap_env.cpp` | `/proc/self/exe` | `platform::executablePath()` |
 | `src/app/portal_path.cpp` | document-portal xattrs | stays Linux-only; a no-op elsewhere |
-| `src/app/app_window.cpp` | `unistd.h` | check what it's for; remove or wrap |
+| ~~`src/app/app_window.cpp`~~ | ~~`unistd.h`~~ | done: `platform::currentProcessId()` (autosave's owner pid) |
 | `src/engine/factory_policy.cpp` | a symlink farm for the curated module directory, `.so` filtering, `mallopt` | `platform::linkOrCopy()`, `platform::sharedLibrarySuffix()`, `platform::tuneAllocator()` |
 | `src/engine/engine_sync.cpp` | `dup2` to silence MLT's stdout encoder list | `platform::ScopedStdoutSilence` |
 | `src/engine/engine.cpp` | `pthread_setname_np` | `platform::setThreadName()` |

@@ -2,6 +2,7 @@
 # using the existing "engine/engine_sync.h"-style includes unchanged.
 src_inc = include_directories('.')
 
+subdir('platform')
 subdir('core')
 subdir('engine')
 subdir('dropins')
