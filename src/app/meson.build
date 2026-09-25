@@ -19,14 +19,14 @@ app_resources = gnome.compile_resources(
 app_autosave_lib = static_library(
   'ustudio_app_autosave',
   files('autosave.cpp'),
-  dependencies: [glib_dep],
+  dependencies: [glib_dep, libustudio_platform_dep],
   include_directories: src_inc,
   install: false,
 )
 app_autosave_dep = declare_dependency(
   link_with: app_autosave_lib,
   include_directories: src_inc,
-  dependencies: [glib_dep],
+  dependencies: [glib_dep, libustudio_platform_dep],
 )
 
 # Same rationale as app_autosave_lib above: settings.cpp only needs GIO

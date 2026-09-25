@@ -29,12 +29,9 @@ struct Meta
     bool operator==(const Meta &) const = default;
 };
 
-// Field 22 (starttime, in clock ticks since boot) of /proc/<pid>/stat --
-// 0 if unavailable (no such process, /proc unsupported, or pid <= 0).
-// comm (field 2) is parenthesized and can itself contain spaces or
-// parentheses, so this finds the LAST ')' on the line and counts fields
-// after it, rather than naively splitting on spaces (verified against
-// /proc/self/stat's own real field layout).
+// The process's start time, for the owner check (platform::
+// processStartTime(); on Linux field 22 of /proc/<pid>/stat) -- 0 if
+// unavailable (no such process, or pid <= 0).
 int64_t processStartTime(int64_t pid);
 
 // $XDG_STATE_HOME/ustudio/autosave, created if missing. Empty on failure.

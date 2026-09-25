@@ -66,7 +66,7 @@ code written from now on must not make it harder.
 | File | Linux-only code | Likely `platform::` helper |
 |---|---|---|
 | `src/core/xml/writer.cpp` | `fcntl.h`, `unistd.h` (fsync for atomic save) | `platform::syncFile()` |
-| `src/app/autosave.cpp` | `/proc/<pid>/stat` start time for process liveness | `platform::processStartTime(pid)` |
+| ~~`src/app/autosave.cpp`~~ | ~~`/proc/<pid>/stat` start time for process liveness~~ | done: `platform::processExists()`, `platform::processStartTime()` |
 | `src/app/main.cpp` | `g_unix_signal_add` for SIGTERM and SIGINT | `platform::installQuitHandlers()` (console and session-end handlers on Windows) |
 | `src/app/settings.cpp`, `src/app/snap_env.cpp` | `/proc/self/exe` | `platform::executablePath()` |
 | `src/app/portal_path.cpp` | document-portal xattrs | stays Linux-only; a no-op elsewhere |

@@ -1,11 +1,10 @@
 #include "autosave.h"
 
+#include "platform/process.h"
+
 #include <glib.h>
 
-#include <signal.h>
-
 #include <cctype>
-#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -49,10 +48,8 @@ std::string readJsonString(const std::string &json, size_t &pos)
     return out;
 }
 
-// kill(pid, 0) sends no signal -- it only probes whether `pid` names a
-// process this user could signal (POSIX kill(2)): ESRCH means no such
-// process; EPERM means one exists but is owned by someone else, which
-// still counts as "alive" here. pid <= 0 (0 = unknown/legacy meta,
+// platform::processExists() counts another user's process as alive too.
+// pid <= 0 (0 = unknown/legacy meta,
 // negative = never valid) is never treated as alive. recordedStartTime
 // cross-checks that the CURRENT process at that pid (if any) is the
 // SAME one that wrote the autosave, not a coincidental reuse of the pid
@@ -63,12 +60,12 @@ bool ownerAlive(int64_t pid, int64_t recordedStartTime)
 {
     if (pid <= 0)
         return false;
-    if (::kill(static_cast<pid_t>(pid), 0) != 0 && errno != EPERM)
+    if (!platform::processExists(pid))
         return false;
     if (recordedStartTime == 0)
         return true;
     // processStartTime() returning 0 here (process exited in the
-    // window between the kill() probe above and this read) compares
+    // window between the existence probe above and this read) compares
     // unequal to any real recordedStartTime, so it falls through to
     // "not alive" -- the safe default, and consistent with the process
     // genuinely being gone.
@@ -78,31 +75,7 @@ bool ownerAlive(int64_t pid, int64_t recordedStartTime)
 
 int64_t processStartTime(int64_t pid)
 {
-    if (pid <= 0)
-        return 0;
-    std::ifstream in("/proc/" + std::to_string(pid) + "/stat");
-    if (!in)
-        return 0;
-    std::string line;
-    if (!std::getline(in, line))
-        return 0;
-
-    // comm (field 2) is "(...)"; and can itself contain spaces or even
-    // parentheses, so the only robust split point is the LAST ')' on the
-    // line, not the first space -- verified against /proc/self/stat's
-    // own real field layout (2026-09-23).
-    size_t closeParen = line.rfind(')');
-    if (closeParen == std::string::npos || closeParen + 1 >= line.size())
-        return 0;
-
-    std::istringstream rest(line.substr(closeParen + 1));
-    std::string token;
-    int tokenIndex = 0; // field 3 (state) is rest's 1st token, so field 22 is its 20th
-    while (rest >> token) {
-        if (++tokenIndex == 20)
-            return std::strtoll(token.c_str(), nullptr, 10);
-    }
-    return 0;
+    return platform::processStartTime(pid);
 }
 
 std::string directory()
