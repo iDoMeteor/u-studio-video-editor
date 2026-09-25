@@ -41,12 +41,13 @@ namespace fs = std::filesystem;
 // adjustment blocks and looks (IP2, doc 15; core/xml/effect_io.h).
 constexpr int kFormatVersion = 5;
 
-// Every effect in `effects` as a <filter> under `parent` (effect_io.h).
+// Every effect in `effects` as a <filter> under `parent` (effect_io.h);
+// `cutIn` for a clip's render cut.
 void writeEffects(xmlNodePtr parent, const std::vector<Effect> &effects, FrameIndex offset, FrameIndex length,
-                  bool withModel)
+                  bool withModel, std::optional<FrameIndex> cutIn = std::nullopt)
 {
     for (const Effect &effect : effects)
-        xml_detail::writeEffectFilter(parent, effect, offset, length, withModel);
+        xml_detail::writeEffectFilter(parent, effect, offset, length, withModel, cutIn);
 }
 
 xmlNodePtr addProperty(xmlNodePtr parent, const std::string &name, const std::string &value)
@@ -284,7 +285,7 @@ void writeRenderCut(xmlNodePtr playlist, const std::string &producerId, FrameInd
     xmlNewProp(entry, BAD_CAST "producer", BAD_CAST producerId.c_str());
     xmlNewProp(entry, BAD_CAST "in", BAD_CAST std::to_string(in).c_str());
     xmlNewProp(entry, BAD_CAST "out", BAD_CAST std::to_string(out).c_str());
-    writeEffects(entry, clip.effects, in - clip.in, out - in + 1, false);
+    writeEffects(entry, clip.effects, in - clip.in, out - in + 1, false, in);
 }
 
 // The producer a clip's cuts come from, mirroring EngineSync's

@@ -225,9 +225,14 @@ std::vector<Param> readParams(xmlNodePtr parent, const std::string &prefix)
     return params;
 }
 
-void writeEffectFilter(xmlNodePtr parent, const Effect &effect, FrameIndex offset, FrameIndex length, bool withModel)
+void writeEffectFilter(xmlNodePtr parent, const Effect &effect, FrameIndex offset, FrameIndex length, bool withModel,
+                       std::optional<FrameIndex> cutIn)
 {
     xmlNodePtr filter = xmlNewChild(parent, nullptr, BAD_CAST "filter", nullptr);
+    if (cutIn) {
+        xmlNewProp(filter, BAD_CAST "in", BAD_CAST std::to_string(*cutIn).c_str());
+        xmlNewProp(filter, BAD_CAST "out", BAD_CAST std::to_string(*cutIn + length - 1).c_str());
+    }
     addProperty(filter, "mlt_service", effect.service);
     for (const Param &param : effect.params) {
         if (param.name.empty())

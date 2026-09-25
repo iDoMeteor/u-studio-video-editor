@@ -4,9 +4,10 @@ test_dropin_args = ['-DUSTUDIO_VERSION="' + meson.project_version() + '"']
 
 test_dropin_builtin = static_library(
   'ustudio_test_dropin',
-  files('test_dropin.cpp'),
+  files('test_dropin.cpp', 'engine/test_extension.cpp'),
   cpp_args: test_dropin_args + ['-DTEST_DROPIN_NAME="testdropin"'],
   include_directories: src_inc,
+  dependencies: [mltpp_dep, mlt_dep],
   install: false,
 )
 
@@ -40,3 +41,20 @@ test_dropin_model_exe = executable(
   install: false,
 )
 test('dropin-model', test_dropin_model_exe, timeout: 120)
+
+# IP3: EngineSync with the test drop-in's EngineExtension, built in and as a
+# module. The module resolves core and engine symbols against this program,
+# so it exports them and links those libraries whole, as the editor must
+# for real modules (doc 15, step 0's REVIEW note).
+test_dropin_engine_exe = executable(
+  'test_dropin_engine',
+  files('test_dropin_engine.cpp'),
+  cpp_args: ['-DTEST_MODULE_DIR="' + test_dropin_module_dir + '"'],
+  include_directories: include_directories('.'),
+  link_with: test_dropin_builtin,
+  link_whole: [libustudio_core, libustudio_engine, libustudio_dropins],
+  export_dynamic: true,
+  dependencies: [doctest_dep, libustudio_dropins_dep],
+  install: false,
+)
+test('dropin-engine', test_dropin_engine_exe, depends: test_dropin_modules, timeout: 120)

@@ -27,7 +27,11 @@ std::optional<std::string> getProperty(xmlNodePtr node, const std::string &name)
 
 // Native properties for one cut: `offset` frames into the owner, `length`
 // long (keyframes shifted and clamped to it, core::keyframesForCut()).
-void writeEffectFilter(xmlNodePtr parent, const Effect &effect, FrameIndex offset, FrameIndex length, bool withModel);
+// `cutIn`, when given, is the cut's first source frame: MLT counts a cut
+// filter's animation from its "in" (engine::attachToCut() says why), so the
+// filter gets in/out = the cut's.
+void writeEffectFilter(xmlNodePtr parent, const Effect &effect, FrameIndex offset, FrameIndex length, bool withModel,
+                       std::optional<FrameIndex> cutIn = std::nullopt);
 // Nullopt for a <filter> without ustudio:effect_id (a render-only copy).
 std::optional<Effect> readEffectFilter(xmlNodePtr filter);
 // Every model <filter> directly under `parent`, in order.

@@ -109,7 +109,8 @@ std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 } // namespace
 
 EngineSync::EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale)
-    : m_project(std::move(project)), m_model(*m_project), m_previewScale(previewScale)
+    : m_extensions(createEngineExtensions()), m_project(std::move(project)), m_model(*m_project),
+      m_previewScale(previewScale)
 {
     applyProfile();
     rebuildAll();
@@ -132,7 +133,7 @@ bool sameGraphInput(const core::Project &a, const core::Project &b)
         const core::Sequence &x = a.sequences[i];
         const core::Sequence &y = b.sequences[i];
         if (x.id != y.id || x.profile != y.profile || x.tracks != y.tracks || x.clips != y.clips ||
-            x.transitions != y.transitions)
+            x.transitions != y.transitions || x.effects != y.effects || x.adjustmentBlocks != y.adjustmentBlocks)
             return false;
     }
     return true;
@@ -144,7 +145,15 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
     if (!project || project == m_project)
         return;
     core::trace::Scope trace("EngineSync::setProject");
-    const bool rebuild = !sameGraphInput(*m_project, *project);
+    bool rebuild = !sameGraphInput(*m_project, *project);
+    // IP3: a change that's only effect values may be applied to the live
+    // filters instead (applyInPlace()). Never considered without extensions,
+    // so without drop-ins this is exactly the old path.
+    bool inPlace = false;
+    if (rebuild && !m_extensions.empty() && applyInPlace(*project)) {
+        rebuild = false;
+        inPlace = true;
+    }
     const core::Profile profileBefore = m_model.sequence().profile;
     m_project = std::move(project);
     m_model = core::Model(*m_project);
@@ -153,6 +162,8 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
         rebuildOnNewProfile();
     else if (rebuild)
         rebuildAll();
+    if (inPlace)
+        appliedInPlace.emit();
 }
 
 void EngineSync::reset(std::shared_ptr<const core::Project> project)
@@ -361,21 +372,116 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
     return producer;
 }
 
+namespace {
+template <class Visit> void forEachEffect(core::Project &project, const Visit &visit)
+{
+    for (core::Sequence &seq : project.sequences) {
+        for (auto &[id, clip] : seq.clips)
+            for (core::Effect &effect : clip.effects)
+                visit(effect);
+        for (core::Track &track : seq.tracks)
+            for (core::Effect &effect : track.effects)
+                visit(effect);
+        for (core::Effect &effect : seq.effects)
+            visit(effect);
+        for (core::AdjustmentBlock &block : seq.adjustmentBlocks)
+            for (core::Effect &effect : block.effects)
+                visit(effect);
+    }
+}
+} // namespace
+
+bool EngineSync::applyInPlace(const core::Project &next)
+{
+    // Only effect values may differ: the same graph input with every
+    // parameter value and mix blanked out on both sides.
+    core::Project before = *m_project;
+    core::Project after = next;
+    std::unordered_map<uint64_t, core::Effect> oldEffects;
+    forEachEffect(before, [&](core::Effect &effect) { oldEffects.emplace(effect.id.value, effect); });
+    std::vector<core::Effect> changed;
+    forEachEffect(after, [&](core::Effect &effect) {
+        auto it = oldEffects.find(effect.id.value);
+        if (it != oldEffects.end() && (it->second.params != effect.params || it->second.mix != effect.mix))
+            changed.push_back(effect);
+    });
+    auto blank = [](core::Effect &effect) {
+        for (core::Param &param : effect.params) {
+            param.value = 0.0;
+            param.keyframes.clear();
+        }
+        effect.mix = {};
+    };
+    forEachEffect(before, blank);
+    forEachEffect(after, blank);
+    if (!sameGraphInput(before, after) || changed.empty())
+        return false;
+
+    for (const core::Effect &effect : changed) {
+        const core::Effect &old = oldEffects.at(effect.id.value);
+        ParamChange change{effect, {}};
+        for (size_t i = 0; i < effect.params.size() && i < old.params.size(); ++i)
+            if (effect.params[i] != old.params[i])
+                change.params.push_back(effect.params[i].name);
+        if (effect.mix != old.mix)
+            change.params.push_back("mix");
+        bool applied = false;
+        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+            applied = extension->applyInPlace(change) || applied;
+        if (!applied)
+            return false; // a rebuild follows, which supersedes anything applied so far
+    }
+    Log::debug("[engine] " + std::to_string(changed.size()) + " effect value change(s) applied in place");
+    return true;
+}
+
+Mlt::Producer &EngineSync::producerForClip(const core::Clip &clip)
+{
+    // IP3: a drop-in may make a clip's producer (titles); one per clip per
+    // build, shared by its cuts.
+    if (!m_extensions.empty()) {
+        if (auto it = m_clipProducers.find(clip.id.value); it != m_clipProducers.end())
+            return *it->second;
+        for (const std::unique_ptr<EngineExtension> &extension : m_extensions) {
+            if (std::unique_ptr<Mlt::Producer> made = extension->makeProducer(m_model, clip, *m_profile)) {
+                m_extensionProducers.insert(clip.id.value);
+                return *m_clipProducers.emplace(clip.id.value, std::shared_ptr<Mlt::Producer>(std::move(made)))
+                            .first->second;
+            }
+        }
+    }
+    return masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled);
+}
+
+void EngineSync::decorateCut(Mlt::Producer &cut, const core::Clip &clip, core::FrameIndex in, core::FrameIndex out)
+{
+    for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+        extension->decorateCut(cut, CutContext{m_model, clip, in - clip.in, out - in + 1, *m_profile});
+}
+
 std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackSegment &segment)
 {
     const core::Transition &t = m_model.transition(segment.transition);
     const core::Clip &clipA = m_model.clip(segment.a);
     const core::Clip &clipB = m_model.clip(segment.b);
 
-    auto sub = std::make_unique<Mlt::Tractor>(*m_profile);
-
-    Mlt::Producer &masterA = masterProducerFor(clipA.asset, clipA.videoEnabled, clipA.audioEnabled);
+    Mlt::Producer &masterA = producerForClip(clipA);
     std::unique_ptr<Mlt::Producer> tailA(
         masterA.cut(static_cast<int>(clipA.out - t.length + 1), static_cast<int>(clipA.out)));
+    decorateCut(*tailA, clipA, clipA.out - t.length + 1, clipA.out);
 
-    Mlt::Producer &masterB = masterProducerFor(clipB.asset, clipB.videoEnabled, clipB.audioEnabled);
+    Mlt::Producer &masterB = producerForClip(clipB);
     std::unique_ptr<Mlt::Producer> headB(
         masterB.cut(static_cast<int>(clipB.in), static_cast<int>(clipB.in + t.length - 1)));
+    decorateCut(*headB, clipB, clipB.in, clipB.in + t.length - 1);
+
+    // IP3: a drop-in's recipe (wipes, motion; FX3) builds the whole segment.
+    for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+        if (std::unique_ptr<Mlt::Tractor> made =
+                extension->makeTransitionSegment(m_model, t, *tailA, *headB, *m_profile))
+            return made;
+
+    auto sub = std::make_unique<Mlt::Tractor>(*m_profile);
 
     sub->set_track(*tailA, 0);
     sub->set_track(*headB, 1);
@@ -489,8 +595,9 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
 
         if (seg.kind == TrackSegment::Kind::Clip) {
             const core::Clip &clip = m_model.clip(seg.clip);
-            Mlt::Producer &master = masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled);
+            Mlt::Producer &master = producerForClip(clip);
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
+            decorateCut(*cut, clip, seg.in, seg.out);
             target().append(*cut);
         } else {
             target().append(*buildTransitionSubTractor(seg));
@@ -513,6 +620,10 @@ void EngineSync::rebuildAll()
                " clips, sequence length " + std::to_string(seq.length()));
 
     FactoryPolicy::raiseAvformatDecoderLimit(trackCount);
+    m_clipProducers.clear();
+    m_extensionProducers.clear();
+    for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+        extension->beginBuild();
     auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
     std::vector<std::optional<core::TrackId>> order;
 
@@ -578,6 +689,9 @@ void EngineSync::rebuildAll()
         if (hide != 0)
             playlist->set("hide", hide);
 
+        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+            extension->decoratePlaylist(*playlist, m_model, modelTrack, *m_profile);
+
         newTractor->set_track(*playlist, static_cast<int>(order.size()));
         order.emplace_back(trackId);
         playlists.push_back(std::move(playlist));
@@ -590,8 +704,17 @@ void EngineSync::rebuildAll()
     // buildTransitionSubTractor()'s comment (sanitizer report S1).
     std::unique_ptr<Mlt::Field> field(newTractor->field());
     for (int index = 1; index < newTractor->count(); ++index) {
-        Mlt::Transition composite(*m_profile, "composite");
-        field->plant_transition(composite, index - 1, index);
+        // IP3: a drop-in may replace the compositor (effects: frei0r.cairoblend).
+        std::unique_ptr<Mlt::Transition> compositor;
+        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+            if (!compositor)
+                compositor = extension->compositor(*m_profile, index - 1, index);
+        if (compositor) {
+            field->plant_transition(*compositor, index - 1, index);
+        } else {
+            Mlt::Transition composite(*m_profile, "composite");
+            field->plant_transition(composite, index - 1, index);
+        }
 
         Mlt::Transition mix(*m_profile, "mix");
         mix.set("start", 1.0);
@@ -599,6 +722,9 @@ void EngineSync::rebuildAll()
         mix.set("always_active", 1);
         field->plant_transition(mix, index - 1, index);
     }
+
+    for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+        extension->decorateTractor(*newTractor, m_model, *m_profile);
 
     newTractor->refresh();
     m_tractor = std::move(newTractor);
@@ -683,7 +809,8 @@ std::vector<std::string> EngineSync::verify() const
                 // the black placeholder masterProducerFor() substituted,
                 // not the asset's own path -- that mismatch is the
                 // intended fallback (see its own comment), not a sync bug.
-                if (m_model.hasAsset(clip.asset) && !m_unavailableAssets.contains(clip.asset.value)) {
+                if (m_model.hasAsset(clip.asset) && !m_unavailableAssets.contains(clip.asset.value) &&
+                    !m_extensionProducers.contains(clip.id.value)) {
                     std::string expectedResource = m_model.asset(clip.asset).path;
                     // MLT's "resource" property for a "service:arg" shorthand
                     // producer (color:/noise:/tone: generators, used by

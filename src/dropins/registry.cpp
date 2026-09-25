@@ -151,6 +151,11 @@ void BasicDropInHost::log(const std::string &message)
     Log::info(message);
 }
 
+void BasicDropInHost::addEngineExtension(engine::EngineExtensionFactory factory)
+{
+    engine::registerEngineExtension(std::move(factory));
+}
+
 void DropInRegistry::registerAll(DropInHost &host) const
 {
     for (const Entry &entry : m_entries)

@@ -108,6 +108,12 @@ class Engine::Thread
                 controller->setTractor(sync->tractorPtr());
                 m_rebuilt = true;
             });
+            // IP3: effect values changed in place, no new graph: a paused
+            // consumer redraws its frame (seek purges and refreshes).
+            sync->appliedInPlace.connect([this] {
+                if (!controller->isPlaying())
+                    controller->seek(controller->currentFrame());
+            });
             sync->mediaUnavailable.connect([this](const std::string &path) {
                 MainThreadDispatcher::post(m_ownerToken,
                                            [owner = m_owner, path] { owner->mediaUnavailable.emit(path); });

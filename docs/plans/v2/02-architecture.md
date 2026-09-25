@@ -84,6 +84,7 @@ src/
     factory_policy.h/.cpp curated module dir + Factory::init/close (ADR-007)
     dispatcher.h/.cpp     MainThreadDispatcher (GMainContext invoke + lifetime token)
     engine_sync.h/.cpp    Model → Mlt::Tractor reconciler + debug verifier
+    engine_extension.h/.cpp  drop-in hooks into the graph build (IP3, doc 15)
     playback.h/.cpp       PlaybackController over Mlt::Consumer
     media_probe.h/.cpp    worker: path → MediaInfo
     thumbnails.h/.cpp     worker: (asset, frame, size) → RGBA

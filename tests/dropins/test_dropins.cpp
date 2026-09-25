@@ -27,6 +27,10 @@ struct RecordingHost : DropInHost
     {
         logged.push_back(message);
     }
+    void addEngineExtension(ustudio::engine::EngineExtensionFactory) override
+    {
+        logged.push_back("engine extension");
+    }
 };
 
 bool anyContains(const std::vector<std::string> &lines, const std::string &text)

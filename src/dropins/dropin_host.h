@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dropins/api.h"
+#include "engine/engine_extension.h"
 #include "engine/factory_policy.h"
 
 #include <string>
@@ -27,6 +28,10 @@ class DropInHost
     virtual std::string program() const = 0;
     // Through the app's log (a drop-in names itself: "[effects] ...").
     virtual void log(const std::string &message) = 0;
+
+    // IP3: every graph this program builds (the live one, each render's)
+    // gets its own instance from `factory` (engine/engine_extension.h).
+    virtual void addEngineExtension(engine::EngineExtensionFactory factory) = 0;
 };
 
 // The host with no integration points of its own yet: logging and which
@@ -41,6 +46,7 @@ class BasicDropInHost : public DropInHost
         return m_program;
     }
     void log(const std::string &message) override;
+    void addEngineExtension(engine::EngineExtensionFactory factory) override;
 
   private:
     std::string m_program;

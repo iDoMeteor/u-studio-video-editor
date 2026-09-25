@@ -175,7 +175,9 @@ TEST_CASE("A saved effect plays via MLT's own xml producer, animated")
     asset.path = "color:red";
     asset.info.hasVideo = true;
     asset.info.lengthInSequenceFrames = 100;
-    ClipId clip = model.insertClip(track, model.addAsset(asset), 0, 0, 49);
+    // From source frame 30, not 0: a cut's filter animation counts from the
+    // filter's "in" (engine::attachToCut()), which the writer sets to the cut's.
+    ClipId clip = model.insertClip(track, model.addAsset(asset), 0, 30, 79);
     Effect fade;
     fade.service = "brightness";
     Param level;

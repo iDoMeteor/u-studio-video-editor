@@ -6,6 +6,7 @@
 #include "core/model/signal.h"
 #include "core/model/track_segments.h"
 #include "core/render/render_profile.h"
+#include "engine/engine_extension.h"
 
 #include <mlt++/Mlt.h>
 
@@ -128,6 +129,11 @@ class EngineSync
     // calling it after every edit themselves.
     core::Signal<> rebuilt;
 
+    // IP3: a new snapshot's effect value changes were applied to the live
+    // filters instead of rebuilding (setProject()); a paused consumer needs
+    // to redraw its frame. Same thread as setProject().
+    core::Signal<> appliedInPlace;
+
     // Fires synchronously, main thread only, from inside rebuildAll() (via
     // masterProducerFor()) whenever an asset's file can't actually be
     // opened -- a project referencing media that's since been moved,
@@ -204,7 +210,25 @@ class EngineSync
     // MT1, parallel import); each call opens its own Profile and Producer.
     static ProbedMedia probeMediaFile(const core::Profile &sequenceProfile, const std::string &path);
 
+    // IP3: the drop-ins' extensions this graph is built with (one of each
+    // registered, made at construction; engine_extension.h).
+    size_t extensionCount() const
+    {
+        return m_extensions.size();
+    }
+
   private:
+    std::vector<std::unique_ptr<EngineExtension>> m_extensions;
+    // IP3: when `project` differs from the current one only in effect
+    // parameter or mix values, offers each change to the extensions; true
+    // if every one was applied in place (no rebuild needed).
+    bool applyInPlace(const core::Project &project);
+    // Clips whose producer an extension made (verify() skips their
+    // resource check): per build.
+    std::unordered_set<uint64_t> m_extensionProducers;
+    std::unordered_map<uint64_t, std::shared_ptr<Mlt::Producer>> m_clipProducers; // per build
+    Mlt::Producer &producerForClip(const core::Clip &clip);
+    void decorateCut(Mlt::Producer &cut, const core::Clip &clip, core::FrameIndex in, core::FrameIndex out);
     // The snapshot the graph was built from, and a Model over a copy of it
     // for the lookups (clip(), track(), planTrackSegments()) the build uses.
     std::shared_ptr<const core::Project> m_project;
