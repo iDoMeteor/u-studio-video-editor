@@ -21,8 +21,15 @@ namespace ustudio::app {
 class Settings
 {
   public:
-    Settings();
+    // `fallbackSchemaDir`: where to look for gschemas.compiled when no
+    // installed schema source has ours (builddirSchemaDir() by default: a
+    // binary run straight from builddir finds builddir/data). "" for none.
+    explicit Settings(const std::string &fallbackSchemaDir = builddirSchemaDir());
     ~Settings();
+
+    // <dir of /proc/self/exe>/../../data: builddir/data for builddir/src/app
+    // and builddir/tests/app alike.
+    static std::string builddirSchemaDir();
 
     Settings(const Settings &) = delete;
     Settings &operator=(const Settings &) = delete;
@@ -107,6 +114,7 @@ class Settings
     }
 
   private:
+    GSettingsSchemaSource *m_fallbackSource = nullptr;
     bool getBool(const char *key, bool fallback) const;
     void setBool(const char *key, bool value);
     std::string getString(const char *key, const char *fallback) const;

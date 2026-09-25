@@ -287,11 +287,11 @@ single-track skeleton.
   Save As start; default export folder, where renders go, else the
   project's folder, then Videos, then home) tabs, backed by
   real `GSettings` persistence (`data/com.ustudio.VideoEditor.gschema.xml`)
-  — falls back to in-memory defaults with a one-time warning log and an
-  in-dialog toast if the schema isn't installed/compiled (the common case
-  when running straight from `builddir` without `meson install` — export
-  `GSETTINGS_SCHEMA_DIR=<builddir>/data` or use `meson devenv -C builddir`
-  to exercise real persistence during development). A placeholder Keyboard
+  — an installed schema first; otherwise a binary run straight from
+  `builddir` uses the build's own compiled schema (`builddir/data`, found
+  relative to the executable), so settings persist without `meson install`
+  or `GSETTINGS_SCHEMA_DIR`. With no schema at all it falls back to
+  in-memory defaults, with a banner in the window and a toast in Settings. A placeholder Keyboard
   Shortcuts tab in Settings, and the shared `src/app/action_registry.h`
   table both the Help tab and `installActions()` read from, are the
   intended foundation for a future hotkey-rebinding feature.

@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.40.2
+
+- Settings now persist when the editor is run straight from its build
+  directory (they silently reset on every launch before, so "reopen last
+  project" never had anything to reopen); a banner says so if they can't.
+
 ## 0.40.1
 
 - Launched from a snap app's terminal (VS Code's), the editor no longer

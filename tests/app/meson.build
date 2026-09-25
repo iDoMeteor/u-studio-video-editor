@@ -75,7 +75,10 @@ test(
   env: {
     'GSETTINGS_SCHEMA_DIR': meson.current_build_dir() / 'no-such-schema-dir',
     'XDG_DATA_DIRS': meson.current_build_dir() / 'empty-xdg-data-dir',
+    # The build-dir fallback case writes a setting: keep it off dconf.
+    'GSETTINGS_BACKEND': 'memory',
   },
+  depends: ustudio_gschemas_compiled,
 )
 
 test_portal_path_exe = executable(
