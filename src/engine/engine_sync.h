@@ -184,6 +184,11 @@ class EngineSync
         // import applied after the sequence's rate changed (its first video,
         // doc 13 R7) retimes it.
         core::Rational sequenceFps{0, 0};
+        // Why it can't be imported ("it's empty"), for the import report;
+        // "" when it can. Set by the importer's checks around the probe.
+        std::string error;
+        // core::fileFingerprint(), taken on the pool with the probe.
+        std::string fingerprint;
     };
 
     // Opens `path` against this EngineSync's profile just long enough to

@@ -3,6 +3,8 @@
 #include "command.h"
 #include "core/model/model.h"
 
+#include <cstdint>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,12 +22,37 @@ class CompositeCommand : public Command
 {
   public:
     CompositeCommand(std::string label, std::vector<std::unique_ptr<Command>> commands)
-        : m_label(std::move(label)), m_commands(std::move(commands))
+        : m_label(std::move(label)),
+          m_commands(std::make_move_iterator(commands.begin()), std::make_move_iterator(commands.end()))
+    {}
+    // A batch member: another CompositeCommand with the same non-zero
+    // `mergeKey` executed right after this one joins it as one undo step
+    // (a multi-file import is one step, not one per file), which is then
+    // labelled `batchLabel`.
+    CompositeCommand(std::string label, std::vector<std::unique_ptr<Command>> commands, uint64_t mergeKey,
+                     std::string batchLabel)
+        : m_label(std::move(label)),
+          m_commands(std::make_move_iterator(commands.begin()), std::make_move_iterator(commands.end())),
+          m_mergeKey(mergeKey), m_batchLabel(std::move(batchLabel))
     {}
 
     std::string label() const override
     {
-        return m_label;
+        return m_merged ? m_batchLabel : m_label;
+    }
+
+    // `next` is already applied (UndoStack::execute()); taking its commands
+    // after ours keeps revert() in reverse order across the whole batch.
+    bool mergeWith(const Command &next) override
+    {
+        const auto *other = dynamic_cast<const CompositeCommand *>(&next);
+        if (m_mergeKey == 0 || !other || other->m_mergeKey != m_mergeKey)
+            return false;
+        // Shared, not moved: `next` is const here, and UndoStack drops it
+        // straight after a merge.
+        m_commands.insert(m_commands.end(), other->m_commands.begin(), other->m_commands.end());
+        m_merged = true;
+        return true;
     }
 
     // Wrapped in BatchBegin/BatchEnd (doc 04/05) so a listener projecting
@@ -59,7 +86,11 @@ class CompositeCommand : public Command
 
   private:
     std::string m_label;
-    std::vector<std::unique_ptr<Command>> m_commands;
+    // Shared so a batch can take a merged member's commands (mergeWith()).
+    std::vector<std::shared_ptr<Command>> m_commands;
+    uint64_t m_mergeKey = 0;
+    std::string m_batchLabel;
+    bool m_merged = false;
 };
 
 } // namespace ustudio::core

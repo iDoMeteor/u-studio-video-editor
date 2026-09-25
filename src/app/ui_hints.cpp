@@ -97,6 +97,7 @@ std::vector<HintSpec> &registry()
         // --- Media browser ---
         {"media.insert",       "Media browser", "Insert at the playhead", "On the active track", nullptr, "Double-click a row"},
         {"media.add-files",    "Media browser", "Add files without placing them", nullptr, nullptr, "Drop files from the file manager onto the browser"},
+        {"media.import-folder", "Media browser", "Import a folder", "Every file in it and its subfolders goes to the browser, as one undo step; files that can't be imported are listed", "import-folder", "Or drop the folder onto the browser"},
         {"media.remove",       "Media browser", "Remove from project", "Also removes every clip cut from it; undoable. The file is untouched", nullptr, nullptr},
         {"media.trash",        "Media browser", "Move file to Trash…", "Removes it from the project and moves the file to the desktop Trash", nullptr, nullptr},
 

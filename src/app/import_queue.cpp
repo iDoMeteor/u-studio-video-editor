@@ -1,9 +1,11 @@
 #include "import_queue.h"
 
+#include "core/media/utf8_path.h"
 #include "core/trace.h"
 
 #include <algorithm>
 #include <atomic>
+#include <filesystem>
 
 namespace ustudio::app {
 
@@ -21,7 +23,16 @@ struct ImportQueue::Batch
     std::vector<core::concurrency::JobHandle> jobs;
 };
 
-ImportQueue::ImportQueue(core::concurrency::ThreadPool &pool, Post post) : m_pool(pool), m_post(std::move(post)) {}
+ImportQueue::ImportQueue(core::concurrency::ThreadPool &pool, Post post, PostAfter postAfter, unsigned timeoutMs)
+    : m_pool(pool), m_post(std::move(post)), m_postAfter(std::move(postAfter)), m_timeoutMs(timeoutMs)
+{}
+
+ImportQueue::Probed ImportQueue::timedOut()
+{
+    Probed probed;
+    probed.error = "it took too long to open (over 20 s)";
+    return probed;
+}
 
 void ImportQueue::start(std::vector<std::string> paths, Probe probe, Apply apply, Progress progress, Finished finished)
 {
@@ -40,9 +51,11 @@ void ImportQueue::start(std::vector<std::string> paths, Probe probe, Apply apply
             // Pool thread: only the batch's immutable paths, its atomic
             // flag and a copy of the post function; the queue itself is
             // touched only by the closure, back on the main thread.
-            [this, post = m_post, batch, i, probe](std::stop_token stop) {
+            [this, post = m_post, batch, i, probe, timed = bool(m_postAfter)](std::stop_token stop) {
                 if (stop.stop_requested() || batch->cancelled)
                     return;
+                if (timed)
+                    post([this, batch, i] { onStarted(batch, i); });
                 Probed result = probe(batch->paths[i]);
                 if (stop.stop_requested() || batch->cancelled)
                     return;
@@ -52,10 +65,20 @@ void ImportQueue::start(std::vector<std::string> paths, Probe probe, Apply apply
     }
 }
 
-void ImportQueue::onProbed(const std::shared_ptr<Batch> &batch, size_t index, Probed probed)
+void ImportQueue::onStarted(const std::shared_ptr<Batch> &batch, size_t index)
 {
     if (batch->cancelled)
-        return; // the project it was for is gone
+        return;
+    m_postAfter(m_timeoutMs, [this, batch, index] {
+        if (!batch->cancelled && !batch->results[index])
+            onProbed(batch, index, timedOut());
+    });
+}
+
+void ImportQueue::onProbed(const std::shared_ptr<Batch> &batch, size_t index, Probed probed)
+{
+    if (batch->cancelled || batch->results[index])
+        return; // the project it was for is gone, or it timed out already
     batch->results[index] = std::move(probed);
     ++batch->probed;
     if (batch->progress)
@@ -110,6 +133,50 @@ void ImportQueue::cancelAll()
 size_t ImportQueue::activeBatches() const
 {
     return m_batches.size();
+}
+
+std::vector<std::string> expandImportPaths(const std::vector<std::string> &paths, size_t limit, bool *truncated)
+{
+    namespace fs = std::filesystem;
+    std::vector<std::string> files;
+    bool more = false;
+    auto add = [&](std::string path) {
+        if (files.size() >= limit) {
+            more = true;
+            return false;
+        }
+        files.push_back(std::move(path));
+        return true;
+    };
+    for (const std::string &path : paths) {
+        std::error_code ec;
+        const fs::path root = core::pathFromUtf8(path);
+        if (!fs::is_directory(root, ec)) {
+            if (!add(path))
+                break;
+            continue;
+        }
+        std::vector<std::string> found;
+        fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
+        for (; !ec && it != end; it.increment(ec)) {
+            if (core::utf8String(it->path().filename()).starts_with(".")) {
+                if (it->is_directory(ec))
+                    it.disable_recursion_pending();
+                continue;
+            }
+            if (it->is_regular_file(ec))
+                found.push_back(core::utf8String(it->path()));
+        }
+        std::sort(found.begin(), found.end());
+        for (std::string &file : found)
+            if (!add(std::move(file)))
+                break;
+        if (more)
+            break;
+    }
+    if (truncated)
+        *truncated = more;
+    return files;
 }
 
 } // namespace ustudio::app

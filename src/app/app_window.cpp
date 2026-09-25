@@ -7,6 +7,8 @@
 #include "ui_hints.h"
 #include "core/commands/composite_command.h"
 #include "platform/process.h"
+#include "core/media/fingerprint.h"
+#include "core/media/utf8_path.h"
 #include "core/commands/primitives.h"
 #include "core/commands/timeline_edits.h"
 #include "core/commands/transaction.h"
@@ -110,6 +112,8 @@ core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length,
     asset.info.fps = probed.fps;
     asset.info.width = probed.width;
     asset.info.height = probed.height;
+    asset.fileFingerprint = probed.fingerprint;
+    asset.status = core::Asset::Status::Ready;
     // `length` is already measured in the sequence's own frames
     // (probeMedia opens its throwaway producer at that fps), so duration
     // follows directly from it -- no dependency on probed.fps (0 for a
@@ -182,9 +186,22 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
     m_pool = std::make_unique<core::concurrency::ThreadPool>(poolSize);
     Log::debug("[app] worker pool: " + std::to_string(poolSize) + " threads" +
                (workerThreads > 0 ? " (worker-threads setting)" : " (automatic)"));
-    m_importQueue =
-        std::make_unique<ImportQueue>(*m_pool, [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
+    m_importQueue = std::make_unique<ImportQueue>(
+        *m_pool,
+        [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
+        },
+        // A probe's timeout (doc 07): dropped with the window like a post.
+        [token = std::weak_ptr<void>(m_lifetime)](unsigned ms, std::function<void()> fn) {
+            using Timed = std::pair<std::weak_ptr<void>, std::function<void()>>;
+            g_timeout_add_once(
+                ms,
+                [](gpointer data) {
+                    std::unique_ptr<Timed> timed(static_cast<Timed *>(data));
+                    if (!timed->first.expired())
+                        timed->second();
+                },
+                new Timed(token, std::move(fn)));
         });
     // Which H.264 encoder there is (Settings > Render asks): MLT prints a
     // list to find out, so it's asked once, off the main thread, and nothing
@@ -1775,6 +1792,60 @@ void AppWindow::onImportClicked()
     g_object_unref(dialog);
 }
 
+void AppWindow::onImportFolderClicked()
+{
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Import Folder");
+    // Into the bin: a folder is usually more than belongs on one track.
+    gtk_file_dialog_select_folder(
+        dialog, GTK_WINDOW(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            auto *self = static_cast<AppWindow *>(userData);
+            GError *error = nullptr;
+            GFile *folder = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source), result, &error);
+            if (!folder) {
+                if (error)
+                    g_error_free(error);
+                return;
+            }
+            std::string path = localPathFor(folder);
+            g_object_unref(folder);
+            if (!path.empty())
+                self->startImport({std::move(path)}, std::nullopt, std::nullopt);
+        },
+        this);
+    g_object_unref(dialog);
+}
+
+void AppWindow::showImportReport(size_t imported, size_t total, const std::vector<std::string> &failures,
+                                 const std::string &notes)
+{
+    const std::string summary = "Imported " + std::to_string(imported) + " of " + std::to_string(total) + " files.";
+    showStatus(summary + " " + std::to_string(failures.size()) + " couldn't be imported." + notes);
+    AdwDialog *dialog = adw_alert_dialog_new(summary.c_str(), nullptr);
+    adw_alert_dialog_format_body(
+        ADW_ALERT_DIALOG(dialog), "%s",
+        (std::to_string(failures.size()) +
+         (failures.size() == 1 ? " file couldn't be imported:" : " files couldn't be imported:") + notes)
+            .c_str());
+    std::string list;
+    for (const std::string &failure : failures)
+        list += (list.empty() ? "" : "\n") + failure;
+    GtkWidget *label = gtk_label_new(list.c_str());
+    gtk_label_set_selectable(GTK_LABEL(label), TRUE);
+    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+    gtk_widget_add_css_class(label, "import-report");
+    GtkWidget *scroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scroller), 260);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scroller), TRUE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), label);
+    adw_alert_dialog_set_extra_child(ADW_ALERT_DIALOG(dialog), scroller);
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "close", "OK");
+    adw_dialog_present(dialog, GTK_WIDGET(m_window));
+}
+
 void AppWindow::onFileOpened(GObject *sourceObject, GAsyncResult *result)
 {
     GError *error = nullptr;
@@ -1817,6 +1888,33 @@ void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::
         paths = importWithHandlers(std::move(paths), trackId, position);
     if (paths.empty() || !m_importQueue)
         return;
+    // Folders (Import Folder…, or dropped from Files) are walked on the
+    // pool, then imported as their files. One stat each here.
+    std::error_code ec;
+    if (std::any_of(paths.begin(), paths.end(), [&](const std::string &path) {
+            return std::filesystem::is_directory(core::pathFromUtf8(path), ec);
+        })) {
+        showStatus("Looking for files to import…");
+        m_pool->submit([this, paths = std::move(paths), trackId, position, generation = m_projectGeneration,
+                        token = std::weak_ptr<void>(m_lifetime)](std::stop_token) {
+            bool truncated = false;
+            std::vector<std::string> files = expandImportPaths(paths, kImportFileLimit, &truncated);
+            engine::MainThreadDispatcher::post(
+                token, [this, files = std::move(files), truncated, trackId, position, generation]() mutable {
+                    if (generation != m_projectGeneration)
+                        return; // another project now
+                    if (files.empty()) {
+                        showStatus("There are no files to import there.");
+                        return;
+                    }
+                    if (truncated)
+                        m_importNotes.push_back("Only the first " + std::to_string(kImportFileLimit) +
+                                                " files were imported.");
+                    startImport(std::move(files), trackId, position);
+                });
+        });
+        return;
+    }
     struct State
     {
         std::optional<core::FrameIndex> position;
@@ -1827,20 +1925,47 @@ void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::
     auto state = std::make_shared<State>();
     state->position = position;
     const size_t total = paths.size();
+    // Every file of this import joins one undo step (CompositeCommand's
+    // merge key), not one per file.
+    const uint64_t batchKey = ++m_importBatchSerial;
     showStatus(total == 1 ? "Importing " + paths.front() + "…" : "Importing 0 of " + std::to_string(total) + "…");
 
     m_importQueue->start(
         std::move(paths),
         // Pool thread: a copy of the profile, nothing of the live project.
+        // Checks what a probe can't say clearly first, and takes the
+        // fingerprint relink will need (doc 07).
         [profile = m_model.sequence().profile](const std::string &path) {
-            return engine::EngineSync::probeMediaFile(profile, path);
+            engine::EngineSync::ProbedMedia probed;
+            std::error_code statError;
+            const std::filesystem::path file = core::pathFromUtf8(path);
+            if (std::filesystem::is_directory(file, statError)) {
+                probed.error = "it's a folder";
+                return probed;
+            }
+            const auto size = std::filesystem::file_size(file, statError);
+            if (statError) {
+                probed.error = "it can't be read";
+                return probed;
+            }
+            if (size == 0) {
+                probed.error = "it's empty (0 bytes)";
+                return probed;
+            }
+            probed = engine::EngineSync::probeMediaFile(profile, path);
+            if (probed.length <= 0)
+                probed.error = "it isn't a video, audio or image file u Studio can open";
+            probed.fingerprint = core::fileFingerprint(path);
+            return probed;
         },
-        [this, state, trackId](size_t, const std::string &path, const engine::EngineSync::ProbedMedia &probed) {
+        [this, state, trackId, batchKey](size_t, const std::string &path,
+                                         const engine::EngineSync::ProbedMedia &probed) {
             std::string failure;
-            if (probed.length <= 0) {
-                failure = "Could not open media file: " + path;
+            if (!probed.error.empty() || probed.length <= 0) {
+                failure = core::utf8String(core::pathFromUtf8(path).filename()) + ": " +
+                          (probed.error.empty() ? "it couldn't be opened" : probed.error);
             } else if (!trackId) {
-                if (auto added = importProbedAssetOnly(path, probed); !added)
+                if (auto added = importProbedAssetOnly(path, probed, batchKey); !added)
                     failure = added.error();
             } else if (!m_model.hasTrack(*trackId)) {
                 failure = "Can't import " + path + ": its track was deleted.";
@@ -1849,7 +1974,7 @@ void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::
                 core::FrameIndex at = state->position       ? *state->position
                                       : track.clips.empty() ? 0
                                                             : m_model.clip(track.clips.back()).end();
-                if (auto end = importProbedToTrack(path, probed, *trackId, at)) {
+                if (auto end = importProbedToTrack(path, probed, *trackId, at, batchKey)) {
                     if (state->position)
                         state->position = *end;
                 } else {
@@ -1879,19 +2004,15 @@ void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::
                                        : "Imported " + std::to_string(total) + " files.") +
                            notes);
             else if (total == 1)
-                showStatus(state->failures.front());
+                showStatus("Couldn't import " + state->failures.front());
             else
-                showStatus("Imported " + std::to_string(state->imported) + " of " + std::to_string(total) + " files. " +
-                           state->failures.front() +
-                           (state->failures.size() > 1
-                                ? " (and " + std::to_string(state->failures.size() - 1) + " more)"
-                                : std::string()));
+                showImportReport(state->imported, total, state->failures, notes);
         });
 }
 
 std::expected<core::FrameIndex, std::string>
 AppWindow::importProbedToTrack(const std::string &path, const engine::EngineSync::ProbedMedia &probed,
-                               core::TrackId trackId, core::FrameIndex position)
+                               core::TrackId trackId, core::FrameIndex position, uint64_t batchKey)
 {
     // A still image is boundless (MediaInfo::isBoundless()) -- MLT's own
     // default (15000 frames via pixbuf, verified empirically) has
@@ -1925,7 +2046,8 @@ AppWindow::importProbedToTrack(const std::string &path, const engine::EngineSync
     steps.push_back(std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, fps)));
     steps.push_back(std::make_unique<core::InsertClip>(trackId, predictedAssetId, position, 0, length - 1));
 
-    auto composite = std::make_unique<core::CompositeCommand>("Import clip", std::move(steps));
+    auto composite =
+        std::make_unique<core::CompositeCommand>("Import clip", std::move(steps), batchKey, "Import files");
 
     if (!m_undoStack.execute(std::move(composite)))
         return std::unexpected("Could not import: " + path);
@@ -1967,7 +2089,8 @@ void AppWindow::noteImportedRate(const std::string &path, const engine::EngineSy
 }
 
 std::expected<void, std::string> AppWindow::importProbedAssetOnly(const std::string &path,
-                                                                  const engine::EngineSync::ProbedMedia &probed)
+                                                                  const engine::EngineSync::ProbedMedia &probed,
+                                                                  uint64_t batchKey)
 {
     std::vector<std::unique_ptr<core::Command>> steps;
     std::optional<core::Profile> adopt = profileToAdopt(probed);
@@ -1976,7 +2099,8 @@ std::expected<void, std::string> AppWindow::importProbedAssetOnly(const std::str
     const core::Rational fps = adopt ? adopt->fps : m_model.sequence().profile.fps;
     core::FrameIndex length = effectiveInsertLength(probed.isStillImage, lengthAtRate(probed, fps), 0);
     steps.push_back(std::make_unique<core::AddAsset>(makeImportedAsset(path, length, probed, fps)));
-    if (!m_undoStack.execute(std::make_unique<core::CompositeCommand>("Import media", std::move(steps))))
+    if (!m_undoStack.execute(
+            std::make_unique<core::CompositeCommand>("Import media", std::move(steps), batchKey, "Import files")))
         return std::unexpected("Could not import: " + path);
     noteImportedRate(path, probed, adopt.has_value());
     queueRefresh();
@@ -1989,7 +2113,14 @@ void AppWindow::queueRefresh()
     // refreshMediaBrowser() rebuilds every row, so fifty imports cost
     // fifty growing rebuilds (17 ms each by the end, doc 19 MT2). Idle
     // priority runs after the paced applies (G_PRIORITY_DEFAULT posts).
-    if (m_refreshSourceId == 0)
+    // While an import is still applying, at most every 400 ms: applies are
+    // paced one per iteration, so an idle refresh ran between nearly every
+    // pair, and at 190 rows a rebuild takes 20-36 ms (M4 A, 200 files).
+    if (m_refreshSourceId != 0)
+        return;
+    if (m_importQueue && m_importQueue->activeBatches() > 0)
+        m_refreshSourceId = g_timeout_add(kImportRefreshIntervalMs, &AppWindow::queuedRefreshTrampoline, this);
+    else
         m_refreshSourceId =
             g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, &AppWindow::queuedRefreshTrampoline, this, nullptr);
 }
@@ -5259,6 +5390,11 @@ void AppWindow::newProjectActionActivated(GSimpleAction *, GVariant *, gpointer 
 void AppWindow::importActionActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onImportClicked();
+}
+
+void AppWindow::importFolderActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onImportFolderClicked();
 }
 
 void AppWindow::splitAtPlayheadActivated(GSimpleAction *, GVariant *, gpointer userData)

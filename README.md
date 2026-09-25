@@ -44,7 +44,11 @@ single-track skeleton.
   several files at once, each landing after the previous one on the
   active track. Files are probed in parallel off the main thread, with
   "Importing 3 of 12…" in the status bar, and a file that can't be opened
-  is reported and skipped without stopping the rest. Both Import and Open Project filter their file
+  is skipped without stopping the rest. Import Folder (`Ctrl+Shift+I`, or
+  drop a folder) brings in every file under it, subfolders included and
+  hidden files skipped, into the bin. However many files, one import is one
+  undo step, and when some can't be imported a dialog lists each one and why
+  (empty, a folder, not media, or over 20 s to open). Both Import and Open Project filter their file
   pickers to media files and `.ustudio` projects respectively.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).

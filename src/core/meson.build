@@ -16,6 +16,7 @@ libustudio_core_sources = files(
   'xml/backup.cpp',
   'xml/effect_io.cpp',
   'render/render_profile.cpp',
+  'media/fingerprint.cpp',
 )
 
 threads_dep = dependency('threads')

@@ -153,9 +153,19 @@ class AppWindow : public ShellHost
     // (audit-C2-style dynamic overlap check, same as onTimelineDrop() below)
     // and runs an AddAsset+InsertClip CompositeCommand. Returns the new
     // clip's end, or why it couldn't be imported.
+    // `batchKey`: the import these are part of, one undo step together.
     std::expected<core::FrameIndex, std::string> importProbedToTrack(const std::string &path,
                                                                      const engine::EngineSync::ProbedMedia &probed,
-                                                                     core::TrackId trackId, core::FrameIndex position);
+                                                                     core::TrackId trackId, core::FrameIndex position,
+                                                                     uint64_t batchKey);
+    uint64_t m_importBatchSerial = 0;
+    // Import Folder… reads at most this many files (the rest are noted).
+    static constexpr size_t kImportFileLimit = 5000;
+    // A multi-file import with failures: every failed file and why, not
+    // just the first (M4 acceptance).
+    void showImportReport(size_t imported, size_t total, const std::vector<std::string> &failures,
+                          const std::string &notes);
+    void onImportFolderClicked();
     // Enhancement #7 (media-browser half): adds the file to the project bin
     // only -- no clip, no track needed.
     // Doc 13 R7: the profile an import should set first (the first video
@@ -167,8 +177,8 @@ class AppWindow : public ShellHost
     // Queues the import summary's note about format or rate.
     void noteImportedRate(const std::string &path, const engine::EngineSync::ProbedMedia &probed, bool adopted);
     std::vector<std::string> m_importNotes;
-    std::expected<void, std::string> importProbedAssetOnly(const std::string &path,
-                                                           const engine::EngineSync::ProbedMedia &probed);
+    std::expected<void, std::string>
+    importProbedAssetOnly(const std::string &path, const engine::EngineSync::ProbedMedia &probed, uint64_t batchKey);
     // Open, New, Reload and Recover replace the project: imports still
     // probing for the old one are cancelled and their results dropped.
     // Saves of the old project still finish writing (the user asked for
@@ -182,6 +192,7 @@ class AppWindow : public ShellHost
     // one idle callback (queuedRefreshTrampoline).
     void queueRefresh();
     guint m_refreshSourceId = 0; // 0 = none queued
+    static constexpr guint kImportRefreshIntervalMs = 400;
     static gboolean queuedRefreshTrampoline(gpointer userData);
     // Always opens the "Save Project" dialog (Save As), regardless of
     // m_currentProjectPath -- bound to Ctrl+Shift+S and the "Save
@@ -726,6 +737,7 @@ class AppWindow : public ShellHost
     static void openProjectActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void newProjectActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void importActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void importFolderActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void deleteSelectedClipActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void splitAtPlayheadActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void shuttleForwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);

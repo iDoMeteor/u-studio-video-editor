@@ -251,6 +251,16 @@ the 16 ms criterion.
   16 ms. That needed one app fix: imports refresh the timeline and media
   browser once per burst (`queueRefresh()`), not once per file, where the
   media browser's full rebuild had reached 17 ms by the fiftieth file.
+- **200-file folder import** (M4 A, 2026-09-25; 120 1080p H.264 clips, 40
+  WAVs, 25 PNGs, 15 unreadable, empty or fake files, some with non-ASCII
+  names; into the bin; real Wayland desktop, load under 4): 1.67–1.74 s
+  from pick to report over three runs, 187 imported, 13 listed as failed,
+  one undo step. 1–5 main-loop iterations over 16 ms during the import,
+  18–30 ms: the media browser's full rebuild (about 27 ms at 190 rows) and
+  GTK layout after it. The browser now refreshes at most every 400 ms while
+  an import applies (it had refreshed between nearly every pair of files);
+  the rebuild itself becomes an incremental list in M4 D. The report
+  dialog's first present takes 34–37 ms.
 - **Latency, publish to first frame of the new graph** (release, 8 tracks,
   median of 8): 161 ms at 500 clips (target 200: met); 525 ms at 5,000
   (472–649; target 500: **missed by about 5%**). That's roughly 300 ms of

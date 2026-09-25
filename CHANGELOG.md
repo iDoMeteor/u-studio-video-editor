@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.45.0
+
+- Import Folder (Ctrl+Shift+I, or drop a folder): every file under it into the
+  bin. An import is one undo step however many files it has, and files that
+  can't be imported are listed with the reason.
+
 ## 0.44.0
 
 - Settings › Drop-ins: see the installed drop-ins and switch each on or off

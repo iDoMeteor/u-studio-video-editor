@@ -2,12 +2,16 @@
 #include "doctest.h"
 
 #include "app/import_queue.h"
+#include "core/media/utf8_path.h"
+#include "platform/process.h"
 #include "core/model/model.h"
 #include "engine/factory_policy.h"
 
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <latch>
 #include <mutex>
 #include <optional>
@@ -193,6 +197,82 @@ TEST_CASE("ImportQueue: cancelling drops everything still on its way")
     CHECK(main.postCount == 0); // the running probes saw the cancel and didn't post
     CHECK(applied == 0);
     CHECK(probes == 2); // the queued ones never started
+}
+
+TEST_CASE("ImportQueue: a probe that hangs times out, and its late result is dropped")
+{
+    std::optional<core::concurrency::ThreadPool> pool(std::in_place, 2);
+    FakeMain main;
+    std::vector<std::function<void()>> timers; // fired by hand: the "20 s" pass here
+    ImportQueue queue(
+        *pool, main.post(),
+        [&](unsigned ms, std::function<void()> fn) {
+            CHECK(ms == 1234);
+            timers.push_back(std::move(fn));
+        },
+        1234);
+    std::latch release(1);
+    std::vector<std::pair<size_t, ImportQueue::Probed>> applied;
+    bool finished = false;
+    size_t probedCount = 0;
+    queue.start(
+        {"hangs", "fine"},
+        [&](const std::string &path) {
+            if (path == "hangs")
+                release.wait();
+            return ok(50);
+        },
+        [&](size_t index, const std::string &, const ImportQueue::Probed &probed) {
+            applied.emplace_back(index, probed);
+        },
+        [&](size_t done, size_t) { probedCount = done; }, [&] { finished = true; });
+    // Both probes started, and "fine" is in.
+    main.runUntil([&] { return timers.size() == 2 && probedCount == 1; });
+    for (auto &fire : timers)
+        fire(); // "fine" has its result already: its timer does nothing
+    main.runUntil([&] { return finished; });
+    REQUIRE(applied.size() == 2);
+    CHECK(applied[0].first == 0);
+    CHECK(applied[0].second.length == 0);
+    CHECK(applied[0].second.error.find("too long") != std::string::npos);
+    CHECK(applied[1].second.length == 50);
+
+    release.count_down();
+    pool.reset(); // the hung probe finishes and posts its result
+    main.runIteration();
+    CHECK(applied.size() == 2); // dropped
+}
+
+TEST_CASE("expandImportPaths: folders become their files, sorted, hidden ones skipped, non-ASCII kept")
+{
+    namespace fs = std::filesystem;
+    const fs::path root =
+        fs::temp_directory_path() / ("ustudio-expand-" + std::to_string(platform::currentProcessId()));
+    fs::remove_all(root);
+    auto touch = [&](const std::string &relative) {
+        const fs::path path = root / core::pathFromUtf8(relative);
+        fs::create_directories(path.parent_path());
+        std::ofstream(path) << "x";
+        return core::utf8String(path);
+    };
+    const std::string b = touch("clips/b.mp4");
+    const std::string a = touch("clips/a.mov");
+    const std::string unicode = touch("clips/ñandú 日本.png");
+    const std::string nested = touch("clips/sub/c.wav");
+    touch("clips/.hidden.mp4");
+    touch("clips/.cache/d.mp4");
+    const std::string single = touch("single.mp4");
+    const std::string clips = core::utf8String(root / "clips");
+
+    bool truncated = true;
+    std::vector<std::string> files = app::expandImportPaths({single, clips}, 100, &truncated);
+    CHECK_FALSE(truncated);
+    CHECK(files == std::vector<std::string>{single, a, b, nested, unicode}); // byte order: 's' < 'ñ'
+
+    files = app::expandImportPaths({clips}, 2, &truncated);
+    CHECK(truncated);
+    CHECK(files == std::vector<std::string>{a, b});
+    fs::remove_all(root);
 }
 
 TEST_CASE("ImportQueue: real probes of generated media run on the pool, in order")

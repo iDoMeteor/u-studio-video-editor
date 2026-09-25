@@ -77,6 +77,7 @@ const std::vector<ActionSpec> &actionSpecs()
         {"open-project",  "Open Project…",     "Project", {"<Control>o"},             &AppWindow::openProjectActionActivated},
         {"new-project",   "New Project",       "Project", {"<Control>n"},             &AppWindow::newProjectActionActivated},
         {"import",        "Import…",           "Project", {"<Control>i"},             &AppWindow::importActionActivated},
+        {"import-folder", "Import Folder…",    "Project", {"<Control><Shift>i"},      &AppWindow::importFolderActivated},
     };
     // clang-format on
     return kSpecs;

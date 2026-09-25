@@ -36,6 +36,8 @@ The worker simply moves on and the asset is marked Failed with "timed out";
 the stuck thread is left to finish and its result discarded). Concurrency: 2
 probes at once.
 
+> REVIEW: VE Core, 2026-09-25 (M4 A, 0.45.0): the flow is probe first, then add: files are probed in parallel on the pool and added in the order picked (`ImportQueue`), without pending cards before probing (decision (b)); the status bar counts progress. One import, however many files, is one undo step (`CompositeCommand`'s merge key). Before probing, a file that's a folder, can't be read or is empty is refused with that reason; the 20 s timeout is `ImportQueue`'s: the hung thread finishes on its own and its late result is dropped. The fingerprint (`core::fileFingerprint()`) is taken on the pool with the probe. Folders (Import Folder…, or dropped) are walked on the pool: every file under them, sorted, hidden files and folders skipped, at most 5,000. Failures are listed in a dialog, not only counted.
+
 Image sequences (`%04d.png`) and stills: still images get a default length
 of 5 s (setting), `isStillImage=true`, and the `pixbuf` producer with
 `ttl`/`length` set by `EngineSync`.

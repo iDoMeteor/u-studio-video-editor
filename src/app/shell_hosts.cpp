@@ -6,6 +6,7 @@
 #include "app_window.h"
 
 #include "core/log.h"
+#include "core/media/utf8_path.h"
 
 #include <algorithm>
 #include <cctype>
@@ -207,7 +208,7 @@ std::vector<std::string> AppWindow::importWithHandlers(std::vector<std::string> 
 {
     std::vector<std::string> rest;
     for (std::string &path : paths) {
-        std::string extension = std::filesystem::path(path).extension().string();
+        std::string extension = core::utf8String(core::pathFromUtf8(path).extension());
         if (!extension.empty())
             extension.erase(0, 1);
         std::transform(extension.begin(), extension.end(), extension.begin(),
