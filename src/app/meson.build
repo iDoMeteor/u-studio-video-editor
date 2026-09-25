@@ -142,7 +142,8 @@ executable(
   'u-studio-video-editor',
   files('main.cpp'),
   app_resources,
-  dependencies: [app_window_dep],
+  dependencies: [app_window_dep, drop_ins_dep],
+  export_dynamic: dropin_any_module,
   install: true,
   cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
 )

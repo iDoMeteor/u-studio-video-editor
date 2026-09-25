@@ -8,4 +8,5 @@ if doctest_dep.found()
   subdir('core')
   subdir('engine')
   subdir('app')
+  subdir('dropins')
 endif

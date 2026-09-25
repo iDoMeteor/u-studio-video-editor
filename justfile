@@ -65,3 +65,15 @@ check-qt: build
 flatpak:
     @echo "flatpak packaging lands in milestone M7 (docs/plans/v2/12-roadmap-and-milestones.md)"
     @exit 1
+
+# Drop-in configurations (ADR-013/014, doc 15 "Gating"): the full suite with
+# every drop-in built in, or every one as a loadable module (each in its own
+# build dir). The default build (`just test`) has them all disabled. Needs
+# the drop-in folders (drop-ins/effects, drop-ins/titles) to exist.
+dropins-builtin:
+    [ -d builddir-dropins-builtin ] || meson setup builddir-dropins-builtin -Dtests=enabled -Ddropin_effects=builtin -Ddropin_titles=builtin
+    meson test -C builddir-dropins-builtin --print-errorlogs
+
+dropins-module:
+    [ -d builddir-dropins-module ] || meson setup builddir-dropins-module -Dtests=enabled -Ddropin_effects=module -Ddropin_titles=module
+    meson test -C builddir-dropins-module --print-errorlogs

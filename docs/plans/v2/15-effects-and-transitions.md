@@ -252,6 +252,27 @@ Rules that keep a drop-in self-contained:
   (`-Ddropin_effects=builtin|module|disabled`, likewise `dropin_titles`;
   ADR-014).
 
+**As built (step 0 of the integration points, 2026-09-25):**
+
+- `src/dropins/`: `api.h` (`DROPIN_API_VERSION`, the C
+  `UStudioDropInDescription` a drop-in returns: API version, name, app
+  version, description, `contributeFactoryPaths`, `registerDropIn`),
+  `dropin_host.h` (`DropInHost`, pure virtual, which IP3–IP6 extend as
+  they land; `FactoryPaths` for IP4) and `registry.{h,cpp}`
+  (`DropInRegistry`: built-ins, modules via GModule from
+  `$libdir/u-studio/drop-ins/` or the `USTUDIO_DROPIN_PATH` development
+  override, refusals with reasons).
+- `drop-ins/meson.build` generates `drop_ins.h` into the build tree:
+  `builtinDropIns()`, listing each built-in's `ustudio_dropin_<name>_describe()`.
+  A module exports `ustudio_drop_in_describe()` instead.
+- `tests/dropins/`: a test-only drop-in, built in and as modules (plus
+  wrong-API, wrong-app and no-describe modules that must be refused), which
+  gains a consumer of each integration point as it lands.
+
+> REVIEW: VE Core, 2026-09-25: the host and loader live in a new `src/dropins/` layer (core + engine + GModule, no GTK) because both the editor and the render tool load drop-ins; doc 02's table has it. The top-level `meson.build` now enters `drop-ins/` between `src/`'s libraries and `src/app` / `src/render`, so the programs can link built-ins while the program paths stay put.
+
+> REVIEW: VE Core, 2026-09-25: a module links nothing from the app; it resolves symbols against the running program. Everything it reaches through `DropInHost` goes through the vtable, but a module that calls core or engine code directly (effects will) needs the programs built with `export_dynamic` (on whenever any drop-in is a module) and the core/engine/dropins libraries linked whole, so symbols the app itself never uses exist. That `link_whole` lands with the first real module.
+
 ### Integration points
 
 These are the only changes to `src/` that the drop-ins need, plus the

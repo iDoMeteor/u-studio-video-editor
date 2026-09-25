@@ -5,6 +5,7 @@ render_sources = files(
 executable(
   'u-studio-render',
   render_sources,
-  dependencies: [libustudio_engine_dep],
+  dependencies: [libustudio_engine_dep, drop_ins_dep],
+  export_dynamic: dropin_any_module,
   install: true,
 )

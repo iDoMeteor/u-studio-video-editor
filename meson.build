@@ -46,5 +46,12 @@ add_project_arguments('-DUSTUDIO_DEBUG_BUILD=' + (get_option('debug') ? '1' : '0
 # dev builds default to false.
 
 subdir('src')
+# Drop-ins (ADR-013/014) build against src/'s libraries, and the programs in
+# src/app and src/render link the built-in ones, hence this order.
+subdir('drop-ins')
+subdir('src/app')
+if get_option('render_tool')
+  subdir('src/render')
+endif
 subdir('data')
 subdir('tests')

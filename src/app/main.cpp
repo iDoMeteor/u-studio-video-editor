@@ -8,6 +8,8 @@
 #include <string>
 
 #include "app_window.h"
+#include "drop_ins.h"
+#include "dropins/registry.h"
 #include "snap_env.h"
 #include "stall_monitor.h"
 #include "core/log.h"
@@ -135,7 +137,19 @@ int main(int argc, char **argv)
     // both signals instead (onQuitSignal, registered below).
     g_setenv("SDL_NO_SIGNAL_HANDLERS", "1", FALSE);
 
+    // Drop-ins (ADR-013/014): the built-in ones, then modules from trusted
+    // locations; their factory paths before MLT starts (IP4), their
+    // registration once it has. Kept for the whole run: modules stay loaded.
+    static ustudio::dropins::DropInRegistry dropIns;
+    for (const UStudioDropInDescription *builtin : builtinDropIns())
+        dropIns.addBuiltin(builtin);
+    dropIns.loadModules();
+    ustudio::dropins::FactoryPaths factoryPaths;
+    dropIns.contributeFactoryPaths(factoryPaths);
+
     ustudio::engine::FactoryPolicy factoryPolicy;
+    static ustudio::dropins::BasicDropInHost dropInHost("editor");
+    dropIns.registerAll(dropInHost);
 
     AdwApplication *app = adw_application_new("com.ustudio.VideoEditor", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(ustudio::app::onActivate), nullptr);

@@ -4,8 +4,6 @@ src_inc = include_directories('.')
 
 subdir('core')
 subdir('engine')
-subdir('app')
-
-if get_option('render_tool')
-  subdir('render')
-endif
+subdir('dropins')
+# src/app and src/render are entered from the top-level meson.build, after
+# drop-ins/: their programs link the built-in drop-ins.

@@ -5,3 +5,11 @@ option('render_tool', type: 'boolean', value: true,
 # NOTE: -Dwerror is meson's own built-in option (reserved name, can't be
 # redeclared here) -- CI passes it directly; local dev builds leave it at
 # meson's default (false).
+
+# Drop-ins (ADR-014): each builds into the app, as a loadable module
+# (libustudio-dropin-<name>.so, installed to $libdir/u-studio/drop-ins/), or
+# not at all.
+option('dropin_effects', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'disabled',
+       description: 'The effects and transitions drop-in (doc 15)')
+option('dropin_titles', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'disabled',
+       description: 'The titles drop-in (doc 16)')

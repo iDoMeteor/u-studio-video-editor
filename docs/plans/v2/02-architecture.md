@@ -35,7 +35,8 @@ with `include_directories` limited to what it may see):
 | engine | core, mlt++, glib | gtk, adwaita |
 | app | core, engine, gtk4, adwaita, gio | mlt (the build's `app-boundary-check` target fails on any `#include` of an mlt or pulse header in `src/app`) |
 | render | core, engine, gio (GSubprocess-free; it's the child) | gtk |
-| `drop-ins/<name>/core` *(planned, docs 15, 16)* | same as core, plus `src/core` headers | same as core |
+| dropins (`src/dropins`: the drop-in ABI, `DropInHost`, the module loader; ADR-014) | core, engine headers, glib/gmodule | gtk, adwaita |
+| `drop-ins/<name>/core` *(docs 15, 16; the build's `dropin-boundary-check` enforces this and the app row)* | same as core, plus `src/core` headers | same as core |
 | `drop-ins/<name>/engine` *(planned, doc 15)* | same as engine, plus `src/` core/engine headers | same as engine |
 | `drop-ins/<name>/app`, `drop-ins/titles/editor` *(planned, docs 15, 16)* | same as app, plus `src/` headers | same as app |
 | titlerender *(planned, doc 16)* | core, pango, pangocairo, cairo, fontconfig | gtk, mlt |
