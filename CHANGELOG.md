@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.43.1
+
+- Help's Keyboard Shortcuts lists "Nudge Selection Left 10 Frames" with its
+  shortcuts again (a "<" in the label broke the row).
+
 ## 0.43.0
 
 - Change the project's frame rate: click the title (it now shows the

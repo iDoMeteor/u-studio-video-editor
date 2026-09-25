@@ -1138,10 +1138,17 @@ GtkWidget *AppWindow::buildShortcutsPage() const
 
         std::string accelLabel = shortcutLabel(spec.name);
 
+        // Row titles and subtitles are Pango markup: a shortcut's label can
+        // be "<" itself ("Shift+,, <" failed to parse and showed nothing).
         GtkWidget *row = adw_action_row_new();
-        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), spec.label);
-        if (!accelLabel.empty())
-            adw_action_row_set_subtitle(ADW_ACTION_ROW(row), accelLabel.c_str());
+        char *title = g_markup_escape_text(spec.label, -1);
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+        g_free(title);
+        if (!accelLabel.empty()) {
+            char *subtitle = g_markup_escape_text(accelLabel.c_str(), -1);
+            adw_action_row_set_subtitle(ADW_ACTION_ROW(row), subtitle);
+            g_free(subtitle);
+        }
         adw_preferences_group_add(group, row);
     }
 
