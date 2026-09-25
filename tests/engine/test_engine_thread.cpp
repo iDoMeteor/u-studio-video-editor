@@ -296,7 +296,10 @@ TEST_CASE("Engine: a burst of edits while playing is latest-wins too")
     // The guarantee: at most one build beyond the last edit (plus the one
     // that may have been running when it arrived). How many finish during
     // the burst depends on machine speed; one per edit (20) was the bug.
-    CHECK(rebuilds - rebuildsAtLastEdit <= 2);
+    // One more is allowed in the count: `rebuilt` reaches this thread by a
+    // post, so a build that finished before the last edit can be delivered
+    // after it (seen once under the full parallel suite, 2026-09-25).
+    CHECK(rebuilds - rebuildsAtLastEdit <= 3);
     CHECK(rebuilds < 10);
     CHECK(engine.totalFrames() == 5'000 + 19 * 10 + 10);
 }
