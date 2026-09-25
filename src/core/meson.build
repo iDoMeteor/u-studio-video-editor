@@ -10,6 +10,7 @@ libustudio_core_sources = files(
   'commands/timeline_edits.cpp',
   'xml/writer.cpp',
   'xml/reader.cpp',
+  'xml/backup.cpp',
 )
 
 threads_dep = dependency('threads')

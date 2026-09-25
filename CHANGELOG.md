@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.33.0
+
+- The Save button saves in place (Save As for an untitled project);
+  right-click it for Save As. Each save keeps the previous file in
+  `.ustudio-backups/` beside the project (newest 5).
+
 ## 0.32.0
 
 - "Sync Tracks (Audio)": with two clips selected, right-click the one to

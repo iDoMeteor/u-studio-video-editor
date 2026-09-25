@@ -634,6 +634,8 @@ class AppWindow
     static void playPauseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void saveActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void saveAsActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void saveButtonRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
+                                               gpointer userData);
     static void openProjectActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void newProjectActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void importActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);

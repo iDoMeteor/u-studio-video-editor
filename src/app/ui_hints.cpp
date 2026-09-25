@@ -25,7 +25,7 @@ std::vector<HintSpec> &registry()
         {"header.reload",        "Header bar", "Reload project from disk", "Asks first if there are unsaved changes", nullptr, nullptr},
         {"header.open",          "Header bar", "Open project…",         nullptr, "open-project", nullptr},
         {"header.recent",        "Header bar", "Recent projects",       nullptr, nullptr, nullptr},
-        {"header.save",          "Header bar", "Save project",          "Saves to the project's own file; Save As is under Keyboard Shortcuts", "save", nullptr},
+        {"header.save",          "Header bar", "Save project",          "Saves to the project's own file, keeping its last 5 versions in .ustudio-backups beside it; right-click for Save As", "save", nullptr},
         {"header.render",        "Header bar", "Render the project to an MP4 file", "H.264 and AAC at the project's own size and frame rate", nullptr, nullptr},
         {"header.help",          "Header bar", "Help",                  nullptr, nullptr, nullptr},
         {"header.settings",      "Header bar", "Settings",              nullptr, nullptr, nullptr},

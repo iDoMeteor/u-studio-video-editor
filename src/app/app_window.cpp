@@ -12,6 +12,7 @@
 #include "core/log.h"
 #include "core/trace.h"
 #include "engine/audio_sync.h"
+#include "core/xml/backup.h"
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
 
@@ -383,6 +384,10 @@ void AppWindow::buildUi(GtkApplication *app)
     GtkWidget *saveButton = gtk_button_new_from_icon_name("document-save-symbolic");
     setTooltip(saveButton, "header.save");
     g_signal_connect(saveButton, "clicked", G_CALLBACK(&AppWindow::saveClickedTrampoline), this);
+    GtkGesture *saveRightClick = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(saveRightClick), GDK_BUTTON_SECONDARY);
+    g_signal_connect(saveRightClick, "pressed", G_CALLBACK(&AppWindow::saveButtonRightClickTrampoline), this);
+    gtk_widget_add_controller(saveButton, GTK_EVENT_CONTROLLER(saveRightClick));
     adw_header_bar_pack_end(ADW_HEADER_BAR(headerBar), saveButton);
 
     GtkWidget *renderButton = gtk_button_new_with_label("Render…");
@@ -1541,6 +1546,11 @@ bool AppWindow::performSaveToPath(const std::string &requestedPath, bool closeAf
                 return "Can't save: the project has an internal inconsistency (" + problems.front() +
                        "). This is a bug -- please report it.";
             }
+            // Explicit saves only (autosave writes its own file). A failed
+            // backup doesn't stop the save the user asked for.
+            std::string backupError = core::backupBeforeOverwrite(path, std::time(nullptr));
+            if (!backupError.empty())
+                Log::warn("[app] " + backupError);
             return core::saveProject(model, path);
         },
         [this, path, savedState, generation, closeAfterSave](const std::string &error) {
@@ -3987,7 +3997,7 @@ void AppWindow::fileOpenedTrampoline(GObject *sourceObject, GAsyncResult *result
 
 void AppWindow::saveClickedTrampoline(GtkButton *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->onSaveClicked();
+    static_cast<AppWindow *>(userData)->saveInPlaceOrPrompt(false);
 }
 
 void AppWindow::saveFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData)
@@ -4353,6 +4363,11 @@ void AppWindow::playPauseActivated(GSimpleAction *, GVariant *, gpointer userDat
 void AppWindow::saveActionActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->saveInPlaceOrPrompt(false);
+}
+
+void AppWindow::saveButtonRightClickTrampoline(GtkGestureClick *, int, double, double, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onSaveClicked();
 }
 
 void AppWindow::saveAsActivated(GSimpleAction *, GVariant *, gpointer userData)

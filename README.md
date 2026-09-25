@@ -194,7 +194,10 @@ single-track skeleton.
   continuously.
   `Ctrl+S` saves straight back to the project's own file with no dialog
   once it has one (falling back to the Save As dialog for an untitled
-  project); `Ctrl+Shift+S` always opens the Save As dialog. `Ctrl+O`/
+  project); `Ctrl+Shift+S`, or right-clicking the Save button, always
+  opens the Save As dialog. Before an explicit save overwrites a file, the
+  previous version is copied to `.ustudio-backups/<name>-YYYYMMDD-HHMMSS.ustudio`
+  beside it; the newest 5 per project are kept (autosave doesn't do this). `Ctrl+O`/
   `Ctrl+N`/`Ctrl+I` mirror the header-bar Open/New Project/Import
   buttons. A Reload button (refresh icon) re-opens the current project's
   file from disk without a file-picker round trip; a New Project button

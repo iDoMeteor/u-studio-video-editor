@@ -1,7 +1,7 @@
 test_core_exe = executable(
   'test_core',
   files('test_log.cpp', 'test_model.cpp', 'test_commands.cpp', 'test_timeline_edits.cpp', 'test_xml.cpp',
-        'test_audio_align.cpp'),
+        'test_audio_align.cpp', 'test_backup.cpp'),
   dependencies: [doctest_dep, libustudio_core_dep],
   include_directories: include_directories('../common'),
   install: false,
