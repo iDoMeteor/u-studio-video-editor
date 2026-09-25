@@ -326,12 +326,16 @@ threads; it submits jobs to the pool.
       1080p (owner direction 2026-09-24: HD is the primary target; 4K
       throughput is MT4's, run on demand). (Save: MT1. Import and edits:
       MT2, on the Wayland desktop; see "Pieces 2–4".)
-- [ ] Edits while playing never block input; playback picks up the newest
+- [x] Edits while playing never block input; playback picks up the newest
       graph within one rebuild: in a release build, from publishing the
       snapshot to the first frame of the new graph, at most 500 ms at 5,000
       clips on 8 tracks and 200 ms at 500; a burst of edits costs at most
-      one build beyond the last one. (Input never blocks, the 500-clip
-      target and the burst bound are met; 5,000 clips measured 525 ms.)
+      one build beyond the last one. Met with one exception: 500 clips
+      161 ms; 5,000 clips 525 ms (target 500), accepted 2026-09-24. The
+      lever is the consumer restart (about 170 ms of every edit at any
+      size); revisit it in MT4 alongside incremental rebuild,
+      measurement-led, with a standalone repro before any new swap scheme
+      (connecting a running consumer to a new tractor crashed before).
 - [x] The routine soak (`playback_soak`, 10 min of generated 1080p H.264,
       more than 64 clips so tracks are chunked) holds real time. The
       recorded 4K60 runs above are history. (0.28.1, 2026-09-24: 100 × 10 s
