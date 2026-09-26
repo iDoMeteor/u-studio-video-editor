@@ -4,6 +4,15 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.48.0
+
+- Transform handles on the preview: click a picture to select it, then
+  move, scale, stretch, rotate and crop it by dragging, with snapping to
+  the frame and other pictures and arrow-key nudges. A right-click menu
+  resets, fits, stretches, centres, flips and rotates it, and Edit
+  Transform (Ctrl+T) sets exact numbers. Undo and redo now keep the
+  selection.
+
 ## 0.47.2
 
 - Auto preview scale plays at Half once a clip is moved, scaled, rotated,

@@ -270,14 +270,20 @@ Acceptance:
 - [ ] Move a media file away, reopen project → red placeholders, playback
       continues, relink restores everything with no other model change.
 - [ ] Proxy on/off changes nothing in the model except `proxyPath`.
-- [ ] A 1344×768 source in a 1080p project is fitted and centred by
-      default; projects from before the transform load as Fit.
-- [ ] Move, scale, rotate, crop and flip show in the preview and are
-      identical in export (frame hash).
-- [ ] A handle drag is one undo step and doesn't restart the consumer.
-- [ ] Handles snap to the frame's edges and centre; Ctrl bypasses it (F2).
-- [ ] A transform survives save/load, trim, split, ripple, copy and a
-      frame-rate change.
+- [x] A 1344×768 source in a 1080p project is fitted and centred by
+      default; projects from before the transform load as Fit (0.47.1,
+      tests/core and tests/engine `test_transform`).
+- [x] Move, scale, rotate, crop and flip show in the preview and are
+      identical in export (0.47.1: preview, melt and a lossless render
+      byte for byte).
+- [x] A handle drag is one undo step and doesn't restart the consumer
+      (0.48.0; live: 12 moves applied in place, no rebuild). The first
+      transform in a project with none switches Auto preview scale to
+      Half, which rebuilds once (0.47.2).
+- [x] Handles snap to the frame's edges and centre, and to other
+      pictures; Ctrl bypasses it (0.48.0, `app-transform-gestures`).
+- [x] A transform survives save/load, trim, split, ripple, copy and a
+      frame-rate change (0.47.1).
 - [ ] 1080p30 plays in real time with three transformed tracks at Auto
       preview scale (Full reported alongside; Full is MT4's, doc 19).
       Since 0.47.2 Auto is Half once a clip is transformed: one

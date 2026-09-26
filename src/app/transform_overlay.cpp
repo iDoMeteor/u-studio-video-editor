@@ -66,7 +66,8 @@ void AppWindow::setUpTransformOverlay()
             static_cast<AppWindow *>(self)->drawTransformOverlay(cr);
         },
         this, nullptr);
-    setTooltip(m_transformOverlay, "preview.transform");
+    // No tooltip: the overlay covers the whole preview, and one popping up
+    // over the picture all day would be noise. Help lists the gestures.
 
     GtkGesture *drag = gtk_gesture_drag_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(drag), GDK_BUTTON_PRIMARY);
@@ -134,6 +135,7 @@ void AppWindow::setUpTransformOverlay()
     gtk_widget_add_controller(GTK_WIDGET(m_window), GTK_EVENT_CONTROLLER(elsewhere));
 
     addPreviewOverlay(m_transformOverlay);
+    buildTransformMenu();
 }
 
 std::optional<gestures::VisibleClip> AppWindow::transformTarget() const
@@ -174,12 +176,13 @@ void AppWindow::onTransformDragBegin(double x, double y)
     gtk_widget_grab_focus(m_transformOverlay);
     const PreviewMapping mapping = previewMapping();
     const gestures::Point point{mapping.frameX(x), mapping.frameY(y)};
-    // The selected picture's handles first, even under another picture;
-    // otherwise the topmost picture under the pointer is selected.
+    // The selected picture's handles first, even over another picture;
+    // inside a picture, the topmost one under the pointer (as OBS: a
+    // full-frame clip selected below mustn't hide the ones above it).
     std::optional<gestures::VisibleClip> target = transformTarget();
     gestures::Handle handle =
         target ? gestures::hitTest(target->placement, point, mapping.scale()) : gestures::Handle::None;
-    if (handle == gestures::Handle::None) {
+    if (handle == gestures::Handle::None || handle == gestures::Handle::Body) {
         target = gestures::clipAt(m_model, static_cast<core::FrameIndex>(m_engine->currentFrame()), point);
         if (target) {
             m_timelineController.selection().selectOnly(target->clip);
@@ -258,11 +261,13 @@ void AppWindow::onTransformMotion(double x, double y)
                                                                              : nullptr;
         if (!cursor && target)
             cursor = resizeCursor(target->placement, m_transformDrag->start.handle);
-    } else if (handle == gestures::Handle::Body) {
+    } else if (handle == gestures::Handle::Body &&
+               gestures::clipAt(m_model, static_cast<core::FrameIndex>(m_engine->currentFrame()), point)->clip ==
+                   target->clip) {
         cursor = "move";
     } else if (handle == gestures::Handle::Rotate) {
         cursor = "grab";
-    } else if (handle != gestures::Handle::None) {
+    } else if (handle != gestures::Handle::None && handle != gestures::Handle::Body) {
         cursor = resizeCursor(target->placement, handle);
     } else if (auto under = gestures::clipAt(m_model, static_cast<core::FrameIndex>(m_engine->currentFrame()), point)) {
         hover = under->clip;

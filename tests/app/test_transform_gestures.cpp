@@ -3,7 +3,12 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "app/timeline/selection.h"
 #include "app/transform_gestures.h"
+#include "core/commands/primitives.h"
+#include "core/commands/undo_stack.h"
+
+#include <memory>
 
 #include <algorithm>
 
@@ -240,4 +245,34 @@ TEST_CASE("gestures: nudging moves the centre")
     const Transform t = nudged(placed(960, 540, 960, 540), -10, 1);
     CHECK(t.x.value == 950);
     CHECK(t.y.value == 541);
+}
+
+TEST_CASE("gestures: undoing a transform keeps the clip selected; undoing its insert drops it")
+{
+    // The window prunes its selection on every undo stack change and no
+    // longer clears it on undo/redo (F2: the handles stay).
+    Scene scene;
+    UndoStack undo(scene.model);
+    ustudio::app::timeline::Selection selection;
+    selection.selectOnly(scene.upper);
+    REQUIRE(undo.execute(std::make_unique<SetClipTransform>(scene.upper, placed(480, 270, 960, 540), 1)));
+    REQUIRE(undo.undo());
+    selection.prune(scene.model);
+    CHECK(selection.single() == scene.upper);
+    REQUIRE(undo.redo());
+    selection.prune(scene.model);
+    CHECK(selection.single() == scene.upper);
+    CHECK(visibleClips(scene.model, 10).front().placement.w == doctest::Approx(960));
+
+    Asset asset;
+    asset.path = "color:blue";
+    asset.info.hasVideo = true;
+    asset.info.lengthInSequenceFrames = 100;
+    const AssetId id = scene.model.addAsset(asset);
+    REQUIRE(undo.execute(std::make_unique<InsertClip>(scene.top, id, 200, 0, 49)));
+    const ClipId added = scene.model.track(scene.top).clips.back();
+    selection.selectOnly(added);
+    REQUIRE(undo.undo());
+    selection.prune(scene.model);
+    CHECK(selection.empty());
 }

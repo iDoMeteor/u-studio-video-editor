@@ -198,6 +198,17 @@ class AppWindow : public ShellHost
     void noteTransformSelection();
     void endTransformDrag();
     void setPreviewOwnsArrows(bool owns);
+    // The actions, the right-click menu and the dialog (app/transform_actions.cpp).
+    std::optional<core::ClipId> transformActionTarget();
+    core::Transform explicitTransformOf(core::ClipId clip) const;
+    void runTransformAction(const std::string &name);
+    void buildTransformMenu();
+    void onTransformMenuRequested(double x, double y);
+    void showEditTransformDialog();
+    GtkWidget *m_transformMenu = nullptr;
+    void refreshTransformDialog();
+    GtkWidget *m_transformDialog = nullptr;
+    void *m_transformDialogState = nullptr; // EditTransformState, owned by m_transformDialog
     GtkWidget *m_transformOverlay = nullptr;
     GtkGesture *m_transformDragGesture = nullptr;
     struct TransformDrag
@@ -803,6 +814,8 @@ class AppWindow : public ShellHost
     static void undoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void redoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void playPauseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    // Every "transform-*" action (M4 F2): dispatched by name.
+    static void transformActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void saveActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void saveAsActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void projectFrameRateActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);

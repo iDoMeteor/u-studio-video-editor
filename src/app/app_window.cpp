@@ -300,6 +300,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         m_shellProjectChanged.emit();
         refreshMissingBanner(); // a relink, or its undo
         endTransformDrag();     // unless the change is the drag's own
+        refreshTransformDialog();
         if (m_transformOverlay)
             gtk_widget_queue_draw(m_transformOverlay);
     });
@@ -2872,7 +2873,8 @@ void AppWindow::onAddTrackClicked()
 void AppWindow::onUndo()
 {
     if (m_undoStack.undo()) {
-        m_timelineController.selection().clear();
+        // The selection stays: m_undoStack.changed pruned what's gone (with
+        // the preview's handles, losing it on every undo was jarring).
         refreshTimeline();
         showStatus("Undid: " + m_undoStack.redoLabel());
     }
@@ -2881,7 +2883,8 @@ void AppWindow::onUndo()
 void AppWindow::onRedo()
 {
     if (m_undoStack.redo()) {
-        m_timelineController.selection().clear();
+        // The selection stays: m_undoStack.changed pruned what's gone (with
+        // the preview's handles, losing it on every undo was jarring).
         refreshTimeline();
         showStatus("Redid: " + m_undoStack.undoLabel());
     }

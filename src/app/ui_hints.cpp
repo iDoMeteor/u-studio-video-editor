@@ -57,6 +57,16 @@ std::vector<HintSpec> &registry()
         {"preview.transform-crop",    "Preview", "Crop a picture", "The far edge stays where it is", nullptr, "Hold Alt and drag an edge or corner handle"},
         {"preview.transform-snap",    "Preview", "Snapping", "Pictures snap to the frame's edges and centre and to other pictures", nullptr, "Hold Ctrl while dragging to place freely"},
         {"preview.transform-nudge",   "Preview", "Nudge a picture", "One pixel; Shift for ten. A click outside the preview gives the arrows back to the timeline", nullptr, "Arrow keys, after clicking the preview"},
+        {"preview.transform-menu",    "Preview", "Transform menu", "Reset, fit, stretch, centre, flip and rotate the picture, or edit it by the numbers", "transform-edit", "Right-click a picture; double-click opens Edit Transform"},
+        // --- Edit Transform dialog ---
+        {"transform-dialog.bounds",      "Edit Transform", "Bounds", "Fit and Stretch place the picture themselves; typing a position or size places it", nullptr, nullptr},
+        {"transform-dialog.position",    "Edit Transform", "Centre", "Where the picture's centre is, in project pixels", nullptr, nullptr},
+        {"transform-dialog.size",        "Edit Transform", "Size", "The picture's size on screen, in project pixels", nullptr, nullptr},
+        {"transform-dialog.keep-aspect", "Edit Transform", "Keep aspect ratio", "Changing the width changes the height to match, and the other way round", nullptr, nullptr},
+        {"transform-dialog.rotation",    "Edit Transform", "Rotation", "Degrees clockwise, about the picture's centre", nullptr, nullptr},
+        {"transform-dialog.crop",        "Edit Transform", "Crop", "Source pixels cut from each edge before placing", nullptr, nullptr},
+        {"transform-dialog.flip",        "Edit Transform", "Flip", "Mirrors the source picture", nullptr, nullptr},
+        {"transform-dialog.reset",       "Edit Transform", "Reset", "Back to the picture as imported: fitted, uncropped, unrotated", nullptr, nullptr},
         // --- Timeline: canvas gestures, no widget of their own ---
         {"timeline.active-track", "Timeline", "Make a track active",  "Imports and splits land on it. The click also moves the playhead there and selects the clip under the pointer", nullptr, "Click anywhere in a row"},
         {"timeline.scrub",        "Timeline", "Scrub",                "The preview follows the pointer", nullptr, "Drag on empty track space"},

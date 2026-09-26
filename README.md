@@ -62,12 +62,20 @@ single-track skeleton.
   Renders always use the originals.
   Both Import and Open Project filter their file
   pickers to media files and `.ustudio` projects respectively.
+- Place pictures on the preview, OBS-style (0.48.0): click a picture to
+  select its clip, drag it to move, corner handles to scale (Shift frees
+  the aspect), edge handles to stretch, the knob to rotate (Shift: 15°
+  steps), Alt with an edge or corner to crop. It snaps to the frame and to
+  other pictures (Ctrl places freely); arrow keys nudge after clicking the
+  preview. Right-click for Reset, Fit, Stretch, Centre, Flip and Rotate;
+  Edit Transform (Ctrl+T, or double-click) sets exact numbers in a window
+  that stays open beside the preview. Each drag or dialog session is one
+  undo step.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).
   Higher tracks composite over lower ones for video (top wins; each
   picture fits the frame, centred, unless moved, scaled, rotated, cropped
-  or flipped by its clip transform, saved with the project; editing it on
-  the preview arrives with M4 F2);
+  or flipped by its clip transform, saved with the project);
   all tracks mix together for audio, including tracks that are audio-only.
   A timecode ruler runs along the top, ticking every 1/2/5/10/15/30
   seconds or whole minutes/hours — whichever keeps ticks at least ~60px

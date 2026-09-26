@@ -78,6 +78,20 @@ const std::vector<ActionSpec> &actionSpecs()
         {"new-project",   "New Project",       "Project", {"<Control>n"},             &AppWindow::newProjectActionActivated},
         {"import",        "Import…",           "Project", {"<Control>i"},             &AppWindow::importActionActivated},
         {"import-folder", "Import Folder…",    "Project", {"<Control><Shift>i"},      &AppWindow::importFolderActivated},
+
+        // --- Transform: the selected clip's picture (M4 F2, ADR-018) ---
+        {"transform-edit",       "Edit Transform…",            "Transform", {"<Control>t"}, &AppWindow::transformActionActivated},
+        {"transform-reset",      "Reset Transform",            "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-fit",        "Fit to Frame",               "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-stretch",    "Stretch to Frame",           "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-centre",     "Centre",                     "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-centre-h",   "Centre Horizontally",        "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-centre-v",   "Centre Vertically",          "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-flip-h",     "Flip Horizontally",          "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-flip-v",     "Flip Vertically",            "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-rotate-cw",  "Rotate 90° Clockwise",       "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-rotate-ccw", "Rotate 90° Anticlockwise",   "Transform", {},             &AppWindow::transformActionActivated},
+        {"transform-rotate-180", "Rotate 180°",                "Transform", {},             &AppWindow::transformActionActivated},
     };
     // clang-format on
     return kSpecs;
