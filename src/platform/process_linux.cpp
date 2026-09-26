@@ -92,4 +92,11 @@ int64_t processStartTime(int64_t pid)
     return 0;
 }
 
+bool runningInFlatpak()
+{
+    // Flatpak puts this file at the sandbox's root (flatpak-metadata(5)).
+    std::error_code ec;
+    return std::filesystem::exists("/.flatpak-info", ec);
+}
+
 } // namespace ustudio::platform

@@ -82,7 +82,7 @@ app_render_queue_dep = declare_dependency(
 app_timeline_lib = static_library(
   'ustudio_app_timeline',
   files('timeline/selection.cpp', 'timeline/timeline_controller.cpp', 'timeline/viewport.cpp',
-        'transform_gestures.cpp'),
+        'transform_gestures.cpp', 'diagnostics.cpp'),
   dependencies: [libustudio_core_dep],
   include_directories: src_inc,
   install: false,

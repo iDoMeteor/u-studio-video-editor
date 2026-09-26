@@ -309,7 +309,9 @@ single-track skeleton.
 - Help dialog (header-bar `?` button): a Controls tab describing every
   button, menu item and timeline gesture, a Keyboard Shortcuts tab listing
   every action and its default accelerator, grouped by category (Playback/
-  Editing/Project), a Release notes tab, and an About tab. Each category is
+  Editing/Project), a Release notes tab, and an About tab with Open Log
+  Folder and Copy Diagnostics (versions, Flatpak or not, the log folder and
+  the last 50 log lines; never the environment). Each category is
   a section that folds away (collapsed until opened); Help comes back with
   the sections, tab and scroll position it was left with, also after a
   restart. **Release notes** are the `<releases>` of

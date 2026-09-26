@@ -8,7 +8,7 @@
   <launchable type="desktop-id">com.ustudio.VideoEditor.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.49.0-beta.1" date="2026-09-25" type="development">
+    <release version="0.49.0-beta.2" date="2026-09-25" type="development">
       <description>
         <p>The first beta. Highlights since the previous build:</p>
         <ul>
@@ -16,6 +16,7 @@
           <li>Clip transform: move, scale, rotate, crop and flip any picture with handles right on the preview, with snapping, arrow-key nudges, a right-click menu and an Edit Transform window. Pictures of another size or aspect are fitted and centred.</li>
           <li>Auto preview scale plays at Half once a clip is transformed, so an overlay stays smooth at 1080p.</li>
           <li>Help: collapsible sections that remember what you had open, and these release notes.</li>
+          <li>If something goes wrong, Help › About › Copy Diagnostics puts the versions and the last log lines on the clipboard for your report, and Open Log Folder shows the full logs.</li>
         </ul>
       </description>
     </release>
