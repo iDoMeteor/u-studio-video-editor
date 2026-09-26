@@ -1,5 +1,33 @@
 # u Studio Video Editor
 
+## Install the beta
+
+The latest Flatpak is at
+<https://software.unicornviz.com/u-studio-video-editor-latest.flatpak>. It
+runs on any distro with Flatpak (tested on Fedora 44; made for Linux Mint
+22).
+
+```sh
+# one-time: Flathub provides the GNOME runtime the app needs
+flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+# download and install (the first install also fetches the ~450 MB runtime)
+wget https://software.unicornviz.com/u-studio-video-editor-latest.flatpak
+flatpak install --user ./u-studio-video-editor-latest.flatpak
+# run
+flatpak run com.ustudio.VideoEditor
+```
+
+- **Linux Mint:** you can also double-click the file to open it in Software
+  Manager.
+- **Update:** download the new file and install it again. If it says
+  "already installed", you have that version; add `--reinstall` to install
+  it anyway.
+- **Uninstall:** `flatpak uninstall --user com.ustudio.VideoEditor`.
+- **Logs** are in
+  `~/.var/app/com.ustudio.VideoEditor/.local/state/ustudio/logs/`.
+  Help › About › Copy Diagnostics puts the details for a bug report on the
+  clipboard.
+
 A from-scratch, GNOME-native video editor for Linux: GTK4 + libadwaita for
 the UI, [MLT](https://www.mltframework.org/) for playback/rendering. No Qt,
 no KDE Frameworks anywhere in the stack.
