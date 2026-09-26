@@ -4087,13 +4087,27 @@ void AppWindow::refreshMediaBrowser()
             signature += '\n' + badge.text + ' ' + badge.cssClass;
         rows.emplace_back(asset.id.value, std::move(signature));
     }
-    const bool sameOrder =
-        rows.size() == m_mediaRows.size() &&
-        std::equal(rows.begin(), rows.end(), m_mediaRows.begin(), [](const auto &a, const auto &b) { return a.first == b.first; });
-    if (sameOrder) {
-        for (size_t i = 0; i < rows.size(); ++i)
+    // The same assets in the same order, maybe with more after them (an
+    // import appends): rebind the changed rows, append the new ones. A
+    // removal or a reorder replaces the list.
+    const bool samePrefix =
+        rows.size() >= m_mediaRows.size() &&
+        std::equal(m_mediaRows.begin(), m_mediaRows.end(), rows.begin(),
+                   [](const auto &a, const auto &b) { return a.first == b.first; });
+    if (samePrefix) {
+        for (size_t i = 0; i < m_mediaRows.size(); ++i)
             if (rows[i].second != m_mediaRows[i].second)
                 replaceMediaItem(static_cast<guint>(i), rows[i].first);
+        if (rows.size() > m_mediaRows.size()) {
+            std::vector<std::string> added;
+            for (size_t i = m_mediaRows.size(); i < rows.size(); ++i)
+                added.push_back(std::to_string(rows[i].first));
+            std::vector<const char *> raw;
+            for (const std::string &id : added)
+                raw.push_back(id.c_str());
+            raw.push_back(nullptr);
+            gtk_string_list_splice(m_mediaIds, static_cast<guint>(m_mediaRows.size()), 0, raw.data());
+        }
     } else {
         std::vector<std::string> ids;
         ids.reserve(rows.size());

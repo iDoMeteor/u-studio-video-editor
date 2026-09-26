@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.50.0-beta.1
+
+- The media browser no longer redraws every row while a folder imports:
+  new files are appended. A releasable beta.
+
 ## 0.50.0
 
 - Media browser badges: each asset shows what it is (image, sequence,
