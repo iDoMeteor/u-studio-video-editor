@@ -42,6 +42,26 @@ Image sequences (`%04d.png`) and stills: still images get a default length
 of 5 s (setting), `isStillImage=true`, and the `pixbuf` producer with
 `ttl`/`length` set by `EngineSync`.
 
+> REVIEW: VE Core, 2026-09-25 (M4 E spike, parked): image sequences are
+> fiddlier than they look, so they wait for a decision. Standalone repro
+> (MLT 7.40, a 30-frame PNG sequence with the frame number burned in):
+> - `pixbuf:<dir>/frame_%04d.png?begin=1` plays one picture per frame
+>   with `ttl=1` (the default is 25 frames each), but its length is a
+>   default 15,000 and it loops after the last file: the length must come
+>   from counting the files. `?begin=` works only with the explicit
+>   `pixbuf:` prefix; through the default loader the producer is invalid
+>   (without it, pixbuf finds a start within 100).
+> - `avformat:` (image2) opens it (length 36 at 30 fps, `seekable=0`) but
+>   every frame is the last picture: no fallback where gdk-pixbuf can't
+>   load images (the glycin sandbox in a container; check the Flatpak).
+> Open before building it: (1) the import UX, since camera photos
+> (`IMG_0001.jpg`...) look exactly like a sequence, so it has to be an
+> explicit choice (a checkbox or a separate Import Sequence); (2)
+> `MediaInfo::isBoundless()` treats sequences as unbounded though they
+> have a real length; (3) missing-media and fingerprint checks test a
+> file, not a pattern; (4) whether gdk-pixbuf loads images in the
+> Flatpak, since there is no working fallback.
+
 ## Master producers and cuts
 
 `EngineSync` keeps `AssetId → std::shared_ptr<Mlt::Producer>` (the master).

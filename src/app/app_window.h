@@ -12,6 +12,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "action_registry.h"
@@ -38,6 +39,7 @@
 #include "timeline/texture_cache.h"
 #include "timeline/timeline_renderer.h"
 #include "timeline/viewport.h"
+#include "media_badges.h"
 #include "transform_gestures.h"
 
 namespace ustudio::app {
@@ -231,8 +233,6 @@ class AppWindow : public ShellHost
     void addProxyMenuItems(GtkWidget *menuBox);
     void updateProxyMenuItems();
     void addProxySettingsRow(AdwPreferencesGroup *group);
-    // The bin's proxy badge for an asset (text, CSS class), if any.
-    std::optional<std::pair<std::string, const char *>> proxyBadge(const core::Asset &asset) const;
     void createProxies(const std::vector<core::AssetId> &assets, int height);
     void onProxyDone(core::AssetId asset, const std::string &output);
     void removeProxy(core::AssetId asset);
@@ -490,6 +490,13 @@ class AppWindow : public ShellHost
     // each replace m_model wholesale (same call sites refreshTimeline()
     // itself already runs at, for the same reason).
     void refreshMediaBrowser();
+    void setUpMediaList(GtkWidget *scroller);
+    void setUpMediaRow(GtkListItem *item);
+    void bindMediaRow(GtkListItem *item);
+    core::AssetId mediaItemAsset(GtkListItem *item) const;
+    void replaceMediaItem(guint position, uint64_t id);
+    void refreshMediaThumbnails();
+    std::vector<MediaBadge> mediaBadgesOf(const core::Asset &asset) const;
     // Right-click on a media browser row: records which asset it landed
     // on (m_contextMenuAssetId) and pops m_mediaBrowserContextMenu at the
     // click point. `row` is the specific row widget the click landed on
@@ -886,18 +893,22 @@ class AppWindow : public ShellHost
     GtkPicture *m_preview = nullptr;
     // Media browser: a collapsible panel to the left of the preview
     // (same row) listing every imported asset as a row (thumbnail, name,
-    // length, fps, format). m_mediaBrowserPanel is the whole collapsible
-    // widget (a GtkScrolledWindow); m_mediaBrowserList is rebuilt from
-    // scratch by refreshMediaBrowser() each time the bin changes (mirrors
-    // refreshTimeline()'s own call-site-driven resync -- see its own
-    // comment for why this app doesn't subscribe to Model::changed
-    // directly). A plain vertical GtkBox of per-row GtkBoxes, not a
-    // GtkGrid: each row needs to be one widget a right-click gesture and
-    // a drag source can attach to (a GtkGrid has no such per-row widget,
-    // only per-cell ones), so each row lays out its own cells at fixed
-    // widths to keep columns aligned across rows instead.
+    // length, fps, format, badges). m_mediaBrowserPanel is the whole
+    // collapsible widget (a GtkScrolledWindow); m_mediaBrowserList is a
+    // GtkListView resynced by refreshMediaBrowser() each time the bin
+    // changes (mirrors refreshTimeline()'s own call-site-driven resync --
+    // see its own comment for why this app doesn't subscribe to
+    // Model::changed directly), rebinding only rows that changed. Each row
+    // is one widget a right-click gesture and a drag source attach to, and
+    // lays out its cells at fixed widths so columns align across rows.
     GtkWidget *m_mediaBrowserPanel = nullptr;
-    GtkBox *m_mediaBrowserList = nullptr;
+    GtkWidget *m_mediaBrowserList = nullptr; // a GtkListView (M4 D)
+    GtkStringList *m_mediaIds = nullptr;     // its items: asset ids, in bin order
+    std::vector<std::pair<uint64_t, std::string>> m_mediaRows; // each row's id and what it shows
+    std::set<uint64_t> m_mediaAwaitingThumbnail;
+    std::unordered_map<uint64_t, GtkWidget *> m_mediaBoundThumbs; // bound rows' pictures, by asset
+    bool m_mediaWaitingForHeight = false;
+    timeline::TextureCache m_mediaTextures{256};
     // Two-button popover ("Remove from Project" / "Delete File...") for
     // whichever row was last right-clicked (m_contextMenuAssetId) --
     // reparented onto that row each time (see

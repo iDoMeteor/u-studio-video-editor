@@ -138,6 +138,15 @@ test_transform_gestures_exe = executable(
 )
 test('app-transform-gestures', test_transform_gestures_exe)
 
+# M4 D: the media browser's badges.
+test_media_badges_exe = executable(
+  'test_media_badges',
+  files('test_media_badges.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+test('app-media-badges', test_media_badges_exe)
+
 # Help's Copy Diagnostics (0.49.0-beta.2).
 test_diagnostics_exe = executable(
   'test_diagnostics',
