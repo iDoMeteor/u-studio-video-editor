@@ -343,9 +343,13 @@ after the window's first second. That first second has first-show stalls
   sliced across cores, plus YUV→RGBA→YUV conversion). In `playback_soak
   --transformed 3` (0.47.1, 2026-09-25) three transformed tracks showed
   about 16 frames/s at Auto (= Full at 1080p) and 25 at Half, against 30.
-  Levers: a cheaper path for axis-aligned moves and scales (composite
-  geometry, or a scale filter at the target size), transforming at the
-  picture's own size rather than the whole canvas, GPU compositing.
+  Since 0.47.2, Auto preview scale is Half whenever a clip has a
+  non-default transform (VE Strategist, 2026-09-25): one transformed track
+  then shows every frame (30/s; 26/s at Full), three about 22/s (load
+  about 9 from other work). Levers: a cheaper path for axis-aligned moves
+  and scales without rotation (composite geometry, or a scale filter at
+  the target size), transforming at the picture's own size rather than the
+  whole canvas, GPU compositing.
 
 ### MT5 — Export in parallel, out of process (about 1 week)
 

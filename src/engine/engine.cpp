@@ -172,6 +172,7 @@ class Engine::Thread
         state.speed = controller->speed();
         state.totalFrames = controller->totalFrames();
         state.fps = controller->fps();
+        state.previewFactor = sync->previewFactor();
         state.backend = controller->backendName();
         bool rebuilt = std::exchange(m_rebuilt, false);
         MainThreadDispatcher::post(m_ownerToken,
@@ -368,6 +369,7 @@ void Engine::applyState(const State &state, bool graphRebuilt)
 {
     m_totalFrames = state.totalFrames;
     m_fps = state.fps;
+    m_previewFactor = state.previewFactor;
     m_backend = state.backend;
     if (state.seq >= m_sent) {
         // Nothing newer has been sent: this is where the engine really is.

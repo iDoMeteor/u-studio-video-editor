@@ -101,6 +101,12 @@ class Engine
     {
         return m_backend;
     }
+    // The playback size relative to the sequence (EngineSync::
+    // previewFactor()): what Auto preview scale resolved to.
+    double previewFactor() const
+    {
+        return m_previewFactor;
+    }
 
     // Sends shutdown and joins the engine thread: the consumer is stopped
     // and every MLT object dropped when this returns (post-M3 audit P2:
@@ -131,6 +137,7 @@ class Engine
         double speed = 0.0;
         int totalFrames = 0;
         double fps = 0.0;
+        double previewFactor = 1.0;
         std::string backend;
     };
     class Thread;
@@ -153,6 +160,7 @@ class Engine
     double m_speed = 0.0;
     int m_totalFrames = 0;
     double m_fps = 0.0;
+    double m_previewFactor = 1.0;
     std::string m_backend;
     double m_volume = 1.0;
     std::optional<std::pair<int, int>> m_loopRange;

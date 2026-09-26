@@ -47,7 +47,7 @@ std::vector<HintSpec> &registry()
         {"transport.ripple-mode",     "Transport", "Ripple mode",          "While on, moving a clip closes the gap it leaves and pushes later clips along where it lands", "ripple-mode", nullptr},
         {"transport.seek-bar",        "Transport", "Seek",                  "Drag to scrub, also while playing", nullptr, nullptr},
         {"transport.volume",          "Transport", "Playback volume",       "Only what you hear; not saved in the project", nullptr, nullptr},
-        {"transport.preview-scale",   "Transport", "Preview scale",         "Lower scales play large media more smoothly", nullptr, nullptr},
+        {"transport.preview-scale",   "Transport", "Preview scale",         "Lower scales play large media more smoothly. Auto is Half above 1080p or once a clip is moved, scaled, rotated, cropped or flipped", nullptr, nullptr},
         {"transport.clear-loop",      "Transport", "Clear loop",            "Loop in and out are set at the playhead from the keyboard (Set Loop In/Out)", nullptr, nullptr},
 
         // --- Timeline: canvas gestures, no widget of their own ---

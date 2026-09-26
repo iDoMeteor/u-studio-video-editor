@@ -39,6 +39,13 @@ Transform explicitTransform(const Transform &t, int sourceWidth, int sourceHeigh
 // fill=1) scales such a picture to the frame by itself.
 bool isIdentity(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile);
 
+// True when a clip of the active sequence has a transform other than the
+// default Fit: the engine then plays Auto preview scale at Half (each
+// transformed 1080p track costs 16-22 ms a frame at Full; doc 19, MT4). A
+// default Fit of another aspect has a filter too but doesn't count: it is
+// the picture as imported, one track at most in the common case.
+bool hasTransformedClip(const Project &project);
+
 // The MLT filters that realise `t` on a clip's cut, in order: crop (core),
 // mirror (core; "flip" is horizontal, "flop" vertical), affine (plus: the
 // picture placed on a transparent frame; rotation about its centre). Empty

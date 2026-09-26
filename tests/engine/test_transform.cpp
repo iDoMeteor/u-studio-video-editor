@@ -325,6 +325,57 @@ TEST_CASE("transform: a transformed clip dissolves into the next")
     CHECK(pixelAt(sync, 70, 150, 80).green()); // after: the next clip, full frame
 }
 
+TEST_CASE("transform: Auto preview scale plays a timeline with a transformed clip at Half")
+{
+    sharedFactoryPolicy();
+    Scene scene(generate("blue-1080.mp4", 1920, 1080, "color:#0000c0"), 1920, 1080);
+    // (fx, fy) as fractions of whatever size the tractor plays at.
+    auto pixel = [](EngineSync &sync, double fx, double fy) {
+        const int w = sync.profile().width(), h = sync.profile().height();
+        sync.tractor().seek(5);
+        std::unique_ptr<Mlt::Frame> frame(sync.tractor().get_frame());
+        mlt_image_format format = mlt_image_rgb;
+        int fw = w, fh = h;
+        const uint8_t *image = frame->get_image(format, fw, fh);
+        const uint8_t *px =
+            image + (static_cast<size_t>(fy * fh) * static_cast<size_t>(fw) + static_cast<size_t>(fx * fw)) * 3;
+        return Rgb{px[0], px[1], px[2]};
+    };
+    EngineSync sync(scene.model, PreviewScale::Auto);
+    CHECK(sync.previewFactor() == 1.0); // the default Fit doesn't count
+    int rebuilds = 0;
+    sync.rebuilt.connect([&] { ++rebuilds; });
+
+    scene.model.setClipTransform(scene.clip, placed(480, 270, 960, 540));
+    sync.setProject(scene.model.snapshot());
+    CHECK(sync.previewFactor() == 0.5);
+    CHECK(sync.profile().width() == 960);
+    CHECK(rebuilds == 1);
+    CHECK(pixel(sync, 0.25, 0.25).blue()); // placed in the top-left quarter at Half too
+    CHECK(pixel(sync, 0.75, 0.75).red());
+
+    scene.model.setClipTransform(scene.clip, placed(1440, 810, 960, 540)); // a drag: in place, still Half
+    sync.setProject(scene.model.snapshot());
+    CHECK(rebuilds == 1);
+    CHECK(pixel(sync, 0.75, 0.75).blue());
+
+    sync.setPreviewScale(PreviewScale::Full); // chosen by hand: honoured
+    CHECK(sync.previewFactor() == 1.0);
+    sync.setPreviewScale(PreviewScale::Auto);
+    CHECK(sync.previewFactor() == 0.5);
+
+    scene.model.setClipTransform(scene.clip, Transform{}); // back to the default: Full again
+    sync.setProject(scene.model.snapshot());
+    CHECK(sync.previewFactor() == 1.0);
+
+    // The engine's main-thread mirror reports it (the app's "Auto (Half)").
+    scene.model.setClipTransform(scene.clip, placed(480, 270, 960, 540));
+    Engine engine(scene.model.snapshot(), PreviewScale::Auto);
+    REQUIRE(engine.syncForTesting());
+    CHECK(engine.previewFactor() == 0.5);
+    engine.shutdown();
+}
+
 TEST_CASE("transform: a drag is applied in place, without a rebuild or a consumer restart")
 {
     sharedFactoryPolicy();

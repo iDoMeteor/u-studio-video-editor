@@ -552,7 +552,10 @@ a second), and overriding the consumer's width/height only added a final
 downscale after full-size rendering (slower). `EngineSync` now builds the
 playback tractor on the sequence profile scaled by the preview factor
 (even dimensions, same fps and aspect); export keeps the full profile.
-Auto means Half for sequences taller than 1080 lines. Details and
+Auto means Half for sequences taller than 1080 lines, and for any sequence
+with a clip whose transform isn't the default (0.47.2; each transformed
+1080p track costs 16–22 ms a frame at Full). The dropdown shows what Auto
+resolved to, "Auto (Half)". Details and
 measurements: doc 05, "Preview scale". Leave the `avformat` producer's
 `threads` unset: unset already decodes with about one thread per CPU, and
 explicit values measured no better.

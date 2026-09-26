@@ -6,14 +6,17 @@ namespace ustudio::engine {
 // profile (doc 05, "Preview scale"). Export always renders at full size.
 enum class PreviewScale
 {
-    Auto, // Half for sequences taller than 1080 lines, Full otherwise
+    Auto, // Half for sequences taller than 1080 lines or with transformed clips, Full otherwise
     Full,
     Half,
     Quarter,
 };
 
 // The factor applied to the sequence profile's width and height.
-inline double previewScaleFactor(PreviewScale scale, int sequenceHeight)
+// `transformed`: a clip has a non-default transform (core::
+// hasTransformedClip()); three such 1080p tracks played at about 16
+// frames/s at Full and 25 at Half (0.47.1, doc 19 MT4), so Auto halves.
+inline double previewScaleFactor(PreviewScale scale, int sequenceHeight, bool transformed = false)
 {
     switch (scale) {
     case PreviewScale::Full:
@@ -25,7 +28,7 @@ inline double previewScaleFactor(PreviewScale scale, int sequenceHeight)
     case PreviewScale::Auto:
         break;
     }
-    return sequenceHeight > 1080 ? 0.5 : 1.0;
+    return sequenceHeight > 1080 || transformed ? 0.5 : 1.0;
 }
 
 } // namespace ustudio::engine

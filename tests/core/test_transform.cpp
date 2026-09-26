@@ -172,3 +172,23 @@ TEST_CASE("transform: survives trim, ripple, copy, a frame-rate change and save/
         CHECK(model.clip(clip).transform.get() == t); // project pixels: a rate change doesn't touch it
     CHECK(model.check().empty());
 }
+
+TEST_CASE("transform: a timeline is transformed once a clip has a non-default transform")
+{
+    Model model = Model::createEmpty();
+    const TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset asset;
+    asset.path = "color:red";
+    asset.info.hasVideo = true;
+    asset.info.width = 1344; // another aspect: its default Fit still doesn't count
+    asset.info.height = 768;
+    asset.info.lengthInSequenceFrames = 300;
+    const ClipId clip = model.insertClip(track, model.addAsset(asset), 0, 0, 99);
+    CHECK_FALSE(hasTransformedClip(*model.snapshot()));
+    Transform flipped;
+    flipped.flipH = true;
+    model.setClipTransform(clip, flipped);
+    CHECK(hasTransformedClip(*model.snapshot()));
+    model.setClipTransform(clip, Transform{});
+    CHECK_FALSE(hasTransformedClip(*model.snapshot()));
+}

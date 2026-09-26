@@ -82,6 +82,16 @@ bool isIdentity(const Transform &t, int sourceWidth, int sourceHeight, const Pro
            t.cropLeft.value == 0.0 && t.cropTop.value == 0.0 && t.cropRight.value == 0.0 && t.cropBottom.value == 0.0;
 }
 
+bool hasTransformedClip(const Project &project)
+{
+    for (const Sequence &sequence : project.sequences)
+        if (sequence.id == project.activeSequence)
+            for (const auto &[id, clip] : sequence.clips)
+                if (!(clip.transform.get() == Transform{}))
+                    return true;
+    return false;
+}
+
 std::string transformProblem(const Transform &t)
 {
     for (const KeyframedValue *v :

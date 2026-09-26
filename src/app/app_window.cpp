@@ -33,6 +33,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <memory>
@@ -170,6 +171,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         m_lastEditMonotonicUsec = g_get_monotonic_time();
         if (m_unsavedSinceMonotonicUsec == 0)
             m_unsavedSinceMonotonicUsec = m_lastEditMonotonicUsec;
+        updatePreviewScaleLabel(); // Auto may have changed with the edit
     });
     m_engine->mediaUnavailable.connect([this](const std::string &path) { onMediaUnavailable(path); });
     m_engine->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
@@ -3153,8 +3155,33 @@ void AppWindow::onVolumeChanged()
     m_engine->setVolume(gtk_range_get_value(GTK_RANGE(m_volumeScale)));
 }
 
+void AppWindow::updatePreviewScaleLabel()
+{
+    if (!m_previewScaleDropdown)
+        return;
+    // Only the selected Auto says what it resolved to: the engine's factor
+    // is the manual one otherwise.
+    const guint selected = gtk_drop_down_get_selected(m_previewScaleDropdown);
+    const double factor = m_engine->previewFactor();
+    const char *label = "Auto";
+    if (selected == 0)
+        label = factor >= 1.0 ? "Auto (Full)" : factor >= 0.5 ? "Auto (Half)" : "Auto (Quarter)";
+    GtkStringList *list = GTK_STRING_LIST(gtk_drop_down_get_model(m_previewScaleDropdown));
+    if (std::strcmp(gtk_string_list_get_string(list, 0), label) == 0)
+        return;
+    // Replacing the selected item deselects it: put the selection back
+    // without it reaching the engine as a change.
+    m_relabellingPreviewScale = true;
+    const char *items[] = {label, nullptr};
+    gtk_string_list_splice(list, 0, 1, items);
+    gtk_drop_down_set_selected(m_previewScaleDropdown, selected);
+    m_relabellingPreviewScale = false;
+}
+
 void AppWindow::onPreviewScaleChanged()
 {
+    if (m_relabellingPreviewScale)
+        return;
     // EngineSync owns the preview scale: it builds the playback tractor on
     // a scaled profile (doc 05), rebuilding -- and so restarting playback
     // via `rebuilt` -- only when the resolved factor actually changes.
@@ -3172,6 +3199,9 @@ void AppWindow::onPreviewScaleChanged()
         m_engine->setPreviewScale(engine::PreviewScale::Auto);
         break;
     }
+    // Right away when the factor doesn't change (no rebuild follows);
+    // `rebuilt` relabels it when it does.
+    updatePreviewScaleLabel();
 }
 
 void AppWindow::onSplitClicked()

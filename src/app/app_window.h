@@ -401,6 +401,9 @@ class AppWindow : public ShellHost
     void onClearLoopClicked();
     void onVolumeChanged();
     void onPreviewScaleChanged();
+    // "Auto (Full)" / "Auto (Half)": what Auto resolved to, from the engine.
+    void updatePreviewScaleLabel();
+    bool m_relabellingPreviewScale = false;
     void onSplitClicked();
     // Double-clicks only (renames): a single click arrives as a drag that
     // never moved (onTrackDragEnd), so modifier clicks aren't applied twice.

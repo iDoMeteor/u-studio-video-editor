@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.47.2
+
+- Auto preview scale plays at Half once a clip is moved, scaled, rotated,
+  cropped or flipped, so a transformed overlay plays smoothly at 1080p;
+  the dropdown shows what Auto chose, e.g. "Auto (Half)".
+
 ## 0.47.1
 
 - Pictures of another size or aspect are fitted and centred in the frame

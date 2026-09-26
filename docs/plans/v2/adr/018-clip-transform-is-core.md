@@ -48,4 +48,6 @@ unscaled in the corner, and a 4:3 one still sits left.
 - Transformed 1080p tracks cost CPU: about 16–22 ms per track per frame at
   full preview scale, and at 1080p Auto *is* Full. Three transformed tracks
   played at about 16 frames/s at Full and 25 at Half on the dev machine
-  (F1, 2026-09-25); real time there is MT4's (doc 19).
+  (F1, 2026-09-25). So Auto preview scale plays at Half once any clip has
+  a non-default transform (0.47.2), which holds one transformed track at
+  real time; more is MT4's (doc 19).

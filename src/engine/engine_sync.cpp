@@ -171,12 +171,15 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
         dropChangedMasters(*m_project, *project);
     m_project = std::move(project);
     m_model = core::Model(*m_project);
-    const bool newProfile = m_model.sequence().profile != profileBefore;
+    // Auto preview scale follows whether any clip is transformed.
+    const bool newProfile = m_model.sequence().profile != profileBefore ||
+                            previewScaleFactor(m_previewScale, m_model.sequence().profile.height,
+                                               core::hasTransformedClip(*m_project)) != m_previewFactor;
     if (newProfile)
         rebuildOnNewProfile();
     else if (rebuild)
         rebuildAll();
-    if (inPlace)
+    if (inPlace && !newProfile)
         appliedInPlace.emit();
 }
 
@@ -209,7 +212,7 @@ void EngineSync::reset(std::shared_ptr<const core::Project> project)
 void EngineSync::setPreviewScale(PreviewScale scale)
 {
     m_previewScale = scale;
-    double factor = previewScaleFactor(scale, m_model.sequence().profile.height);
+    double factor = previewScaleFactor(scale, m_model.sequence().profile.height, core::hasTransformedClip(*m_project));
     if (factor == m_previewFactor)
         return;
     Log::debug("[engine] preview scale factor " + std::to_string(m_previewFactor) + " -> " + std::to_string(factor));
@@ -271,7 +274,7 @@ void EngineSync::rebuildOnNewProfile()
 void EngineSync::applyProfile()
 {
     const core::Profile &sequenceProfile = m_model.sequence().profile;
-    m_previewFactor = previewScaleFactor(m_previewScale, sequenceProfile.height);
+    m_previewFactor = previewScaleFactor(m_previewScale, sequenceProfile.height, core::hasTransformedClip(*m_project));
     m_profile = makeProfileFrom(sequenceProfile);
     if (m_previewFactor != 1.0) {
         // Even dimensions: yuv420p sources and most scalers need them, and

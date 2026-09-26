@@ -280,6 +280,10 @@ Acceptance:
       frame-rate change.
 - [ ] 1080p30 plays in real time with three transformed tracks at Auto
       preview scale (Full reported alongside; Full is MT4's, doc 19).
+      Since 0.47.2 Auto is Half once a clip is transformed: one
+      transformed track then plays every frame (30/s, the owner's webcam
+      case), three about 22/s (26/s and about 16/s at Full). Open; the
+      remaining levers are MT4's (doc 19).
 
 ## M5 — Effects, keyframes, transitions (the FX track)
 
