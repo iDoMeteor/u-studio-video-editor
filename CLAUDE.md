@@ -224,9 +224,14 @@ team's practice is the rule:
   transitions (`composite`, `affine`, `luma`, `mix`) are assumed present
   (verified on this machine, doc 00). `frei0r` is required by the effects
   drop-in, **not** by the core editor (ADR-011 as narrowed by ADR-014,
-  2026-09-24): nothing in `src/` may depend on a frei0r service, and the
-  core keeps compositing with `composite`. Effects, titles and drop-in
-  plans: `docs/plans/v2/15-*` to `18-*`.
+  2026-09-24): nothing in `src/` may depend on a frei0r service. The core
+  composites every video track onto track 0 (the background) with
+  `composite` (`fill=1`), never chained track to track (a chain loses an
+  upper clip's alpha), and realises clip transforms (ADR-018) with the
+  `crop` and `mirror` filters and the plus module's `affine` filter on
+  each cut; an `affine` track compositor is too slow (README "Engine sync
+  notes"). Effects, titles and drop-in plans: `docs/plans/v2/15-*` to
+  `18-*`.
 
 ---
 
