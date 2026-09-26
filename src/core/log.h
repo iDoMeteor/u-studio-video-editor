@@ -1,7 +1,9 @@
 #pragma once
 
 #include <chrono>
+#include <filesystem>
 #include <string>
+#include <vector>
 
 namespace ustudio::core {
 
@@ -33,6 +35,13 @@ LogLevel levelFromValue(const char *value);
 
 void setLevel(LogLevel level);
 LogLevel level();
+
+// Where the log files go: $XDG_STATE_HOME/ustudio/logs (Help's Open Log
+// Folder). Whether or not init() could create it.
+std::filesystem::path directory();
+// The last `count` lines written (at most 200 are kept), oldest first:
+// Help's Copy Diagnostics.
+std::vector<std::string> recentLines(size_t count);
 
 void error(const std::string &message);
 void warn(const std::string &message);

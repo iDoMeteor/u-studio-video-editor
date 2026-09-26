@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.49.0-beta.2
+
+- Help › About gains Open Log Folder and Copy Diagnostics (app, MLT, GTK
+  and libadwaita versions, whether it runs in Flatpak, the log folder and
+  the last 50 log lines) for bug reports. Also in Keyboard Shortcuts under
+  Help.
+
 ## 0.49.0-beta.1
 
 - Help: every section of Controls and Keyboard Shortcuts folds away and

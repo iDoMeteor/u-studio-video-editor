@@ -35,4 +35,8 @@ bool processExists(int64_t pid);
 // 0 when unknown (no such process, pid <= 0).
 int64_t processStartTime(int64_t pid);
 
+// Whether this process runs inside a Flatpak sandbox (Help's Copy
+// Diagnostics). False on other platforms.
+bool runningInFlatpak();
+
 } // namespace ustudio::platform

@@ -666,7 +666,11 @@ class AppWindow : public ShellHost
     GtkWidget *buildControlsPage();
     GtkWidget *buildShortcutsPage();
     GtkWidget *buildReleaseNotesPage();
-    GtkWidget *buildAboutPage() const;
+    GtkWidget *buildAboutPage();
+    // Help's diagnostics (0.49.0-beta.2): the log folder in the file
+    // manager, and a report for the clipboard (app/help_dialog.cpp).
+    void openLogFolder();
+    void copyDiagnostics();
     void loadHelpState();
     AdwExpanderRow *helpSection(AdwPreferencesGroup *group, const char *tab, const std::string &title,
                                 const std::string &subtitle);
@@ -826,6 +830,8 @@ class AppWindow : public ShellHost
     static void undoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void redoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void playPauseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    // "open-log-folder" and "copy-diagnostics": dispatched by name.
+    static void diagnosticsActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     // Every "transform-*" action (M4 F2): dispatched by name.
     static void transformActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void saveActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);

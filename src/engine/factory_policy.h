@@ -51,6 +51,8 @@ class FactoryPolicy
     // `tracks` plus every thread that may decode (factory_policy.cpp says
     // why). Only ever raises. Any thread; EngineSync calls it per rebuild.
     static void raiseAvformatDecoderLimit(size_t tracks);
+    // The MLT library's version ("7.40.0"), for Help's Copy Diagnostics.
+    static std::string mltVersion();
 
     FactoryPolicy(const FactoryPolicy &) = delete;
     FactoryPolicy &operator=(const FactoryPolicy &) = delete;
