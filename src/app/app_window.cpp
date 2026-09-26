@@ -1396,6 +1396,12 @@ void AppWindow::onSettingsToggleChanged(const std::string &key, bool active)
 
 void AppWindow::onTimelineHover(double x, double y)
 {
+    // Showing the popover makes the compositor send a motion (and a
+    // leave) at the same spot; treating that as a move hid it and re-armed
+    // it, over and over (the tooltip flashed). Only a real move re-arms.
+    const bool pending = m_hoverTimerId != 0 || gtk_widget_get_visible(GTK_WIDGET(m_hoverPreview));
+    if (pending && std::abs(x - m_hover.x) < 3 && std::abs(y - m_hover.y) < 3)
+        return;
     // Moving re-arms the delay; the tooltip only shows once the pointer rests.
     hideHoverPreview();
     if (m_timelineController.mode() != timeline::TimelineController::Mode::None)
@@ -1434,6 +1440,7 @@ void AppWindow::showHoverPreview()
     const GdkRectangle at{static_cast<int>(m_hover.x), static_cast<int>(m_hover.y), 1, 1};
     gtk_popover_set_pointing_to(m_hoverPreview, &at);
     gtk_popover_popup(m_hoverPreview);
+    m_hoverShownAt = g_get_monotonic_time();
     showHoverPreviewIfReady();
 }
 
@@ -5334,7 +5341,11 @@ void AppWindow::timelineMotionTrampoline(GtkEventControllerMotion *, double x, d
 
 void AppWindow::timelineLeaveTrampoline(GtkEventControllerMotion *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->hideHoverPreview();
+    auto *self = static_cast<AppWindow *>(userData);
+    // The leave the popover's own appearance causes (see onTimelineHover()).
+    if (g_get_monotonic_time() - self->m_hoverShownAt < 300000)
+        return;
+    self->hideHoverPreview();
 }
 
 gboolean AppWindow::hoverPreviewTimerTrampoline(gpointer userData)

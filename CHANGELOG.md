@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.50.0-beta.2
+
+- The clip tooltip on the timeline no longer flashes: its own appearance
+  sent a motion and a leave that hid and re-armed it.
+
 ## 0.50.0-beta.1
 
 - The media browser no longer redraws every row while a folder imports:

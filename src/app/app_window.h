@@ -789,6 +789,7 @@ class AppWindow : public ShellHost
     GtkLabel *m_hoverTimecode = nullptr;
     GtkLabel *m_hoverText = nullptr;
     guint m_hoverTimerId = 0;
+    gint64 m_hoverShownAt = 0; // monotonic µs
     struct HoverTarget
     {
         std::string resource; // "" for no thumbnail (audio, or the toggle's off)
