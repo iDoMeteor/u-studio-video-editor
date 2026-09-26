@@ -61,10 +61,22 @@ tsan *tests:
 check-qt: build
     ./{{builddir}}/tests/engine/test_factory_policy
 
-# M7 territory; not wired yet.
+# The tester Flatpak (packaging/flatpak/): builds MLT, FFmpeg + x264 and
+# the app against the GNOME runtime, then a single-file bundle at
+# build-flatpak/u-studio-video-editor-<version>.flatpak. Needs flatpak-builder
+# and the Flathub remote (the runtime and SDK install as --user). The first
+# build downloads and compiles FFmpeg and MLT; later ones reuse the cache in
+# build-flatpak/state. --runtime-repo embeds Flathub in the bundle, so
+# `flatpak install --user ./file.flatpak` or a software centre can fetch the
+# runtime.
+version := `sed -n "s/^  version: '\(.*\)',$/\1/p" meson.build`
 flatpak:
-    @echo "flatpak packaging lands in milestone M7 (docs/plans/v2/12-roadmap-and-milestones.md)"
-    @exit 1
+    flatpak-builder --user --force-clean --install-deps-from=flathub \
+        --state-dir=build-flatpak/state --repo=build-flatpak/repo \
+        build-flatpak/app packaging/flatpak/com.ustudio.VideoEditor.yml
+    flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+        build-flatpak/repo build-flatpak/u-studio-video-editor-{{version}}.flatpak com.ustudio.VideoEditor
+    @ls -lh build-flatpak/u-studio-video-editor-{{version}}.flatpak
 
 # Drop-in configurations (ADR-013/014, doc 15 "Gating"): the full suite with
 # every drop-in built in, or every one as a loadable module (each in its own

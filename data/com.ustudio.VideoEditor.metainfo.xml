@@ -5,6 +5,21 @@
   <project_license>GPL-3.0-or-later</project_license>
   <name>u Studio Video Editor</name>
   <summary>Non-linear video editor built on GTK4, libadwaita and MLT</summary>
+  <url type="homepage">https://djunicorntears.com</url>
+  <description>
+    <p>
+      u Studio is a multi-track video editor for GNOME, made for livestream
+      and promo editing at 1080p and 4K. This is a beta for testers: expect
+      rough edges, and please attach the log files to any report.
+    </p>
+    <ul>
+      <li>Import footage, pictures and whole folders, then cut, trim, move and close gaps on any number of video and audio tracks</li>
+      <li>Play back with sound, with waveforms and thumbnails made in the background</li>
+      <li>Move, scale, rotate and crop pictures right on the preview</li>
+      <li>Proxies for smooth editing of large footage; exports always use the originals</li>
+      <li>Export to H.264 MP4</li>
+    </ul>
+  </description>
   <launchable type="desktop-id">com.ustudio.VideoEditor.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
