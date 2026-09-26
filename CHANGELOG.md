@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.50.0
+
+- Media browser badges: each asset shows what it is (image, sequence,
+  audio), its resolution (cyan when taller than the project) and its state
+  (probing, failed, missing, proxy and its progress, proxy missing). Large
+  bins stay responsive: the list updates only the rows that changed.
+
 ## 0.49.0-beta.1
 
 - Help: every section of Controls and Keyboard Shortcuts folds away and

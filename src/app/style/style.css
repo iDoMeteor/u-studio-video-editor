@@ -114,20 +114,52 @@ window {
 
 /* A clip's proxy in the media browser (M4 C): made, being made, or its
    file gone from the cache (then the original plays). */
-.media-proxy {
+/* The media browser's badges (M4 D, media_badges.h): small quiet pills.
+   Colour says what kind of news it is; nothing glows. */
+.media-badge {
+  font-size: 0.72em;
+  font-weight: bold;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid @ink_500;
+  color: alpha(@window_fg_color, 0.75);
+}
+
+.media-badge.badge-kind {
+  color: @brand_violet;
+  border-color: alpha(@brand_violet, 0.6);
+}
+
+.media-badge.badge-high {
   color: @brand_cyan;
-  font-weight: bold;
+  border-color: alpha(@brand_cyan, 0.6);
 }
 
-.media-proxy-missing {
+.media-badge.badge-info {
+  color: alpha(@window_fg_color, 0.6);
+  border-style: dashed;
+}
+
+.media-badge.badge-proxy {
+  color: @ink_900;
+  background-color: @brand_cyan;
+  border-color: @brand_cyan;
+}
+
+.media-badge.badge-warning {
   color: @semantic_warning;
-  font-weight: bold;
+  border-color: @semantic_warning;
 }
 
-/* A missing file in the media browser (M4 B). */
-.media-missing {
-  color: @semantic_danger;
-  font-weight: bold;
+.media-badge.badge-danger {
+  color: @ink_900;
+  background-color: @semantic_danger;
+  border-color: @semantic_danger;
+}
+
+listview.media-list,
+listview.media-list > row {
+  background-color: transparent;
 }
 
 .media-browser-panel {

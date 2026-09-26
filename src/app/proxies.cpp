@@ -30,12 +30,6 @@ bool proxyable(const core::Asset &asset)
            asset.info.height > 0;
 }
 
-bool proxyFileExists(const core::Asset &asset)
-{
-    std::error_code ec;
-    return !asset.proxyPath.empty() && std::filesystem::is_regular_file(core::pathFromUtf8(asset.proxyPath), ec);
-}
-
 } // namespace
 
 void AppWindow::setUpProxies()
@@ -114,19 +108,6 @@ void AppWindow::updateProxyMenuItems()
     gtk_widget_set_visible(m_conformProxyButton, can && !has && !making);
     gtk_widget_set_visible(m_removeProxyButton, has || making);
     gtk_button_set_label(GTK_BUTTON(m_removeProxyButton), making ? "Stop Making Proxy" : "Remove Proxy");
-}
-
-std::optional<std::pair<std::string, const char *>> AppWindow::proxyBadge(const core::Asset &asset) const
-{
-    if (m_proxyQueue)
-        if (auto progress = m_proxyQueue->progressOf(asset.id))
-            return std::pair{"PROXY " + std::to_string(static_cast<int>(*progress * 100)) + "%", "media-proxy"};
-    if (asset.proxyPath.empty())
-        return std::nullopt;
-    // The cache can be cleared: then the original plays (never missing media).
-    if (!proxyFileExists(asset))
-        return std::pair{std::string("PROXY MISSING"), "media-proxy-missing"};
-    return std::pair{std::string("PROXY"), "media-proxy"};
 }
 
 void AppWindow::createProxies(const std::vector<core::AssetId> &assets, int height)

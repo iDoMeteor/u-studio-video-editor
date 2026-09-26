@@ -23,7 +23,15 @@ single-track skeleton.
   (extension) for the media browser below.
 - Collapsible media browser panel to the left of the video preview (toggle
   from the header-bar button next to "Add track"): every imported asset as
-  a row with a thumbnail, name, length, fps, and format. Thumbnails are
+  a row with a thumbnail, name, length, fps, and format, and badges under
+  the name (0.50.0): what it is (IMAGE, SEQUENCE, AUDIO), its resolution
+  (4K, 1440p, 1080p, 720p, SD, or its size; cyan when taller than the
+  project, where a proxy would help), and its state (PROBING, FAILED,
+  MISSING, PROXY, PROXY n%, PROXY MISSING). The list is a GtkListView that
+  rebinds only the rows that changed, so a 500-asset bin refreshes in
+  about 1.5 ms instead of rebuilding every row (80-105 ms); filling it the
+  first time it's shown costs about 55 ms, since a list view keeps ~200
+  rows ready whatever their height. Thumbnails are
   decoded as background jobs on the worker pool
   (`src/engine/thumbnail_cache.{h,cpp}`, the same architecture as the
   waveform cache below) so importing a large file never blocks the UI. Right-click a row for "Remove from Project"
