@@ -299,6 +299,9 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         // pruned.
         m_shellProjectChanged.emit();
         refreshMissingBanner(); // a relink, or its undo
+        endTransformDrag();     // unless the change is the drag's own
+        if (m_transformOverlay)
+            gtk_widget_queue_draw(m_transformOverlay);
     });
 
     gchar *sessionUuid = g_uuid_string_random();
@@ -311,6 +314,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
     // Doc 15 IP5: the drop-ins' pages, actions and overlays, into the
     // finished shell (shell_hosts.cpp).
     setUpProxies();
+    setUpTransformOverlay();
     m_hasShellExtensions = !shellExtensions.empty();
     for (const dropins::ShellExtension &extension : shellExtensions)
         extension(*this);
@@ -3858,6 +3862,7 @@ void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int heigh
     timeline::snapshotTimeline(snapshot, scene, width, height);
     g_object_unref(layout);
     noteSelectionForShell();
+    noteTransformSelection();
 }
 
 void AppWindow::snapshotPlayheadOverlay(GtkSnapshot *snapshot, int width, int height)

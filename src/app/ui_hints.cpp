@@ -50,6 +50,13 @@ std::vector<HintSpec> &registry()
         {"transport.preview-scale",   "Transport", "Preview scale",         "Lower scales play large media more smoothly. Auto is Half above 1080p or once a clip is moved, scaled, rotated, cropped or flipped", nullptr, nullptr},
         {"transport.clear-loop",      "Transport", "Clear loop",            "Loop in and out are set at the playhead from the keyboard (Set Loop In/Out)", nullptr, nullptr},
 
+        // --- Preview: clip transform handles (M4 F2, ADR-018) ---
+        {"preview.transform",         "Preview", "Select a clip's picture", "Its handles appear: drag inside it to move it", nullptr, "Click a picture in the preview"},
+        {"preview.transform-scale",   "Preview", "Scale or stretch a picture", "Corners keep the aspect; hold Shift to free it", nullptr, "Drag a corner or edge handle"},
+        {"preview.transform-rotate",  "Preview", "Rotate a picture", "Hold Shift for 15° steps; it settles on right angles", nullptr, "Drag the round knob above the picture"},
+        {"preview.transform-crop",    "Preview", "Crop a picture", "The far edge stays where it is", nullptr, "Hold Alt and drag an edge or corner handle"},
+        {"preview.transform-snap",    "Preview", "Snapping", "Pictures snap to the frame's edges and centre and to other pictures", nullptr, "Hold Ctrl while dragging to place freely"},
+        {"preview.transform-nudge",   "Preview", "Nudge a picture", "One pixel; Shift for ten. A click outside the preview gives the arrows back to the timeline", nullptr, "Arrow keys, after clicking the preview"},
         // --- Timeline: canvas gestures, no widget of their own ---
         {"timeline.active-track", "Timeline", "Make a track active",  "Imports and splits land on it. The click also moves the playhead there and selects the clip under the pointer", nullptr, "Click anywhere in a row"},
         {"timeline.scrub",        "Timeline", "Scrub",                "The preview follows the pointer", nullptr, "Drag on empty track space"},

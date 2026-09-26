@@ -37,6 +37,7 @@
 #include "timeline/texture_cache.h"
 #include "timeline/timeline_renderer.h"
 #include "timeline/viewport.h"
+#include "transform_gestures.h"
 
 namespace ustudio::app {
 
@@ -183,6 +184,35 @@ class AppWindow : public ShellHost
     void relinkTo(std::vector<std::pair<core::AssetId, std::string>> candidates);
     void searchFolderForMissing(const std::string &folder);
     void onMediaUnavailable(const std::string &path);
+    // M4 F2, transform handles over the preview (app/transform_overlay.cpp).
+    void setUpTransformOverlay();
+    void drawTransformOverlay(cairo_t *cr);
+    // The one selected clip, when its picture shows at the current frame.
+    std::optional<gestures::VisibleClip> transformTarget() const;
+    void onTransformDragBegin(double x, double y);
+    void onTransformDragUpdate(double dx, double dy);
+    void onTransformDragEnd();
+    void onTransformMotion(double x, double y);
+    bool onTransformKey(guint keyval, GdkModifierType state);
+    bool applyTransform(core::ClipId clip, const core::Transform &transform, uint64_t gesture);
+    void noteTransformSelection();
+    void endTransformDrag();
+    void setPreviewOwnsArrows(bool owns);
+    GtkWidget *m_transformOverlay = nullptr;
+    GtkGesture *m_transformDragGesture = nullptr;
+    struct TransformDrag
+    {
+        core::ClipId clip;
+        gestures::DragStart start;
+        uint64_t gesture = 0;
+        double widgetX = 0, widgetY = 0; // where it began
+    };
+    std::optional<TransformDrag> m_transformDrag;
+    std::vector<gestures::Guide> m_transformGuides;
+    core::ClipId m_transformHover;
+    core::ClipId m_transformShownSelection;
+    uint64_t m_nextTransformGesture = 1;
+    bool m_applyingTransform = false;
     // M4 C, proxies (app/proxies.cpp).
     void setUpProxies();
     void buildProxyToggle(GtkWidget *transport);
