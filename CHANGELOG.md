@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.49.0-beta.1
+
+- Help: every section of Controls and Keyboard Shortcuts folds away and
+  opens with a click; Help remembers the open sections, the tab and where
+  you scrolled, also after a restart. A new Release notes tab lists each
+  released build's notes, newest first. This is the first beta.
+
 ## 0.48.0
 
 - Transform handles on the preview: click a picture to select it, then

@@ -134,3 +134,38 @@ window {
   background-color: @ink_800;
   border-right: 1px solid @ink_500;
 }
+
+/* Help's collapsible section headers (M4 G). One step lighter on hover,
+   deeper while pressed, a calm violet edge while open. No glow at rest or
+   open: glow is only the keyboard focus ring. */
+row.expander.help-section > box > list > row.header {
+  background-color: @ink_700;
+  transition: background-color 120ms ease-out;
+}
+
+row.expander.help-section > box > list > row.header:hover {
+  background-color: @ink_600;
+}
+
+row.expander.help-section > box > list > row.header:active {
+  background-color: @ink_800;
+}
+
+row.expander.help-section:checked > box > list > row.header {
+  background-color: @ink_700;
+  box-shadow: inset 3px 0 @brand_violet;
+}
+
+row.expander.help-section:checked > box > list > row.header:hover {
+  background-color: @ink_600;
+}
+
+row.expander.help-section > box > list > row.header:focus-visible {
+  outline: 2px solid @brand_magenta;
+  outline-offset: -2px;
+  box-shadow: 0 0 10px alpha(@brand_magenta, 0.55);
+}
+
+row.expander.help-section:checked > box > list > row.header:focus-visible {
+  box-shadow: inset 3px 0 @brand_violet, 0 0 10px alpha(@brand_magenta, 0.55);
+}

@@ -47,4 +47,14 @@ TEST_CASE("Settings: schema found -- defaults match the gschema, get/set round-t
     CHECK(settings.disabledDropIns() == std::vector<std::string>{"titles", "effects"});
     settings.setDropInEnabled("titles", true);
     CHECK(settings.disabledDropIns() == std::vector<std::string>{"effects"});
+
+    // M4 G: Help as it was left.
+    CHECK(settings.helpOpenSections().empty());
+    CHECK(settings.helpTab().empty());
+    settings.setHelpOpenSections({"controls:Preview", "releases:0.49.0-beta.1"});
+    settings.setHelpTab("releases");
+    settings.setHelpScroll({"controls=240", "shortcuts=0"});
+    CHECK(settings.helpOpenSections() == std::vector<std::string>{"controls:Preview", "releases:0.49.0-beta.1"});
+    CHECK(settings.helpTab() == "releases");
+    CHECK(settings.helpScroll() == std::vector<std::string>{"controls=240", "shortcuts=0"});
 }

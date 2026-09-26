@@ -9,7 +9,8 @@ gnome = import('gnome')
 app_resources = gnome.compile_resources(
   'ustudio-resources',
   meson.project_source_root() / 'data' / 'ustudio.gresource.xml',
-  source_dir: 'style',
+  # data/ too: Help's Release notes read the AppStream metainfo (M4 G).
+  source_dir: ['style', meson.project_source_root() / 'data'],
   c_name: 'ustudio',
 )
 

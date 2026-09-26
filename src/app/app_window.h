@@ -7,6 +7,7 @@
 #include <atomic>
 #include <expected>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -660,9 +661,20 @@ class AppWindow : public ShellHost
     void showSettingsDialog();
     // Help's Controls tab: every ui_hints.h entry, grouped by category, so
     // a drop-in's registered hints appear there too.
-    GtkWidget *buildControlsPage() const;
-    GtkWidget *buildShortcutsPage() const;
+    // Help (app/help_dialog.cpp). M4 G: collapsible sections that come
+    // back as they were left (the session's here, and Settings').
+    GtkWidget *buildControlsPage();
+    GtkWidget *buildShortcutsPage();
+    GtkWidget *buildReleaseNotesPage();
     GtkWidget *buildAboutPage() const;
+    void loadHelpState();
+    AdwExpanderRow *helpSection(AdwPreferencesGroup *group, const char *tab, const std::string &title,
+                                const std::string &subtitle);
+    GtkAdjustment *restoreHelpScroll(GtkWidget *page, const char *tab);
+    bool m_helpStateLoaded = false;
+    std::set<std::string> m_helpOpenSections; // "<tab>:<section>"
+    std::string m_helpTab;
+    std::map<std::string, double> m_helpScroll;
 
     // Audit A1: the transport actions installActions() binds to bare
     // letters and Left/Right/Home/End (+ Ctrl/Alt variants) are global

@@ -2,5 +2,6 @@
 <gresources>
   <gresource prefix="/com/ustudio/VideoEditor">
     <file compressed="true">style.css</file>
+    <file compressed="true">com.ustudio.VideoEditor.metainfo.xml</file>
   </gresource>
 </gresources>

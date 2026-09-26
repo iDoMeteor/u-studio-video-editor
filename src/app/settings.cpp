@@ -116,6 +116,72 @@ void Settings::setString(const char *key, const std::string &value)
         g_settings_set_string(m_settings, key, value.c_str());
 }
 
+bool Settings::hasKey(const char *key) const
+{
+    if (m_settings == nullptr)
+        return false;
+    GSettingsSchema *schema = nullptr;
+    g_object_get(m_settings, "settings-schema", &schema, nullptr);
+    const bool has = schema != nullptr && g_settings_schema_has_key(schema, key);
+    if (schema != nullptr)
+        g_settings_schema_unref(schema);
+    return has;
+}
+
+std::vector<std::string> Settings::getStrv(const char *key) const
+{
+    std::vector<std::string> out;
+    if (!hasKey(key))
+        return out;
+    gchar **values = g_settings_get_strv(m_settings, key);
+    for (gchar **value = values; value != nullptr && *value != nullptr; ++value)
+        out.emplace_back(*value);
+    g_strfreev(values);
+    return out;
+}
+
+void Settings::setStrv(const char *key, const std::vector<std::string> &values)
+{
+    if (!hasKey(key))
+        return;
+    std::vector<const char *> raw;
+    for (const std::string &value : values)
+        raw.push_back(value.c_str());
+    raw.push_back(nullptr);
+    g_settings_set_strv(m_settings, key, raw.data());
+}
+
+std::vector<std::string> Settings::helpOpenSections() const
+{
+    return getStrv("help-open-sections");
+}
+
+void Settings::setHelpOpenSections(const std::vector<std::string> &sections)
+{
+    setStrv("help-open-sections", sections);
+}
+
+std::string Settings::helpTab() const
+{
+    return hasKey("help-tab") ? getString("help-tab", "") : std::string();
+}
+
+void Settings::setHelpTab(const std::string &tab)
+{
+    if (hasKey("help-tab"))
+        setString("help-tab", tab);
+}
+
+std::vector<std::string> Settings::helpScroll() const
+{
+    return getStrv("help-scroll");
+}
+
+void Settings::setHelpScroll(const std::vector<std::string> &positions)
+{
+    setStrv("help-scroll", positions);
+}
+
 std::string Settings::defaultPreviewScale() const
 {
     return getString("default-preview-scale", kDefaultPreviewScale);

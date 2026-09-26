@@ -309,7 +309,14 @@ single-track skeleton.
 - Help dialog (header-bar `?` button): a Controls tab describing every
   button, menu item and timeline gesture, a Keyboard Shortcuts tab listing
   every action and its default accelerator, grouped by category (Playback/
-  Editing/Project), and an About tab. The Controls tab and every control's
+  Editing/Project), a Release notes tab, and an About tab. Each category is
+  a section that folds away (collapsed until opened); Help comes back with
+  the sections, tab and scroll position it was left with, also after a
+  restart. **Release notes** are the `<releases>` of
+  `data/com.ustudio.VideoEditor.metainfo.xml` (compiled into the
+  GResource; the software centre shows the same notes). Only releasable
+  builds get an entry there: a beta or a release, with a `<description>`;
+  everyday version bumps go in `CHANGELOG.md` only. The Controls tab and every control's
   tooltip come from one table, `src/app/ui_hints.{h,cpp}`: a hint names
   its action and the shortcut is looked up in `action_registry.cpp`, so a
   tooltip can't show a stale key. Drop-ins add their own hints, actions

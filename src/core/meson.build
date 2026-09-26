@@ -16,6 +16,7 @@ libustudio_core_sources = files(
   'xml/reader.cpp',
   'xml/backup.cpp',
   'xml/effect_io.cpp',
+  'xml/release_notes.cpp',
   'render/render_profile.cpp',
   'media/fingerprint.cpp',
   'media/missing_media.cpp',
