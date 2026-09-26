@@ -35,6 +35,11 @@ struct ClipRenamed
 {
     ClipId clip;
 };
+// A clip's placement in the frame changed (ADR-018).
+struct ClipTransformChanged
+{
+    ClipId clip;
+};
 struct TrackAdded
 {
     TrackId track;
@@ -119,10 +124,11 @@ struct BatchEnd
 
 // Emitted synchronously, on the main thread, AFTER Model's state is
 // consistent (doc 03) -- listeners never observe a half-applied mutation.
-using ModelEvent = std::variant<ClipInserted, ClipRemoved, ClipMoved, ClipResized, ClipFlagsChanged, ClipRenamed,
-                                TrackAdded, TrackRemoved, TrackFlagsChanged, TrackVolumeChanged, TrackRenamed,
-                                TrackReordered, EffectChanged, EffectParamChanged, AdjustmentBlockChanged, LooksChanged,
-                                ClipSourceChanged, TransitionAdded, TransitionRemoved, TransitionChanged, AssetChanged,
-                                SequenceProfileChanged, MarkersChanged, BatchBegin, BatchEnd>;
+using ModelEvent =
+    std::variant<ClipInserted, ClipRemoved, ClipMoved, ClipResized, ClipFlagsChanged, ClipRenamed, TrackAdded,
+                 TrackRemoved, TrackFlagsChanged, TrackVolumeChanged, TrackRenamed, TrackReordered, EffectChanged,
+                 EffectParamChanged, AdjustmentBlockChanged, LooksChanged, ClipSourceChanged, ClipTransformChanged,
+                 TransitionAdded, TransitionRemoved, TransitionChanged, AssetChanged, SequenceProfileChanged,
+                 MarkersChanged, BatchBegin, BatchEnd>;
 
 } // namespace ustudio::core

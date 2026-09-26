@@ -50,9 +50,10 @@ namespace core = ustudio::core;
 // (including the black backing track), rather than doc 05's more precise
 // video-only-composite / audio-only-mix split. That split hasn't been
 // empirically verified (project rule: reproduce before relying), while
-// v1's uniform chaining is proven working. M1 reuses v1's pattern
-// unchanged; refining it to doc 05's graph is PlaybackController/M2
-// territory, where it can be verified against real rendered frames.
+// v1's uniform chaining is proven working. M1 reused v1's pattern; since
+// M4 F (ADR-018) every "composite" takes track 0 as its A track instead of
+// the track below (a chain lost an upper clip's alpha), and "mix" stays
+// chained.
 class EngineSync
 {
   public:
@@ -267,6 +268,24 @@ class EngineSync
     // there is the intended fallback, not a sync bug.
     std::unordered_set<uint64_t> m_unavailableAssets;
     bool m_useProxies = false;
+    // ADR-018: each clip's transform filters, per cut (the exclusive cut
+    // and any dissolve tail or head), kept so a transform-only snapshot
+    // updates them in place (applyTransformsInPlace()); per build.
+    struct TransformFilters
+    {
+        std::string shape; // the services in order: a change of shape rebuilds
+        std::vector<std::vector<std::shared_ptr<Mlt::Filter>>> cuts;
+    };
+    std::unordered_map<uint64_t, TransformFilters> m_transformFilters;
+    // One transparent background for every transform filter (see
+    // applyTransform()), built from the current profile.
+    std::unique_ptr<Mlt::Producer> m_transformBackground;
+    void applyTransform(Mlt::Producer &cut, const core::Clip &clip);
+    bool applyTransformsInPlace(const core::Project &next);
+    // Output pixels per project pixel, and the playing file's pixels per
+    // source pixel (a proxy is smaller).
+    double outputScale() const;
+    double sourceScale(const core::Clip &clip);
     // Assets playing their proxy this build (verify() skips their resource).
     std::unordered_set<uint64_t> m_proxiedAssets;
     void dropProxiedMasters();

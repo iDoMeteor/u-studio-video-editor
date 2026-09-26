@@ -389,6 +389,15 @@ void Engine::onFrame(std::vector<uint8_t> rgba, int width, int height, int posit
         m_frameCallback(std::move(rgba), width, height, position);
 }
 
+int Engine::consumerRestartsForTesting()
+{
+    auto count = std::make_shared<std::atomic<int>>(-1);
+    send([count](Thread &t) { count->store(t.controller->consumerRestartCount()); });
+    if (!syncForTesting())
+        return -1;
+    return count->load();
+}
+
 bool Engine::syncForTesting()
 {
     uint64_t target = send([](Thread &) {});

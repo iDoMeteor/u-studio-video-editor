@@ -118,6 +118,9 @@ class Engine
     // main context while waiting). False if that took over two minutes.
     // Never called by the app.
     [[nodiscard]] bool syncForTesting();
+    // Tests only: how many times the consumer has restarted (a rebuild
+    // restarts it; a transform drag must not; ADR-018). Syncs first.
+    int consumerRestartsForTesting();
 
   private:
     struct State

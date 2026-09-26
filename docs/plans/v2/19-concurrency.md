@@ -338,6 +338,14 @@ after the window's first second. That first second has first-show stalls
   threads as a preference for 4K.
 - Incremental rebuilds (ADR-005's planned optimisation: rebuild only the
   changed track) now that rebuilds are off the main thread and measurable.
+- Clip transforms (M4 F, ADR-018): the `affine` filter costs about
+  16–22 ms per transformed 1080p track per frame (the interpolation, already
+  sliced across cores, plus YUV→RGBA→YUV conversion). In `playback_soak
+  --transformed 3` (0.47.1, 2026-09-25) three transformed tracks showed
+  about 16 frames/s at Auto (= Full at 1080p) and 25 at Half, against 30.
+  Levers: a cheaper path for axis-aligned moves and scales (composite
+  geometry, or a scale filter at the target size), transforming at the
+  picture's own size rather than the whole canvas, GPU compositing.
 
 ### MT5 — Export in parallel, out of process (about 1 week)
 

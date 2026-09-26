@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.47.1
+
+- Pictures of another size or aspect are fitted and centred in the frame
+  (a 4:3 or 1344×768 source no longer sits at the left), and each clip
+  now keeps a transform (position, size, rotation, crop, flip) that is
+  saved, survives split, trim, ripple and copy, and renders exactly as it
+  plays; project format 6, older projects load fitted (M4 F1).
+
 ## 0.47.0
 
 - Proxies: Create Proxy / Create Conformed Proxy in the media browser, a

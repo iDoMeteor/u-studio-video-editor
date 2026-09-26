@@ -402,6 +402,12 @@ on clips and tracks, and `Param { name, value, keyframes }`. Changes:
 | `Look { id, name, effects }` in the project bin (and user library on disk) | saved effect stacks |
 | `Transition::recipe` + `params` (replacing the bare `service` string) | wipes, motion and blend transitions |
 
+**Clip transform is not in this table: it is core (ADR-018, M4 F).**
+`Clip::transform` (bounds mode, position, size, rotation, crop, flip, each
+a `KeyframedValue`) is edited, saved and played without this drop-in, and
+its preview handles are core shell. What FX adds is keyframing those same
+fields, not a transform effect of its own.
+
 New invariants for `Model::check()`: effect ids unique and below `nextId`;
 keyframes sorted, inside the owner's length; adjustment blocks
 non-overlapping per lane; every `Transition::recipe` resolvable (unknown
@@ -606,7 +612,8 @@ matching over names, tags and categories, then a grid:
 ### Direct manipulation on the preview
 
 - `Point` and `Rect` parameters (frei0r positions, `affine` rect, mask
-  shapes) draw handles over the preview. Dragging writes a keyframe when the
+  shapes) draw handles over the preview, as the core's clip transform
+  handles do (M4 F2, ADR-018). Dragging writes a keyframe when the
   parameter is animated, otherwise sets the value.
 - `Color` parameters get an eyedropper that samples the displayed frame.
 - Masks are drawn right on the preview: rectangle, ellipse, or free polygon,

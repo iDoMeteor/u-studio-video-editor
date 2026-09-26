@@ -260,6 +260,9 @@ time, a beep marks each whole second):
 Deliverables: bin panel, multi-import, drag to timeline, probing with
 validation, missing-media placeholders and relink dialog, still images and
 image sequences, proxies (generate/toggle) via `u-studio-render --proxy`.
+Clip transform (F, ADR-018, owner 2026-09-25): `Clip::transform` in the
+core model, format and engine (F1), then preview handles, snapping, nudge
+keys and an Edit Transform dialog (F2).
 
 Acceptance:
 - [ ] Importing a folder of 200 mixed files does not block the UI; failures
@@ -267,6 +270,16 @@ Acceptance:
 - [ ] Move a media file away, reopen project → red placeholders, playback
       continues, relink restores everything with no other model change.
 - [ ] Proxy on/off changes nothing in the model except `proxyPath`.
+- [ ] A 1344×768 source in a 1080p project is fitted and centred by
+      default; projects from before the transform load as Fit.
+- [ ] Move, scale, rotate, crop and flip show in the preview and are
+      identical in export (frame hash).
+- [ ] A handle drag is one undo step and doesn't restart the consumer.
+- [ ] Handles snap to the frame's edges and centre; Ctrl bypasses it (F2).
+- [ ] A transform survives save/load, trim, split, ripple, copy and a
+      frame-rate change.
+- [ ] 1080p30 plays in real time with three transformed tracks at Auto
+      preview scale (Full reported alongside; Full is MT4's, doc 19).
 
 ## M5 — Effects, keyframes, transitions (the FX track)
 

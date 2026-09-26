@@ -25,7 +25,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kFormatVersion = 5; // must match writer.cpp
+constexpr int kFormatVersion = 6; // must match writer.cpp
 // Oldest version this reader still opens. Format 3 differs from 4 only in
 // where the render structure and dissolve metadata live (see writer.cpp);
 // the record playlists and every ustudio: property it reads are identical.
@@ -352,7 +352,7 @@ std::expected<Model, std::string> loadProject(const std::string &path)
     if (seq.profile.fps.num <= 0 || seq.profile.fps.den <= 0) {
         xmlFreeDoc(doc);
         return std::unexpected(path + ": invalid <profile> frame rate (frame_rate_num/frame_rate_den must be "
-                                       "positive)");
+                                      "positive)");
     }
 
     Project project;
@@ -478,6 +478,27 @@ std::expected<Model, std::string> loadProject(const std::string &path)
                 clip.fadeOut = FadeSpec{toI64(*fadeOut)};
             clip.sourceParams = xml_detail::readParams(entryNode, "ustudio:source_param.");
             clip.effects = xml_detail::readEffectFilters(entryNode);
+            // ADR-018; absent (format 5 and older, or the default): Fit.
+            if (std::optional<std::string> bounds = getProperty(entryNode, "ustudio:transform.bounds")) {
+                Transform t;
+                t.bounds = *bounds == "none"      ? Transform::Bounds::None
+                           : *bounds == "stretch" ? Transform::Bounds::Stretch
+                                                  : Transform::Bounds::Fit;
+                const std::pair<const char *, KeyframedValue *> values[] = {{"x", &t.x},
+                                                                            {"y", &t.y},
+                                                                            {"width", &t.width},
+                                                                            {"height", &t.height},
+                                                                            {"rotation", &t.rotation},
+                                                                            {"crop_left", &t.cropLeft},
+                                                                            {"crop_top", &t.cropTop},
+                                                                            {"crop_right", &t.cropRight},
+                                                                            {"crop_bottom", &t.cropBottom}};
+                for (const auto &[name, value] : values)
+                    value->value = toDouble(prop(entryNode, std::string("ustudio:transform.") + name, "0"));
+                t.flipH = toBool(prop(entryNode, "ustudio:transform.flip_h", "0"));
+                t.flipV = toBool(prop(entryNode, "ustudio:transform.flip_v", "0"));
+                clip.transform.set(std::move(t));
+            }
 
             track.clips.push_back(clip.id);
             seq.clips.emplace(clip.id, std::move(clip));

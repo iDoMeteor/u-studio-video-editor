@@ -94,6 +94,15 @@ test_proxy_exe = executable(
 )
 test('engine-proxy', test_proxy_exe, timeout: 120)
 
+# ADR-018 (M4 F1): clip transforms in the engine.
+test_transform_exe = executable(
+  'test_transform',
+  files('test_transform.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-transform', test_transform_exe, timeout: 180)
+
 test_waveform_cache_exe = executable(
   'test_waveform_cache',
   files('test_waveform_cache.cpp'),

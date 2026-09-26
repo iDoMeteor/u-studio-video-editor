@@ -64,7 +64,10 @@ single-track skeleton.
   pickers to media files and `.ustudio` projects respectively.
 - Multi-track timeline: add/remove tracks, drag a track's handle to reorder
   it, click a row to make it the active track (where imports/splits land).
-  Higher tracks composite over lower ones for video (full-frame, top wins);
+  Higher tracks composite over lower ones for video (top wins; each
+  picture fits the frame, centred, unless moved, scaled, rotated, cropped
+  or flipped by its clip transform, saved with the project; editing it on
+  the preview arrives with M4 F2);
   all tracks mix together for audio, including tracks that are audio-only.
   A timecode ruler runs along the top, ticking every 1/2/5/10/15/30
   seconds or whole minutes/hours — whichever keeps ticks at least ~60px
@@ -637,8 +640,9 @@ consumer stops before `Factory::close()`.
   transition is required between tracks, and it needs `start=1` (constant
   full level, not a crossfade) *and* `sum=1` (the default halve-then-add
   algorithm measured no different from not mixing at all in testing).
-  `"composite"` (video) needed no such tuning — full-frame top-track-wins is
-  its default with no geometry configured.
+  Video needed no such tuning: `composite` (with `fill=1`, see "Tracks
+  composite with `composite`" below) draws the top track over the lower
+  ones.
 
 ### Engine sync notes
 
@@ -938,16 +942,49 @@ and the project writer puts the same `in`/`out` on a clip entry's native
 `<filter>`. Confirmed with a standalone repro and
 `tests/dropins/test_dropin_engine` (2026-09-25).
 
-**Composite's `fill` defaults to 0, whatever its YAML says.**
-`transition_composite.yml` documents `fill` as defaulting to 1, but the
-code reads it with `mlt_properties_get_int()` (`transition_composite.c`,
-7.40), so unset is 0 and a picture smaller than the project draws at its
-own size in the top-left corner (640x360 in 1080p: the top-left third).
-`EngineSync` and the writer set `fill=1`. Don't add `halign=centre`/
-`valign=middle` with it: the offset uses the unscaled size, uncovering the
-top left of every source and breaking hidden tracks. So a source of another
-aspect (4:3 in 16:9) sits left. Standalone repro and
-`tests/engine/test_composite_fill` (2026-09-25).
+**Tracks composite with `composite` (fill=1) onto track 0, and a clip's
+transform is an `affine` filter on its cut (ADR-018, M4 F).** Each finding
+from a standalone repro (MLT 7.40, 2026-09-25):
+
+- `composite`'s `fill` defaults to 0 whatever its YAML says (the code reads
+  it with `mlt_properties_get_int()`), so a picture smaller than the
+  project drew at its own size in the top-left corner. With `fill=1` a
+  picture of the frame's aspect fills it, but another aspect (4:3, 1344×768)
+  sits at the left, and `halign`/`valign` with `fill` offset by the unscaled
+  size. So a clip of another aspect gets the affine filter below even when
+  its transform is the default Fit (`core::isIdentity()`).
+- **The `affine` transition is too slow to be the track compositor.** It
+  fits and centres any aspect by itself, but cost 21 ms a frame for one
+  untransformed 1080p track (39 ms for four) against `composite`'s 5 (7).
+- **A chained compositor loses the upper clip's alpha.** With V1→V2 and
+  V2→V3 chained, a transformed V3 picture showed black, not V1, around it.
+  Every track's compositor takes track 0 (the background) as its A track
+  (`plant_transition(composite, 0, index)`), bottom track first. The audio
+  `mix` stays chained (`index - 1, index`).
+- **The transform filter** (after `crop` and `mirror`) needs
+  `use_normalized=1` (the canvas is the profile's size with the source
+  stretched to it, so `transition.rect` is where the picture lands; without
+  it the canvas is the source's size), `transition.repeat_off=1` and
+  `transition.mirror_off=1` (else it tiles and mirrors outside the rect),
+  and `transition.distort=1`. Rotation is `transition.fix_rotate_x`, in
+  degrees about the rect's centre. It costs about 16–22 ms a frame per
+  1080p track (the affine interpolation, already sliced across cores, plus
+  YUV→RGBA→YUV conversion); see doc 19, MT4.
+- With `use_normalized` the filter returns the profile's size *whatever
+  size is asked for*: a `luma` asked for a smaller frame then gets two
+  sizes and doesn't mix. Consumers ask for the profile's size, so playback
+  and render dissolve correctly; a test pulling frames directly must too
+  (`tests/engine/test_transform`).
+- **Each affine filter keeps a frame-sized image for its whole life**: it
+  makes its own `colour:0` background producer, and `producer_colour`
+  caches its last image (`filter_affine.c`, `producer_colour.c`). At 1080p
+  that is 8 MB per transformed cut that has played: RSS rose 438 → 750 MB
+  in a 2-minute soak. `EngineSync::applyTransform()` gives every filter one
+  shared background (a reference each); RSS then stayed flat. Projects
+  played directly in `melt` still keep one per filter.
+- A frame pulled bare interpolates rotated edges differently from the
+  consumers (`rescale=bilinear`); set `consumer.rescale` on it to compare
+  with a render byte for byte.
 
 ### Waveform cache notes
 

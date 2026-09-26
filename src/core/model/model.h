@@ -268,6 +268,8 @@ class Model
     bool hasLook(LookId) const;
 
     void setClipSourceParams(ClipId, std::vector<Param> params);
+    // ADR-018: where the clip's picture sits (SetClipTransform).
+    void setClipTransform(ClipId, Transform transform);
     void setTransitionRecipe(TransitionId, std::string recipe, std::vector<Param> params);
 
     // Verbatim restore, used by Command::revert paths (core/commands) that

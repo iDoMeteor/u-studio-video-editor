@@ -547,7 +547,7 @@ TEST_CASE("XML format 5: effects play in melt too -- native filters on every cut
     REQUIRE(saveProject(model, file.path.string()).empty());
     const std::string text = readFile(file.path);
 
-    CHECK(text.find("<property name=\"ustudio:format_version\">5</property>") != std::string::npos);
+    CHECK(text.find("<property name=\"ustudio:format_version\">6</property>") != std::string::npos); // 6: transforms
     // The record (model) copy: the whole animation, as written.
     CHECK(text.find("<property name=\"level\">0=0;100g=1</property>") != std::string::npos);
     // a's exclusive cut (its first 95 frames): the value at its last frame

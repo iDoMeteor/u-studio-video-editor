@@ -8,6 +8,7 @@
 #include "core/model/mlt_order.h"
 #include "core/model/retime.h"
 #include "core/model/track_segments.h"
+#include "core/model/transform.h"
 #include "platform/console.h"
 
 #include <algorithm>
@@ -155,6 +156,12 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
     // filters instead (applyInPlace()). Never considered without extensions,
     // so without drop-ins this is exactly the old path.
     bool inPlace = false;
+    // ADR-018: a drag changes only clip transforms; they're set on the live
+    // filters, so the consumer never restarts.
+    if (rebuild && applyTransformsInPlace(*project)) {
+        rebuild = false;
+        inPlace = true;
+    }
     if (rebuild && !m_extensions.empty() && applyInPlace(*project)) {
         rebuild = false;
         inPlace = true;
@@ -240,6 +247,7 @@ void EngineSync::rebuildOnNewProfile()
     m_proxiedAssets.clear();
     // Built from the old profile, which applyProfile() below replaces.
     m_blackMaster.reset();
+    m_transformBackground.reset(); // the old filters keep their references
 
     // Keep the OLD profile alive across applyProfile()+rebuildAll(), not
     // just swap it in place: applyProfile() would otherwise destroy it
@@ -522,6 +530,107 @@ Mlt::Producer &EngineSync::producerForClip(const core::Clip &clip)
     return masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled);
 }
 
+double EngineSync::outputScale() const
+{
+    const int projectWidth = m_model.sequence().profile.width;
+    return projectWidth > 0 ? static_cast<double>(m_profile->width()) / projectWidth : 1.0;
+}
+
+double EngineSync::sourceScale(const core::Clip &clip)
+{
+    // Crop is in source pixels; a proxy's frames are smaller.
+    if (!m_proxiedAssets.contains(clip.asset.value) || !m_model.hasAsset(clip.asset))
+        return 1.0;
+    const int sourceWidth = m_model.asset(clip.asset).info.width;
+    const int playing = masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled).get_int("meta.media.width");
+    return sourceWidth > 0 && playing > 0 ? static_cast<double>(playing) / sourceWidth : 1.0;
+}
+
+void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip)
+{
+    if (!m_model.hasAsset(clip.asset))
+        return;
+    const core::MediaInfo &info = m_model.asset(clip.asset).info;
+    const std::vector<core::NativeFilter> natives = core::transformFilters(
+        clip.transform.get(), info.width, info.height, m_model.sequence().profile, outputScale(), sourceScale(clip));
+    if (natives.empty())
+        return; // identity: the track compositor scales it to the frame
+    TransformFilters &kept = m_transformFilters[clip.id.value];
+    kept.shape.clear();
+    std::vector<std::shared_ptr<Mlt::Filter>> filters;
+    for (const core::NativeFilter &native : natives) {
+        kept.shape += native.service + ";";
+        auto filter = std::make_shared<Mlt::Filter>(*m_profile, native.service.c_str());
+        for (const auto &[name, value] : native.properties)
+            filter->set(name.c_str(), value.c_str());
+        if (native.service == "affine") {
+            // The filter draws onto a background it makes itself ("colour:0"),
+            // and producer_colour caches its last image in its properties:
+            // one frame-sized RGBA image per filter, kept for the filter's
+            // life (8 MB at 1080p; 2.4 GB for 300 played transformed cuts).
+            // Hand every filter the same one, a reference each (unset
+            // _background keeps the filter from replacing it). Safe across
+            // render threads: the filter holds its own lock for its whole
+            // get_image and producer_colour locks itself around the cache
+            // (filter_affine.c, producer_colour.c, MLT 7.40; TSan-checked by
+            // tests/engine/test_transform). Standalone repro 2026-09-25.
+            if (!m_transformBackground)
+                m_transformBackground = std::make_unique<Mlt::Producer>(*m_profile, "colour:0");
+            m_transformBackground->inc_ref();
+            filter->set(
+                "producer", m_transformBackground->get_producer(), 0,
+                +[](void *producer) { mlt_producer_close(static_cast<mlt_producer>(producer)); });
+        }
+        attachToCut(cut, *filter); // animated from the cut's own start (engine_extension.h)
+        filters.push_back(std::move(filter));
+    }
+    kept.cuts.push_back(std::move(filters));
+}
+
+bool EngineSync::applyTransformsInPlace(const core::Project &next)
+{
+    // Only transforms may differ: the same graph input with them blanked.
+    auto blank = [](core::Project project) {
+        for (core::Sequence &seq : project.sequences)
+            for (auto &[id, clip] : seq.clips)
+                clip.transform.set(core::Transform{});
+        return project;
+    };
+    if (!sameGraphInput(blank(*m_project), blank(next)))
+        return false;
+    const core::Sequence *seq = nullptr;
+    for (const core::Sequence &candidate : next.sequences)
+        if (candidate.id == next.activeSequence)
+            seq = &candidate;
+    if (!seq)
+        return false;
+    const core::Profile &profile = seq->profile;
+    bool changed = false;
+    for (const auto &[id, clip] : seq->clips) {
+        const core::Clip &before = m_model.clip(id);
+        if (before.transform == clip.transform)
+            continue;
+        const core::MediaInfo &info = m_model.asset(clip.asset).info;
+        const std::vector<core::NativeFilter> natives = core::transformFilters(
+            clip.transform.get(), info.width, info.height, profile, outputScale(), sourceScale(clip));
+        std::string shape;
+        for (const core::NativeFilter &native : natives)
+            shape += native.service + ";";
+        auto kept = m_transformFilters.find(id.value);
+        const std::string keptShape = kept == m_transformFilters.end() ? std::string() : kept->second.shape;
+        if (shape != keptShape)
+            return false; // filters to add or remove (identity <-> placed, a flip): rebuild
+        for (const auto &filters : kept->second.cuts)
+            for (size_t i = 0; i < natives.size() && i < filters.size(); ++i)
+                for (const auto &[name, value] : natives[i].properties)
+                    filters[i]->set(name.c_str(), value.c_str());
+        changed = true;
+    }
+    if (changed)
+        Log::debug("[engine] clip transforms applied in place");
+    return changed;
+}
+
 void EngineSync::decorateCut(Mlt::Producer &cut, const core::Clip &clip, core::FrameIndex in, core::FrameIndex out)
 {
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
@@ -538,11 +647,13 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     std::unique_ptr<Mlt::Producer> tailA(
         masterA.cut(static_cast<int>(clipA.out - t.length + 1), static_cast<int>(clipA.out)));
     decorateCut(*tailA, clipA, clipA.out - t.length + 1, clipA.out);
+    applyTransform(*tailA, clipA);
 
     Mlt::Producer &masterB = producerForClip(clipB);
     std::unique_ptr<Mlt::Producer> headB(
         masterB.cut(static_cast<int>(clipB.in), static_cast<int>(clipB.in + t.length - 1)));
     decorateCut(*headB, clipB, clipB.in, clipB.in + t.length - 1);
+    applyTransform(*headB, clipB);
 
     // IP3: a drop-in's recipe (wipes, motion; FX3) builds the whole segment.
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
@@ -667,6 +778,7 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
             Mlt::Producer &master = producerForClip(clip);
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
             decorateCut(*cut, clip, seg.in, seg.out);
+            applyTransform(*cut, clip);
             target().append(*cut);
         } else {
             target().append(*buildTransitionSubTractor(seg));
@@ -691,6 +803,7 @@ void EngineSync::rebuildAll()
     FactoryPolicy::raiseAvformatDecoderLimit(trackCount);
     m_clipProducers.clear();
     m_extensionProducers.clear();
+    m_transformFilters.clear();
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         extension->beginBuild();
     auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
@@ -766,9 +879,13 @@ void EngineSync::rebuildAll()
         playlists.push_back(std::move(playlist));
     }
 
-    // Chain composite (video) + mix (audio) across every adjacent index --
-    // matches v1's proven-working MltEngine::plantTrackTransitions exactly
-    // (see the class comment for why this is simpler than doc 05's graph).
+    // Video: every track composited onto track 0 (the background), bottom
+    // to top. Audio: mix chained across adjacent indexes, as v1's
+    // MltEngine::plantTrackTransitions did. Chaining the video compositor
+    // too (i-1 -> i) lost an upper clip's alpha: a transformed picture
+    // showed black instead of the tracks under it (the F spike, ADR-018,
+    // standalone repro 2026-09-25); onto track 0 (kdenlive's arrangement)
+    // it shows them.
     // One owned Field wrapper for the whole tractor -- see
     // buildTransitionSubTractor()'s comment (sanitizer report S1).
     std::unique_ptr<Mlt::Field> field(newTractor->field());
@@ -777,24 +894,20 @@ void EngineSync::rebuildAll()
         std::unique_ptr<Mlt::Transition> compositor;
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
             if (!compositor)
-                compositor = extension->compositor(*m_profile, index - 1, index);
+                compositor = extension->compositor(*m_profile, 0, index);
         if (compositor) {
-            field->plant_transition(*compositor, index - 1, index);
+            field->plant_transition(*compositor, 0, index);
         } else {
+            // composite, with fill=1 (its YAML says that's the default; the
+            // code's is 0): it scales a same-aspect picture to the frame, and
+            // a transformed or other-aspect cut arrives frame-sized from its
+            // affine filter (ADR-018). An affine compositor fits any aspect
+            // itself but cost 21 ms a frame for one untransformed 1080p track
+            // against composite's 5 (39 against 7 for four). Standalone
+            // repros, MLT 7.40, 2026-09-25; README "Engine sync notes".
             Mlt::Transition composite(*m_profile, "composite");
-            // Scale every picture up to the frame, keeping its aspect.
-            // transition_composite.yml says fill defaults to 1, but the code
-            // reads it with mlt_properties_get_int(), so unset is 0 (MLT
-            // 7.40, transition_composite.c:790): a 640x360 source in a
-            // 1080p project drew at its own size in the top-left third
-            // (standalone repro, 2026-09-25; found by M4 C's proxies, which
-            // are smaller than their project by design). Not centred:
-            // halign=centre/valign=middle with fill offsets by the unscaled
-            // size, uncovering the top left of every source and breaking
-            // hidden tracks (same repro), so a source of another aspect
-            // (4:3 in 16:9) sits left, as it always did.
             composite.set("fill", 1);
-            field->plant_transition(composite, index - 1, index);
+            field->plant_transition(composite, 0, index);
         }
 
         Mlt::Transition mix(*m_profile, "mix");
