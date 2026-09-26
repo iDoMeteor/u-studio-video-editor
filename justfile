@@ -77,6 +77,27 @@ flatpak:
     flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
         build-flatpak/repo build-flatpak/u-studio-video-editor-{{version}}.flatpak com.ustudio.VideoEditor
     @ls -lh build-flatpak/u-studio-video-editor-{{version}}.flatpak
+    just dist build-flatpak/u-studio-video-editor-{{version}}.flatpak
+
+# Copies a packaged artifact into the distribution folder with a .sha256
+# sidecar. Never overwrites: an existing name gets -2, -3, ... before the
+# extension (owner's rule, 2026-09-25). `just flatpak` runs it; set
+# USTUDIO_DIST_DIR to copy somewhere else.
+dist_dir := env_var_or_default("USTUDIO_DIST_DIR", env_var("HOME") / "projects/_software-dist/u-stu-video-editor")
+dist artifact:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src="{{artifact}}"
+    mkdir -p "{{dist_dir}}"
+    name=$(basename "$src"); stem="${name%.*}"; ext="${name##*.}"
+    dest="{{dist_dir}}/$name"; n=2
+    while [ -e "$dest" ] || [ -e "$dest.sha256" ]; do
+        dest="{{dist_dir}}/$stem-$n.$ext"; n=$((n + 1))
+    done
+    cp --no-clobber "$src" "$dest"
+    (cd "{{dist_dir}}" && sha256sum "$(basename "$dest")" > "$(basename "$dest").sha256")
+    echo "dist: $dest"
+    cat "$dest.sha256"
 
 # Drop-in configurations (ADR-013/014, doc 15 "Gating"): the full suite with
 # every drop-in built in, or every one as a loadable module (each in its own

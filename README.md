@@ -380,6 +380,9 @@ conventions for this repo.
 
 ## Building
 
+Beta testers: install the Flatpak bundle instead. How to build and
+install it is in [`packaging/flatpak/README.md`](packaging/flatpak/README.md).
+
 System packages needed beyond what's typically already on a GNOME dev
 machine:
 
