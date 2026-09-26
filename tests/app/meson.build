@@ -129,6 +129,15 @@ test_viewport_exe = executable(
 
 test('app-viewport', test_viewport_exe)
 
+# M4 F2: the preview's transform handles, as arithmetic.
+test_transform_gestures_exe = executable(
+  'test_transform_gestures',
+  files('test_transform_gestures.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+test('app-transform-gestures', test_transform_gestures_exe)
+
 test_timeline_controller_exe = executable(
   'test_timeline_controller',
   files('test_timeline_controller.cpp'),
