@@ -147,6 +147,15 @@ test_media_badges_exe = executable(
 )
 test('app-media-badges', test_media_badges_exe)
 
+# Help's Copy Diagnostics (0.49.0-beta.2).
+test_diagnostics_exe = executable(
+  'test_diagnostics',
+  files('test_diagnostics.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+test('app-diagnostics', test_diagnostics_exe)
+
 test_timeline_controller_exe = executable(
   'test_timeline_controller',
   files('test_timeline_controller.cpp'),

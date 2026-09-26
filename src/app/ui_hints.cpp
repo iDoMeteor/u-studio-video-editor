@@ -67,6 +67,9 @@ std::vector<HintSpec> &registry()
         {"transform-dialog.crop",        "Edit Transform", "Crop", "Source pixels cut from each edge before placing", nullptr, nullptr},
         {"transform-dialog.flip",        "Edit Transform", "Flip", "Mirrors the source picture", nullptr, nullptr},
         {"transform-dialog.reset",       "Edit Transform", "Reset", "Back to the picture as imported: fitted, uncropped, unrotated", nullptr, nullptr},
+        // --- Help: for bug reports ---
+        {"help.open-log-folder",  "Help", "Open the log folder", "Where the editor writes its logs; attach the newest one to a bug report", "open-log-folder", nullptr},
+        {"help.copy-diagnostics", "Help", "Copy diagnostics", "Versions, the log folder and the last 50 log lines, ready to paste into a bug report", "copy-diagnostics", nullptr},
         // --- Timeline: canvas gestures, no widget of their own ---
         {"timeline.active-track", "Timeline", "Make a track active",  "Imports and splits land on it. The click also moves the playhead there and selects the clip under the pointer", nullptr, "Click anywhere in a row"},
         {"timeline.scrub",        "Timeline", "Scrub",                "The preview follows the pointer", nullptr, "Drag on empty track space"},

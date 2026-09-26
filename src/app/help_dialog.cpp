@@ -11,13 +11,20 @@
 #include "app_window.h"
 
 #include "action_registry.h"
+#include "diagnostics.h"
 #include "ui_hints.h"
+#include "core/log.h"
+#include "core/media/utf8_path.h"
 #include "core/trace.h"
+#include "engine/factory_policy.h"
+#include "platform/process.h"
 #include "core/xml/release_notes.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -233,7 +240,7 @@ GtkWidget *AppWindow::buildReleaseNotesPage()
     return page;
 }
 
-GtkWidget *AppWindow::buildAboutPage() const
+GtkWidget *AppWindow::buildAboutPage()
 {
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
@@ -263,6 +270,20 @@ GtkWidget *AppWindow::buildAboutPage() const
     gtk_widget_add_css_class(license, "dim-label");
     gtk_widget_set_margin_top(license, 12);
     gtk_box_append(GTK_BOX(box), license);
+
+    // For bug reports (0.49.0-beta.2).
+    GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(buttons, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(buttons, 18);
+    GtkWidget *logs = gtk_button_new_with_label("Open Log Folder");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(logs), "win.open-log-folder");
+    setTooltip(logs, "help.open-log-folder");
+    gtk_box_append(GTK_BOX(buttons), logs);
+    GtkWidget *copy = gtk_button_new_with_label("Copy Diagnostics");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(copy), "win.copy-diagnostics");
+    setTooltip(copy, "help.copy-diagnostics");
+    gtk_box_append(GTK_BOX(buttons), copy);
+    gtk_box_append(GTK_BOX(box), buttons);
 
     return box;
 }
@@ -313,6 +334,55 @@ GtkAdjustment *AppWindow::restoreHelpScroll(GtkWidget *page, const char *tab)
         },
         g_object_ref(adjustment));
     return adjustment;
+}
+
+void AppWindow::openLogFolder()
+{
+    std::error_code ec;
+    const std::filesystem::path folder = core::Log::directory();
+    std::filesystem::create_directories(folder, ec);
+    // GtkFileLauncher goes through the OpenURI portal inside Flatpak, so
+    // the host's file manager opens the folder from the sandbox too.
+    GFile *file = g_file_new_for_path(core::utf8String(folder).c_str());
+    GtkFileLauncher *launcher = gtk_file_launcher_new(file);
+    g_object_unref(file);
+    gtk_file_launcher_launch(
+        launcher, GTK_WINDOW(m_window), nullptr,
+        +[](GObject *source, GAsyncResult *result, gpointer self) {
+            GError *error = nullptr;
+            if (!gtk_file_launcher_launch_finish(GTK_FILE_LAUNCHER(source), result, &error)) {
+                static_cast<AppWindow *>(self)->showStatus(std::string("Couldn't open the log folder: ") +
+                                                           (error ? error->message : "unknown error"));
+                g_clear_error(&error);
+            }
+            g_object_unref(source);
+        },
+        this);
+}
+
+void AppWindow::copyDiagnostics()
+{
+    DiagnosticsFacts facts;
+    facts.appVersion = USTUDIO_VERSION;
+    facts.mltVersion = engine::FactoryPolicy::mltVersion();
+    facts.gtkVersion = std::to_string(gtk_get_major_version()) + "." + std::to_string(gtk_get_minor_version()) + "." +
+                       std::to_string(gtk_get_micro_version());
+    facts.adwaitaVersion = std::to_string(adw_get_major_version()) + "." + std::to_string(adw_get_minor_version()) +
+                           "." + std::to_string(adw_get_micro_version());
+    facts.flatpak = platform::runningInFlatpak();
+    facts.logFolder = core::utf8String(core::Log::directory());
+    facts.recentLines = core::Log::recentLines(50);
+    gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(m_window)), formatDiagnostics(facts).c_str());
+    showStatus("Diagnostics copied: paste them into your bug report.");
+}
+
+void AppWindow::diagnosticsActionActivated(GSimpleAction *action, GVariant *, gpointer userData)
+{
+    auto *window = static_cast<AppWindow *>(userData);
+    if (std::strcmp(g_action_get_name(G_ACTION(action)), "open-log-folder") == 0)
+        window->openLogFolder();
+    else
+        window->copyDiagnostics();
 }
 
 void AppWindow::showHelpDialog()

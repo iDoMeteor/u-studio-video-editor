@@ -11,6 +11,13 @@ docs-only changes are not listed (CLAUDE.md).
   (probing, failed, missing, proxy and its progress, proxy missing). Large
   bins stay responsive: the list updates only the rows that changed.
 
+## 0.49.0-beta.2
+
+- Help › About gains Open Log Folder and Copy Diagnostics (app, MLT, GTK
+  and libadwaita versions, whether it runs in Flatpak, the log folder and
+  the last 50 log lines) for bug reports. Also in Keyboard Shortcuts under
+  Help.
+
 ## 0.49.0-beta.1
 
 - Help: every section of Controls and Keyboard Shortcuts folds away and

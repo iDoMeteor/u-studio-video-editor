@@ -370,6 +370,12 @@ main context window, a build/test run the session doesn't need to block on.
   fix bumps PATCH). Bump it in the same commit as the user-facing change
   and add a one-line, newest-first entry to `CHANGELOG.md` (create it on
   the first bump). Internal refactors, tests, docs: no bump.
+- Release notes: only a **releasable build** (a tagged beta or release that
+  testers or users will install) gets an entry in the `<releases>` block of
+  `data/com.ustudio.VideoEditor.metainfo.xml`. That block feeds Help ›
+  Release notes and software centres, so write it for testers: what's new,
+  what to try, known issues. Every past entry is kept. Everyday version
+  bumps go in `CHANGELOG.md` only.
 
 ### Git history safety (hard stop)
 

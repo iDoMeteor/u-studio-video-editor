@@ -1,6 +1,8 @@
 #include "log.h"
 
+#include <algorithm>
 #include <cctype>
+#include <deque>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
@@ -18,6 +20,10 @@ namespace {
 std::mutex g_mutex;
 std::ofstream g_file;
 LogLevel g_level = LogLevel::Info;
+// The last lines written (at the current level), for Help's Copy
+// Diagnostics: kept here rather than read back from the file.
+constexpr size_t kRecentLines = 200;
+std::deque<std::string> g_recent;
 
 const char *levelName(LogLevel level)
 {
@@ -105,7 +111,7 @@ std::string timestampForFilename()
 // ~/.local/state/ustudio/logs/ if XDG_STATE_HOME is unset. Moved here from
 // a plain ./logs/ (relative to cwd) in v2's M0 restructure (doc 14) — a
 // deliberate, documented exception to M0's "no behaviour change" rule.
-std::filesystem::path logDirectory()
+std::filesystem::path directoryFromEnvironment()
 {
     if (const char *stateHome = std::getenv("XDG_STATE_HOME"); stateHome && *stateHome)
         return std::filesystem::path(stateHome) / "ustudio" / "logs";
@@ -121,6 +127,9 @@ void writeLine(LogLevel level, const std::string &message)
         return;
 
     std::string line = "[" + timestampForLine() + "] [" + levelName(level) + "] " + message;
+    g_recent.push_back(line);
+    if (g_recent.size() > kRecentLines)
+        g_recent.pop_front();
     std::cerr << line << std::endl;
     if (g_file.is_open()) {
         g_file << line << std::endl;
@@ -136,12 +145,24 @@ void init(const std::string &appName)
     std::lock_guard<std::mutex> lock(g_mutex);
     g_level = levelFromValue(std::getenv("USTUDIO_LOG_LEVEL"));
 
-    std::filesystem::path dir = logDirectory();
+    std::filesystem::path dir = directoryFromEnvironment();
     std::error_code ec;
     std::filesystem::create_directories(dir, ec); // ignore failure; any error just means no file sink
 
     std::filesystem::path path = dir / (appName + "-" + timestampForFilename() + ".log");
     g_file.open(path, std::ios::out | std::ios::trunc);
+}
+
+std::filesystem::path directory()
+{
+    return directoryFromEnvironment();
+}
+
+std::vector<std::string> recentLines(size_t count)
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const size_t take = std::min(count, g_recent.size());
+    return {g_recent.end() - static_cast<std::ptrdiff_t>(take), g_recent.end()};
 }
 
 void setLevel(LogLevel level)

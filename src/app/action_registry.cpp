@@ -79,6 +79,10 @@ const std::vector<ActionSpec> &actionSpecs()
         {"import",        "Import…",           "Project", {"<Control>i"},             &AppWindow::importActionActivated},
         {"import-folder", "Import Folder…",    "Project", {"<Control><Shift>i"},      &AppWindow::importFolderActivated},
 
+        // --- Help: for bug reports (0.49.0-beta.2) ---
+        {"open-log-folder",      "Open Log Folder",            "Help", {},                  &AppWindow::diagnosticsActionActivated},
+        {"copy-diagnostics",     "Copy Diagnostics",           "Help", {},                  &AppWindow::diagnosticsActionActivated},
+
         // --- Transform: the selected clip's picture (M4 F2, ADR-018) ---
         {"transform-edit",       "Edit Transform…",            "Transform", {"<Control>t"}, &AppWindow::transformActionActivated},
         {"transform-reset",      "Reset Transform",            "Transform", {},             &AppWindow::transformActionActivated},
