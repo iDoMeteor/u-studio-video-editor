@@ -576,3 +576,14 @@ TEST_CASE("XML format 4 still loads (migration), and saves as format 5")
     REQUIRE(again.has_value());
     CHECK(again->project() == loaded->project());
 }
+
+TEST_CASE("xml: the sequence background is saved as #rrggbb; anything else reads as black")
+{
+    CHECK(backgroundHex(0x3366cc) == "#3366cc");
+    CHECK(backgroundResource(0x3366cc) == "0x3366ccff");
+    CHECK(parseBackgroundHex("#3366CC") == 0x3366ccu);
+    CHECK_FALSE(parseBackgroundHex("3366cc").has_value());
+    CHECK_FALSE(parseBackgroundHex("#3366c").has_value());
+    CHECK_FALSE(parseBackgroundHex("#3366cg").has_value());
+    CHECK_FALSE(parseBackgroundHex("#3366cc; rm").has_value());
+}

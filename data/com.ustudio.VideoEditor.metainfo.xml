@@ -28,7 +28,7 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
-    <release version="0.54.0-beta.2" date="2026-09-27" type="development">
+    <release version="0.55.0-beta.1" date="2026-09-27" type="development">
       <description>
         <p>New in this beta:</p>
         <ul>
@@ -36,6 +36,7 @@
           <li>Image sequences get proxies, like video.</li>
           <li>Colours are right in the preview and in renders: HD footage used to come out slightly off (reds duller, cyans with a red tint).</li>
           <li>Open Log Folder now opens the folder the first time too, with this session's log selected.</li>
+          <li>Pick the project's background colour (click the title in the header bar): it shows wherever no clip covers the frame, in the preview and in renders.</li>
           <li>Clips of another shape than the project (4:3, phone video) play much faster.</li>
           <li>Exports at another size than the project place moved and fitted pictures correctly.</li>
         </ul>

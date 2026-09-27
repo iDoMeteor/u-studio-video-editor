@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.55.0-beta.1
+
+- Project background colour: click the title in the header bar to pick the
+  colour shown wherever no clip covers the frame, in the preview and in
+  renders (black by default). Saved with the project; one undo step.
+
 ## 0.54.0-beta.2
 
 - Clips of another shape than the project (4:3, phone video) play much

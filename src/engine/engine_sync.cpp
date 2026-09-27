@@ -41,7 +41,6 @@ static_assert(static_cast<int>(core::Easing::BounceInOut) == mlt_keyframe_bounce
 namespace Log = ustudio::core::Log;
 
 namespace {
-constexpr const char *kBlackResource = "color:black";
 // What a missing file's clips play (doc 07, M4 B): style.css's
 // semantic_danger (#ff4d6d) darkened, so it reads as "something's wrong"
 // without glaring for the length of a clip. The engine can't include the
@@ -186,8 +185,9 @@ bool sameGraphInput(const core::Project &a, const core::Project &b)
     for (size_t i = 0; i < a.sequences.size(); ++i) {
         const core::Sequence &x = a.sequences[i];
         const core::Sequence &y = b.sequences[i];
-        if (x.id != y.id || x.profile != y.profile || x.tracks != y.tracks || x.clips != y.clips ||
-            x.transitions != y.transitions || x.effects != y.effects || x.adjustmentBlocks != y.adjustmentBlocks)
+        if (x.id != y.id || x.profile != y.profile || x.background != y.background || x.tracks != y.tracks ||
+            x.clips != y.clips || x.transitions != y.transitions || x.effects != y.effects ||
+            x.adjustmentBlocks != y.adjustmentBlocks)
             return false;
     }
     return true;
@@ -233,13 +233,14 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
 
 void EngineSync::dropChangedMasters(const core::Project &before, const core::Project &after)
 {
-    // A relinked, missing or found-again asset needs its file (or the
-    // placeholder) opened afresh; the cache is keyed by asset id alone.
+    // A relinked, missing, found-again or rewritten asset (a new fingerprint:
+    // ShellHost::assetChangedOnDisk()) needs its file (or the placeholder)
+    // opened afresh; the cache is keyed by asset id alone.
     for (const core::Asset &now : after.bin) {
         auto was =
             std::find_if(before.bin.begin(), before.bin.end(), [&](const core::Asset &a) { return a.id == now.id; });
-        if (was == before.bin.end() ||
-            (was->path == now.path && was->status == now.status && was->proxyPath == now.proxyPath))
+        if (was == before.bin.end() || (was->path == now.path && was->status == now.status &&
+                                        was->proxyPath == now.proxyPath && was->fileFingerprint == now.fileFingerprint))
             continue;
         for (uint64_t variant = 0; variant < 4; ++variant)
             m_masterProducers.erase((now.id.value << 2) | variant);
@@ -928,11 +929,28 @@ void EngineSync::rebuildAll()
     // Created with a fixed, very long length and never mutated afterwards:
     // a running consumer may still be pulling from an older tractor's cut
     // of it while this rebuild runs, so resizing it per rebuild would race.
+    // A new background colour is a new master; a cut of the old one keeps
+    // it alive for as long as an old tractor plays it.
+    if (m_blackMaster && m_blackMasterColour != seq.background)
+        m_blackMaster.reset();
     if (!m_blackMaster) {
-        m_blackMaster = std::make_unique<Mlt::Producer>(*m_profile, kBlackResource);
+        m_blackMasterColour = seq.background;
+        m_blackMaster =
+            std::make_unique<Mlt::Producer>(*m_profile, ("color:" + core::backgroundResource(seq.background)).c_str());
         m_blackMaster->set("length", kBlackMasterLength);
         m_blackMaster->set_in_and_out(0, kBlackMasterLength - 1);
-        attachProfileColorspace(*m_blackMaster, *m_profile);
+        const uint32_t r = seq.background >> 16 & 0xff, g = seq.background >> 8 & 0xff, b = seq.background & 0xff;
+        if (r == g && g == b) {
+            // A grey is the same YUV in BT.601 and BT.709: YUV (the cheap
+            // path) re-tagged with the profile's colourspace.
+            attachProfileColorspace(*m_blackMaster, *m_profile);
+        } else {
+            // producer_colour converts with BT.601 and composite never
+            // converts B; as RGBA the colour is converted with the profile's
+            // matrix (what the writer does for melt). Costs ~7 ms a frame at
+            // 1080p (2026-09-27 measurement) for a colour the user chose.
+            m_blackMaster->set("mlt_image_format", "rgba");
+        }
     }
     core::FrameIndex sequenceLength = std::max<core::FrameIndex>(seq.length(), 1);
     // Mlt::Producer::cut() returns a new, caller-owned wrapper (the "mlt++

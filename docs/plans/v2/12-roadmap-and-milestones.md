@@ -224,7 +224,7 @@ against MLT 7.40, `~/Repos/mlt` at v7.40.0 for the source).
   stopping the consumer before the old graph and profile go
   (`tests/engine/test_engine_thread.cpp`: 30 ↔ 59.94 three times while
   playing). The header title shows the format and opens the change, with a
-  confirmation; "Project Frame Rate…" is also an action.
+  confirmation; "Project Frame Rate and Background…" is also an action.
 - **FR3, VFR detection (optional, not scheduled; needs the owner's call).**
   Sources whose own frame rate varies (phones, screen recordings) are
   already handled correctly by the time mapping above. Detecting them

@@ -122,6 +122,7 @@ class Model
     // The active sequence's size and rate, as they are: nothing is retimed
     // (see core/model/retime.h for that).
     void setSequenceProfile(const Profile &profile);
+    void setSequenceBackground(uint32_t rgb);
     // The active sequence and the bin wholesale (a frame-rate change moves
     // every position and asset length at once; core/model/retime.h).
     void replaceSequenceAndBin(Sequence sequence, std::vector<Asset> bin);

@@ -79,6 +79,7 @@ permissions · [Getting started](docs/user/getting-started.md)
 - Proxies for 4K and variable-frame-rate phone footage; renders always use
   the originals. → [Proxies](docs/user/importing-media.md#proxies-smooth-editing-of-4k-and-phone-footage)
 - Mixed frame rates on one timeline; change the project rate at any time.
+- Any background colour under the clips, in the preview and in renders.
 - Missing media opens anyway and can be relinked in one step.
 - Autosave, crash recovery, save backups, and recent projects.
   → [Projects and saving](docs/user/projects-and-saving.md)
