@@ -13,8 +13,9 @@ Status: T1 done. `.ustitle` files import as title clips, play with alpha
 through the `ustudio_title` MLT producer, fit any clip length, reload when
 the file changes, and render the same in `u-studio-render`. T2 (the
 `u-studio-titles` designer) in progress: T2a (canvas, move and resize with
-snapping, undo, save and open, backgrounds) and T2b (layers list,
-inspector, brand kit) are in.
+snapping, undo, save and open, backgrounds), T2b (layers list,
+inspector, brand kit) and T2c (typing on the canvas, pictures, Edit Title
+from the editor, the smoke test `tools/titles-smoke/`) are in.
 
 ## Layout
 
@@ -25,8 +26,8 @@ inspector, brand kit) are in.
 | `render/` | `renderTitle()`: a title at a moment into premultiplied ARGB32, and `toStraightRgba()` for MLT | Pango, PangoCairo, Cairo, fontconfig |
 | `app/` | `u-studio-titles`, the designer: the window, the canvas (a GtkWidget drawn with GSK, rendering through a worker thread), the layers list, the inspector, view settings | GTK4, libadwaita, `core/`, `render/`; never MLT (checked by the build) |
 | `mltmodule/` | `libmltustudio.so`: the `ustudio_title` MLT producer (`resource`, `length`, `field.<name>`). Self-contained, exports only `mlt_register` | MLT's C API, `core/`, `render/` |
-| `engine/` | The engine extension (IP3: a producer per title clip) and `u-studio-render --title-frames` (IP6) | `src/engine`, mlt++ |
-| `editor/` | The editor window's side (IP5): the `.ustitle` import handler and the file watch | `src/app/shell_host.h`, GIO |
+| `engine/` | The engine extension (IP3: a producer per title clip), `u-studio-render --title-frames` (IP6), and the designer's backdrop (the frame without the title, on a worker thread) | `src/engine`, mlt++ |
+| `editor/` | The editor window's side (IP5): the `.ustitle` import handler, the file watch, Edit Title (an action and a double-click on a title clip) and the designer's launcher | `src/app/shell_host.h`, GIO |
 | `register.cpp` | The drop-in's describe function; IP4 contributes the module's directory | the drop-in host API |
 | `tests/` | `titles-core`, `titles-render`, `titles-edit`, `titles-worker`, `titles-engine`, `titles-shell` | doctest |
 
@@ -84,7 +85,7 @@ order, first at the bottom.
 | `<timing>` | `intro`, `hold`, `outro` in title frames; `hold-mode` is always `elastic` |
 | `<background>` | As `<fill>`, behind every layer. Absent (the default): transparent, for overlays |
 | `<field>` | `name` (no braces), `label`, `default`; the text says `{{name}}` |
-| `<layer>` | `id`, `kind` (`text`, `shape`), `x`, `y`, `w`, `h`, `opacity`, `scale`, `rotation` (degrees, about the box's centre), `visible` and `locked` (`0`/`1`); text: `align` (`left`, `center`, `right`), `fit` (`none`, `wrap`, `shrink`); shape: `shape` (`rect`, `rounded-rect`, `ellipse`, `line`), `radius` |
+| `<layer>` | `id`, `kind` (`text`, `shape`, `image`), `x`, `y`, `w`, `h`, `opacity`, `scale`, `rotation` (degrees, about the box's centre), `visible` and `locked` (`0`/`1`); text: `align` (`left`, `center`, `right`), `fit` (`none`, `wrap`, `shrink`); shape: `shape` (`rect`, `rounded-rect`, `ellipse`, `line`), `radius`; image: `src` (a PNG, relative to the title's folder or absolute; with `w` or `h` 0 that side keeps the picture's aspect) |
 | `<text>` | The text, plain (never Pango markup) |
 | `<font>` | `family` (a generic fallback is always added), `weight` (100–1000), `size` (px), `style="italic"`, `tracking` (em), `line-height` (factor) |
 | `<fill>` | `color`, or `gradient="linear"` / `"radial"` with `from`, `to`, an optional `via` (a middle stop) and `angle` for linear; `kind="none"`; `opacity` |

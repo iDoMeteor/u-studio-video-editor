@@ -47,6 +47,12 @@ class TitlesWindow
     void chooseOpenPath();
     void chooseBackdropColour();
     void chooseBackdropImage();
+    // A PNG for a new picture layer, or for `replaceId`'s.
+    void choosePicture(const std::optional<std::string> &replaceId);
+    std::string pictureSource(const std::string &path) const;
+    // Typing on the canvas: a text box over the layer, in its font.
+    void editTextOnCanvas(const std::string &id);
+    void finishTextEdit(bool commit);
     void addLayerOf(Layer layer, const std::string &label);
     bool confirmClose();
 
@@ -58,6 +64,11 @@ class TitlesWindow
     AdwApplicationWindow *m_window = nullptr;
     AdwWindowTitle *m_title = nullptr;
     AdwToastOverlay *m_toasts = nullptr;
+    GtkWidget *m_canvasOverlay = nullptr;
+    // The text box while typing on the canvas, and the layer it edits.
+    GtkWidget *m_textEditor = nullptr;
+    std::string m_textEditId;
+    guint m_finishIdle = 0;
     std::unique_ptr<TitleCanvas> m_canvas;
     std::unique_ptr<LayersPanel> m_layers;
     std::unique_ptr<Inspector> m_inspector;
@@ -71,6 +82,10 @@ class TitlesWindow
     static gboolean onCloseRequest(GtkWindow *, gpointer self);
     static void onAction(GSimpleAction *action, GVariant *parameter, gpointer self);
     static void onDestroy(GtkWidget *, gpointer self);
+    static gboolean onTextEditorKey(GtkEventControllerKey *, guint keyval, guint, GdkModifierType state, gpointer self);
+    static void onTextEditorFocusLeave(GtkEventControllerFocus *, gpointer self);
+    static void onTextEditorChanged(GtkTextBuffer *buffer, gpointer);
+    static gboolean onFinishTextEdit(gpointer self);
 };
 
 } // namespace ustudio::titles::app

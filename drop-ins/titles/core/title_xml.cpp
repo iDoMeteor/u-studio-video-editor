@@ -218,6 +218,9 @@ std::optional<Layer> readLayer(const xmlNode *node, std::string &error, std::set
         layer.kind = LayerKind::Text;
     } else if (kind == "shape") {
         layer.kind = LayerKind::Shape;
+    } else if (kind == "image") {
+        layer.kind = LayerKind::Image;
+        layer.src = attr(node, "src").value_or("");
     } else {
         warnings.insert("\"" + kind + "\" layers aren't supported yet");
         return std::nullopt;
@@ -465,6 +468,7 @@ std::expected<ReadResult, std::string> readTitle(const std::string &path)
     auto result = parseTitle(buffer.str());
     if (!result)
         return std::unexpected(path + ": " + result.error());
+    result->document.baseDirectory = core::utf8String(file.parent_path());
     return result;
 }
 
@@ -501,9 +505,12 @@ std::string writeTitle(const TitleDocument &title)
     for (const Layer &layer : title.layers) {
         xmlNode *node = xmlNewChild(root, nullptr, BAD_CAST "layer", nullptr);
         setAttr(node, "id", layer.id);
-        setAttr(node, "kind", layer.kind == LayerKind::Text ? "text" : "shape");
+        static constexpr const char *kKinds[] = {"text", "shape", "image"};
+        setAttr(node, "kind", kKinds[static_cast<size_t>(layer.kind)]);
         if (layer.kind == LayerKind::Shape)
             setAttr(node, "shape", kShapes[static_cast<size_t>(layer.shape)]);
+        if (layer.kind == LayerKind::Image)
+            setAttr(node, "src", layer.src);
         setAttr(node, "x", num(layer.x));
         setAttr(node, "y", num(layer.y));
         setAttr(node, "w", num(layer.w));
@@ -536,7 +543,8 @@ std::string writeTitle(const TitleDocument &title)
             if (layer.font.lineHeight != 1.0)
                 setAttr(font, "line-height", num(layer.font.lineHeight));
         }
-        writeFill(node, layer.fill);
+        if (layer.kind != LayerKind::Image)
+            writeFill(node, layer.fill);
         if (layer.stroke.width > 0.0) {
             xmlNode *stroke = xmlNewChild(node, nullptr, BAD_CAST "stroke", nullptr);
             setAttr(stroke, "color", formatColor(layer.stroke.color));

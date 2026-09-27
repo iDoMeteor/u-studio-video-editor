@@ -12,6 +12,7 @@
 #include "core/xml/writer.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
+#include "engine/backdrop.h"
 #include "engine/title_extension.h"
 #include "engine/title_frames.h"
 #include "platform/process.h"
@@ -23,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 
 using namespace ustudio;
 using namespace ustudio::core;
@@ -247,6 +249,57 @@ TEST_CASE("a missing or broken title file doesn't stop the rest playing")
         Rgba below = pixel(frameAt(sync, 30), 1200, 500);
         CHECK(below.a == 255);
     }
+}
+
+// may_fail: the engine's compositing darkens every half-transparent edge
+// today, for any source with alpha: a PNG still of this same picture gives
+// the same pixels (red 60 where it should stay near 255; the producer's
+// own output there is white at alpha 5, correct). Reported to VE Core
+// (2026-09-27); drop may_fail once compositing is fixed.
+TEST_CASE("anti-aliased edges over coloured video have no dark fringe" * doctest::may_fail())
+{
+    // White text over red: both have red at 255, so every edge pixel must
+    // keep red near 255. A premultiplied value taken as straight (or the
+    // reverse) darkens exactly these half-covered pixels.
+    setUp();
+    Scene scene(writeTitle("fringe.ustitle", R"(<ustitle version="1" width="1920" height="1080" fps="30/1">
+      <timing intro="0" hold="60" outro="0"/>
+      <layer kind="text" x="200" y="300" rotation="7"><text>Fringe Test</text><font family="Sans" size="160"/>
+        <fill color="#ffffff"/></layer>
+    </ustitle>)"),
+                60);
+    engine::EngineSync sync(scene.model);
+    const std::vector<uint8_t> image = frameAt(sync, 30);
+    int edges = 0, darkest = 255;
+    for (int y = 280; y < 560; ++y)
+        for (int x = 180; x < 1400; ++x) {
+            const Rgba p = pixel(image, x, y);
+            if (p.g > 10 && p.g < 245) { // partly covered: an edge
+                ++edges;
+                darkest = std::min(darkest, p.r);
+            }
+        }
+    CHECK(edges > 500); // there are anti-aliased edges to judge
+    CHECK(darkest >= 250);
+}
+
+TEST_CASE("the designer's backdrop is the frame without the title, rendered off the main thread")
+{
+    setUp();
+    Scene scene(writeTitle("backdrop.ustitle"), 150);
+    engine::EngineSync sync(scene.model);
+    Rgba withTitle = pixel(frameAt(sync, 60), 400, 950);
+    CHECK(withTitle.g > 240); // the white bar
+    titles::Backdrop backdrop;
+    std::thread worker([&] { backdrop = titles::renderBackdrop(scene.model.snapshot(), scene.clip, 60); });
+    worker.join();
+    REQUIRE(backdrop.width == 1920);
+    REQUIRE(backdrop.height == 1080);
+    const uint8_t *p = backdrop.rgba.data() + (950 * 1920 + 400) * 4;
+    CHECK(p[0] > 200); // red: the title isn't in it
+    CHECK(p[1] < 50);
+    // The project it was given is untouched.
+    CHECK(scene.model.clip(scene.clip).videoEnabled);
 }
 
 #ifdef TITLES_RENDER_TOOL

@@ -101,6 +101,8 @@ TEST_CASE("saveTitle writes atomically and readTitle reads it back")
     CHECK_FALSE(std::filesystem::exists(path + ".part"));
     auto read = readTitle(path);
     REQUIRE(read.has_value());
+    CHECK(read->document.baseDirectory == dir.string()); // where its images resolve
+    read->document.baseDirectory.clear();
     CHECK(read->document == lowerThird());
     std::filesystem::remove_all(dir);
     CHECK_FALSE(readTitle(path).has_value());
@@ -135,7 +137,7 @@ TEST_CASE("untrusted input: refused cleanly or clamped, never trusted")
     if (entity)
         CHECK(entity->document.layers[0].text.find("root") == std::string::npos);
     // Unknown layer kinds are skipped with a warning.
-    auto image = parseTitle(R"(<ustitle version="1"><layer kind="image"/></ustitle>)");
+    auto image = parseTitle(R"(<ustitle version="1"><layer kind="video"/></ustitle>)");
     REQUIRE(image.has_value());
     CHECK(image->document.layers.empty());
     CHECK(image->warnings.size() == 1);

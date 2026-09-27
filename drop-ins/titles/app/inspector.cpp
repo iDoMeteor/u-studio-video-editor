@@ -139,7 +139,9 @@ GtkWidget *chipBox()
     GtkWidget *box = gtk_flow_box_new();
     gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(box), GTK_SELECTION_NONE);
     gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(box), FALSE);
-    gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(box), 3);
+    // At least one a line, up to three: the chips never widen the inspector.
+    gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(box), 1);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(box), 3);
     gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(box), 6);
     gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(box), 6);
     return box;
@@ -431,6 +433,19 @@ void Inspector::buildLayer(const Layer &layer)
             comboRow("Fit", {"As written", "Wrap to the box", "Shrink to the box"}, static_cast<size_t>(layer.fit),
                      [set](size_t i) { set("Fit", "fit", [i](Layer &l) { l.fit = static_cast<Fit>(i); }); }));
         gtk_box_append(GTK_BOX(m_box), font);
+    } else if (layer.kind == LayerKind::Image) {
+        GtkWidget *g = group("Picture");
+        GtkWidget *replace = gtk_button_new_with_label("Replace…");
+        gtk_widget_set_valign(replace, GTK_ALIGN_CENTER);
+        auto replaceImage = m_callbacks.replaceImage;
+        onEvent(replace, "clicked", [replaceImage, id] {
+            if (replaceImage)
+                replaceImage(id);
+        });
+        const std::string name = layer.src.substr(
+            layer.src.find_last_of("/\\") == std::string::npos ? 0 : layer.src.find_last_of("/\\") + 1);
+        add(g, actionRow(name.empty() ? "No picture" : name.c_str(), replace));
+        gtk_box_append(GTK_BOX(m_box), g);
     } else {
         GtkWidget *g = group("Shape");
         add(g, comboRow("Shape", {"Rectangle", "Rounded rectangle", "Ellipse", "Line"},
@@ -444,7 +459,7 @@ void Inspector::buildLayer(const Layer &layer)
         gtk_box_append(GTK_BOX(m_box), g);
     }
 
-    if (!(layer.kind == LayerKind::Shape && layer.shape == ShapeKind::Line)) {
+    if (layer.kind != LayerKind::Image && !(layer.kind == LayerKind::Shape && layer.shape == ShapeKind::Line)) {
         auto editLayerFill = m_callbacks.editLayer;
         gtk_box_append(GTK_BOX(m_box), fillGroup("Fill", layer.fill, layer.kind == LayerKind::Shape,
                                                  [editLayerFill, id](const std::function<void(Fill &)> &change,

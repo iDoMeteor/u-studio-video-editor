@@ -331,3 +331,51 @@ TEST_CASE("measureLayers: each layer's box, in canvas pixels")
     CHECK(geometry[1].box.h > 30);
     CHECK(std::abs(geometry[1].box.x + geometry[1].box.w / 2 - 400) < 1); // centred on x
 }
+
+#include <cairo.h>
+
+TEST_CASE("image layers: a PNG at its own size, scaled keeping its aspect, and missing ones named")
+{
+    const auto dir = std::filesystem::temp_directory_path() / "ustudio-titles-test-image";
+    std::filesystem::create_directories(dir);
+    // A 40 x 20 picture: red left half, blue right half.
+    cairo_surface_t *png = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 40, 20);
+    cairo_t *cr = cairo_create(png);
+    cairo_set_source_rgb(cr, 1, 0, 0);
+    cairo_rectangle(cr, 0, 0, 20, 20);
+    cairo_fill(cr);
+    cairo_set_source_rgb(cr, 0, 0, 1);
+    cairo_rectangle(cr, 20, 0, 20, 20);
+    cairo_fill(cr);
+    cairo_destroy(cr);
+    REQUIRE(cairo_surface_write_to_png(png, (dir / "logo.png").string().c_str()) == CAIRO_STATUS_SUCCESS);
+    cairo_surface_destroy(png);
+
+    TitleDocument doc = parse(R"(<ustitle version="1" width="200" height="100">
+      <layer id="own" kind="image" src="logo.png" x="10" y="10"/>
+      <layer id="wide" kind="image" src="logo.png" x="100" y="10" w="80"/>
+    </ustitle>)");
+    doc.baseDirectory = dir.string();
+    const RenderResult result = renderTitle(doc, 0, {}, 200, 100);
+    CHECK(result.warnings.empty());
+    const Straight image = straight(result);
+    CHECK(image.at(15, 20).r == 255); // its own size: 40 x 20 at (10, 10)
+    CHECK(image.at(45, 20).b == 255);
+    CHECK(image.at(55, 20).a == 0);
+    CHECK(image.at(110, 40).r == 255); // w 80: h follows, 40
+    CHECK(image.at(170, 40).b == 255);
+    CHECK(image.at(140, 55).a == 0);
+    const std::vector<LayerGeometry> geometry = measureLayers(doc, 0, {});
+    CHECK(geometry[0].box == Rect{10, 10, 40, 20});
+    CHECK(geometry[1].box == Rect{100, 10, 80, 40});
+
+    // It round-trips, and a missing picture is named (the rest still draws).
+    auto again = parseTitle(writeTitle(doc));
+    REQUIRE(again.has_value());
+    CHECK(again->document.layers[1].src == "logo.png");
+    std::filesystem::remove(dir / "logo.png");
+    const RenderResult missing = renderTitle(doc, 0, {}, 200, 100);
+    REQUIRE(missing.warnings.size() == 1);
+    CHECK(missing.warnings[0] == "the picture logo.png isn't there");
+    std::filesystem::remove_all(dir);
+}

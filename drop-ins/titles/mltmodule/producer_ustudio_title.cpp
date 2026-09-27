@@ -10,6 +10,8 @@
 //   length          the clip's length in frames; elastic timing fits the
 //                   title to it (doc 16), so the hold stretches
 //   field.<name>    the clip's value for {{name}}
+//   video_index     -1: the picture is off (fully transparent frames), as
+//                   the editor switches a clip's video off for media
 //
 // Frames are straight RGBA (mlt_image_rgba) with the title's alpha, at the
 // size the consumer asks for, drawn by the same function the titles app
@@ -104,7 +106,11 @@ int getImage(mlt_frame frame, uint8_t **buffer, mlt_image_format *format, int *w
     const int size = *width * *height * 4; // mlt_image_rgba, as mlt_image_calculate_size() has it
     auto *image = static_cast<uint8_t *>(mlt_pool_alloc(size));
     bool cached = false;
-    {
+    if (mlt_properties_get_int(properties, "video_index") == -1) {
+        std::memset(image, 0, static_cast<size_t>(size));
+        cached = true; // nothing to draw
+    }
+    if (!cached) {
         std::lock_guard lock(title.mutex);
         if (title.lastWidth == *width && title.lastHeight == *height && title.lastStates == states &&
             title.lastFields == fields) {

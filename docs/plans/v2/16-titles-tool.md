@@ -369,14 +369,18 @@ editor), T2d (export).
 
 Acceptance:
 
-- [ ] A lower third can be designed from a blank canvas without touching
-      the XML.
-- [ ] Nothing typed into any text field triggers a shortcut.
-- [ ] The canvas background can be any colour, and the choice is
+- [x] A lower third can be designed from a blank canvas without touching
+      the XML (`tools/titles-smoke/run.sh`, 2026-09-27).
+- [x] Nothing typed into any text field triggers a shortcut (only modifier
+      shortcuts are window-wide; checked by typing Delete, arrows, Escape
+      and letters into the inspector's text and the canvas text box).
+- [x] The canvas background can be any colour, and the choice is
       remembered.
 - [ ] A title with no background composites over coloured video with clean
       anti-aliased edges (no dark fringes); one with a background covers the
-      frame.
+      frame. Blocked on the engine: any source with alpha fringes dark at
+      its edges today, PNG stills included (reported to VE Core; the test
+      is `titles-engine`'s may_fail case).
 - [ ] A title exports as a PNG sequence and as an alpha video that `ffprobe`
       reports with an alpha plane, and flattened as H.264.
 
@@ -404,6 +408,19 @@ Acceptance:
 > change or an edit made elsewhere; an edit made in it doesn't, so a field
 > keeps focus while you type, and rows that depend on a choice (a fill's
 > kind, the shadow switch) are rebuilt from an idle callback.
+
+> REVIEW: VE Text, 2026-09-27: T2c as built. (1) Typing on the canvas is
+> a text view overlaid on the layer in its family, weight and size at the
+> canvas's scale, with the layer hidden meanwhile; not a GtkEntry (text can
+> have several lines). (2) Image layers are PNG only (Cairo reads PNG
+> without another library), relative to the title's folder, cached per
+> thread and re-read when the file changes; Save As to another folder
+> rewrites relative paths. (3) Edit Title renders the backdrop itself: the
+> frame at the playhead with the title's video off, on a worker thread with
+> its own EngineSync (as an export does), joined at shutdown; the
+> `ustudio_title` producer honours `video_index=-1` for that. (4) The
+> designer is found next to the editor (one bundle in the Flatpak), else
+> the build tree, else PATH, and started with GSubprocess.
 
 ### T3 — Animation (about 2 weeks)
 

@@ -37,6 +37,8 @@ class Inspector
         // kind, a shape, the shadow switch): show it again, later (the
         // widget whose signal is running mustn't be destroyed under it).
         std::function<void()> rebuild;
+        // Pick another picture for the image layer `id`.
+        std::function<void(const std::string &id)> replaceImage;
     };
 
     Inspector(Callbacks callbacks, BrandKit kit);

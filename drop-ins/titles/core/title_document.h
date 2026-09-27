@@ -106,7 +106,8 @@ enum class Fit
 enum class LayerKind
 {
     Text,
-    Shape
+    Shape,
+    Image, // a PNG, drawn into the box
 };
 
 enum class ShapeKind
@@ -173,6 +174,9 @@ struct Layer
     // Shape
     ShapeKind shape = ShapeKind::Rect;
     double radius = 0.0; // RoundedRect
+    // Image: a PNG, relative to the title's folder (or absolute). With w or
+    // h 0, that side follows the picture's aspect; both 0, its own size.
+    std::string src;
 
     Fill fill;
     Stroke stroke;
@@ -214,6 +218,10 @@ struct TitleDocument
     Fill background = noFill();
     std::vector<Field> fields;
     std::vector<Layer> layers; // bottom first: later layers draw over earlier ones
+
+    // Not saved: the folder relative image paths resolve against (the
+    // title file's own; readTitle() sets it).
+    std::string baseDirectory;
 
     bool operator==(const TitleDocument &) const = default;
 };

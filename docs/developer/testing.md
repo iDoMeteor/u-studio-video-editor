@@ -36,6 +36,19 @@ The short version:
   MLT-lifetime changes, in the tiers CLAUDE.md sets out. See
   [Building](building.md#sanitizers).
 
+## The titles designer's smoke test
+
+`tools/titles-smoke/run.sh <builddir> <outdir>` designs a lower third in
+`u-studio-titles` from a blank canvas with the mouse and keyboard only
+(doc 16, T2 acceptance), saves it through the Save dialog and checks the
+saved title: three layers, the typed text, the bar's place and size, the
+brand's fonts and gradient. It runs on a private Xvfb with its own D-Bus
+session and AT-SPI bus, so nothing shows on the desktop; screenshots of
+each step land in `<outdir>`. It needs a build with `-Ddropin_titles`, Xvfb,
+python3 with `gi` (Atspi) and python-xlib, and ImageMagick's `import`.
+Notes on driving GTK dialogs there are in
+[the titles notes](notes/titles.md).
+
 ## Notable tests
 
 - **Undo property test** (`core`): 10,000 random commands, undo them all,

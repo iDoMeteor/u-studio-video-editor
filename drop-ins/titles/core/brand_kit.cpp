@@ -102,7 +102,8 @@ bool applyBrand(TitleDocument &doc, const BrandKit &kit)
                 layer.fill.kind = FillKind::Solid;
                 layer.fill.color = body->value;
             }
-        } else if (layer.fill.kind != FillKind::None && layer.shape != ShapeKind::Line && panel) {
+        } else if (layer.kind == LayerKind::Shape && layer.fill.kind != FillKind::None &&
+                   layer.shape != ShapeKind::Line && panel) {
             layer.fill.kind = FillKind::Solid;
             layer.fill.color = panel->value;
             layer.fill.opacity = 0.92;

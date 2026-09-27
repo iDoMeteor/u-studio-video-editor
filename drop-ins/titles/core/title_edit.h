@@ -72,6 +72,9 @@ class TitleHistory
     }
     // A different document (Open, New): no history, not dirty.
     void reset(TitleDocument doc);
+    // Where relative image paths resolve (the title's folder), in the
+    // document and every step of its history: not an edit.
+    void setBaseDirectory(const std::string &directory);
 
   private:
     struct Step
