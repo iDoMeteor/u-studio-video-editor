@@ -49,6 +49,8 @@ class TitleCanvas
         std::function<void(const std::string &id)> deleteRequested;
         // Double-click on a text layer.
         std::function<void(const std::string &id)> editText;
+        // Space: play or stop the loop preview.
+        std::function<void()> togglePlay;
     };
 
     explicit TitleCanvas(Callbacks callbacks);
@@ -62,6 +64,12 @@ class TitleCanvas
     }
 
     void setDocument(const TitleDocument &doc);
+    // The moment shown, in title frames (the strip's playhead).
+    void setFrame(double titleFrame);
+    double frame() const
+    {
+        return m_titleFrame;
+    }
     void setSelection(std::optional<std::string> id);
     const std::optional<std::string> &selection() const
     {
@@ -114,6 +122,7 @@ class TitleCanvas
     Callbacks m_callbacks;
     GtkWidget *m_widget = nullptr;
     TitleDocument m_doc;
+    double m_titleFrame = 0.0;
     std::vector<LayerGeometry> m_geometry;
     std::optional<std::string> m_selection;
     Backdrop m_backdrop = Backdrop::Checkerboard;

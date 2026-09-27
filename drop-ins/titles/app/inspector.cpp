@@ -1,5 +1,12 @@
 #include "inspector.h"
 
+#include "behavior_drawer.h"
+
+#include "core/animation.h"
+#include "core/evaluate.h"
+#include "core/model/animation.h"
+#include "core/title_edit.h"
+
 #include <adwaita.h>
 
 #include <array>
@@ -232,8 +239,10 @@ gboolean Inspector::onRebuild(gpointer self)
     return G_SOURCE_REMOVE;
 }
 
-void Inspector::show(const TitleDocument &doc, const std::optional<std::string> &selection)
+void Inspector::show(const TitleDocument &doc, const std::optional<std::string> &selection, double titleFrame)
 {
+    m_doc = doc;
+    m_frame = titleFrame;
     m_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18);
     gtk_widget_set_margin_start(m_box, 12);
     gtk_widget_set_margin_end(m_box, 12);
@@ -500,22 +509,157 @@ void Inspector::buildLayer(const Layer &layer)
     }
     gtk_box_append(GTK_BOX(m_box), shadow);
 
+    // A property that can be keyframed: its value at the playhead (a key
+    // there when it's animated, else the layer's own value), and a toggle
+    // for a key at the playhead.
+    const Timing timing = m_doc.timing;
+    const auto frame = static_cast<core::FrameIndex>(std::lround(m_frame));
+    const LayerState now = evaluateLayer(layer, timing, m_frame);
+    auto editKeyed = m_callbacks.editLayer;
+    const auto animRow = [&, editKeyed, id, timing, frame](const char *title, Property property, double min, double max,
+                                                           double step, int digits, double factor) {
+        const bool animated = isAnimated(layer, property);
+        const double current = animated ? stateValue(now, property) : baseValue(layer, property);
+        GtkWidget *row = spinRow(title, current * factor, min, max, step, digits,
+                                 [editKeyed, id, timing, frame, property, factor, title](double v) {
+                                     editKeyed(
+                                         std::string("Change ") + title, id,
+                                         [&](Layer &l) {
+                                             if (isAnimated(l, property))
+                                                 setKey(l, timing, property, frame, v / factor);
+                                             else
+                                                 setBaseValue(l, property, v / factor);
+                                         },
+                                         layerKey(id, propertyName(property)));
+                                 });
+        if (animated)
+            adw_action_row_set_subtitle(ADW_ACTION_ROW(row), "Animated: this is its value at the playhead");
+        GtkWidget *key = gtk_toggle_button_new_with_label("◆");
+        gtk_widget_add_css_class(key, "flat");
+        gtk_widget_set_valign(key, GTK_ALIGN_CENTER);
+        gtk_widget_set_tooltip_text(key, "A keyframe here, at the playhead");
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(key), findKey(layer, timing, property, frame) != nullptr);
+        onEvent(key, "toggled", [this, key, editKeyed, id, timing, frame, property, current] {
+            const bool on = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(key));
+            editKeyed(
+                on ? "Add Keyframe" : "Remove Keyframe", id,
+                [&](Layer &l) {
+                    if (on)
+                        setKey(l, timing, property, frame, current);
+                    else
+                        removeKey(l, timing, property, frame);
+                },
+                "");
+            rebuildLater();
+        });
+        adw_action_row_add_suffix(ADW_ACTION_ROW(row), key);
+        return row;
+    };
+
     GtkWidget *box = group("Position");
-    add(box, spinRow("X", layer.x, -100000, 100000, 1, 0,
-                     [set](double v) { set("Move Layer", "x", [v](Layer &l) { l.x = v; }); }));
-    add(box, spinRow("Y", layer.y, -100000, 100000, 1, 0,
-                     [set](double v) { set("Move Layer", "y", [v](Layer &l) { l.y = v; }); }));
+    add(box, animRow("X", Property::X, -100000, 100000, 1, 0, 1.0));
+    add(box, animRow("Y", Property::Y, -100000, 100000, 1, 0, 1.0));
     add(box, spinRow("Width", layer.w, 0, 100000, 1, 0,
                      [set](double v) { set("Resize Layer", "w", [v](Layer &l) { l.w = v; }); }));
     add(box, spinRow("Height", layer.h, 0, 100000, 1, 0,
                      [set](double v) { set("Resize Layer", "h", [v](Layer &l) { l.h = v; }); }));
-    add(box, spinRow("Rotation", layer.rotation, -360, 360, 1, 0,
-                     [set](double v) { set("Rotate Layer", "rotation", [v](Layer &l) { l.rotation = v; }); }));
-    add(box, spinRow("Scale", layer.scale * 100, 1, 1000, 1, 0,
-                     [set](double v) { set("Scale Layer", "scale", [v](Layer &l) { l.scale = v / 100; }); }));
-    add(box, spinRow("Opacity", layer.opacity * 100, 0, 100, 5, 0,
-                     [set](double v) { set("Layer Opacity", "opacity", [v](Layer &l) { l.opacity = v / 100; }); }));
+    add(box, animRow("Rotation", Property::Rotation, -360, 360, 1, 0, 1.0));
+    add(box, animRow("Scale", Property::Scale, 0, 1000, 1, 0, 100.0));
+    add(box, animRow("Opacity", Property::Opacity, 0, 100, 5, 0, 100.0));
+    add(box, animRow("Blur", Property::Blur, 0, 200, 1, 0, 1.0));
     gtk_box_append(GTK_BOX(m_box), box);
+
+    // Behaviours: presets that animate the layer (core/animation.h).
+    GtkWidget *motion = group("Animation");
+    adw_preferences_group_set_description(ADW_PREFERENCES_GROUP(motion),
+                                          "In plays from the intro's start, Out ends at the outro's end, Loop repeats "
+                                          "through the hold.");
+    static constexpr const char *kSlots[] = {"In", "Out", "Loop"};
+    for (size_t i = 0; i < layer.behaviors.size(); ++i) {
+        const Behavior &b = layer.behaviors[i];
+        const BehaviorInfo *info = behaviorInfo(b.id);
+        GtkWidget *row = adw_action_row_new();
+        adw_preferences_row_set_title(
+            ADW_PREFERENCES_ROW(row),
+            (std::string(kSlots[static_cast<size_t>(b.slot)]) + " · " + (info ? info->label : b.id)).c_str());
+        adw_action_row_set_subtitle(ADW_ACTION_ROW(row),
+                                    (std::string(b.slot == BehaviorSlot::Loop ? "every " : "over ") +
+                                     std::to_string(b.duration) + " frames · " + core::easingName(b.easing))
+                                        .c_str());
+        GtkWidget *frames = gtk_spin_button_new_with_range(1, 100000, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(frames), static_cast<double>(b.duration));
+        gtk_widget_set_valign(frames, GTK_ALIGN_CENTER);
+        gtk_widget_set_tooltip_text(frames, "Frames (a loop's period)");
+        onProperty(frames, "value", [set, frames, i] {
+            const auto value = static_cast<core::FrameIndex>(gtk_spin_button_get_value(GTK_SPIN_BUTTON(frames)));
+            set("Behaviour Length", ("behaviour-" + std::to_string(i)).c_str(), [i, value](Layer &l) {
+                if (i < l.behaviors.size())
+                    l.behaviors[i].duration = value;
+            });
+        });
+        adw_action_row_add_suffix(ADW_ACTION_ROW(row), frames);
+        GtkWidget *remove = gtk_button_new_from_icon_name("user-trash-symbolic");
+        gtk_widget_add_css_class(remove, "flat");
+        gtk_widget_set_valign(remove, GTK_ALIGN_CENTER);
+        gtk_widget_set_tooltip_text(remove, "Remove the behaviour");
+        onEvent(remove, "clicked", [this, editKeyed, id, i] {
+            editKeyed(
+                "Remove Behaviour", id,
+                [i](Layer &l) {
+                    if (i < l.behaviors.size())
+                        l.behaviors.erase(l.behaviors.begin() + static_cast<std::ptrdiff_t>(i));
+                },
+                "");
+            rebuildLater();
+        });
+        adw_action_row_add_suffix(ADW_ACTION_ROW(row), remove);
+        add(motion, row);
+    }
+    // Add, one menu per slot, each a drawer of live thumbnails.
+    GtkWidget *adders = chipBox(); // wraps: never wider than the inspector
+    for (BehaviorSlot slot : {BehaviorSlot::In, BehaviorSlot::Out, BehaviorSlot::Loop}) {
+        GtkWidget *button = gtk_menu_button_new();
+        gtk_menu_button_set_label(GTK_MENU_BUTTON(button),
+                                  (std::string("Add ") + kSlots[static_cast<size_t>(slot)] + "…").c_str());
+        gtk_widget_add_css_class(button, "pill");
+        const TitleDocument doc = m_doc;
+        const Layer copy = layer;
+        // Built when opened, so its thumbnails show the layer as it is then.
+        gtk_menu_button_set_create_popup_func(
+            GTK_MENU_BUTTON(button),
+            +[](GtkMenuButton *menu, gpointer data) {
+                auto *make = static_cast<std::function<GtkWidget *()> *>(data);
+                gtk_menu_button_set_popover(menu, (*make)());
+            },
+            new std::function<GtkWidget *()>([this, editKeyed, id, doc, copy, slot] {
+                return makeBehaviorDrawer(doc, copy, slot, [this, editKeyed, id, slot](const BehaviorInfo &info) {
+                    editKeyed(
+                        "Add Behaviour", id,
+                        [&](Layer &l) {
+                            // One per slot: a new one replaces the old.
+                            std::erase_if(l.behaviors, [&](const Behavior &b) { return b.slot == slot; });
+                            l.behaviors.push_back({slot, info.id, info.duration, info.easing, 1, 1.0});
+                        },
+                        "");
+                    rebuildLater();
+                });
+            }),
+            +[](gpointer data) { delete static_cast<std::function<GtkWidget *()> *>(data); });
+        gtk_flow_box_append(GTK_FLOW_BOX(adders), button);
+    }
+    add(motion, captionRow("Add a behaviour", adders));
+    if (!layer.behaviors.empty()) {
+        GtkWidget *detach = gtk_button_new_with_label("Detach to Keyframes");
+        gtk_widget_set_valign(detach, GTK_ALIGN_CENTER);
+        onEvent(detach, "clicked", [this, editKeyed, id, timing] {
+            editKeyed("Detach to Keyframes", id, [&](Layer &l) { detachBehaviors(l, timing); }, "");
+            rebuildLater();
+        });
+        add(motion, actionRow("Turn in and out behaviours into keyframes", detach));
+    }
+    // Right under the layer's first group (its text, shape or picture):
+    // where it's found without scrolling.
+    gtk_box_insert_child_after(GTK_BOX(m_box), motion, gtk_widget_get_first_child(m_box));
 }
 
 void Inspector::buildDocument(const TitleDocument &doc)

@@ -52,7 +52,8 @@ class Inspector
     }
 
     // Shows `selection` in `doc` (or the title, with none).
-    void show(const TitleDocument &doc, const std::optional<std::string> &selection);
+    // At `titleFrame`: an animated property shows (and edits) its value there.
+    void show(const TitleDocument &doc, const std::optional<std::string> &selection, double titleFrame = 0.0);
 
     const BrandKit &kit() const
     {
@@ -69,6 +70,8 @@ class Inspector
 
     Callbacks m_callbacks;
     BrandKit m_kit;
+    TitleDocument m_doc; // shown
+    double m_frame = 0.0;
     guint m_rebuildSource = 0;
     GtkWidget *m_scroller = nullptr;
     GtkWidget *m_box = nullptr;

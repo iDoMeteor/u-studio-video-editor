@@ -73,3 +73,37 @@ TEST_CASE("nothing is delivered after the worker is destroyed")
     spinUntil([] { return false; }, 300); // drain anything already posted
     CHECK(*calls == before);
 }
+
+#include "app/behavior_drawer.h"
+
+TEST_CASE("the behaviour drawer's thumbnails: the layer alone, cropped to it, over the behaviour's window")
+{
+    TitleDocument doc;
+    doc.timing = {20, 60, 20};
+    Layer bar = makeShapeLayer(doc, ShapeKind::Rect);
+    bar.x = 100;
+    bar.y = 800;
+    bar.w = 600;
+    bar.h = 150;
+    bar.animation.push_back({Property::X, {{Zone::Intro, {0, 50.0, ustudio::core::Easing::Linear}}}});
+    addLayer(doc, bar);
+    addLayer(doc, makeTextLayer(doc, "Other"));
+    const Behavior rise{BehaviorSlot::In, "rise", 15, ustudio::core::Easing::CubicOut, 1, 1.0};
+    const TitleDocument thumb = ustudio::titles::app::thumbnailDocument(doc, doc.layers[0], rise);
+    REQUIRE(thumb.layers.size() == 1);
+    CHECK(thumb.layers[0].behaviors.size() == 1);
+    CHECK(std::abs(static_cast<double>(thumb.width) / thumb.height - 16.0 / 9.0) < 0.02);
+    CHECK(thumb.width < 1920);
+    // The layer sits inside the cropped canvas, its keys moved with it.
+    CHECK(thumb.layers[0].x > 0);
+    CHECK(thumb.layers[0].x + 600 < thumb.width);
+    CHECK(thumb.layers[0].animation[0].keys[0].key.value == doctest::Approx(50 - (100 - thumb.layers[0].x)));
+    // Frames: in from 0, out ending at the end, loops in the hold.
+    const std::vector<double> in = ustudio::titles::app::thumbnailFrames(doc.timing, rise, 5);
+    CHECK(in.front() == 0);
+    CHECK(in.back() == 21);
+    const Behavior fade{BehaviorSlot::Out, "fade", 12, ustudio::core::Easing::Linear, 1, 1.0};
+    CHECK(ustudio::titles::app::thumbnailFrames(doc.timing, fade, 5).back() == 100);
+    const Behavior pulse{BehaviorSlot::Loop, "pulse", 45, ustudio::core::Easing::Linear, 1, 1.0};
+    CHECK(ustudio::titles::app::thumbnailFrames(doc.timing, pulse, 5).front() == 28);
+}

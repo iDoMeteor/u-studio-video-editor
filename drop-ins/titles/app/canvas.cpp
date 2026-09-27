@@ -83,13 +83,6 @@ void setColour(cairo_t *cr, tokens::Rgb colour, double alpha = 1.0)
     cairo_set_source_rgba(cr, colour.r, colour.g, colour.b, alpha);
 }
 
-// The frame to show while designing: the start of the hold, where the
-// intro has finished and nothing has started leaving (T3 adds scrubbing).
-double designFrame(const TitleDocument &doc)
-{
-    return static_cast<double>(doc.timing.intro);
-}
-
 } // namespace
 
 TitleCanvas::TitleCanvas(Callbacks callbacks)
@@ -131,9 +124,19 @@ TitleCanvas::~TitleCanvas()
 void TitleCanvas::setDocument(const TitleDocument &doc)
 {
     m_doc = doc;
-    m_geometry = measureLayers(m_doc, designFrame(m_doc), {});
+    m_geometry = measureLayers(m_doc, m_titleFrame, {});
     if (m_selection && !geometryOf(*m_selection))
         setSelection(std::nullopt);
+    requestRender();
+    gtk_widget_queue_draw(m_widget);
+}
+
+void TitleCanvas::setFrame(double titleFrame)
+{
+    if (titleFrame == m_titleFrame)
+        return;
+    m_titleFrame = titleFrame;
+    m_geometry = measureLayers(m_doc, m_titleFrame, {});
     requestRender();
     gtk_widget_queue_draw(m_widget);
 }
@@ -193,7 +196,7 @@ void TitleCanvas::requestRender()
     const int height = std::max(1, static_cast<int>(std::lround(m_doc.height * map.scale * factor)));
     m_requestedWidth = width;
     m_requestedHeight = height;
-    m_wantedGeneration = m_worker.request(m_doc, designFrame(m_doc), {}, width, height);
+    m_wantedGeneration = m_worker.request(m_doc, m_titleFrame, {}, width, height);
 }
 
 void TitleCanvas::onRendered(RenderResult result, uint64_t generation)
@@ -503,6 +506,10 @@ bool TitleCanvas::keyPressed(guint keyval, GdkModifierType state)
     switch (keyval) {
     case GDK_KEY_Escape:
         setSelection(std::nullopt);
+        return true;
+    case GDK_KEY_space:
+        if (m_callbacks.togglePlay)
+            m_callbacks.togglePlay();
         return true;
     case GDK_KEY_Delete:
     case GDK_KEY_BackSpace:

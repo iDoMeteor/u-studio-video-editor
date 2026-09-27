@@ -4,6 +4,15 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+
+## 0.59.0-beta.1
+
+- U Stu Titles animates: an animation strip with the intro, hold and outro
+  (drag to retime, click to scrub, Space to play), 17 ready-made
+  behaviours to add from a drawer of live thumbnails (fade, rise, pop,
+  typewriter, word by word, scramble, wipe, kinetic stack, float, shimmer,
+  glow and more), and keyframes on position, rotation, scale, opacity and
+  blur.
 ## 0.58.1-beta.1
 
 - Transparent pictures (PNG stills, titles, rotated or scaled clips) no

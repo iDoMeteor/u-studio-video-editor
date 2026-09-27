@@ -465,6 +465,16 @@ Acceptance:
 > channel, shadow opacity. Animators take a `spread` as well as a stagger,
 > so a typewriter fits its duration whatever the text's length.
 
+> REVIEW: VE Text, 2026-09-27: T3b as built. The animation strip draws the
+> zones, a row per layer with behaviour chips and keyframe diamonds, and
+> the playhead; dragging a divider retimes the title (one undo step). Space
+> plays the loop preview from GTK's frame clock. The inspector keys a
+> property at the playhead (◆) and edits an animated property's value
+> there; keys land in the zone the playhead is in. The behaviour drawer is
+> a popover per slot whose thumbnails animate the selected layer itself,
+> cropped to it, rendered on a worker thread and cycled on the main loop.
+> One behaviour per slot per layer: adding one replaces the slot's.
+
 ### T4 — Templates and editor workflow (about 1–2 weeks)
 
 Integration points: IP5 inspector page and action contributions.

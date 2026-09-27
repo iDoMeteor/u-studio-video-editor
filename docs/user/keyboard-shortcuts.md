@@ -85,6 +85,7 @@ it). Typing in a text box never triggers them.
 | `Delete` / `Backspace` | Delete the selected layer (canvas) |
 | Arrow keys | Nudge the selected layer 1 pixel; with `Shift`, 10 (canvas) |
 | `Escape` | Clear the selection (canvas) |
+| `Space` | Play or stop the title: intro, two seconds of hold, outro (canvas) |
 | `Alt` + drag | Move without snapping |
 
 ## Mouse modifiers

@@ -155,6 +155,8 @@ TitlesWindow::TitlesWindow(GtkApplication *app, const std::string &path, const s
     if (!path.empty())
         open(path);
     refresh();
+    // Where nothing is still coming in or going out.
+    setFrame(static_cast<double>(m_history.document().timing.intro));
     // The canvas has focus, not the layers list (a focused row in a
     // single-selection list selects itself).
     gtk_window_set_focus(GTK_WINDOW(m_window), m_canvas->widget());
@@ -162,6 +164,7 @@ TitlesWindow::TitlesWindow(GtkApplication *app, const std::string &path, const s
 
 TitlesWindow::~TitlesWindow()
 {
+    stopPlaying();
     g_cancellable_cancel(m_cancellable);
     g_object_unref(m_cancellable);
     if (m_finishIdle)
@@ -176,6 +179,25 @@ void TitlesWindow::buildUi()
         [this](const std::string &id, const Rect &box, bool final) { resizeLayer(id, box, final); },
         [this](const std::string &id) { deleteLayer(id); },
         [this](const std::string &id) { editTextOnCanvas(id); },
+        [this] { togglePlay(); },
+    });
+    m_strip = std::make_unique<AnimationStrip>(AnimationStrip::Callbacks{
+        [this](double frame) {
+            stopPlaying();
+            setFrame(frame);
+        },
+        [this](const Timing &timing, bool final) {
+            edit(
+                "Change Timing",
+                [&](TitleDocument &doc) {
+                    doc.timing = timing;
+                    return true;
+                },
+                "timing");
+            if (final)
+                m_history.closeStep();
+        },
+        [this](const std::string &id) { m_canvas->setSelection(id); },
     });
 
     GtkWidget *header = adw_header_bar_new();
@@ -269,7 +291,7 @@ void TitlesWindow::buildUi()
                 if (!edit("Apply Brand", [&](TitleDocument &doc) { return applyBrand(doc, m_inspector->kit()); }))
                     toast("Already in the brand");
             },
-            [this] { m_inspector->show(m_history.document(), m_canvas->selection()); },
+            [this] { m_inspector->show(m_history.document(), m_canvas->selection(), m_canvas->frame()); },
             [this](const std::string &id) { choosePicture(id); },
         },
         loadBrandKit());
@@ -282,7 +304,34 @@ void TitlesWindow::buildUi()
     m_canvasOverlay = gtk_overlay_new();
     gtk_overlay_set_child(GTK_OVERLAY(m_canvasOverlay), m_canvas->widget());
     gtk_widget_set_hexpand(m_canvasOverlay, TRUE);
-    gtk_box_append(GTK_BOX(panes), m_canvasOverlay);
+    gtk_widget_set_vexpand(m_canvasOverlay, TRUE);
+    // Under it: play and where the playhead is, then the animation strip.
+    GtkWidget *transport = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_start(transport, 8);
+    gtk_widget_set_margin_top(transport, 4);
+    gtk_widget_set_margin_bottom(transport, 4);
+    m_playButton = gtk_button_new_from_icon_name("media-playback-start-symbolic");
+    gtk_widget_add_css_class(m_playButton, "flat");
+    gtk_widget_set_tooltip_text(m_playButton, "Play the intro, two seconds of the hold and the outro, again (Space)");
+    g_signal_connect_swapped(m_playButton, "clicked",
+                             G_CALLBACK(+[](gpointer self) { static_cast<TitlesWindow *>(self)->togglePlay(); }), this);
+    gtk_box_append(GTK_BOX(transport), m_playButton);
+    m_timeLabel = gtk_label_new("");
+    gtk_widget_add_css_class(m_timeLabel, "dim-label");
+    gtk_widget_add_css_class(m_timeLabel, "numeric");
+    gtk_box_append(GTK_BOX(transport), m_timeLabel);
+    GtkWidget *centre = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_hexpand(centre, TRUE);
+    gtk_box_append(GTK_BOX(centre), m_canvasOverlay);
+    gtk_box_append(GTK_BOX(centre), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(centre), transport);
+    GtkWidget *stripScroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(stripScroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(stripScroller), 220);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(stripScroller), TRUE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(stripScroller), m_strip->widget());
+    gtk_box_append(GTK_BOX(centre), stripScroller);
+    gtk_box_append(GTK_BOX(panes), centre);
     gtk_box_append(GTK_BOX(panes), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
     gtk_box_append(GTK_BOX(panes), m_inspector->widget());
     adw_toast_overlay_set_child(m_toasts, panes);
@@ -296,16 +345,60 @@ void TitlesWindow::selectionChanged(const std::optional<std::string> &id)
 {
     const TitleDocument &doc = m_history.document();
     m_layers->show(doc, id);
-    m_inspector->show(doc, id);
+    m_inspector->show(doc, id, m_canvas->frame());
+    m_strip->show(doc, id, m_canvas->frame());
+}
+
+void TitlesWindow::setFrame(double titleFrame)
+{
+    const TitleDocument &doc = m_history.document();
+    m_canvas->setFrame(titleFrame);
+    m_strip->show(doc, m_canvas->selection(), titleFrame);
+    const double fps = static_cast<double>(doc.fpsNum) / std::max(1, doc.fpsDen);
+    const auto frame = static_cast<int64_t>(titleFrame);
+    const char *zone = frame < doc.timing.intro                     ? "Intro"
+                       : frame < doc.timing.intro + doc.timing.hold ? "Hold"
+                                                                    : "Outro";
+    char text[64];
+    std::snprintf(text, sizeof text, "%s · frame %lld · %.2f s", zone, static_cast<long long>(frame), titleFrame / fps);
+    gtk_label_set_text(GTK_LABEL(m_timeLabel), text);
+    if (!m_playTick) // while playing, the inspector keeps still
+        m_inspector->show(doc, m_canvas->selection(), titleFrame);
+}
+
+void TitlesWindow::togglePlay()
+{
+    if (m_playTick) {
+        stopPlaying();
+        return;
+    }
+    m_playStart = 0;
+    m_playTick = gtk_widget_add_tick_callback(m_canvas->widget(), &onPlayTick, this, nullptr);
+    gtk_button_set_icon_name(GTK_BUTTON(m_playButton), "media-playback-pause-symbolic");
+}
+
+void TitlesWindow::stopPlaying()
+{
+    if (!m_playTick)
+        return;
+    gtk_widget_remove_tick_callback(m_canvas->widget(), m_playTick);
+    m_playTick = 0;
+    gtk_button_set_icon_name(GTK_BUTTON(m_playButton), "media-playback-start-symbolic");
+    m_inspector->show(m_history.document(), m_canvas->selection(), m_canvas->frame());
 }
 
 void TitlesWindow::refresh()
 {
     const TitleDocument &doc = m_history.document();
     m_canvas->setDocument(doc); // may clear a selection whose layer is gone (selectionChanged)
+    // The playhead stays inside the title.
+    const double end = static_cast<double>(doc.timing.length());
+    if (m_canvas->frame() > end)
+        m_canvas->setFrame(end);
     m_layers->show(doc, m_canvas->selection());
+    m_strip->show(doc, m_canvas->selection(), m_canvas->frame());
     if (!m_editFromInspector)
-        m_inspector->show(doc, m_canvas->selection());
+        m_inspector->show(doc, m_canvas->selection(), m_canvas->frame());
     const std::string name = m_path.empty() ? "Untitled Title" : fileName(m_path);
     const std::string title = (m_history.isDirty() ? "• " : "") + name;
     adw_window_title_set_title(m_title, title.c_str());
@@ -350,6 +443,7 @@ void TitlesWindow::open(const std::string &path)
     m_path = path;
     m_canvas->setSelection(std::nullopt);
     refresh();
+    setFrame(static_cast<double>(m_history.document().timing.intro));
     for (const std::string &warning : read->warnings)
         toast(warning);
 }
@@ -693,7 +787,7 @@ void TitlesWindow::editTextOnCanvas(const std::string &id)
     if (!index || doc.layers[*index].kind != LayerKind::Text)
         return;
     const Layer &layer = doc.layers[*index];
-    const std::vector<LayerGeometry> geometry = measureLayers(doc, static_cast<double>(doc.timing.intro), {});
+    const std::vector<LayerGeometry> geometry = measureLayers(doc, m_canvas->frame(), {});
     const Rect box = geometry[*index].box;
     const TitleCanvas::Mapping map = m_canvas->mapping();
 
@@ -803,8 +897,7 @@ void TitlesWindow::moveLayerTo(const std::string &id, double x, double y, bool f
 {
     // By how much the layer's box moves; its position and any position
     // keyframes move with it.
-    const std::vector<LayerGeometry> geometry =
-        measureLayers(m_history.document(), static_cast<double>(m_history.document().timing.intro), {});
+    const std::vector<LayerGeometry> geometry = measureLayers(m_history.document(), m_canvas->frame(), {});
     auto it = std::find_if(geometry.begin(), geometry.end(), [&](const LayerGeometry &g) { return g.id == id; });
     if (it == geometry.end())
         return;
@@ -859,6 +952,27 @@ void TitlesWindow::deleteLayer(const std::string &id)
 gboolean TitlesWindow::onCloseRequest(GtkWindow *, gpointer self)
 {
     return static_cast<TitlesWindow *>(self)->confirmClose() ? FALSE : TRUE;
+}
+
+gboolean TitlesWindow::onPlayTick(GtkWidget *, GdkFrameClock *clock, gpointer self)
+{
+    auto *window = static_cast<TitlesWindow *>(self);
+    const gint64 now = gdk_frame_clock_get_frame_time(clock);
+    if (window->m_playStart == 0)
+        window->m_playStart = now;
+    const TitleDocument &doc = window->m_history.document();
+    const double fps = static_cast<double>(doc.fpsNum) / std::max(1, doc.fpsDen);
+    // Intro, then at most two seconds of the hold, then the outro.
+    const auto intro = static_cast<double>(doc.timing.intro);
+    const double hold = std::min(static_cast<double>(doc.timing.hold), 2.0 * fps);
+    const auto outro = static_cast<double>(doc.timing.outro);
+    const double cycle = std::max(1.0, intro + hold + outro);
+    const double played = std::fmod(static_cast<double>(now - window->m_playStart) / 1e6 * fps, cycle);
+    double frame = played;
+    if (played >= intro + hold)
+        frame = intro + static_cast<double>(doc.timing.hold) + (played - intro - hold);
+    window->setFrame(std::floor(frame));
+    return G_SOURCE_CONTINUE;
 }
 
 gboolean TitlesWindow::onTextEditorKey(GtkEventControllerKey *, guint keyval, guint, GdkModifierType state,

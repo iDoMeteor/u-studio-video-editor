@@ -4,6 +4,7 @@
 // UX"). The canvas shows the document and asks for edits; the window
 // applies them through the undo history, saves and opens.
 
+#include "animation_strip.h"
 #include "canvas.h"
 #include "inspector.h"
 #include "layers_panel.h"
@@ -37,6 +38,10 @@ class TitlesWindow
     void buildUi();
     void refresh();
     void selectionChanged(const std::optional<std::string> &id);
+    // The playhead, in title frames.
+    void setFrame(double titleFrame);
+    void togglePlay();
+    void stopPlaying();
     void toast(const std::string &text);
     bool edit(const std::string &label, const std::function<bool(TitleDocument &)> &change,
               const std::string &mergeKey = {});
@@ -76,6 +81,12 @@ class TitlesWindow
     GCancellable *m_cancellable = nullptr;
     std::unique_ptr<TitleCanvas> m_canvas;
     std::unique_ptr<LayersPanel> m_layers;
+    std::unique_ptr<AnimationStrip> m_strip;
+    GtkWidget *m_playButton = nullptr;
+    GtkWidget *m_timeLabel = nullptr;
+    // The loop preview: intro, two seconds of hold, outro, again.
+    guint m_playTick = 0;
+    gint64 m_playStart = 0;
     std::unique_ptr<Inspector> m_inspector;
     // An edit from the inspector doesn't rebuild it (the field keeps focus).
     bool m_editFromInspector = false;
@@ -92,6 +103,7 @@ class TitlesWindow
     static void onTextEditorFocusLeave(GtkEventControllerFocus *, gpointer self);
     static void onTextEditorChanged(GtkTextBuffer *buffer, gpointer);
     static gboolean onFinishTextEdit(gpointer self);
+    static gboolean onPlayTick(GtkWidget *, GdkFrameClock *clock, gpointer self);
 };
 
 } // namespace ustudio::titles::app
