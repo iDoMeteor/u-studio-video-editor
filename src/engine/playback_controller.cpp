@@ -46,6 +46,8 @@ void PlaybackController::shutdown()
     // than trusting stop() alone.
     { std::lock_guard<std::mutex> lock(m_frameShowMutex); }
     m_frameShowEvent.reset();
+    m_renderStartedEvent.reset();
+    m_renderStoppedEvent.reset();
     m_consumer.reset();
     m_tractor.reset();
 }
@@ -103,6 +105,15 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
             continue;
         }
 
+        // Before start(): the render thread fires "started" as it begins.
+        std::unique_ptr<Mlt::Event> startedEvent, stoppedEvent;
+        if (m_renderStarted) {
+            startedEvent.reset(
+                consumer->listen("consumer-thread-started", this, &PlaybackController::renderThreadStartedTrampoline));
+            stoppedEvent.reset(
+                consumer->listen("consumer-thread-stopped", this, &PlaybackController::renderThreadStoppedTrampoline));
+        }
+
         if (consumer->start() != 0) {
             Log::warn(std::string("[engine] Consumer '") + name + "' connected but failed to start; trying the next backend");
             continue;
@@ -110,6 +121,8 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
 
         m_consumer = std::move(consumer);
         m_frameShowEvent = std::move(event);
+        m_renderStartedEvent = std::move(startedEvent);
+        m_renderStoppedEvent = std::move(stoppedEvent);
         m_backendName = name;
         ++m_consumerRestartCount;
 
@@ -194,6 +207,12 @@ void PlaybackController::setFrameCallback(FrameCallback cb)
 void PlaybackController::setDrainPoster(DrainPoster poster)
 {
     m_drainPoster = std::move(poster);
+}
+
+void PlaybackController::setRenderThreadHooks(RenderThreadHook started, RenderThreadHook stopped)
+{
+    m_renderStarted = std::move(started);
+    m_renderStopped = std::move(stopped);
 }
 
 void PlaybackController::play(double speed)
@@ -376,6 +395,16 @@ std::optional<PlaybackController::FrameData> PlaybackController::LatestFrameSlot
 void PlaybackController::frameShowTrampoline(mlt_properties /*owner*/, void *self, mlt_event_data data)
 {
     static_cast<PlaybackController *>(self)->handleFrameShow(Mlt::EventData(data));
+}
+
+void PlaybackController::renderThreadStartedTrampoline(mlt_properties, void *self, mlt_event_data)
+{
+    static_cast<PlaybackController *>(self)->m_renderStarted();
+}
+
+void PlaybackController::renderThreadStoppedTrampoline(mlt_properties, void *self, mlt_event_data)
+{
+    static_cast<PlaybackController *>(self)->m_renderStopped();
 }
 
 void PlaybackController::handleFrameShow(const Mlt::EventData &eventData)

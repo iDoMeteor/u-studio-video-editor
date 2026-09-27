@@ -75,7 +75,7 @@ Cairo 1.18, fontconfig 2.17):
   frame's position to its own, the sequence frame. So
   `mlt_frame_get_position()` in `get_image` is where the clip sits, not how
   far into it. The first position set on a frame is kept as
-  `original_position`, and that's the producer's own. Until 0.60 the
+  `original_position`, and that's the producer's own. Until 0.61 the
   producer used the other one, and a title clip anywhere but the start of
   the timeline played its intro and outro at the wrong frames (MLT 7.40).
   Repro: `titles-engine`, "a title clip later in the sequence animates

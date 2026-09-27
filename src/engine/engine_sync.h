@@ -5,6 +5,7 @@
 #include "core/model/model_event.h"
 #include "core/model/signal.h"
 #include "core/model/track_segments.h"
+#include "core/model/transform.h"
 #include "core/render/render_profile.h"
 #include "engine/engine_extension.h"
 
@@ -135,6 +136,22 @@ class EngineSync
     bool useProxies() const
     {
         return m_useProxies;
+    }
+    // ADR-019: which pipeline the graph is built for. Gpu composites with
+    // movit.overlay and places pictures with movit filters (a rotated one
+    // keeps the CPU affine), and needs a live GpuSession: its glsl.manager
+    // is what gives the masters movit's normalisers, so every master is
+    // reopened here, with `hardwareDecodeApi` as setHardwareDecode() takes
+    // it (one rebuild for both). Rebuilds when either changes.
+    enum class Pipeline
+    {
+        Cpu,
+        Gpu,
+    };
+    void setPipeline(Pipeline pipeline, const std::string &hardwareDecodeApi);
+    Pipeline pipeline() const
+    {
+        return m_pipeline;
     }
     // ADR-019 G1: decode video files with this hardware API ("vaapi"; ""
     // is software), per master producer, so worker producers stay on
@@ -303,6 +320,7 @@ class EngineSync
     std::unordered_set<uint64_t> m_unavailableAssets;
     bool m_useProxies = false;
     std::string m_hardwareDecodeApi;
+    Pipeline m_pipeline = Pipeline::Cpu;
     // ADR-018: each clip's transform filters, per cut (the exclusive cut
     // and any dissolve tail or head), kept so a transform-only snapshot
     // updates them in place (applyTransformsInPlace()); per build.
@@ -317,6 +335,10 @@ class EngineSync
     std::unique_ptr<Mlt::Producer> m_transformBackground;
     static constexpr const char *kMixedShape = "mixed"; // cuts of different shapes: never updated in place
     // True when it attached filters (the picture then has transparent edges).
+    // The filters realising `t` on this graph's pipeline (core::transformFilters()
+    // or core::gpuTransformFilters()).
+    std::vector<core::NativeFilter> transformNatives(const core::Transform &t, const core::MediaInfo &info,
+                                                     const core::Profile &profile, double sourceScale) const;
     bool applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve = false);
     // Whether a clip's picture may have partial alpha: stills, image
     // sequences, drop-in producers (titles), transformed cuts. Those get

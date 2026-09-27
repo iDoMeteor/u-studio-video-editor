@@ -15,9 +15,13 @@ namespace Log = ustudio::core::Log;
 
 namespace {
 
-// The value after `"key":` in one of the tool's JSON lines: a number or a
-// string (with its escapes undone). Enough for the tool's own output
-// (render/proxy_command.h), not a general JSON parser.
+std::string rate(core::Rational fps)
+{
+    return std::to_string(fps.num) + "/" + std::to_string(fps.den);
+}
+
+} // namespace
+
 std::optional<std::string> jsonField(const std::string &line, const std::string &key)
 {
     const std::string needle = "\"" + key + "\":";
@@ -45,13 +49,6 @@ std::optional<std::string> jsonField(const std::string &line, const std::string 
     }
     return value;
 }
-
-std::string rate(core::Rational fps)
-{
-    return std::to_string(fps.num) + "/" + std::to_string(fps.den);
-}
-
-} // namespace
 
 ProxyQueue::ProxyQueue(std::unique_ptr<Launcher> launcher, std::string toolPath, Callbacks callbacks, size_t concurrent)
     : m_launcher(std::move(launcher)), m_toolPath(std::move(toolPath)), m_callbacks(std::move(callbacks)),

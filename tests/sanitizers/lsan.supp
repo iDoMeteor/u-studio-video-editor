@@ -59,3 +59,12 @@ leak:filter_glsl_manager_init
 # reports: our wrapper is allocated outside these calls.
 leak:eglInitialize
 leak:eglCreateContext
+
+# MLT's movit.convert (filter_movit_convert.cpp, MLT 7.40): convert_image()
+# makes an MltInput for every input of every frame and parks it in the
+# frame's properties with no destructor; only a frame that builds a new chain
+# hands it on, so with a reused chain each one leaks (about 1.2 KB an input a
+# frame: ~10 MB a minute of GPU playback at 30 fps with five inputs). An
+# upstream bug we can't free from outside (the type is private to the
+# module); ADR-019 and docs/developer/notes/gpu.md track the patch.
+leak:create_input

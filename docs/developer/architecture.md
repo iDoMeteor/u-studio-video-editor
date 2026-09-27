@@ -59,7 +59,8 @@ Three rules hold everything together:
 | `engine/waveform_cache`, `engine/thumbnail_cache` | Background peak and thumbnail extraction | [media cache notes](notes/media-caches.md) |
 | `engine/proxy`, `engine/audio_sync` | Proxy rendering, audio sync matching | [doc 07](../plans/v2/07-media-bin-and-assets.md) |
 | `engine/producer_open` | Opens every producer: the playback graph's (hardware decode where it's on) or a worker's (always the CPU chain, software decode) | [ADR-019](../plans/v2/adr/019-gpu-acceleration.md), [GPU notes](notes/gpu.md) |
-| `engine/gpu_probe`, `platform/gl_context` | Our own GL context (EGL, loaded at run time) and the GPU pipeline's probe | [ADR-019](../plans/v2/adr/019-gpu-acceleration.md), [GPU notes](notes/gpu.md) |
+| `engine/gpu_probe`, `engine/gpu_session`, `platform/gl_context` | Our own GL context (EGL, loaded at run time), the GPU pipeline's probe, and its live session (movit initialised; the consumer's render thread takes the context) | [ADR-019](../plans/v2/adr/019-gpu-acceleration.md), [GPU notes](notes/gpu.md) |
+| `app/gpu_acceleration` | Whether the editor plays on the GPU pipeline: the startup probe and its cache, the crash sentinel, the Settings switches | [ADR-019](../plans/v2/adr/019-gpu-acceleration.md) |
 | `app/app_window` | Header bar, preview, timeline, transport, media browser, dialogs | [app shell notes](notes/app-shell.md) |
 | `app/timeline/` | `Viewport` (zoom/scroll maths), `TimelineController` (gestures, tested without GTK), `UsTimelineView` and its GSK renderer | [doc 06](../plans/v2/06-timeline-ui.md), [ADR-008](../plans/v2/adr/008-custom-timeline-widget.md) |
 | `app/action_registry` | Every window action and its default shortcut, in one table | [Keyboard shortcuts](../user/keyboard-shortcuts.md) |

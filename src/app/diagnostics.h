@@ -15,6 +15,7 @@ struct DiagnosticsFacts
 {
     std::string appVersion, mltVersion, gtkVersion, adwaitaVersion;
     bool flatpak = false;
+    std::string gpu; // Settings' GPU acceleration status (ADR-019), e.g. "On: <renderer>"
     std::string logFolder;
     std::vector<std::string> recentLines; // oldest first
 };

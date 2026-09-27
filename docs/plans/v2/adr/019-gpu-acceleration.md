@@ -127,19 +127,30 @@ normaliser and applies the frame's crop properties), so how our crop
 reaches it is G3's first repro; **a cut with a
 non-zero rotation keeps the CPU `crop`/`mirror`/`affine` chain inside the
 GPU graph** (correct, at the CPU cost; the owner's common case, a webcam
-in a corner, has no rotation). Dissolves use `movit.luma`/`movit.mix`.
+in a corner, has no rotation). Dissolves use `movit.luma_mix`. A plain Fit
+is placed by `movit.rect` too (the overlay doesn't centre). Alpha pairing
+(VE Core's 4:2:2 fringe fix) is skipped: movit blends straight RGBA.
+**The GPU graph blends in linear light:** MLT's movit input linearises
+every RGBA source whatever its tags, so soft edges, semi-transparent
+pictures and dissolve midpoints come out brighter than on the CPU, which
+blends the coded values; opaque pictures match within 2 levels (G3,
+`tests/engine/test_gpu_pipeline`). Accepted as the GPU path's look, with
+export on the preview's pipeline (point 7); put to the owner through the
+VE Strategist on 2026-09-27.
 Effects stay CPU (frei0r, avfilter) inside the GPU graph the same way.
 A rotation-capable GPU transform would need a movit effect of our own,
 which means linking GPL movit; out of scope.
 
-**6. Probe out of process, fall back automatically.**
+**6. Probe out of process, fall back automatically** (`app::GpuAcceleration`).
 
 - `u-studio-render --gpu-probe` creates the context, initialises
   `glsl.manager`, renders a generated two-track frame through the GPU graph
   and compares it with the CPU graph within a tolerance. It exits non-zero
   on any failure, and a GL driver crash takes down only the child.
-- The result is cached, keyed by GL renderer string, Mesa/driver version,
-  MLT version and app version. It is rerun when any of these change.
+- The result is cached with the app and MLT versions it was made with; a
+  cached pass turns the pipeline on at startup, and the probe runs again
+  in the background on every launch (a driver update isn't in the key),
+  correcting both the cache and the pipeline.
 - At runtime:
   - any GL failure the engine can see (context loss, `glsl_supported=0`,
     a null image from a GPU frame) switches the process to the CPU path
@@ -235,3 +246,21 @@ each):
 
 The GPU path wants `rgba` out, which is what PlaybackController asks for;
 `yuv422` adds a CPU conversion.
+
+**G3, the real engine on the GPU pipeline** (`playback_soak --transformed 3
+--scale full`, 1080p30 H.264, `vmstat` mean idle 76.6%, 2026-09-27):
+
+| Run | Frames shown | Process CPU |
+|---|---|---|
+| GPU + VAAPI, unrotated, 10 min | 17,835 of 18,000 (99.1%; every frame in 57 of 60 ten-second windows), lag a steady 5 frames | 62% |
+| GPU + VAAPI, each track rotated (CPU islands), 2 min | 22 fps | 210% |
+| CPU, unrotated, 2 min | 10 fps | 197% |
+
+RSS grew 908 → 1064 MB over the 10 minutes on the GPU, about 15 MB a
+minute, and 382 → 423 MB over 2 minutes on the CPU. On the GPU most of it
+is an MLT bug found by ASan: `movit.convert` leaks an `MltInput` (about
+1.2 KB) for every input of every frame whenever it reuses a chain, about
+10 MB a minute at 30 fps with five inputs (docs/developer/notes/gpu.md).
+It can't be freed from outside the module; the fix is a small MLT patch,
+carried in the Flatpak's MLT build (G5) and sent upstream. The CPU growth
+is VE Core's open item.

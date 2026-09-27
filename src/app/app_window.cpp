@@ -317,6 +317,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
     // Doc 15 IP5: the drop-ins' pages, actions and overlays, into the
     // finished shell (shell_hosts.cpp).
     setUpProxies();
+    setUpGpu();
     setUpTransformOverlay();
     m_hasShellExtensions = !shellExtensions.empty();
     for (const dropins::ShellExtension &extension : shellExtensions)
@@ -417,6 +418,8 @@ void AppWindow::prepareForShutdown()
     m_pool.reset();
     if (m_engine)
         m_engine->shutdown();
+    if (m_gpu)
+        m_gpu->shutdown(); // a clean exit: no crash sentinel
     if (m_refreshSourceId != 0) {
         g_source_remove(m_refreshSourceId);
         m_refreshSourceId = 0;
@@ -1223,7 +1226,7 @@ void AppWindow::showSettingsDialog()
     // the key stored on the row.
     AdwPreferencesPage *togglesPage = addPage("Toggles", "checkbox-checked-symbolic");
     auto addToggle = [this](AdwPreferencesGroup *group, const char *key, const char *title, const char *hintKey,
-                            bool value) {
+                            bool value) -> GtkWidget * {
         GtkWidget *row = adw_switch_row_new();
         adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
         if (const HintSpec *hint = findHint(hintKey); hint && hint->detail)
@@ -1233,6 +1236,7 @@ void AppWindow::showSettingsDialog()
         g_object_set_data_full(G_OBJECT(row), "ustudio-setting", g_strdup(key), g_free);
         g_signal_connect(row, "notify::active", G_CALLBACK(&AppWindow::settingsToggleChangedTrampoline), this);
         adw_preferences_group_add(group, row);
+        return row;
     };
     AdwPreferencesGroup *startupGroup = addGroup(togglesPage, "Startup");
     addToggle(startupGroup, "reopen-last-project", "Reopen last project on startup", "settings.reopen-last",
@@ -1272,6 +1276,14 @@ void AppWindow::showSettingsDialog()
     g_signal_connect(scaleRow, "notify::selected", G_CALLBACK(&AppWindow::settingsPreviewScaleChangedTrampoline), this);
     adw_preferences_group_add(previewGroup, GTK_WIDGET(scaleRow));
     addProxySettingsRow(previewGroup);
+    // ADR-019: the GPU row's subtitle is its live status.
+    AdwPreferencesGroup *hardwareGroup = addGroup(performancePage, "Hardware");
+    m_gpuSettingsRow = addToggle(hardwareGroup, "gpu-acceleration", "GPU acceleration", "settings.gpu-acceleration",
+                                 m_settings->gpuAcceleration());
+    g_object_add_weak_pointer(G_OBJECT(m_gpuSettingsRow), reinterpret_cast<gpointer *>(&m_gpuSettingsRow));
+    refreshGpuSettingsRow();
+    addToggle(hardwareGroup, "hardware-decode", "Hardware video decoding", "settings.hardware-decode",
+              m_settings->hardwareDecode());
 
     AdwPreferencesGroup *backgroundGroup = addGroup(performancePage, "Background work");
     // 0 is "Automatic (N)" (the output/input handlers below); the pool is
@@ -1381,6 +1393,14 @@ void AppWindow::onSettingsToggleChanged(const std::string &key, bool active)
 {
     if (key == "reopen-last-project") {
         m_settings->setReopenLastProject(active);
+        return;
+    }
+    if (key == "gpu-acceleration") {
+        m_gpu->setEnabled(active);
+        return;
+    }
+    if (key == "hardware-decode") {
+        m_gpu->setHardwareDecode(active);
         return;
     }
     if (key == "snap-while-dragging") {

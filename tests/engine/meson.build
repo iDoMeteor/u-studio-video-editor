@@ -127,6 +127,25 @@ test('engine-gpu-probe', test_gpu_probe_exe, timeout: 60)
 test('engine-gpu-probe-no-egl', test_gpu_probe_exe, timeout: 60,
      env: ['USTUDIO_EGL_LIBRARY=/nonexistent/libEGL.so.1'])
 
+# ADR-019 G3: the GPU graph against the CPU one, scene by scene.
+test_gpu_pipeline_exe = executable(
+  'test_gpu_pipeline',
+  files('test_gpu_pipeline.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-gpu-pipeline', test_gpu_pipeline_exe, timeout: 180)
+
+# ADR-019 G3: the GPU pipeline through Engine and the real consumer.
+test_gpu_engine_exe = executable(
+  'test_gpu_engine',
+  files('test_gpu_engine.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, glib_dep],
+  install: false,
+)
+test('engine-gpu-engine', test_gpu_engine_exe, timeout: 120, is_parallel: false,
+     env: ['SDL_AUDIODRIVER=dummy'])
+
 # ADR-018 (M4 F1): clip transforms in the engine.
 test_transform_exe = executable(
   'test_transform',
