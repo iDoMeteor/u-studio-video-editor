@@ -1,5 +1,7 @@
 #include "undo_stack.h"
 
+#include "core/log.h"
+
 #include "core/trace.h"
 
 #include <cassert>
@@ -72,9 +74,19 @@ bool UndoStack::redo()
 
     Entry entry = std::move(m_redo.back());
     m_redo.pop_back();
-    bool reapplied = entry.command->apply(m_model);
-    assert(reapplied && "UndoStack::redo: re-applying a previously-successful command failed");
-    (void)reapplied;
+    const bool reapplied = entry.command->apply(m_model);
+    if (!reapplied) {
+        // A command that applied once must apply again after its undo; if
+        // it doesn't, that's a bug. apply() left the model untouched, so
+        // the entry isn't pushed (undoing it would revert what never
+        // happened), and the rest of the redo history, built on it, goes.
+        // Debug builds stop here; a release build (NDEBUG) carries on safely.
+        Log::error("[undo] redo: re-applying '" + entry.command->label() + "' failed; redo history dropped");
+        m_redo.clear();
+        assert(false && "UndoStack::redo: re-applying a previously-successful command failed");
+        changed.emit();
+        return false;
+    }
     m_undo.push_back(std::move(entry));
 
     changed.emit();
