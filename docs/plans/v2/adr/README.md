@@ -1,5 +1,7 @@
 # Architecture Decision Records
 
+[Docs home](../../../README.md) › [v2 planning docs](../README.md) › ADRs
+
 One page each. Status is one of Proposed / Accepted / Superseded by ADR-nnn.
 All were **Proposed** as of 2026-09-12 pending team review; each file
 carries its own current status (ADR-011 to ADR-018 are Accepted).
