@@ -380,6 +380,23 @@ void EngineSync::setHardwareDecode(const std::string &api)
     rebuildAll();
 }
 
+void EngineSync::setPipeline(Pipeline pipeline, const std::string &hardwareDecodeApi)
+{
+    if (pipeline == m_pipeline && hardwareDecodeApi == m_hardwareDecodeApi)
+        return;
+    m_pipeline = pipeline;
+    m_hardwareDecodeApi = hardwareDecodeApi;
+    // Everything the loader opened got the other pipeline's normalisers
+    // (docs/developer/notes/gpu.md): reopen it all.
+    Log::debug(std::string("[engine] pipeline ") + (pipeline == Pipeline::Gpu ? "GPU" : "CPU") + ": dropping " +
+               std::to_string(m_masterProducers.size()) + " cached master producer(s)");
+    m_masterProducers.clear();
+    m_proxiedAssets.clear();
+    m_blackMaster.reset();
+    m_transformBackground.reset(); // the old filters keep their references
+    rebuildAll();
+}
+
 void EngineSync::dropProxiedMasters()
 {
     for (const core::Asset &asset : m_model.project().bin) {
@@ -741,7 +758,9 @@ double EngineSync::sourceScale(const core::Clip &clip)
 
 bool EngineSync::compositorFits(const core::Clip &clip, bool inDissolve) const
 {
-    return m_reads == FrameReads::ProfileSize && !inDissolve && core::compositorFits(clip.transform.get());
+    // movit.overlay doesn't centre a picture by itself; movit.rect is cheap.
+    return m_pipeline == Pipeline::Cpu && m_reads == FrameReads::ProfileSize && !inDissolve &&
+           core::compositorFits(clip.transform.get());
 }
 
 bool EngineSync::carriesAlpha(const core::Clip &clip, bool transformed) const
@@ -754,6 +773,14 @@ bool EngineSync::carriesAlpha(const core::Clip &clip, bool transformed) const
     return info.isStillImage || info.isImageSequence;
 }
 
+std::vector<core::NativeFilter> EngineSync::transformNatives(const core::Transform &t, const core::MediaInfo &info,
+                                                             const core::Profile &profile, double sourceScale) const
+{
+    return m_pipeline == Pipeline::Gpu
+               ? core::gpuTransformFilters(t, info.width, info.height, profile, outputScale(), sourceScale)
+               : core::transformFilters(t, info.width, info.height, profile, outputScale(), sourceScale);
+}
+
 bool EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve)
 {
     if (!m_model.hasAsset(clip.asset))
@@ -763,8 +790,7 @@ bool EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool
     const std::vector<core::NativeFilter> natives =
         compositorFits(clip, inDissolve)
             ? std::vector<core::NativeFilter>{}
-            : core::transformFilters(clip.transform.get(), info.width, info.height, m_model.sequence().profile,
-                                     outputScale(), sourceScale(clip));
+            : transformNatives(clip.transform.get(), info, m_model.sequence().profile, sourceScale(clip));
     // Every cut is recorded, filtered or not: a clip's own cuts and its
     // dissolve cuts can differ (compositorFits()), and applyTransformsInPlace()
     // may only update a clip whose cuts all share one shape.
@@ -789,8 +815,10 @@ bool EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool
             // get_image and producer_colour locks itself around the cache
             // (filter_affine.c, producer_colour.c, MLT 7.40; TSan-checked by
             // tests/engine/test_transform). Standalone repro 2026-09-25.
+            // A worker producer: the filter reads it on the CPU, so it must
+            // never get movit's normalisers in a GPU graph (ADR-019).
             if (!m_transformBackground)
-                m_transformBackground = std::make_unique<Mlt::Producer>(*m_profile, "colour:0");
+                m_transformBackground = openProducer(*m_profile, "colour:0", ProducerUse::Worker);
             m_transformBackground->inc_ref();
             filter->set(
                 "producer", m_transformBackground->get_producer(), 0,
@@ -831,8 +859,7 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
         // cuts of another shape is kMixedShape and rebuilds.
         const std::vector<core::NativeFilter> natives =
             compositorFits(clip, false) ? std::vector<core::NativeFilter>{}
-                                        : core::transformFilters(clip.transform.get(), info.width, info.height, profile,
-                                                                 outputScale(), sourceScale(clip));
+                                        : transformNatives(clip.transform.get(), info, profile, sourceScale(clip));
         std::string shape;
         for (const core::NativeFilter &native : natives)
             shape += native.service + ";";
@@ -877,7 +904,7 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     decorateCut(*headB, clipB, clipB.in, clipB.in + t.length - 1);
     const bool alphaB = carriesAlpha(clipB, applyTransform(*headB, clipB, true));
     // The dissolve mixes in YUV too; the pairing goes on its output.
-    const bool pairAlpha = video && (alphaA || alphaB);
+    const bool pairAlpha = video && m_pipeline == Pipeline::Cpu && (alphaA || alphaB);
     // IP3: a drop-in's recipe (wipes, motion; FX3) builds the whole segment.
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         if (std::unique_ptr<Mlt::Tractor> made =
@@ -913,7 +940,10 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // ~10 MB per 100 rebuilds leaked, flat when deleted). Own it, once.
     std::unique_ptr<Mlt::Field> field(sub->field());
 
-    Mlt::Transition luma(*m_profile, t.service.c_str());
+    // The GPU graph dissolves with movit.luma_mix, a plain mix without a
+    // luma `resource` (transition_movit_luma.yml).
+    const bool gpuDissolve = m_pipeline == Pipeline::Gpu && t.service == "luma";
+    Mlt::Transition luma(*m_profile, gpuDissolve ? "movit.luma_mix" : t.service.c_str());
     luma.set_in_and_out(0, static_cast<int>(t.length - 1));
     field->plant_transition(luma, 0, 1);
 
@@ -1010,8 +1040,8 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
             const bool transformed = applyTransform(*cut, clip);
             if (video && !clip.videoEnabled)
                 attachHideVideo(*cut);
-            else if (video && carriesAlpha(clip, transformed))
-                attachAlphaPairing(*cut);
+            else if (video && m_pipeline == Pipeline::Cpu && carriesAlpha(clip, transformed))
+                attachAlphaPairing(*cut); // movit blends RGBA with straight alpha itself
             target().append(*cut);
         } else {
             target().append(*buildTransitionSubTractor(seg, video));
@@ -1161,11 +1191,17 @@ void EngineSync::rebuildAll()
             // another aspect needs no affine filter: 20 ms a frame against
             // 63 for a 1344x768 source in 1080p, the edges within a pixel
             // (standalone repro, 2026-09-27).
-            Mlt::Transition composite(*m_profile, "composite");
-            composite.set("fill", 1);
-            if (m_reads == FrameReads::ProfileSize) {
-                composite.set("halign", "centre");
-                composite.set("valign", "middle");
+            // The GPU graph composites with movit.overlay (source over, its
+            // default `compositing`), the same fan-in onto track 0; each
+            // cut arrives placed (gpuTransformFilters()) or frame-sized
+            // from the loader's normalisers.
+            Mlt::Transition composite(*m_profile, m_pipeline == Pipeline::Gpu ? "movit.overlay" : "composite");
+            if (m_pipeline == Pipeline::Cpu) {
+                composite.set("fill", 1);
+                if (m_reads == FrameReads::ProfileSize) {
+                    composite.set("halign", "centre");
+                    composite.set("valign", "middle");
+                }
             }
             field->plant_transition(composite, 0, index);
         }

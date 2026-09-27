@@ -10,7 +10,9 @@
 // --scale defaults to half (the recorded soaks). --transformed N adds N
 // video tracks above V1 carrying the same clips, each scaled to half size,
 // placed in a quadrant and rotated a few degrees (M4 F, ADR-018): its
-// real-time acceptance is three of them at Auto.
+// real-time acceptance is three of them at Auto. --no-rotation leaves them
+// unrotated (the webcam-in-a-corner case). --gpu plays on the GPU pipeline
+// (ADR-019: GpuSession, EngineSync::Pipeline::Gpu), --hwdecode with VAAPI.
 // Use more than 64 clips so the track is built chunked (doc 19 MT2).
 // Builds a timeline of `clips` back-to-back copies of <media> in a sequence
 // whose size and frame rate match the source (a 60 fps source in a default
@@ -29,6 +31,8 @@
 #include "core/model/transform.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
+#include "engine/gpu_session.h"
+#include "platform/gpu.h"
 #include "engine/playback_controller.h"
 
 #include <glib.h>
@@ -111,6 +115,7 @@ int main(int argc, char **argv)
         return 2;
     }
     int clipsArg = 0, transformed = 0, plainTracks = 0, startFrame = 0;
+    bool gpu = false, hwdecode = false, rotate = true;
     PreviewScale scale = PreviewScale::Half;
     const char *scaleName = "Half";
     for (int i = 3; i < argc; ++i) {
@@ -119,6 +124,12 @@ int main(int argc, char **argv)
             startFrame = std::atoi(argv[++i]); // play from here, after a paused seek (the owner's start glitch)
         } else if (arg == "--tracks" && i + 1 < argc) {
             plainTracks = std::atoi(argv[++i]); // more untransformed tracks above V1
+        } else if (arg == "--gpu") {
+            gpu = true;
+        } else if (arg == "--hwdecode") {
+            hwdecode = true;
+        } else if (arg == "--no-rotation") {
+            rotate = false;
         } else if (arg == "--transformed" && i + 1 < argc) {
             transformed = std::atoi(argv[++i]);
         } else if (arg == "--scale" && i + 1 < argc) {
@@ -160,6 +171,9 @@ int main(int argc, char **argv)
             profile.fps = first.fps;
     }
     Model model = Model::createEmpty(profile);
+    // Declared before the graph so it outlives it: the graph's producers
+    // were opened under its glsl.manager (engine.cpp drops them first too).
+    std::unique_ptr<GpuSession> gpuSession;
     EngineSync sync(model, scale);
     EngineSync::ProbedMedia probed = sync.probeMedia(media); // length in this sequence's frames
 
@@ -189,11 +203,24 @@ int main(int argc, char **argv)
             placed.y.value = profile.height * (((t - 1) / 2 % 2) != 0 ? 0.75 : 0.25);
             placed.width.value = profile.width / 2.0;
             placed.height.value = profile.height / 2.0;
-            placed.rotation.value = 5.0 * t;
+            placed.rotation.value = rotate ? 5.0 * t : 0.0;
             model.setClipTransform(clip, placed);
         }
     }
     sync.setProject(model.snapshot());
+    if (gpu) {
+        std::string error;
+        gpuSession = GpuSession::start(error);
+        if (!gpuSession) {
+            std::fprintf(stderr, "no GPU pipeline: %s\n", error.c_str());
+            return 1;
+        }
+    }
+    const std::string decodeApi = hwdecode ? ustudio::platform::hardwareDecodeApi() : std::string();
+    if (gpu || hwdecode)
+        sync.setPipeline(gpu ? EngineSync::Pipeline::Gpu : EngineSync::Pipeline::Cpu, decodeApi);
+    std::printf("pipeline: %s, decode: %s, rotation: %s\n", gpu ? gpuSession->renderer().c_str() : "CPU",
+                decodeApi.empty() ? "software" : decodeApi.c_str(), rotate ? "yes" : "no");
     std::printf("timeline: %d x %d frames (%s, source %dx%d @ %d/%d) in a %dx%d @ %d fps sequence; "
                 "playback profile %dx%d (preview %s); %d transformed tracks\n",
                 clips, static_cast<int>(probed.length), media.c_str(), probed.width, probed.height, probed.fps.num,
@@ -213,6 +240,9 @@ int main(int argc, char **argv)
         if (previous >= 0 && position > previous + 1)
             skipped += position - previous - 1;
     });
+    if (gpuSession)
+        controller.setRenderThreadHooks([&] { gpuSession->renderThreadStarted(); },
+                                        [&] { gpuSession->renderThreadStopped(); });
     controller.setTractor(sync.tractorPtr());
     if (startFrame > 0) {
         controller.seek(startFrame);

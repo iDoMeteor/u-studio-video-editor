@@ -385,6 +385,36 @@ void Settings::setUseProxies(bool use)
     setBool("use-proxies", use);
 }
 
+bool Settings::gpuAcceleration() const
+{
+    return getBool("gpu-acceleration", true);
+}
+
+void Settings::setGpuAcceleration(bool on)
+{
+    setBool("gpu-acceleration", on);
+}
+
+bool Settings::hardwareDecode() const
+{
+    return getBool("hardware-decode", true);
+}
+
+void Settings::setHardwareDecode(bool on)
+{
+    setBool("hardware-decode", on);
+}
+
+std::string Settings::gpuProbeCache() const
+{
+    return getString("gpu-probe-cache", "");
+}
+
+void Settings::setGpuProbeCache(const std::string &value)
+{
+    setString("gpu-probe-cache", value);
+}
+
 int Settings::proxyHeight() const
 {
     return m_settings != nullptr ? g_settings_get_int(m_settings, "proxy-height") : kDefaultProxyHeight;

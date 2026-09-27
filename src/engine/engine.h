@@ -57,6 +57,16 @@ class Engine
     void setUseProxies(bool use);
     // EngineSync::setHardwareDecode(): "" is software decode.
     void setHardwareDecode(std::string api);
+    // ADR-019: the GPU pipeline on (its GL context, movit, the GPU graph,
+    // and hardware decode of video files with `hardwareDecodeApi` unless
+    // "") or off. gpuChanged reports the outcome; if the GPU can't start,
+    // or its render thread later can't use the context, playback stays on
+    // (or falls back to) the CPU pipeline.
+    void setGpuPipeline(bool on, std::string hardwareDecodeApi);
+    bool gpuPipeline() const
+    {
+        return m_gpuPipeline;
+    }
 
     // Main thread, once per displayed frame.
     void setFrameCallback(FrameCallback callback);
@@ -120,6 +130,9 @@ class Engine
     core::Signal<> rebuilt;
     // Main thread: an asset's file couldn't be opened (EngineSync).
     core::Signal<const std::string &> mediaUnavailable;
+    // Main thread: the GPU pipeline is now on (detail: the GL renderer) or
+    // off (detail: why, when it wasn't asked for; "" when it was).
+    core::Signal<bool, const std::string &> gpuChanged;
 
     // Tests only: blocks until the engine thread has run everything sent so
     // far and its state reports have been applied here (it pumps the GLib
@@ -164,6 +177,7 @@ class Engine
     double m_fps = 0.0;
     double m_previewFactor = 1.0;
     std::string m_backend;
+    bool m_gpuPipeline = false;
     double m_volume = 1.0;
     std::optional<std::pair<int, int>> m_loopRange;
 };

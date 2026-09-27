@@ -403,6 +403,7 @@ void AppWindow::copyDiagnostics()
     facts.adwaitaVersion = std::to_string(adw_get_major_version()) + "." + std::to_string(adw_get_minor_version()) +
                            "." + std::to_string(adw_get_micro_version());
     facts.flatpak = platform::runningInFlatpak();
+    facts.gpu = m_gpu ? m_gpu->statusText() : "Off";
     facts.logFolder = core::utf8String(core::Log::directory());
     facts.recentLines = core::Log::recentLines(50);
     gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(m_window)), formatDiagnostics(facts).c_str());

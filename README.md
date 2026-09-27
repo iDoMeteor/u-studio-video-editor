@@ -86,7 +86,9 @@ permissions · [Getting started](docs/user/getting-started.md)
 - Markers, named tracks and clips, locked and hidden tracks, and a loop in
   and out.
 - Preview scale (Auto, Full, Half, Quarter) for smooth playback on any
-  machine.
+  machine, and GPU acceleration: tracks composited and clips placed on the
+  graphics card, with hardware video decoding, where a check at startup
+  says it works.
 - Built-in Help with every control and shortcut, release notes, and
   one-click diagnostics for bug reports.
   → [Settings and Help](docs/user/settings-and-help.md)

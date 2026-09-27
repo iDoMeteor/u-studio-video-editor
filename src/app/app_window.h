@@ -29,6 +29,7 @@
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "import_queue.h"
+#include "gpu_acceleration.h"
 #include "proxy_queue.h"
 #include "project_loader.h"
 #include "save_queue.h"
@@ -244,6 +245,12 @@ class AppWindow : public ShellHost
     void offerProxiesAfterImport();
     std::unique_ptr<ProxyQueue> m_proxyQueue;
     GtkWidget *m_proxyToggle = nullptr;
+    // ADR-019 (gpu_ui.cpp): the GPU pipeline, and the open Settings dialog's
+    // GPU row (a weak pointer: null once the dialog closes).
+    void setUpGpu();
+    void refreshGpuSettingsRow();
+    std::unique_ptr<GpuAcceleration> m_gpu;
+    GtkWidget *m_gpuSettingsRow = nullptr;
     GtkWidget *m_createProxyButton = nullptr;
     GtkWidget *m_conformProxyButton = nullptr;
     GtkWidget *m_removeProxyButton = nullptr;

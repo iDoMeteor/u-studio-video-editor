@@ -135,6 +135,8 @@ std::vector<HintSpec> &registry()
         {"settings.preview-scale",   "Settings", "Default preview scale",   "The preview resolution the app starts with; the transport bar's own dropdown changes it for this session only", nullptr, nullptr},
         {"settings.shuttle-speed",   "Settings", "Maximum shuttle speed",   "The fastest the J/K/L shuttle ramps up to, in multiples of normal speed", nullptr, nullptr},
         {"settings.worker-threads", "Settings", "Worker threads", "Background threads for probing imports and loading and saving projects; Automatic uses half the CPU cores. Applies after restart", nullptr, nullptr},
+        {"settings.gpu-acceleration", "Settings", "GPU acceleration", "Composites and places clips on the graphics card where a check at startup says it works; blends soft edges and dissolves in linear light", nullptr, nullptr},
+        {"settings.hardware-decode", "Settings", "Hardware video decoding", "While GPU acceleration is on, decodes video files on the graphics card where it can, which leaves the processor free", nullptr, nullptr},
         {"settings.cache-jobs",      "Settings", "Thumbnail and waveform jobs", "How many worker threads the timeline's thumbnails and waveforms may use at once; Automatic uses half of them. Applies after restart", nullptr, nullptr},
         {"settings.reopen-last",     "Settings", "Reopen last project on startup", "Opens the project you had open last time, unless there's unsaved work to recover", nullptr, nullptr},
         {"settings.snap",            "Settings", "Snap while dragging",     "Dragged clips and edges snap to nearby clip edges", nullptr, nullptr},

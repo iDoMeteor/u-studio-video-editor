@@ -11,6 +11,7 @@ libustudio_engine_sources = files(
   'proxy.cpp',
   'producer_open.cpp',
   'gpu_probe.cpp',
+  'gpu_session.cpp',
 )
 
 # The real MLT module directory (e.g. /usr/lib64/mlt-7), baked in at build

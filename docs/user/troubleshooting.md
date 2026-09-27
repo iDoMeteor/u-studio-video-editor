@@ -26,6 +26,15 @@ Set the preview scale to **Half** or **Quarter**, or make a
 [proxy](importing-media.md#proxies-smooth-editing-of-4k-and-phone-footage).
 A conformed proxy also fixes phone recordings with a variable frame rate.
 
+### Playback looks wrong or glitches, or GPU acceleration turned itself off
+
+Turn off **GPU acceleration** (Settings › Performance › Hardware): playback
+then runs on the processor. If that fixes it, your graphics driver is the
+cause; please report it with **Copy Diagnostics** from Help › About, which
+includes what the GPU row says. If U Stu turned GPU acceleration off by
+itself, it closed unexpectedly while using the graphics card last time;
+turn it back on to try again.
+
 ### No sound
 
 - Check the transport volume and that the track isn't muted (its name

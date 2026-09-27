@@ -116,6 +116,61 @@ compositing is the bottleneck.
   stable", `src/mainwindow.cpp`); treat stability as unproven until our
   soak passes.
 
+## The GPU graph (EngineSync, G3)
+
+- **movit blends in linear light, always.** `mlt_movit_input.cpp` gives
+  every RGBA input (titles, an RGBA background colour, a CPU island's
+  output) `GAMMA_REC_709` whatever the frame says; only YUV inputs follow
+  the frame's `color_trc`. So "declare everything linear" can't make it
+  blend in gamma space as `composite` does. 50% `#20c040` over `#c02020`:
+  CPU 112,113,49 (the coded values averaged), GPU 137,137,50 (light
+  averaged; `test_gpu_pipeline` checks both against their formulas).
+  Opaque pictures match within 2 levels.
+- **Dissolves use `movit.luma_mix`,** which squares the progress so a
+  dissolve in linear light looks even (`transition_movit_luma.cpp`);
+  `movit.mix` takes the progress as it is. The midpoint therefore differs
+  from the CPU's `luma`; the frames either side of the dissolve match.
+- **A plain Fit of another aspect is placed by `movit.rect`,** not left to
+  the compositor: `movit.overlay` doesn't centre a picture by itself, and
+  the rect costs nothing on the GPU (`EngineSync::compositorFits()` is
+  CPU-only).
+- **The CPU `affine` filter's canvas producer must be a worker producer**
+  (`loader-nogl`). The filter reads it on the CPU; opened through the
+  loader while a manager exists, it would hand the filter a movit frame.
+- **The core `crop` filter works unchanged under movit:** it sets the
+  frame's crop properties, and the loader's `movit.crop` normaliser applies
+  them (`test_gpu_pipeline`'s crop case matches the CPU).
+- **Alpha pairing is skipped on GPU graphs** (VE Core's 4:2:2 fringe fix):
+  movit gets the source's alpha straight and blends RGBA itself.
+- **The consumer's render thread** takes the context in a
+  `consumer-thread-started` listener registered before `start()`, and
+  releases it in `consumer-thread-stopped`, which fires inside `stop()` on
+  that thread before it's joined. Switching pipelines must stop the
+  consumer before the listeners go and the session ends
+  (`Engine::Thread::disableGpu()`); otherwise a thread could exit with the
+  context still current on it.
+- **Teardown order:** consumer, then the graph (EngineSync), then the
+  session, whose destructor fires `close glsl` with the context current
+  and clears the global switch.
+- The GPU graph starts at about 2.5x the CPU graph's RSS (about 910 MB
+  against 380 at 1080p, four tracks; movit's resource pool and chains).
+- **MLT leaks an `MltInput` per input per frame on the GPU path**
+  (MLT 7.40, found by ASan in `engine-gpu-engine`). `convert_image()` in
+  `filter_movit_convert.cpp` makes one for every input of every frame and
+  stores it with `GlslManager::set_input()`, which is
+  `set_frame_specific_data()` on the frame with no destructor. Only
+  `build_movit_chain()`, which runs when a chain is (re)built, takes it
+  over. With the chain reused, as on every ordinary frame, it leaks: about
+  1.2 KB an input a frame (the `MltInput`, its movit `FlatInput` and that
+  effect's uniform vectors), ~10 MB a minute of 30 fps playback with five
+  inputs, most of the GPU soak's growth. It can't be freed from outside:
+  the type is private to the module, and its destructor doesn't free its
+  `FlatInput`. The fix belongs in MLT: give the parked input a destructor
+  that deletes it and its input, and clear it where a chain takes it over.
+  `lsan.supp` suppresses `create_input` until then.
+- The CPU path's own growth in the same soak (about 20 MB a minute with
+  three transformed tracks) is VE Core's open item.
+
 ## Measurements
 
 The quiet-window figures (2026-09-27) are in ADR-019's "Evidence" section.

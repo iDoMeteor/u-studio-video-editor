@@ -63,8 +63,17 @@ Notes on driving GTK dialogs there are in
   editor.
 - **Timeline draw speed** (`app-timeline-render`): 10 tracks × 500 clips
   draw in under 4 ms.
+- **GPU pipeline** (`engine-gpu-pipeline`, `engine-gpu-engine`,
+  `engine-gpu-probe`, `app-gpu-acceleration`): the GPU graph against the
+  CPU one scene by scene, playback through the real consumer on the GPU and
+  back, the probe, and the editor's startup decisions with a fake render
+  tool. The engine ones need a GL driver (EGL); without one they print a
+  message and pass, so run them on a machine with a GPU before landing GPU
+  work. `engine-gpu-probe-no-egl` checks the clean failure everywhere.
 - **Playback soak**: `tests/engine/playback_soak.cpp` is a manual tool for
-  long playback runs.
+  long playback runs. `--gpu` plays on the GPU pipeline, `--hwdecode` adds
+  VAAPI, `--no-rotation` leaves the transformed tracks unrotated
+  (ADR-019).
 
 The acceptance criteria each test backs are listed per milestone in
 [v2 doc 12](../plans/v2/12-roadmap-and-milestones.md).

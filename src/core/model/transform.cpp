@@ -160,4 +160,28 @@ std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, 
     return filters;
 }
 
+std::vector<NativeFilter> gpuTransformFilters(const Transform &t, int sourceWidth, int sourceHeight,
+                                              const Profile &profile, double outputScale, double sourceScale)
+{
+    std::vector<NativeFilter> filters =
+        transformFilters(t, sourceWidth, sourceHeight, profile, outputScale, sourceScale);
+    if (placementFor(t, sourceWidth, sourceHeight, profile).rotation != 0.0)
+        return filters;
+    for (NativeFilter &filter : filters) {
+        if (filter.service == "mirror") {
+            const bool horizontal = filter.properties.front().second == "flip";
+            filter = {horizontal ? "movit.mirror" : "movit.flip", {}};
+        } else if (filter.service == "affine") {
+            // "x y w h 1": the same rect without affine's opacity. Property
+            // names from /usr/share/mlt-7/movit/filter_movit_rect.yml.
+            std::string rect;
+            for (const auto &[name, value] : filter.properties)
+                if (name == "transition.rect")
+                    rect = value.substr(0, value.rfind(' '));
+            filter = {"movit.rect", {{"rect", rect}, {"distort", "1"}}};
+        }
+    }
+    return filters;
+}
+
 } // namespace ustudio::core

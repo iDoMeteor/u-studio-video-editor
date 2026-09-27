@@ -296,9 +296,12 @@ Acceptance:
       transformed track then plays every frame (30/s, the owner's webcam
       case), three about 22/s (26/s and about 16/s at Full). Open; MT4
       found no cheaper CPU path (doc 19), so the lever is GPU compositing,
-      [ADR-019](adr/019-gpu-acceleration.md), whose stage G3 closes this
-      box (a repro played three moved-and-scaled tracks at every frame,
-      Full and Half, 2026-09-27).
+      [ADR-019](adr/019-gpu-acceleration.md). Met on the GPU pipeline
+      (G3, 2026-09-27): three moved-and-scaled 1080p tracks at Full showed
+      99.1% of frames over a 10-minute soak at 62% CPU (the CPU path: 10
+      frames/s at 197%). Rotated tracks stay on the CPU (no movit service
+      rotates): 22 frames/s. Left open for the owner to judge whether the
+      rotated case must meet it too.
 
 ## M5 — Effects, keyframes, transitions (the FX track)
 

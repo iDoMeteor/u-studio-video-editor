@@ -57,6 +57,12 @@ class PlaybackController
     // touches. Set before setTractor().
     using DrainPoster = std::function<void(std::function<void()>)>;
     void setDrainPoster(DrainPoster poster);
+    // ADR-019: called on the consumer's render thread as it starts and
+    // stops (consumer-thread-started/-stopped), where the GPU pipeline makes
+    // its GL context current and releases it. Empty: none. Applies from
+    // the next consumer start (setTractor()).
+    using RenderThreadHook = std::function<void()>;
+    void setRenderThreadHooks(RenderThreadHook started, RenderThreadHook stopped);
 
     // speed: 1.0 = normal forward. J/K/L shuttle uses {-8,-4,-2,-1,-0.5,
     // -0.25, 0.25, 0.5, 1, 2, 4, 8}; sdl2_audio/rtaudio handle reverse and
@@ -165,12 +171,16 @@ class PlaybackController
     bool selectAndStartConsumer(Mlt::Tractor &tractor);
     void applyVolumeToConsumer();
     static void frameShowTrampoline(mlt_properties owner, void *self, mlt_event_data data);
+    static void renderThreadStartedTrampoline(mlt_properties owner, void *self, mlt_event_data data);
+    static void renderThreadStoppedTrampoline(mlt_properties owner, void *self, mlt_event_data data);
     void handleFrameShow(const Mlt::EventData &eventData);
     void drainSlot();
 
     std::shared_ptr<Mlt::Tractor> m_tractor;
     std::unique_ptr<Mlt::Consumer> m_consumer;
     std::unique_ptr<Mlt::Event> m_frameShowEvent;
+    std::unique_ptr<Mlt::Event> m_renderStartedEvent, m_renderStoppedEvent;
+    RenderThreadHook m_renderStarted, m_renderStopped;
 
     std::string m_backendName;
     int m_consumerRestartCount = 0;
