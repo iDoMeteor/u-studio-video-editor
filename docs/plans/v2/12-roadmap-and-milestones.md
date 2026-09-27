@@ -294,8 +294,11 @@ Acceptance:
       preview scale (Full reported alongside; Full is MT4's, doc 19).
       Since 0.47.2 Auto is Half once a clip is transformed: one
       transformed track then plays every frame (30/s, the owner's webcam
-      case), three about 22/s (26/s and about 16/s at Full). Open; the
-      remaining levers are MT4's (doc 19).
+      case), three about 22/s (26/s and about 16/s at Full). Open; MT4
+      found no cheaper CPU path (doc 19), so the lever is GPU compositing,
+      [ADR-019](adr/019-gpu-acceleration.md), whose stage G3 closes this
+      box (a repro played three moved-and-scaled tracks at every frame,
+      Full and Half, 2026-09-27).
 
 ## M5 — Effects, keyframes, transitions (the FX track)
 

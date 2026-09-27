@@ -20,6 +20,7 @@ here unchanged on 2026-09-26.
 | [Render](render.md) | Cancelling, avformat consumer properties, H.264 encoder choice, snapshot rendering, atomic `.part` output, progress events |
 | [Project files](project-files.md) | MLT XML with `ustudio:` properties, the format v4 render/record playlists, untrusted-input checks, autosave recovery rules |
 | [Settings and GSettings](settings.md) | Missing-schema fallback, testing with the memory backend |
+| [GPU](gpu.md) | Our own EGL context for movit, `glsl.manager` as a sticky process-wide switch, `loader-nogl`, per-producer `\?hwaccel=`, movit's service set and gaps, measured throughput and colour |
 | [App shell](app-shell.md) | Shortcuts vs text entry, `GtkRecentInfo`, `g_file_trash()`, the playhead overlay, ruler height |
 
 Related:
