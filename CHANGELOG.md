@@ -4,6 +4,18 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.51.0-beta.2
+
+- The app is now called U Stu Video Editor (window title, Help, the app
+  menu, the software centre). Its app id, command and .ustudio projects
+  are unchanged.
+
+## 0.51.0-beta.1
+
+- Import Image Sequence… (Ctrl+Alt+I): numbered images as one clip, one
+  image per frame; pick any of them. Stills now know their size when
+  imported, so an odd-sized picture fits the frame by its real aspect.
+
 ## 0.50.0-beta.5
 
 - Help › About shows the new logo, says what the editor is and that it's

@@ -263,8 +263,8 @@ image sequences, proxies (generate/toggle) via `u-studio-render --proxy`.
 Clip transform (F, ADR-018, owner 2026-09-25): `Clip::transform` in the
 core model, format and engine (F1), then preview handles, snapping, nudge
 keys and an Edit Transform dialog (F2).
-Image sequences were spiked and parked (0.50.0, doc 07's REVIEW note): the
-import UX needs a decision, since camera photos look like sequences.
+Image sequences: Import Image Sequence… (0.51.0-beta.1), an explicit
+command since camera photos look like sequences (doc 07's REVIEW note).
 
 Acceptance:
 - [x] Importing a folder of 200 mixed files does not block the UI; failures

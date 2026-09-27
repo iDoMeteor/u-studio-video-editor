@@ -20,7 +20,7 @@ TEST_CASE("diagnostics: versions, sandbox, log folder and the last lines, nothin
     facts.logFolder = "/home/u/.local/state/ustudio/logs";
     facts.recentLines = {"[a] one", "[b] two"};
     const std::string text = formatDiagnostics(facts);
-    CHECK(text == "u Studio Video Editor 0.49.0-beta.2\n"
+    CHECK(text == "U Stu Video Editor 0.49.0-beta.2\n"
                   "MLT 7.40.0, GTK 4.22.1, libadwaita 1.9.2\n"
                   "Flatpak: yes\n"
                   "Log folder: /home/u/.local/state/ustudio/logs\n"

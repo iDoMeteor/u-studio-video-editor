@@ -226,3 +226,16 @@ from a standalone repro (MLT 7.40, 2026-09-25):
 - A frame pulled bare interpolates rotated edges differently from the
   consumers (`rescale=bilinear`); set `consumer.rescale` on it to compare
   with a render byte for byte.
+
+**Image sequences play through `pixbuf` with an explicit `begin`, `ttl=1`
+and a counted length (M4 E, 0.51.0-beta.1).** `pixbuf:<dir>/frame_%04d.png?begin=N`
+plays one picture per frame with `ttl=1` (the default is 25 each); its own
+length is a default 15,000 and it loops after the last file, so
+`EngineSync::masterProducerFor()` sets the length it counted at import.
+`?begin=` works only with the explicit `pixbuf:` prefix (through the default
+loader the producer is invalid). `avformat`'s image2 path opens a sequence
+but returns the last picture for every frame, so there's no fallback where
+gdk-pixbuf can't load images. `verify()` accepts the `?begin=` suffix on a
+sequence's resource. A still's size is now read at probe by decoding one
+frame (`meta.media.width`/`height` appear on the first `get_image`).
+Standalone repro, MLT 7.40, and `tests/engine/test_image_sequence`.

@@ -19,6 +19,7 @@ libustudio_core_sources = files(
   'xml/release_notes.cpp',
   'render/render_profile.cpp',
   'media/fingerprint.cpp',
+  'media/image_sequence.cpp',
   'media/missing_media.cpp',
 )
 

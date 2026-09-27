@@ -103,6 +103,15 @@ test_transform_exe = executable(
 )
 test('engine-transform', test_transform_exe, timeout: 180)
 
+# M4 E: image sequences through pixbuf.
+test_image_sequence_exe = executable(
+  'test_image_sequence',
+  files('test_image_sequence.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-image-sequence', test_image_sequence_exe, timeout: 60)
+
 test_waveform_cache_exe = executable(
   'test_waveform_cache',
   files('test_waveform_cache.cpp'),

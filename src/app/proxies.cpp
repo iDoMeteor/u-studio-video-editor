@@ -26,7 +26,7 @@ constexpr const char *kProxySetting = "proxies"; // Project::settings: "always" 
 
 bool proxyable(const core::Asset &asset)
 {
-    return asset.info.hasVideo && !asset.info.isStillImage && asset.status != core::Asset::Status::Missing &&
+    return asset.info.hasVideo && !asset.info.isStillImage && !asset.info.isImageSequence && asset.status != core::Asset::Status::Missing &&
            asset.info.height > 0;
 }
 

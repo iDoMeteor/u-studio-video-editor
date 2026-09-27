@@ -209,6 +209,8 @@ void writeAssetProducer(xmlNodePtr mlt, const Asset &asset, const fs::path &proj
     addProperty(producer, "ustudio:audio_codec", info.audioCodec);
     addProperty(producer, "ustudio:container", info.container);
     addProperty(producer, "ustudio:is_image_sequence", info.isImageSequence ? "1" : "0");
+    if (info.isImageSequence)
+        addProperty(producer, "ustudio:sequence_begin", std::to_string(info.sequenceBegin));
     addProperty(producer, "ustudio:is_still_image", info.isStillImage ? "1" : "0");
     // Read back directly (reader.cpp), not derived from the node's "out"
     // attribute below -- out=length-1 collapses both "boundless/unknown"

@@ -124,6 +124,7 @@ std::vector<HintSpec> &registry()
         {"media.remove-proxy", "Media browser", "Remove proxy", "Deletes the proxy file; the clip plays its original", nullptr, nullptr},
         {"transport.proxies",  "Transport", "Play proxies", "Where clips have them; renders always use the originals", nullptr, nullptr},
         {"settings.proxy-size", "Settings", "Proxy size", "Height of new proxies; source size makes conformed ones", nullptr, nullptr},
+        {"media.import-sequence", "Media browser", "Import an image sequence", "Numbered images (frame_0001.png, frame_0002.png…) as one clip, one image per frame; pick any of them", "import-image-sequence", nullptr},
         {"media.import-folder", "Media browser", "Import a folder", "Every file in it and its subfolders goes to the browser, as one undo step; files that can't be imported are listed", "import-folder", "Or drop the folder onto the browser"},
         {"media.remove",       "Media browser", "Remove from project", "Also removes every clip cut from it; undoable. The file is untouched", nullptr, nullptr},
         {"media.trash",        "Media browser", "Move file to Trash…", "Removes it from the project and moves the file to the desktop Trash", nullptr, nullptr},
