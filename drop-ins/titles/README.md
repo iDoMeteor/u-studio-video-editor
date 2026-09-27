@@ -13,15 +13,17 @@ Status: T1 done. `.ustitle` files import as title clips, play with alpha
 through the `ustudio_title` MLT producer, fit any clip length, reload when
 the file changes, and render the same in `u-studio-render`. T2 (the
 `u-studio-titles` designer) in progress: T2a (canvas, move and resize with
-snapping, undo, save and open, backgrounds) is in.
+snapping, undo, save and open, backgrounds) and T2b (layers list,
+inspector, brand kit) are in.
 
 ## Layout
 
 | Folder | What | May use |
 |---|---|---|
-| `core/` | `TitleDocument`, the `.ustitle` reader and writer, elastic timing, keyframe evaluation, `{{field}}` substitution; the designer's editing (`title_edit`: operations and snapshot undo) and `snapping` (guides, safe areas, hit testing) | std, libxml2, `src/core` (keyframes are `core::Keyframe`, evaluated by `core::easedValue()`) |
+| `core/` | `TitleDocument`, the `.ustitle` reader and writer, elastic timing, keyframe evaluation, `{{field}}` substitution; the designer's editing (`title_edit`: operations and snapshot undo), `snapping` (guides, safe areas, hit testing) and `brand_kit` (parsing a kit, Apply Brand) |
+| `data/` | `brand.xml`: the Unicorn Tears kit (values copied from the design system; compiled into the app) | — | std, libxml2, `src/core` (keyframes are `core::Keyframe`, evaluated by `core::easedValue()`) |
 | `render/` | `renderTitle()`: a title at a moment into premultiplied ARGB32, and `toStraightRgba()` for MLT | Pango, PangoCairo, Cairo, fontconfig |
-| `app/` | `u-studio-titles`, the designer: the window, the canvas (a GtkWidget drawn with GSK, rendering through a worker thread), view settings | GTK4, libadwaita, `core/`, `render/`; never MLT (checked by the build) |
+| `app/` | `u-studio-titles`, the designer: the window, the canvas (a GtkWidget drawn with GSK, rendering through a worker thread), the layers list, the inspector, view settings | GTK4, libadwaita, `core/`, `render/`; never MLT (checked by the build) |
 | `mltmodule/` | `libmltustudio.so`: the `ustudio_title` MLT producer (`resource`, `length`, `field.<name>`). Self-contained, exports only `mlt_register` | MLT's C API, `core/`, `render/` |
 | `engine/` | The engine extension (IP3: a producer per title clip) and `u-studio-render --title-frames` (IP6) | `src/engine`, mlt++ |
 | `editor/` | The editor window's side (IP5): the `.ustitle` import handler and the file watch | `src/app/shell_host.h`, GIO |
@@ -82,10 +84,10 @@ order, first at the bottom.
 | `<timing>` | `intro`, `hold`, `outro` in title frames; `hold-mode` is always `elastic` |
 | `<background>` | As `<fill>`, behind every layer. Absent (the default): transparent, for overlays |
 | `<field>` | `name` (no braces), `label`, `default`; the text says `{{name}}` |
-| `<layer>` | `id`, `kind` (`text`, `shape`), `x`, `y`, `w`, `h`, `opacity`, `scale`, `rotation` (degrees, about the box's centre), `visible` (`0`/`1`); text: `align` (`left`, `center`, `right`), `fit` (`none`, `wrap`, `shrink`); shape: `shape` (`rect`, `rounded-rect`, `ellipse`, `line`), `radius` |
+| `<layer>` | `id`, `kind` (`text`, `shape`), `x`, `y`, `w`, `h`, `opacity`, `scale`, `rotation` (degrees, about the box's centre), `visible` and `locked` (`0`/`1`); text: `align` (`left`, `center`, `right`), `fit` (`none`, `wrap`, `shrink`); shape: `shape` (`rect`, `rounded-rect`, `ellipse`, `line`), `radius` |
 | `<text>` | The text, plain (never Pango markup) |
 | `<font>` | `family` (a generic fallback is always added), `weight` (100–1000), `size` (px), `style="italic"`, `tracking` (em), `line-height` (factor) |
-| `<fill>` | `color`, or `gradient="linear"` / `"radial"` with `from`, `to` (and `angle` for linear); `kind="none"`; `opacity` |
+| `<fill>` | `color`, or `gradient="linear"` / `"radial"` with `from`, `to`, an optional `via` (a middle stop) and `angle` for linear; `kind="none"`; `opacity` |
 | `<stroke>` | `color`, `width` (px shown outside the shape), `opacity` |
 | `<shadow>` | `dx`, `dy`, `blur` (about a Gaussian's sigma, px), `color`, `opacity` |
 | `<animate>` | `property` (`x`, `y`, `opacity`, `scale`, `rotation`), holding `<key at value easing zone>`; `zone` is `intro` (default), `hold` or `outro`, and `at` counts from that zone's start, so outro keys stay with the outro when the hold changes; `easing` is a `core::easingName()` (`linear` default) |

@@ -40,11 +40,19 @@ struct Fill
     FillKind kind = FillKind::Solid;
     Rgba color{1.0, 1.0, 1.0, 1.0}; // Solid
     Rgba from, to;                  // Linear, Radial
+    std::optional<Rgba> via;        // an optional middle stop, halfway (the brand's three-colour "tears")
     double angle = 0.0;             // degrees, Linear; 0 = left to right, 90 = top to bottom
     double opacity = 1.0;
 
     bool operator==(const Fill &) const = default;
 };
+
+inline Fill noFill()
+{
+    Fill fill;
+    fill.kind = FillKind::None;
+    return fill;
+}
 
 // An outline outside the fill (drawn under it), `width` canvas pixels wide.
 struct Stroke
@@ -151,6 +159,7 @@ struct Layer
     std::string id;
     LayerKind kind = LayerKind::Text;
     bool visible = true;
+    bool locked = false; // can't be picked on the canvas (the layers list still selects it)
     // The box, in canvas pixels. A text layer with h = 0 is as tall as its
     // text; with w = 0, x is the anchor its alignment is relative to.
     double x = 0.0, y = 0.0, w = 0.0, h = 0.0;
@@ -202,7 +211,7 @@ struct TitleDocument
     // Behind every layer. None (the default): the title is transparent
     // where it has no layers, for overlays; a colour or gradient bakes a
     // background in (a full-frame card).
-    Fill background{FillKind::None, {0.0, 0.0, 0.0, 1.0}, {}, {}, 0.0, 1.0};
+    Fill background = noFill();
     std::vector<Field> fields;
     std::vector<Layer> layers; // bottom first: later layers draw over earlier ones
 

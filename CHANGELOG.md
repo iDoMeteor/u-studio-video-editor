@@ -4,11 +4,19 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
-## 0.55.0-beta.1
+## 0.56.0-beta.1
 
 - Project background colour: click the title in the header bar to pick the
   colour shown wherever no clip covers the frame, in the preview and in
   renders (black by default). Saved with the project; one undo step.
+
+## 0.55.0-beta.1
+
+- U Stu Titles: a layers list (show, hide, lock, restack by dragging) and
+  an inspector for text, fonts, fills and gradients, outlines, shadows and
+  exact positions, with the title's own background and timing when nothing
+  is selected. The Unicorn Tears colours, gradients and fonts are one
+  click away, and Apply Brand restyles a whole title.
 
 ## 0.54.0-beta.2
 

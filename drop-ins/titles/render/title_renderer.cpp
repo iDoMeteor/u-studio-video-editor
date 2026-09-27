@@ -235,6 +235,14 @@ TextLayout layoutText(ThreadFonts &fonts, const Layer &layer, const LayerState &
     return out;
 }
 
+void addStops(cairo_pattern_t *pattern, const Fill &fill, double alpha)
+{
+    cairo_pattern_add_color_stop_rgba(pattern, 0.0, fill.from.r, fill.from.g, fill.from.b, fill.from.a * alpha);
+    if (fill.via)
+        cairo_pattern_add_color_stop_rgba(pattern, 0.5, fill.via->r, fill.via->g, fill.via->b, fill.via->a * alpha);
+    cairo_pattern_add_color_stop_rgba(pattern, 1.0, fill.to.r, fill.to.g, fill.to.b, fill.to.a * alpha);
+}
+
 cairo_pattern_t *fillPattern(const Fill &fill, const Box &box, double alpha)
 {
     const double a = fill.opacity * alpha;
@@ -252,16 +260,14 @@ cairo_pattern_t *fillPattern(const Fill &fill, const Box &box, double alpha)
         const double half = std::abs(box.w / 2 * dx) + std::abs(box.h / 2 * dy);
         cairo_pattern_t *pattern =
             cairo_pattern_create_linear(cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half);
-        cairo_pattern_add_color_stop_rgba(pattern, 0.0, fill.from.r, fill.from.g, fill.from.b, fill.from.a * a);
-        cairo_pattern_add_color_stop_rgba(pattern, 1.0, fill.to.r, fill.to.g, fill.to.b, fill.to.a * a);
+        addStops(pattern, fill, a);
         return pattern;
     }
     case FillKind::Radial: {
         const double cx = box.x + box.w / 2, cy = box.y + box.h / 2;
         const double radius = std::hypot(box.w, box.h) / 2;
         cairo_pattern_t *pattern = cairo_pattern_create_radial(cx, cy, 0.0, cx, cy, std::max(radius, 1e-3));
-        cairo_pattern_add_color_stop_rgba(pattern, 0.0, fill.from.r, fill.from.g, fill.from.b, fill.from.a * a);
-        cairo_pattern_add_color_stop_rgba(pattern, 1.0, fill.to.r, fill.to.g, fill.to.b, fill.to.a * a);
+        addStops(pattern, fill, a);
         return pattern;
     }
     }
@@ -505,6 +511,7 @@ std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleF
         const LayerState state = evaluateLayer(layer, doc.timing, titleFrame);
         LayerGeometry geometry{
             layer.id, {state.x, state.y, layer.w, layer.h}, state.rotation, state.scale, layer.visible};
+        geometry.locked = layer.locked;
         if (layer.kind == LayerKind::Text) {
             std::string content = substituteFields(layer.text, doc.fields, fields);
             if (content.empty())

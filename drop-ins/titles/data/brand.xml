@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Unicorn Tears brand kit for titles (doc 16, "Brand kit"): values
+     copied from ~/projects/unicorn-tears/claude-design-system/tokens/
+     colors.css and typography.css on 2026-09-27. Values only; the design
+     system stays the source of truth, so update both together. The fonts
+     aren't bundled: a missing one falls back (and says so). -->
+<brand name="Unicorn Tears">
+  <colour name="Magenta" value="#ff2bd6"/>
+  <colour name="Cyan" value="#19e3ff"/>
+  <colour name="Violet" value="#9d4eff"/>
+  <colour name="Lime" value="#4dff5a"/>
+  <colour name="White" value="#ffffff"/>
+  <colour name="Pink white" value="#ffeffb"/>
+  <colour name="Muted" value="#c9bdda"/>
+  <colour name="Ink 900" value="#07060d"/>
+  <colour name="Ink 800" value="#120c1f"/>
+  <colour name="Ink 700" value="#1b1230"/>
+  <colour name="Ink 500" value="#342357"/>
+  <gradient name="Tears" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0"/>
+  <gradient name="Tears vertical" from="#19e3ff" via="#9d4eff" to="#ff2bd6" angle="90"/>
+  <gradient name="Drip" from="#ffffff" via="#66efff" to="#ff2bd6" angle="90"/>
+  <font role="display" family="Anton"/>
+  <font role="sans" family="Space Grotesk"/>
+  <font role="mono" family="JetBrains Mono"/>
+</brand>

@@ -55,6 +55,7 @@ struct LayerGeometry
     Rect box;
     double rotation = 0.0, scale = 1.0;
     bool visible = true;
+    bool locked = false;
 };
 std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleFrame,
                                          const std::map<std::string, std::string> &fields);

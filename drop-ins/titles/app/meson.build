@@ -5,7 +5,7 @@ titles_app_resources = titles_gnome.compile_resources(
   'titles-resources',
   'titles.gresource.xml',
   # The editor's stylesheet: both apps share the Unicorn Tears tokens.
-  source_dir: [meson.project_source_root() / 'src' / 'app' / 'style'],
+  source_dir: [meson.project_source_root() / 'src' / 'app' / 'style', meson.current_source_dir() / '..' / 'data'],
   c_name: 'ustudio_titles',
 )
 # The canvas's overlay colours, from the same style.css (as the editor's
@@ -18,7 +18,7 @@ titles_app_tokens_h = custom_target(
 )
 titles_app_lib = static_library(
   'ustudio_titles_app',
-  files('canvas.cpp', 'render_worker.cpp', 'titles_window.cpp', 'view_settings.cpp'),
+  files('canvas.cpp', 'inspector.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp', 'view_settings.cpp'),
   titles_app_tokens_h,
   include_directories: [src_inc, titles_inc],
   dependencies: [titles_render_dep, gtk4_dep, adwaita_dep],

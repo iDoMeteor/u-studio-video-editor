@@ -392,6 +392,19 @@ Acceptance:
 > frame of the hold; T3 adds scrubbing. (6) Each launch is its own process
 > (`G_APPLICATION_NON_UNIQUE`), one window per file.
 
+> REVIEW: VE Text, 2026-09-27: T2b as built. (1) The brand kit is
+> `drop-ins/titles/data/brand.xml`, not `brand.json`: the drop-in has
+> libxml2 and no JSON parser, and the kit is compiled into the app's
+> GResource. (2) Fills gained an optional middle stop (`via`), for the
+> brand's three-colour "tears" gradient; layers gained `locked`. Same
+> format version: both are optional attributes. (3) Apply Brand keeps the
+> layout: the largest text gets the first gradient (and the display font
+> from 72 px), other text the sans font in pink-white, filled shapes ink-700
+> at 92%, outlines cyan. (4) The inspector rebuilds only on a selection
+> change or an edit made elsewhere; an edit made in it doesn't, so a field
+> keeps focus while you type, and rows that depend on a choice (a fill's
+> kind, the shadow switch) are rebuilt from an idle callback.
+
 ### T3 — Animation (about 2 weeks)
 
 Integration points: none.

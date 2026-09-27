@@ -5,6 +5,8 @@
 // applies them through the undo history, saves and opens.
 
 #include "canvas.h"
+#include "inspector.h"
+#include "layers_panel.h"
 
 #include "core/title_edit.h"
 
@@ -34,6 +36,7 @@ class TitlesWindow
   private:
     void buildUi();
     void refresh();
+    void selectionChanged(const std::optional<std::string> &id);
     void toast(const std::string &text);
     bool edit(const std::string &label, const std::function<bool(TitleDocument &)> &change,
               const std::string &mergeKey = {});
@@ -56,6 +59,10 @@ class TitlesWindow
     AdwWindowTitle *m_title = nullptr;
     AdwToastOverlay *m_toasts = nullptr;
     std::unique_ptr<TitleCanvas> m_canvas;
+    std::unique_ptr<LayersPanel> m_layers;
+    std::unique_ptr<Inspector> m_inspector;
+    // An edit from the inspector doesn't rebuild it (the field keeps focus).
+    bool m_editFromInspector = false;
     TitleHistory m_history;
     std::string m_path;
     bool m_closing = false;

@@ -222,7 +222,7 @@ std::optional<std::string> TitleCanvas::layerAt(double canvasX, double canvasY) 
 {
     // Topmost first.
     for (auto it = m_geometry.rbegin(); it != m_geometry.rend(); ++it)
-        if (it->visible && hitsBox(it->box, it->rotation, it->scale, canvasX, canvasY))
+        if (it->visible && !it->locked && hitsBox(it->box, it->rotation, it->scale, canvasX, canvasY))
             return it->id;
     return std::nullopt;
 }
