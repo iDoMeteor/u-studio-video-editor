@@ -348,20 +348,16 @@ half-written files. So each agent session works in its own git worktree:
 
 ## Sub-agent usage
 
-Sub-agents (the `Agent`/`Task` tool, parallel `Explore` agents, `Workflow`
-orchestration) are for long-running or background work only: a multi-file
-code review, an independent research question big enough to blow up the
-main context window, a build/test run the session doesn't need to block on.
+**Don't use sub-agents** (owner rule, 2026-09-27): no `Agent`/`Task` tool,
+no `Explore` agents, no `Workflow` orchestration. Do the work in your own
+session.
 
-- Don't spawn a sub-agent for anything doable directly in a handful of tool
-  calls — one `grep`, reading a known file, a small targeted edit. Do that
-  work yourself; a sub-agent adds latency and token cost without buying
-  parallelism there.
-- Default to doing the work in the current session. Reach for a sub-agent
-  only when the task is genuinely long-running/background, or when
-  parallel, independent lookups would otherwise serialize in one context.
-- When a task matches this bar, prefer running it in the background rather
-  than blocking the current turn on it, and report back once it completes.
+- Long-running work (builds, test and sanitizer suites, soaks, renders,
+  demo recordings) runs as a **background process** in your session
+  (`run_in_background`), and you carry on and report when it finishes.
+  That is allowed and preferred to blocking the turn.
+- Work that needs another pair of hands goes to another team's session,
+  through the VE Strategist, not to a sub-agent.
 
 ---
 
