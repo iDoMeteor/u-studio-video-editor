@@ -16,7 +16,7 @@ def walk(w):
     except Exception:
         cls = ()
     attrs = w.get_attributes()
-    if attrs.map_state == X.IsViewable and ('u Studio' in name or any('u-studio' in c.lower() or 'videoeditor' in c.lower() for c in cls)):
+    if attrs.map_state == X.IsViewable and ('u Studio' in name or 'U Stu' in name or any('u-studio' in c.lower() or 'videoeditor' in c.lower() for c in cls)):
         return w
     for c in w.query_tree().children:
         r = walk(c)

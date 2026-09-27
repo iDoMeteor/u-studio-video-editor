@@ -1,4 +1,4 @@
-# u Studio demo tour. Chapters run in order; TOUR_UPTO stops early for testing.
+# U Stu Video Editor demo tour. Chapters run in order; TOUR_UPTO stops early for testing.
 import os, sys, time
 sys.path.insert(0, os.environ['TOUR_DEMO'])
 import tourlib as T
@@ -7,6 +7,15 @@ M = os.environ['TOUR_MEDIA']
 WORK = os.path.join(os.environ['TOUR_OUT'], 'work')
 UPTO = int(os.environ.get('TOUR_UPTO', '99'))
 SHOTS = os.environ.get('TOUR_SHOTS', '1') == '1'
+RULER_Y = 740
+
+# A 3-second numbered PNG run for the image-sequence chapter, made from a staged clip.
+import subprocess
+SEQ_DIR = os.path.join(WORK, 'sequence')
+os.makedirs(SEQ_DIR, exist_ok=True)
+subprocess.run(['ffmpeg', '-loglevel', 'error', '-y', '-ss', '1', '-t', '3', '-i', os.path.join(M, 'zizzle', 'chunk_005.mp4'),
+                '-vf', 'fps=30,scale=960:-2', os.path.join(SEQ_DIR, 'frame_%04d.png')], check=True)
+SEQ_FIRST = os.path.join(SEQ_DIR, 'frame_0001.png')
 def snap(n):
     if SHOTS: shot(n)
 
@@ -45,7 +54,7 @@ def step(title, sub=''):
     chapter(title, sub)
 
 launch()
-step('u Studio', 'a GNOME-native multi-track video editor')
+step('U Stu Video Editor', 'a GNOME-native multi-track video editor')
 pause(3)
 
 # ---------------------------------------------------------------- 1
@@ -202,11 +211,11 @@ if b:
     drag(x0 + 1, y0 + 1, x0 + (x1 - x0) // 2, y0 + (y1 - y0) // 2, dur=1.4); pause(1.2)
     b = preview_box() or b; x0, y0, x1, y1 = b
     cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-    drag(cx, cy, cx + 110, cy - 90, dur=1.4); pause(1.2); rest(); snap('c5b-pip')
+    drag(cx, cy, cx + 40, cy - 60, dur=1.4); pause(1.2); rest(); snap('c5b-pip')
     step('Rotate', 'drag the knob above the box; Shift steps by 15°')
     k = preview_knob(); T.log(f"knob {k}")
     if k:
-        drag(k[0], k[1], k[0] + 140, k[1] + 36, dur=1.4); pause(1.2); rest(); snap('c5b-rotated')
+        drag(k[0], k[1], k[0] + 70, k[1] + 12, dur=1.4); pause(1.2); rest(); snap('c5b-rotated')
     step('Transform menu', 'right-click the preview: fit, stretch, centre, flip and rotate')
     b = preview_box() or b; x0, y0, x1, y1 = b
     click((x0 + x1) // 2, (y0 + y1) // 2, button=3); pause(1.5); snap('c5b-menu')
@@ -218,6 +227,27 @@ act('transform-edit'); pause(3); snap('c5b-dialog')
 # Its own window, and Esc only reaches it with focus, which Xvfb doesn't give.
 press_in('Edit Transform', 'Close'); pause(0.8)
 act('play-pause'); pause(4); act('play-pause'); pause(0.8)
+
+# ---------------------------------------------------------------- 5c image sequence
+# Numbered frames generated at runtime from a staged clip; nothing goes in the repo.
+step('Import Image Sequence', 'Ctrl+Alt+I: pick any image of a numbered run and it comes in as one clip, one image per frame')
+act('import-image-sequence'); center_dialogs(1.0)
+set_location(SEQ_FIRST); keysym(K_RETURN); pause(1.2)
+if find('Open', exact=True, timeout=1):   # Enter may only navigate
+    press('Open', exact=True)
+pause(3); T.log(f"sequence status {status()!r}")
+press('Show or hide the media browser'); pause(1.5)
+for _ in range(14):
+    mouse(230, 400, 'b5c'); time.sleep(0.08)
+pause(1.2); snap('c5c-browser')
+v3 = clips_in_row(YB(0))
+v3_end = max(r[1] for r in v3) if v3 else 200
+drop_x = v3_end + 40
+drag(70, 695, drop_x, YB(0), dur=1.6); pause(2); rest(); snap('c5c-dropped')   # the newest asset is the last row
+press('Show or hide the media browser'); pause(1)
+click(drop_x + 6, RULER_Y); pause(0.8)   # playhead onto the sequence
+act('play-pause'); pause(1.5); snap('c5c-playing'); pause(1.2); act('play-pause'); pause(0.8)
+act('undo'); pause(1); rest()   # keep the later chapters' timeline as it was
 
 # ---------------------------------------------------------------- 6 save
 PROJECT = os.path.join(WORK, 'unicorn-demo.ustudio')
@@ -287,7 +317,9 @@ step('Cancel or queue', 'click the Render button while it renders')
 click(*HDR['render']); pause(1.5); snap('c9-cancel-dialog')
 press('Cancel Render', exact=True); pause(2)
 step('Render finished', 'the button turns cyan; click it to open the video')
-ff_start(); st = wait_status(('Rendered',), 240); ff_end(); T.log(f"render status {st!r}"); rest(); pause(2); snap('c9-done')
+ff_start(); st = wait_status(('Rendered',), 900); ff_end(); T.log(f"render status {st!r}"); rest(); pause(2); snap('c9-done')
+if not st.startswith('Rendered'):
+    snap('ERR-render-unfinished'); raise SystemExit(f'render did not finish: {st!r}')
 click(*HDR['render']); pause(4); snap('c9-player')
 # close whatever player GIO launched on :97
 import subprocess as _sp
@@ -338,8 +370,10 @@ pause(1.5)
 # ---------------------------------------------------------------- 11 help
 step('Help', 'collapsible sections that remember where you were: every control and every shortcut')
 press('Help'); pause(2.5)
-for sec in ('Timeline', 'Transform'):
-    press_any(sec); pause(1.5)
+# The expander rows expose no AT-SPI action; click their headers (the dialog is
+# centred). Timeline first: opening it doesn't move Edit Transform above it.
+for y in (632, 522):
+    click(910, y); pause(1.5)
 snap('c11-help')
 step('Release notes', 'what is new in each release, written for testers')
 press_any('Release Notes'); pause(2); snap('c11-notes')
@@ -347,6 +381,6 @@ step('About and diagnostics', 'Copy Diagnostics puts versions and recent log lin
 press_any('About'); pause(2); press_any('Copy Diagnostics'); pause(2); snap('c11-about')
 keysym(K_ESC); pause(1)
 
-step('u Studio', 'built with GTK4, libadwaita and MLT')
+step('U Stu Video Editor', 'built with GTK4, libadwaita and MLT')
 act('seek-home'); act('play-pause'); pause(6); act('play-pause'); pause(2)
 quit_app(40)
