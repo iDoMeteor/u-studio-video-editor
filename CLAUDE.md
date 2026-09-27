@@ -121,7 +121,10 @@ builddir/                 meson build output — gitignored, per-worktree
   Run `meson test -C builddir --print-errorlogs` before every commit.
 - Dependencies are: GTK4 ≥ 4.10, libadwaita, GLib/GIO/GObject, MLT 7
   (`mlt-framework-7`, `mlt++-7`), `libxml2`, and doctest for tests
-  (ADR-010). `frei0r-plugins` is a dependency of the effects drop-in only,
+  (ADR-010). `egl` for the GPU context, linked only by `src/platform/`
+  (ADR-019); MLT's `movit` module (movit, FFTW) is bundled in packages and
+  loaded by MLT, never included by our code (ADR-019). `frei0r-plugins` is a
+  dependency of the effects drop-in only,
   never of the core editor (ADR-011, ADR-014). **Anything else needs
   an ADR** and the owner's sign-off.
 
