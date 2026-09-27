@@ -108,12 +108,14 @@ dist artifact:
 
 # Drop-in configurations (ADR-013/014, doc 15 "Gating"): the full suite with
 # every drop-in built in, or every one as a loadable module (each in its own
-# build dir). The default build (`just test`) has them all disabled. Needs
-# the drop-in folders (drop-ins/effects, drop-ins/titles) to exist.
+# build dir). The default build (`just test`) has them all disabled. Only
+# the drop-ins whose folder is in the tree are enabled (meson refuses an
+# option for a missing folder); a build dir made before a new drop-in
+# landed needs `meson configure` or deleting.
 dropins-builtin:
-    [ -d builddir-dropins-builtin ] || meson setup builddir-dropins-builtin -Dtests=enabled -Ddropin_effects=builtin -Ddropin_titles=builtin
+    [ -d builddir-dropins-builtin ] || meson setup builddir-dropins-builtin -Dtests=enabled $(for d in drop-ins/*/meson.build; do d=${d#drop-ins/}; printf -- '-Ddropin_%s=builtin ' "${d%/meson.build}"; done)
     meson test -C builddir-dropins-builtin --print-errorlogs
 
 dropins-module:
-    [ -d builddir-dropins-module ] || meson setup builddir-dropins-module -Dtests=enabled -Ddropin_effects=module -Ddropin_titles=module
+    [ -d builddir-dropins-module ] || meson setup builddir-dropins-module -Dtests=enabled $(for d in drop-ins/*/meson.build; do d=${d#drop-ins/}; printf -- '-Ddropin_%s=module ' "${d%/meson.build}"; done)
     meson test -C builddir-dropins-module --print-errorlogs
