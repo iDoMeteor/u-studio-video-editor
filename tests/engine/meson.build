@@ -7,6 +7,15 @@ test_factory_policy_exe = executable(
 
 test('engine-factory-policy', test_factory_policy_exe)
 
+# core::easedValue() against MLT's own interpolation, every easing.
+test_eased_value_exe = executable(
+  'test_eased_value',
+  files('test_eased_value.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+test('engine-eased-value', test_eased_value_exe)
+
 subdir('factory_paths')
 test_factory_paths_exe = executable(
   'test_factory_paths',

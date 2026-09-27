@@ -183,7 +183,8 @@ Effects and titles are drop-ins
 [ADR-014](../plans/v2/adr/014-drop-in-loading-and-distribution.md)). The
 meson options `dropin_effects` and `dropin_titles` take `disabled` (the
 default for now), `builtin` or `module`. `just dropins-builtin` and
-`just dropins-module` build and test both configurations. The planned
+`just dropins-module` build and test both configurations, with every
+drop-in whose folder is in the tree (only `drop-ins/titles/` so far). The planned
 catalogue is in [v2 doc 17](../plans/v2/17-drop-in-catalogue-and-distribution.md).
 
 ## Releases

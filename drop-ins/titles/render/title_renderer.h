@@ -1,0 +1,56 @@
+#pragma once
+
+// titlerender (ADR-012): draws a TitleDocument at a moment into pixels with
+// Pango and Cairo. No GTK, no MLT, so the titles app's canvas, the editor's
+// preview (through the ustudio_title MLT producer) and export all draw with
+// this one function.
+//
+// Any thread. Pango's default font map isn't safe to share across threads,
+// so each thread that renders gets its own (T0, docs/developer/notes/
+// titles.md), made on its first render and freed when the thread ends.
+//
+// The picture depends only on the arguments: text is laid out in canvas
+// pixels with hinting off and then scaled, so a half-size preview is the
+// full-size frame scaled down, and two renders of the same frame are
+// byte-identical.
+
+#include "core/title_document.h"
+
+#include <cstdint>
+#include <map>
+#include <string>
+#include <vector>
+
+namespace ustudio::titles {
+
+struct RenderedFrame
+{
+    int width = 0, height = 0;
+    // Cairo's ARGB32: premultiplied, one native-endian uint32 per pixel
+    // (B, G, R, A in memory on little-endian machines), no row padding.
+    std::vector<uint32_t> pixels;
+};
+
+struct RenderResult
+{
+    RenderedFrame frame;
+    // Fonts that aren't installed, with what was used instead, each once:
+    // "Space Grotesk isn't installed; using DejaVu Sans".
+    std::vector<std::string> warnings;
+};
+
+// `titleFrame` in the title's own timeline (titleFrame() in core/evaluate.h);
+// `fields` are the clip's values for the title's {{fields}}.
+RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std::map<std::string, std::string> &fields,
+                         int width, int height);
+
+// MLT's rgba: straight (not premultiplied) R, G, B, A bytes. `out` must hold
+// width * height * 4 bytes.
+void toStraightRgba(const RenderedFrame &frame, uint8_t *out);
+
+// Makes the fonts in `directory` (a title's or project's fonts/ folder)
+// available to every later render in this process, on every thread.
+// Returns false if there is no such directory or fontconfig refused it.
+bool addFontDirectory(const std::string &directory);
+
+} // namespace ustudio::titles

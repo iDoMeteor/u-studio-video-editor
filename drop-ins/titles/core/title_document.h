@@ -1,0 +1,208 @@
+#pragma once
+
+// A title (doc 16, "The document: .ustitle"): a small canvas of layers with
+// an intro / hold / outro timeline. Pure data; std and src/core only
+// (drop-ins' core/ rule, tools/dropin_boundary_check.sh).
+
+#include "core/model/types.h"
+
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace ustudio::titles {
+
+// Straight (not premultiplied) colour, each channel 0..1.
+struct Rgba
+{
+    double r = 0.0, g = 0.0, b = 0.0, a = 1.0;
+
+    bool operator==(const Rgba &) const = default;
+};
+
+// "#rgb", "#rrggbb" or "#rrggbbaa"; nullopt otherwise.
+std::optional<Rgba> parseColor(std::string_view text);
+// "#rrggbb", or "#rrggbbaa" when not opaque.
+std::string formatColor(const Rgba &colour);
+
+enum class FillKind
+{
+    None,
+    Solid,
+    Linear, // `from` to `to` across the layer's box at `angle`
+    Radial, // `from` at the box's centre to `to` at its farthest edge
+};
+
+struct Fill
+{
+    FillKind kind = FillKind::Solid;
+    Rgba color{1.0, 1.0, 1.0, 1.0}; // Solid
+    Rgba from, to;                  // Linear, Radial
+    double angle = 0.0;             // degrees, Linear; 0 = left to right, 90 = top to bottom
+    double opacity = 1.0;
+
+    bool operator==(const Fill &) const = default;
+};
+
+// An outline outside the fill (drawn under it), `width` canvas pixels wide.
+struct Stroke
+{
+    Rgba color{0.0, 0.0, 0.0, 1.0};
+    double width = 0.0; // 0: none
+    double opacity = 1.0;
+
+    bool operator==(const Stroke &) const = default;
+};
+
+// A blurred copy of the layer's shape under it; `blur` is roughly the
+// Gaussian's sigma, in canvas pixels.
+struct Shadow
+{
+    bool enabled = false;
+    double dx = 0.0, dy = 4.0, blur = 8.0;
+    Rgba color{0.0, 0.0, 0.0, 1.0};
+    double opacity = 0.5;
+
+    bool operator==(const Shadow &) const = default;
+};
+
+struct Font
+{
+    std::string family = "Sans"; // a generic fallback is always appended when rendering
+    int weight = 400;            // 100..1000, CSS-style
+    bool italic = false;
+    double size = 48.0;      // canvas pixels (the em size)
+    double tracking = 0.0;   // extra space between letters, in em
+    double lineHeight = 1.0; // a factor of the font's own line height
+
+    bool operator==(const Font &) const = default;
+};
+
+enum class Align
+{
+    Left,
+    Center,
+    Right
+};
+
+// How text meets its box's width `w` (0: no box, one line per paragraph).
+enum class Fit
+{
+    None,   // lines as written, may overflow
+    Wrap,   // wrap at `w`
+    Shrink, // one size smaller until it fits `w` (and `h` when set)
+};
+
+enum class LayerKind
+{
+    Text,
+    Shape
+};
+
+enum class ShapeKind
+{
+    Rect,
+    RoundedRect,
+    Ellipse,
+    Line, // (x, y) to (x + w, y + h), stroke only
+};
+
+// Where a keyframe's `at` counts from. Keys in the outro stay with the
+// outro when the hold is lengthened, in the file as on the clip.
+enum class Zone
+{
+    Intro, // frames from the title's start
+    Hold,  // frames from the hold's start
+    Outro, // frames from the outro's start
+};
+
+struct TitleKey
+{
+    Zone zone = Zone::Intro;
+    core::Keyframe key; // core's model (docs/developer/notes/animation.md)
+
+    bool operator==(const TitleKey &) const = default;
+};
+
+// The properties a keyframe track may animate, T1's set.
+enum class Property
+{
+    X,
+    Y,
+    Opacity,
+    Scale,
+    Rotation, // degrees, clockwise, about the box's centre
+};
+const char *propertyName(Property property);
+std::optional<Property> propertyFromName(std::string_view name);
+
+struct PropertyTrack
+{
+    Property property = Property::Opacity;
+    std::vector<TitleKey> keys; // sorted by their position in the title
+
+    bool operator==(const PropertyTrack &) const = default;
+};
+
+struct Layer
+{
+    std::string id;
+    LayerKind kind = LayerKind::Text;
+    bool visible = true;
+    // The box, in canvas pixels. A text layer with h = 0 is as tall as its
+    // text; with w = 0, x is the anchor its alignment is relative to.
+    double x = 0.0, y = 0.0, w = 0.0, h = 0.0;
+    double opacity = 1.0, scale = 1.0, rotation = 0.0;
+
+    // Text
+    std::string text; // may hold {{field}} references
+    Font font;
+    Align align = Align::Left;
+    Fit fit = Fit::None;
+    // Shape
+    ShapeKind shape = ShapeKind::Rect;
+    double radius = 0.0; // RoundedRect
+
+    Fill fill;
+    Stroke stroke;
+    Shadow shadow;
+    std::vector<PropertyTrack> animation;
+
+    bool operator==(const Layer &) const = default;
+};
+
+// A template's slot, filled per clip (`field.<name>` on the producer).
+struct Field
+{
+    std::string name;
+    std::string label;
+    std::string defaultValue;
+
+    bool operator==(const Field &) const = default;
+};
+
+struct Timing
+{
+    int64_t intro = 0, hold = 60, outro = 0; // frames at the title's fps
+
+    int64_t length() const
+    {
+        return intro + hold + outro;
+    }
+    bool operator==(const Timing &) const = default;
+};
+
+struct TitleDocument
+{
+    int width = 1920, height = 1080;
+    int fpsNum = 30, fpsDen = 1;
+    Timing timing;
+    std::vector<Field> fields;
+    std::vector<Layer> layers; // bottom first: later layers draw over earlier ones
+
+    bool operator==(const TitleDocument &) const = default;
+};
+
+} // namespace ustudio::titles

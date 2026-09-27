@@ -15,6 +15,7 @@ name, for example `meson test -C builddir engine-sync`.
 | `tests/engine/` | `engine-*` (sync, playback controller, render, A/V sync, XML playback, caches, proxies, transform, mixed rates, …) | MLT, but no display and no media files |
 | `tests/app/` | `app-*` (timeline controller and renderer, viewport, queues, settings, autosave, UI hints, …) | GTK for some; most test logic that was kept out of widgets |
 | `tests/dropins/` | `dropins`, `dropin-*` | The drop-in build options (`just dropins-builtin`, `just dropins-module`) |
+| `drop-ins/<name>/tests/` | `titles-*` | A drop-in's own tests, built only with its `-Ddropin_<name>` option on (ADR-013: the folder is self-contained) |
 | `tests/sanitizers/` | — | LeakSanitizer suppressions for `just asan` |
 | `tests/common/` | — | Shared helpers, such as the random command stream for property tests |
 
