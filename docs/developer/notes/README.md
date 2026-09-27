@@ -23,7 +23,7 @@ here unchanged on 2026-09-26.
 | [GPU](gpu.md) | Our own EGL context for movit, `glsl.manager` as a sticky process-wide switch, `loader-nogl`, per-producer `\?hwaccel=`, movit's service set and gaps, measured throughput and colour |
 | [Keyframes and easing](animation.md) | The one keyframe model shared by effects and titles, `easedValue()`, how MLT interpolates each easing, cut-edge keyframes |
 | [Effects](effects.md) | M5 FX0 spikes: frei0r services and Qt check, parameter addressing and animation, `mask_start`/`mask_apply`, 16-bit `luma` wipes, `cairoblend` modes, adjustment blocks |
-| [Titles](titles.md) | T0 spikes: a custom MLT producer module with YAML metadata, Pango per thread, 4K cost, alpha conversion, `xml` round trip, app fonts, GApplication actions from another process. T1: hinting off for scale-true layout, font directories, detecting a substituted font, renderer cost |
+| [Titles](titles.md) | T0 spikes: a custom MLT producer module with YAML metadata, Pango per thread, 4K cost, alpha conversion, `xml` round trip, app fonts, GApplication actions from another process. T1: hinting off for scale-true layout, font directories, detecting a substituted font, renderer cost, making the producer through `loader`, a self-contained module, boundless assets, watching atomic saves |
 | [App shell](app-shell.md) | Shortcuts vs text entry, `GtkRecentInfo`, `g_file_trash()`, the playhead overlay, ruler height |
 
 Related:

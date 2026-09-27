@@ -279,8 +279,8 @@ TEST_CASE("u-studio-render plays the title with identical frames (T1 acceptance)
     gchar *out = nullptr;
     gint status = -1;
     GError *error = nullptr;
-    const gboolean spawned = g_spawn_sync(nullptr, argv.data(), env, G_SPAWN_STDERR_TO_DEV_NULL, nullptr, nullptr,
-                                          &out, nullptr, &status, &error);
+    const gboolean spawned = g_spawn_sync(nullptr, argv.data(), env, G_SPAWN_STDERR_TO_DEV_NULL, nullptr, nullptr, &out,
+                                          nullptr, &status, &error);
     g_strfreev(env);
     REQUIRE(spawned);
     CHECK(g_spawn_check_wait_status(status, nullptr));

@@ -308,10 +308,32 @@ with per-clip producers, elastic timing and file-watch reload.
 
 Acceptance:
 
-- [ ] A hand-written `.ustitle` plays in the editor and renders through
-      `u-studio-render` with identical frame hashes.
-- [ ] Stretching the clip changes only the hold.
-- [ ] Editing the file on disk updates the editor within a second.
+- [x] A hand-written `.ustitle` plays in the editor and renders through
+      `u-studio-render` with identical frame hashes (`titles-engine`: the
+      render tool's `--title-frames` against the editor's graph, built in
+      and as a module; seen in the editor on 2026-09-27).
+- [x] Stretching the clip changes only the hold (`titles-engine`: intro and
+      outro frames hash equal on a 93- and a 400-frame clip).
+- [x] Editing the file on disk updates the editor within a second
+      (`titles-shell`; 0.31 s from save to rebuilt graph in the editor).
+
+> REVIEW: VE Text, 2026-09-27: T1 as built. (1) The producer is made
+> through MLT's `loader` (`ustudio_title:<path>`), not the factory: only
+> the loader attaches the normalising filters, and without them the
+> compositor read our RGBA as YUV (`docs/developer/notes/titles.md`).
+> (2) A title clip's producer spans source frames 0..out, so the right half
+> of a split still ends in the outro; the left half fits the whole title
+> into its length. (3) Title assets are boundless through
+> `MediaInfo::isStillImage` (as stills are): `InsertClip` otherwise grows a
+> boundless asset's length to its clips, and it also keeps titles out of
+> proxies and profile matching. The media browser shows them with the still
+> badge until T4 gives title clips their own look. (4) The file watch
+> reports through a new IP5 method, `ShellHost::assetChangedOnDisk()`
+> (doc 15), not a command, so a save isn't an undo step. (5) Relink can't
+> probe a `.ustitle` yet (it probes through MLT's loader without the
+> service prefix); a missing title plays again when its file comes back.
+> (6) `.ustitle` keyframes carry a `zone` (intro, hold, outro) so outro
+> keys stay with the outro when the hold changes.
 
 ### T2 — The titles app (about 2–3 weeks)
 
@@ -351,10 +373,31 @@ Integration points: IP5 inspector page and action contributions.
 Fields and dynamic fields, the template gallery, fields in the editor's
 Rack, New Title and insert-at-playhead over D-Bus, Bake title.
 
+**User templates and a bigger gallery** (owner request, 2026-09-27):
+
+- **Save as Template** from any title, fields included, into a user
+  template library under the app's data directory. Paths go through
+  `src/platform/` (ADR-017).
+- The gallery has **Built-in** and **My Templates** sections. User
+  templates can be edited, renamed, duplicated and deleted. Built-ins are
+  read-only: editing one saves a copy to My Templates.
+- **New Title** from any template. Title clips are copies, so changing a
+  template never rewrites existing clips silently. **Update from template**
+  on a clip, if it's cheap.
+- **About 20 built-ins** beyond the eight above, across lower thirds,
+  bugs and badges, cards, end screens, countdowns and social. They use the
+  brand kit (`brand.json`) with generic font fallbacks. Each is an ordinary
+  `.ustitle` with fields, and none uses raster art unless it's generated.
+
 Acceptance:
 
 - [ ] Ten lower thirds with different names come from one template file.
 - [ ] A baked title plays in stock `melt`.
+- [ ] A user template survives an app restart and appears in New Title.
+- [ ] Editing a built-in leaves it unchanged and adds a copy to My
+      Templates.
+- [ ] Every built-in renders identically in the titles app, the editor's
+      preview and export, and passes the render tests.
 
 ### T4b — Template packages, and T7 — sharing
 

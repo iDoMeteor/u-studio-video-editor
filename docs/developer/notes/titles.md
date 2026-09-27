@@ -46,3 +46,35 @@ Cairo 1.18, fontconfig 2.17):
   blur's loops, so don't judge speed on one.
 - Text goes to Pango with `pango_layout_set_text()`, never as markup, so a
   field value like `<b>` or `&` shows as typed.
+
+## T1: the producer in the editor's graph
+
+- **Make the producer through `loader`, not the factory.** A producer made
+  with `mlt_factory_producer(profile, "ustudio_title", path)` has no
+  normalising filters, so nothing converts its `mlt_image_rgba` frames to
+  the format the compositor asks for. The `composite` transition read the
+  RGBA bytes as YUV 4:2:2, and a fully transparent title came out as an
+  opaque green frame, (0, 136, 0), which is Y = U = V = 0 converted to RGB.
+  `Mlt::Producer(profile, "loader", "ustudio_title:<path>")` splits the
+  service off at the first colon (`producer_loader.c`, `create_producer()`)
+  and attaches the normalisers like any media file. Repro:
+  `titles-engine`, "a title clip plays over the track below it".
+- **Metadata without a YAML file.** `mlt_repository_register_metadata()`'s
+  callback may build the properties itself. MLT caches the result on the
+  service and frees it with `mlt_properties_close`, so the module stays one
+  file wherever it's installed.
+- **A self-contained module.** `libmltustudio.so` links the titles core,
+  the renderer and the parts of `src/core` they use statically, with
+  `-Wl,--exclude-libs,ALL`, so it exports only `mlt_register`. It loads into
+  the editor, `u-studio-render` or `melt` whatever they export. The drop-in
+  module `libustudio-dropin-titles.so` is the opposite: it resolves core
+  and engine against the program, which links those libraries whole when
+  any drop-in is a module.
+- **Boundless assets grow.** `InsertClip` extends a boundless asset's
+  `lengthInSequenceFrames` to its furthest clip, after which it's no longer
+  boundless and a longer trim is refused. Stills avoid this with
+  `isStillImage`, and so do titles.
+- **Watching a file saved atomically.** `g_file_monitor_file()` on the title
+  reports a write-then-rename save as several events. A 150 ms settle timer
+  turns them into one reload, and the fingerprint (size and mtime in ns)
+  decides whether anything changed.
