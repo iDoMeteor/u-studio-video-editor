@@ -22,7 +22,7 @@ Settings are saved automatically.
 | **Controls** | Every button, menu item and timeline gesture |
 | **Keyboard Shortcuts** | Every action and its key, by category |
 | **Release notes** | What's new in each beta and release |
-| **About** | The logo, version and what the editor is; links to the Unicorn Tears Project and the source code; the licence (MIT; the Flatpak also bundles GPL-licensed FFmpeg and x264); **Open Log Folder**, **Copy Diagnostics**. Links open in your browser; the editor itself never uses the network |
+| **About** | The logo, version and what the editor is; links to the Unicorn Tears Project and the source code; the licence (MIT; the Flatpak also bundles GPL-licensed FFmpeg and x264); **Open Log Folder** (opens the folder in your file manager with this session's log selected), **Copy Diagnostics**. Links open in your browser; the editor itself never uses the network |
 
 Help remembers which sections you opened, the tab and where you scrolled,
 even after a restart. Tooltips and the Controls tab come from the same

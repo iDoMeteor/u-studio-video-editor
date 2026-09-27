@@ -24,6 +24,7 @@ LogLevel g_level = LogLevel::Info;
 // Diagnostics: kept here rather than read back from the file.
 constexpr size_t kRecentLines = 200;
 std::deque<std::string> g_recent;
+std::filesystem::path g_filePath; // this run's log file, once init() opened it
 
 const char *levelName(LogLevel level)
 {
@@ -151,11 +152,19 @@ void init(const std::string &appName)
 
     std::filesystem::path path = dir / (appName + "-" + timestampForFilename() + ".log");
     g_file.open(path, std::ios::out | std::ios::trunc);
+    if (g_file.is_open())
+        g_filePath = path;
 }
 
 std::filesystem::path directory()
 {
     return directoryFromEnvironment();
+}
+
+std::filesystem::path currentFile()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_filePath;
 }
 
 std::vector<std::string> recentLines(size_t count)

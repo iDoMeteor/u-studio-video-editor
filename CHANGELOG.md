@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.51.0-beta.3
+
+- Open Log Folder opens the folder the first time too, with this
+  session's log selected.
+
 ## 0.51.0-beta.2
 
 - The app is now called U Stu Video Editor (window title, Help, the app
