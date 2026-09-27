@@ -70,6 +70,17 @@ that have no GL context.
 | `Mlt::Producer(profile, "loader-nogl:" + path)` | CPU chain **and** movit chain (the default loader wraps it) |
 | `Mlt::Producer(profile, "avformat", path)` | none |
 
+So a CPU graph must never use the default loader while a GPU session can
+be alive in the process: 0.60.0-beta.1's in-process export, a CPU graph
+built on a pool thread while the preview played on the GPU, got movit's
+normalisers on a thread with no GL context and aborted in libepoxy
+("Couldn't find current GLX or EGL context"). `openProducer()` now gives
+`loader-nogl` to every CPU graph and worker, and the default loader only
+to a GPU graph (`test_gpu_pipeline`'s export case). Two gaps remain:
+MLT's own `luma` transition opens a wipe's `resource` through the default
+loader when it first renders, and so does any service that loads a file
+by itself. Plain dissolves have no resource.
+
 Destroying the manager filter does not switch back: the global property
 `glslManager` still holds it. Clearing it does:
 `mlt_properties_set_data(mlt_global_properties(), "glslManager", nullptr, 0, nullptr, nullptr)`

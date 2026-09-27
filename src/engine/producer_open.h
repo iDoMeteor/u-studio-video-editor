@@ -20,14 +20,37 @@ class Profile;
 
 namespace ustudio::engine {
 
+// A CPU graph's producers must stay on the CPU chain even while a GPU
+// session lives in the process (an export on a pool thread while the
+// preview plays on the GPU, or the preview switched back to the CPU while an
+// export still holds the session): only a GPU graph's producers go through
+// the default loader.
 enum class ProducerUse
 {
-    Live,   // the playback or export graph
-    Worker, // thumbnails, waveforms, probes, audio sync: always CPU, software decode
+    Worker,   // thumbnails, waveforms, probes, audio sync: always CPU, software decode
+    CpuGraph, // a graph on the CPU pipeline
+    GpuGraph, // a graph on the GPU pipeline (ADR-019)
+    Graph,    // whichever pipeline this thread is building (GraphBuildScope); the CPU outside one.
+              // For drop-ins' producers (EngineExtension::makeProducer()).
 };
 
-// `resource` as the loader takes it. A Worker producer ignores any GPU state.
+// `resource` as the loader takes it.
 std::unique_ptr<Mlt::Producer> openProducer(Mlt::Profile &profile, const std::string &resource, ProducerUse use);
+
+// While alive, ProducerUse::Graph on this thread means `gpu ? GpuGraph :
+// CpuGraph`. EngineSync holds one around every call into a drop-in that
+// may open a producer.
+class GraphBuildScope
+{
+  public:
+    explicit GraphBuildScope(bool gpu);
+    ~GraphBuildScope();
+    GraphBuildScope(const GraphBuildScope &) = delete;
+    GraphBuildScope &operator=(const GraphBuildScope &) = delete;
+
+  private:
+    int m_previous;
+};
 
 // `path` with avformat's per-producer hardware-decode query appended:
 // "<path>\?hwaccel=<api>". For a plain file avformat only splits a query at

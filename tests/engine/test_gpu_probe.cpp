@@ -40,7 +40,7 @@ bool eglIsOverridden()
 bool loaderGoesGpu()
 {
     Mlt::Profile profile;
-    std::unique_ptr<Mlt::Producer> producer = openProducer(profile, "color:#000000", ProducerUse::Live);
+    std::unique_ptr<Mlt::Producer> producer = openProducer(profile, "color:#000000", ProducerUse::GpuGraph);
     for (int i = 0; i < producer->filter_count(); ++i) {
         std::unique_ptr<Mlt::Filter> filter(producer->filter(i));
         const char *service = filter->get("mlt_service");

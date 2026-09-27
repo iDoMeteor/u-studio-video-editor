@@ -11,6 +11,10 @@ docs-only changes are not listed (CLAUDE.md).
   fields (a guest's name and role), each clip its own, one title file for
   all of them.
 
+## 0.61.1-beta.1
+
+- Exporting with GPU acceleration on no longer closes the editor.
+
 ## 0.61.0-beta.1
 
 - Titles can show live text: `{{timecode}}`, `{{clip_time}}`,

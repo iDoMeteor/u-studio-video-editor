@@ -58,6 +58,9 @@ class EngineExtension
     virtual void decorateTractor(Mlt::Tractor &, const core::Model &, Mlt::Profile &) {}
     // The producer a clip is cut from, for clips the drop-in generates
     // (titles: Clip::sourceParams). Null: the asset's media, as usual.
+    // Open it with engine::openProducer(..., ProducerUse::Graph)
+    // (producer_open.h): the GPU pipeline's graphs need the default loader
+    // and the CPU pipeline's must not use it while a GPU session lives.
     virtual std::unique_ptr<Mlt::Producer> makeProducer(const core::Model &, const core::Clip &, Mlt::Profile &)
     {
         return nullptr;
