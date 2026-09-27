@@ -128,3 +128,78 @@ TEST_CASE("hit testing follows rotation and scale")
     CHECK_FALSE(hitsBox(box, 0, 0.5, 110, 200));
     CHECK_FALSE(hitsBox(box, 0, 0, 200, 200));
 }
+
+#include "core/brand_kit.h"
+#include "core/title_xml.h"
+
+#include <fstream>
+#include <sstream>
+
+namespace {
+BrandKit shippedKit()
+{
+    std::ifstream in(TITLES_BRAND_XML);
+    std::stringstream xml;
+    xml << in.rdbuf();
+    auto kit = parseBrandKit(xml.str());
+    REQUIRE(kit.has_value());
+    return *kit;
+}
+} // namespace
+
+TEST_CASE("the shipped brand kit parses, with the design system's values")
+{
+    const BrandKit kit = shippedKit();
+    CHECK(kit.name == "Unicorn Tears");
+    REQUIRE(kit.colour("Magenta"));
+    CHECK(formatColor(kit.colour("Magenta")->value) == "#ff2bd6");
+    CHECK(formatColor(kit.colour("Cyan")->value) == "#19e3ff");
+    REQUIRE(kit.gradients.size() >= 1);
+    CHECK(kit.gradients[0].name == "Tears");
+    REQUIRE(kit.gradients[0].fill.via.has_value());
+    CHECK(formatColor(*kit.gradients[0].fill.via) == "#9d4eff");
+    CHECK(kit.displayFont == "Anton");
+    CHECK(kit.sansFont == "Space Grotesk");
+    CHECK_FALSE(parseBrandKit("<nope/>").has_value());
+    CHECK_FALSE(parseBrandKit(R"(<brand><colour name="x" value="red"/></brand>)").has_value());
+}
+
+TEST_CASE("Apply brand restyles, keeping the layout")
+{
+    TitleDocument doc;
+    Layer bar = makeShapeLayer(doc, ShapeKind::RoundedRect);
+    bar.stroke.width = 2;
+    addLayer(doc, bar);
+    Layer name = makeTextLayer(doc, "Name");
+    name.font.size = 96;
+    addLayer(doc, name);
+    Layer role = makeTextLayer(doc, "Role");
+    role.font.size = 32;
+    addLayer(doc, role);
+    const TitleDocument before = doc;
+    CHECK(applyBrand(doc, shippedKit()));
+    CHECK(doc.layers[0].fill.color == *parseColor("#1b1230"));
+    CHECK(doc.layers[0].fill.opacity == doctest::Approx(0.92));
+    CHECK(doc.layers[0].stroke.color == *parseColor("#19e3ff"));
+    CHECK(doc.layers[1].font.family == "Anton");
+    CHECK(doc.layers[1].fill.kind == FillKind::Linear);
+    CHECK(doc.layers[2].font.family == "Space Grotesk");
+    CHECK(doc.layers[2].fill.color == *parseColor("#ffeffb"));
+    for (size_t i = 0; i < doc.layers.size(); ++i) {
+        CHECK(doc.layers[i].x == before.layers[i].x);
+        CHECK(doc.layers[i].font.size == before.layers[i].font.size);
+    }
+    CHECK_FALSE(applyBrand(doc, shippedKit())); // already branded
+}
+
+TEST_CASE("a gradient's middle stop and a layer's lock round-trip")
+{
+    TitleDocument doc;
+    Layer layer = makeShapeLayer(doc, ShapeKind::Rect);
+    layer.fill = shippedKit().gradients[0].fill;
+    layer.locked = true;
+    addLayer(doc, layer);
+    auto again = parseTitle(writeTitle(doc));
+    REQUIRE(again.has_value());
+    CHECK(again->document == doc);
+}

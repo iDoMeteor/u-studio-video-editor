@@ -154,6 +154,12 @@ void readFill(const xmlNode *node, Fill &fill, std::string &error)
     a.colour("color", fill.color);
     a.colour("from", fill.from);
     a.colour("to", fill.to);
+    if (auto via = attr(node, "via")) {
+        if (auto parsed = parseColor(*via))
+            fill.via = *parsed;
+        else
+            a.fail("via", *via);
+    }
     a.number("angle", fill.angle, -3600.0, 3600.0);
     a.number("opacity", fill.opacity, 0.0, 1.0);
 }
@@ -217,6 +223,7 @@ std::optional<Layer> readLayer(const xmlNode *node, std::string &error, std::set
         return std::nullopt;
     }
     a.flag("visible", layer.visible);
+    a.flag("locked", layer.locked);
     a.number("x", layer.x, -kMaxCoordinate, kMaxCoordinate);
     a.number("y", layer.y, -kMaxCoordinate, kMaxCoordinate);
     a.number("w", layer.w, 0.0, kMaxCoordinate);
@@ -336,6 +343,8 @@ void writeFill(xmlNode *parent, const Fill &fill, const char *element = "fill")
         setAttr(node, "gradient", fill.kind == FillKind::Linear ? "linear" : "radial");
         setAttr(node, "from", formatColor(fill.from));
         setAttr(node, "to", formatColor(fill.to));
+        if (fill.via)
+            setAttr(node, "via", formatColor(*fill.via));
         if (fill.kind == FillKind::Linear)
             setAttr(node, "angle", num(fill.angle));
         break;
@@ -503,6 +512,8 @@ std::string writeTitle(const TitleDocument &title)
             setAttr(node, "radius", num(layer.radius));
         if (!layer.visible)
             setAttr(node, "visible", "0");
+        if (layer.locked)
+            setAttr(node, "locked", "1");
         if (layer.opacity != defaults.opacity)
             setAttr(node, "opacity", num(layer.opacity));
         if (layer.scale != defaults.scale)

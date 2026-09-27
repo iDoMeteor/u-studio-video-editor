@@ -4,6 +4,7 @@
 
 #include "core/log.h"
 #include "core/media/utf8_path.h"
+#include "core/brand_kit.h"
 #include "core/title_xml.h"
 
 #include <algorithm>
@@ -67,6 +68,23 @@ GFile *fileFromUtf8(const std::string &path)
     return file;
 }
 
+// The brand kit compiled into the app (data/brand.xml).
+BrandKit loadBrandKit()
+{
+    GBytes *bytes = g_resources_lookup_data("/com/ustudio/Titles/brand.xml", G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr);
+    if (!bytes)
+        return {};
+    gsize size = 0;
+    const auto *data = static_cast<const char *>(g_bytes_get_data(bytes, &size));
+    auto kit = parseBrandKit(std::string_view(data, size));
+    g_bytes_unref(bytes);
+    if (!kit) {
+        Log::warn("[titles] the brand kit doesn't read: " + kit.error());
+        return {};
+    }
+    return *kit;
+}
+
 GtkFileFilter *titleFilter()
 {
     GtkFileFilter *filter = gtk_file_filter_new();
@@ -80,7 +98,7 @@ GtkFileFilter *titleFilter()
 TitlesWindow::TitlesWindow(GtkApplication *app, const std::string &path, const std::string &backdrop)
 {
     m_window = ADW_APPLICATION_WINDOW(adw_application_window_new(app));
-    gtk_window_set_default_size(GTK_WINDOW(m_window), 1280, 800);
+    gtk_window_set_default_size(GTK_WINDOW(m_window), 1440, 900);
     buildUi();
 
     for (const ActionEntry &entry : kActions) {
@@ -120,6 +138,9 @@ TitlesWindow::TitlesWindow(GtkApplication *app, const std::string &path, const s
     if (!path.empty())
         open(path);
     refresh();
+    // The canvas has focus, not the layers list (a focused row in a
+    // single-selection list selects itself).
+    gtk_window_set_focus(GTK_WINDOW(m_window), m_canvas->widget());
 }
 
 TitlesWindow::~TitlesWindow() = default;
@@ -127,7 +148,7 @@ TitlesWindow::~TitlesWindow() = default;
 void TitlesWindow::buildUi()
 {
     m_canvas = std::make_unique<TitleCanvas>(TitleCanvas::Callbacks{
-        nullptr,
+        [this](const std::optional<std::string> &id) { selectionChanged(id); },
         [this](const std::string &id, double x, double y, bool final) { moveLayerTo(id, x, y, final); },
         [this](const std::string &id, const Rect &box, bool final) { resizeLayer(id, box, final); },
         [this](const std::string &id) { deleteLayer(id); },
@@ -184,18 +205,77 @@ void TitlesWindow::buildUi()
     gtk_widget_add_css_class(saveButton, "suggested-action");
     adw_header_bar_pack_end(ADW_HEADER_BAR(header), saveButton);
 
+    m_layers = std::make_unique<LayersPanel>(LayersPanel::Callbacks{
+        [this](const std::optional<std::string> &id) { m_canvas->setSelection(id); },
+        [this](const std::string &id, bool visible) {
+            edit(visible ? "Show Layer" : "Hide Layer",
+                 [&](TitleDocument &doc) { return updateLayer(doc, id, [&](Layer &l) { l.visible = visible; }); });
+        },
+        [this](const std::string &id, bool locked) {
+            edit(locked ? "Lock Layer" : "Unlock Layer",
+                 [&](TitleDocument &doc) { return updateLayer(doc, id, [&](Layer &l) { l.locked = locked; }); });
+        },
+        [this](const std::string &id, size_t index) {
+            edit("Restack Layer", [&](TitleDocument &doc) { return moveLayer(doc, id, index); });
+        },
+        [this](const std::string &id) { deleteLayer(id); },
+    });
+    m_inspector = std::make_unique<Inspector>(
+        Inspector::Callbacks{
+            [this](const std::string &label, const std::string &id, const std::function<void(Layer &)> &change,
+                   const std::string &mergeKey) {
+                m_editFromInspector = true;
+                edit(label, [&](TitleDocument &doc) { return updateLayer(doc, id, change); }, mergeKey);
+                m_editFromInspector = false;
+            },
+            [this](const std::string &label, const std::function<void(TitleDocument &)> &change,
+                   const std::string &mergeKey) {
+                m_editFromInspector = true;
+                edit(
+                    label,
+                    [&](TitleDocument &doc) {
+                        change(doc);
+                        return true;
+                    },
+                    mergeKey);
+                m_editFromInspector = false;
+            },
+            [this] {
+                if (!edit("Apply Brand", [&](TitleDocument &doc) { return applyBrand(doc, m_inspector->kit()); }))
+                    toast("Already in the brand");
+            },
+            [this] { m_inspector->show(m_history.document(), m_canvas->selection()); },
+        },
+        loadBrandKit());
+
     m_toasts = ADW_TOAST_OVERLAY(adw_toast_overlay_new());
-    adw_toast_overlay_set_child(m_toasts, m_canvas->widget());
+    GtkWidget *panes = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_box_append(GTK_BOX(panes), m_layers->widget());
+    gtk_box_append(GTK_BOX(panes), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
+    gtk_box_append(GTK_BOX(panes), m_canvas->widget());
+    gtk_box_append(GTK_BOX(panes), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
+    gtk_box_append(GTK_BOX(panes), m_inspector->widget());
+    adw_toast_overlay_set_child(m_toasts, panes);
     GtkWidget *view_ = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view_), header);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(view_), GTK_WIDGET(m_toasts));
     adw_application_window_set_content(m_window, view_);
 }
 
+void TitlesWindow::selectionChanged(const std::optional<std::string> &id)
+{
+    const TitleDocument &doc = m_history.document();
+    m_layers->show(doc, id);
+    m_inspector->show(doc, id);
+}
+
 void TitlesWindow::refresh()
 {
     const TitleDocument &doc = m_history.document();
-    m_canvas->setDocument(doc);
+    m_canvas->setDocument(doc); // may clear a selection whose layer is gone (selectionChanged)
+    m_layers->show(doc, m_canvas->selection());
+    if (!m_editFromInspector)
+        m_inspector->show(doc, m_canvas->selection());
     const std::string name = m_path.empty() ? "Untitled Title" : fileName(m_path);
     const std::string title = (m_history.isDirty() ? "• " : "") + name;
     adw_window_title_set_title(m_title, title.c_str());

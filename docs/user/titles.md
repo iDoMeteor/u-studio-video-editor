@@ -42,8 +42,24 @@ chapter cards. They play over your video with transparency. Each title is a
 - **Save** writes the `.ustitle` file. If the editor is using it, the
   editor updates straight away.
 
-Styling (fonts, colours, outlines, shadows), editing text on the canvas,
-and animation are on the way.
+**Layers** (left) lists every layer, the topmost first. Click one to select
+it; the eye hides it; the lock stops it being picked on the canvas (handy
+for a background shape). Drag a layer up or down the list, or use the
+arrows at the bottom, to change what's in front.
+
+**The inspector** (right) styles the selected layer: its text, font
+(family, weight, size, italic, letter spacing, line height, alignment, and
+how it fits its box), fill (a colour, or a linear or radial gradient with an
+optional middle colour), outline, shadow, and exact position, size,
+rotation, scale and opacity. With nothing selected, it shows the title
+itself: its background (none, for a transparent overlay; or a colour or
+gradient), timing and canvas size.
+
+**The brand kit** is next to every colour and font: the Unicorn Tears
+colours, gradients and fonts, one click each. **Apply Brand** (with nothing
+selected) restyles the whole title in the brand, keeping its layout.
+
+Editing text on the canvas itself, and animation, are on the way.
 
 ## Any length you like
 

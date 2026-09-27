@@ -50,6 +50,7 @@ test('titles-shell', titles_test_shell, timeout: 60)
 titles_test_edit = executable(
   'test_titles_edit',
   files('test_edit.cpp'),
+  cpp_args: ['-DTITLES_BRAND_XML="' + meson.current_source_dir() / '..' / 'data' / 'brand.xml' + '"'],
   dependencies: [titles_doctest_dep, titles_core_dep],
   install: false,
 )
