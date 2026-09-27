@@ -182,6 +182,25 @@ compositing is the bottleneck.
 - The CPU path's own growth in the same soak (about 20 MB a minute with
   three transformed tracks) is VE Core's open item.
 
+## Exports (G4)
+
+- `renderProject()` checks `GpuSession::current()` once, at the start: with
+  the preview on the GPU, the export shares the session and renders on the
+  GPU pipeline with a context of its own from `GpuSession::sharedContext()`
+  (same share group: movit's `ResourcePool` hands textures between the
+  two), current on the consumer's render thread via
+  `consumer-thread-started`/`-stopped`.
+- One render thread (`real_time=-1`) on the GPU: parallel render threads
+  would each need a context, and movit's chains are locked per service
+  anyway. The encoder keeps its thread budget.
+- The session is shared by reference and ends with its last holder; its
+  destructor holds the registry lock, so a new session can't start while a
+  dying one still owns the global manager. Never let the last reference go
+  on the main thread: making our context current there would replace
+  GTK's.
+- A CPU export while the preview is on the GPU is a CPU graph with
+  `loader-nogl` producers (see the loader section above).
+
 ## Measurements
 
 The quiet-window figures (2026-09-27) are in ADR-019's "Evidence" section.

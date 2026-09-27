@@ -9,6 +9,47 @@ namespace ustudio::engine {
 
 namespace Log = ustudio::core::Log;
 
+namespace {
+// Held by acquire() and by the destructor for its whole body, so a new
+// session never starts while a dying one still owns the global manager.
+// Recursive: a failed start() destroys its half-made session inside acquire().
+std::recursive_mutex g_sessionMutex;
+std::weak_ptr<GpuSession> g_session;
+} // namespace
+
+std::shared_ptr<GpuSession> GpuSession::acquire(std::string &error)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_sessionMutex);
+    if (std::shared_ptr<GpuSession> live = g_session.lock())
+        return live;
+    std::shared_ptr<GpuSession> session(start(error));
+    g_session = session;
+    return session;
+}
+
+std::shared_ptr<GpuSession> GpuSession::current()
+{
+    std::lock_guard<std::recursive_mutex> lock(g_sessionMutex);
+    return g_session.lock();
+}
+
+std::unique_ptr<platform::GlContext> GpuSession::sharedContext(std::string &error) const
+{
+    return platform::GlContext::create(m_context.get(), error);
+}
+
+void GpuSession::setHardwareDecodeApi(const std::string &api)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_hardwareDecodeApi = api;
+}
+
+std::string GpuSession::hardwareDecodeApi() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_hardwareDecodeApi;
+}
+
 std::unique_ptr<GpuSession> GpuSession::start(std::string &error)
 {
     std::unique_ptr<GpuSession> session(new GpuSession);
@@ -44,6 +85,7 @@ std::unique_ptr<GpuSession> GpuSession::start(std::string &error)
 
 GpuSession::~GpuSession()
 {
+    std::lock_guard<std::recursive_mutex> lock(g_sessionMutex);
     if (m_manager) {
         // GL objects go while the context is current (no consumer is
         // running, so no other thread holds it).

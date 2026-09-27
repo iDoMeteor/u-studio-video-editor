@@ -1,6 +1,7 @@
 #include "engine_sync.h"
 
 #include "factory_policy.h"
+#include "gpu_session.h"
 #include "producer_open.h"
 
 #include "core/log.h"
@@ -11,6 +12,7 @@
 #include "core/model/track_segments.h"
 #include "core/model/transform.h"
 #include "platform/console.h"
+#include "platform/gl_context.h"
 
 #include <algorithm>
 #include <cstring>
@@ -1382,6 +1384,19 @@ struct RenderProgressContext
     std::optional<std::chrono::steady_clock::time_point> lastCall;
 };
 
+// ADR-019: an export on the GPU pipeline renders with its own context,
+// current on the consumer's render thread for its life.
+void renderGlStarted(mlt_properties, void *context, mlt_event_data)
+{
+    if (!static_cast<platform::GlContext *>(context)->makeCurrent())
+        Log::error("[gpu] the export's render thread couldn't make its GL context current");
+}
+
+void renderGlStopped(mlt_properties, void *context, mlt_event_data)
+{
+    static_cast<platform::GlContext *>(context)->release();
+}
+
 void renderProgressTrampoline(mlt_properties /*owner*/, void *self, mlt_event_data data)
 {
     auto *context = static_cast<RenderProgressContext *>(self);
@@ -1467,6 +1482,20 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
         }
     }
     core::Model &renderModel = retimed ? *retimed : model;
+    // ADR-019 point 7: the preview's pipeline. A live GPU session (the
+    // preview plays on the GPU) is shared, and this export renders with a
+    // context of its own in its share group. Declared before the graph so
+    // both outlive it.
+    std::shared_ptr<GpuSession> gpu = GpuSession::current();
+    std::unique_ptr<platform::GlContext> gpuContext;
+    if (gpu) {
+        std::string why;
+        gpuContext = gpu->sharedContext(why);
+        if (!gpuContext) {
+            Log::warn("[gpu] exporting on the CPU: " + why);
+            gpu.reset();
+        }
+    }
     // Its own Profile/Tractor, independent of any live one. An export at
     // another size is built at that size, so frames are read at the
     // profile's (FrameReads): read smaller, composite's alignment and the
@@ -1486,6 +1515,8 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
                                                    : EngineSync::FrameReads::AnySize,
                           resized && squarePixels ? EngineSync::OutputSize{settings.width, settings.height}
                                                   : EngineSync::OutputSize{0, 0});
+    if (gpu)
+        renderSync.setPipeline(EngineSync::Pipeline::Gpu, gpu->hardwareDecodeApi());
 
     // Audit A6: render to a "<path>.part" sibling and rename into place
     // only on success, matching CLAUDE.md's "renders... written to an
@@ -1551,7 +1582,13 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // bit-identical to -1 (PSNR inf on all 600 frames, same frame count and
     // audio), 20% faster on a composited graph; real_time > 1 being broken
     // is sdl2 playback's problem (doc 05), not the avformat consumer's.
-    if (threadBudget > 0) {
+    if (gpu) {
+        // One render thread, the one holding the context; the encoder
+        // still gets the budget.
+        consumer.set("real_time", -1);
+        consumer.set("threads", std::max(threadBudget, 0));
+        Log::info("[engine] Rendering on the GPU pipeline (" + gpu->renderer() + ")");
+    } else if (threadBudget > 0) {
         const core::RenderThreads threads = core::splitRenderThreads(threadBudget);
         consumer.set("real_time", -threads.frames);
         consumer.set("threads", threads.encoder);
@@ -1569,6 +1606,11 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // renderProgressTrampoline for however long that call runs; the
     // returned Event must stay alive for the same span, hence the local
     // (not immediately discarded) unique_ptr.
+    std::unique_ptr<Mlt::Event> glStartedEvent, glStoppedEvent;
+    if (gpuContext) {
+        glStartedEvent.reset(consumer.listen("consumer-thread-started", gpuContext.get(), renderGlStarted));
+        glStoppedEvent.reset(consumer.listen("consumer-thread-stopped", gpuContext.get(), renderGlStopped));
+    }
     RenderProgressContext progressContext{onProgress, renderSync.tractor().get_length(), std::nullopt};
     std::unique_ptr<Mlt::Event> progressEvent;
     if (onProgress)

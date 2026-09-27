@@ -84,7 +84,7 @@ class Engine::Thread
 
     std::unique_ptr<EngineSync> sync;
     std::unique_ptr<PlaybackController> controller;
-    std::unique_ptr<GpuSession> gpu; // ADR-019; null on the CPU pipeline
+    std::shared_ptr<GpuSession> gpu; // ADR-019; null on the CPU pipeline (an export may hold it too)
 
     // ADR-019. On: the session first (movit's normalisers from then on),
     // the render-thread hooks while no consumer has them, then the GPU graph,
@@ -96,7 +96,7 @@ class Engine::Thread
         if (gpu)
             return;
         std::string error;
-        gpu = GpuSession::start(error);
+        gpu = GpuSession::acquire(error);
         if (!gpu) {
             Log::warn("[gpu] staying on the CPU pipeline: " + error);
             postGpu(false, error);
@@ -108,6 +108,7 @@ class Engine::Thread
                     fallBackToCpu("the render thread couldn't use the GL context");
             },
             [this] { gpu->renderThreadStopped(); });
+        gpu->setHardwareDecodeApi(hardwareDecodeApi);
         sync->setPipeline(EngineSync::Pipeline::Gpu, hardwareDecodeApi);
         postGpu(true, gpu->renderer());
     }
@@ -349,7 +350,11 @@ void Engine::setUseProxies(bool use)
 
 void Engine::setHardwareDecode(std::string api)
 {
-    send([api = std::move(api)](Thread &t) { t.sync->setHardwareDecode(api); });
+    send([api = std::move(api)](Thread &t) {
+        if (t.gpu)
+            t.gpu->setHardwareDecodeApi(api); // exports follow the preview
+        t.sync->setHardwareDecode(api);
+    });
 }
 
 void Engine::setGpuPipeline(bool on, std::string hardwareDecodeApi)
