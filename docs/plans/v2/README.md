@@ -1,5 +1,7 @@
 # u Studio Video Editor — v2 Planning Docs
 
+[Docs home](../../README.md) › v2 planning docs
+
 **Status:** proposal, 2026-09-12. Written against the code as it stood in
 `src/` on that date (single-track milestone; the team's same-day edits are folded into doc 00) and verified against
 the installed toolchain (Fedora 44, GTK 4.22.4, libadwaita 1.9.2, MLT 7.40.0,
@@ -46,8 +48,9 @@ either accepted or amended it; see "How to use this set" below.
 - **Milestone docs are the schedule.** [12-roadmap-and-milestones.md](12-roadmap-and-milestones.md)
   has acceptance criteria per milestone. A milestone is done when its criteria
   pass, not when its features are "in".
-- **Keep the v1 README honest.** When v2 lands a milestone, update
-  `README.md` at the repo root; these docs stay as the design record.
+- **Keep the README honest.** When v2 lands a milestone, update
+  `README.md` at the repo root and the [user guide](../../user/README.md);
+  these docs stay as the design record.
 
 ## Coordination note for the current team
 

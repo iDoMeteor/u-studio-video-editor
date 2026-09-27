@@ -1,5 +1,7 @@
 #include "primitives.h"
 
+#include "core/model/transform.h"
+
 #include "core/model/retime.h"
 
 #include <algorithm>
@@ -69,6 +71,54 @@ void AddAsset::revert(Model &model)
 }
 
 RemoveAsset::RemoveAsset(AssetId asset) : m_asset(asset) {}
+
+SetClipTransform::SetClipTransform(ClipId clip, Transform transform, uint64_t gesture)
+    : m_clip(clip), m_transform(std::move(transform)), m_gesture(gesture)
+{}
+
+bool SetClipTransform::apply(Model &model)
+{
+    if (!model.hasClip(m_clip) || !transformProblem(m_transform).empty())
+        return false;
+    m_old = model.clip(m_clip).transform.get();
+    model.setClipTransform(m_clip, m_transform);
+    return true;
+}
+
+void SetClipTransform::revert(Model &model)
+{
+    model.setClipTransform(m_clip, m_old);
+}
+
+bool SetClipTransform::mergeWith(const Command &next)
+{
+    const auto *other = dynamic_cast<const SetClipTransform *>(&next);
+    if (!other || m_gesture == 0 || other->m_gesture != m_gesture || other->m_clip != m_clip)
+        return false;
+    m_transform = other->m_transform; // `next` is applied already; keep our m_old
+    return true;
+}
+
+RelinkAsset::RelinkAsset(AssetId asset, std::string path, std::string fingerprint)
+    : m_asset(asset), m_path(std::move(path)), m_fingerprint(std::move(fingerprint))
+{}
+
+bool RelinkAsset::apply(Model &model)
+{
+    if (!model.hasAsset(m_asset) || m_path.empty())
+        return false;
+    const Asset &asset = model.asset(m_asset);
+    m_oldPath = asset.path;
+    m_oldFingerprint = asset.fileFingerprint;
+    m_oldStatus = asset.status;
+    model.setAssetSource(m_asset, m_path, m_fingerprint, Asset::Status::Ready);
+    return true;
+}
+
+void RelinkAsset::revert(Model &model)
+{
+    model.setAssetSource(m_asset, m_oldPath, m_oldFingerprint, m_oldStatus);
+}
 
 bool RemoveAsset::apply(Model &model)
 {

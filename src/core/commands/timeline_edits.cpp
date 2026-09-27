@@ -584,6 +584,8 @@ bool CopyClip::apply(Model &model)
     model.setClipName(m_copy, source.name);
     const Clip &copy = model.clip(m_copy);
     model.setClipEnabled(m_copy, copy.videoEnabled && source.videoEnabled, copy.audioEnabled && source.audioEnabled);
+    if (!toAudioTrack)
+        model.setClipTransform(m_copy, source.transform.get()); // placed where the original is (ADR-018)
     model.notify(BatchEnd{});
     return true;
 }

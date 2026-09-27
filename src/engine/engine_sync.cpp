@@ -8,6 +8,8 @@
 #include "core/model/mlt_order.h"
 #include "core/model/retime.h"
 #include "core/model/track_segments.h"
+#include "core/model/transform.h"
+#include "platform/console.h"
 
 #include <algorithm>
 #include <atomic>
@@ -20,8 +22,6 @@
 #include <variant>
 
 #include <cstdio>
-#include <fcntl.h>
-#include <unistd.h>
 
 namespace ustudio::engine {
 
@@ -41,6 +41,12 @@ namespace Log = ustudio::core::Log;
 
 namespace {
 constexpr const char *kBlackResource = "color:black";
+// What a missing file's clips play (doc 07, M4 B): style.css's
+// semantic_danger (#ff4d6d) darkened, so it reads as "something's wrong"
+// without glaring for the length of a clip. The engine can't include the
+// app's generated tokens.h; keep the two in step. "#rrggbb" verified with
+// MLT 7.40's color producer (standalone repro, 2026-09-25).
+constexpr const char *kMissingResource = "color:#7a2232";
 // ~3.8 days at 30 fps: longer than any sequence this app will hold, so the
 // black master (rebuildAll()) never needs resizing after creation.
 constexpr int kBlackMasterLength = 10'000'000;
@@ -150,20 +156,48 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
     // filters instead (applyInPlace()). Never considered without extensions,
     // so without drop-ins this is exactly the old path.
     bool inPlace = false;
+    // ADR-018: a drag changes only clip transforms; they're set on the live
+    // filters, so the consumer never restarts.
+    if (rebuild && applyTransformsInPlace(*project)) {
+        rebuild = false;
+        inPlace = true;
+    }
     if (rebuild && !m_extensions.empty() && applyInPlace(*project)) {
         rebuild = false;
         inPlace = true;
     }
     const core::Profile profileBefore = m_model.sequence().profile;
+    if (rebuild)
+        dropChangedMasters(*m_project, *project);
     m_project = std::move(project);
     m_model = core::Model(*m_project);
-    const bool newProfile = m_model.sequence().profile != profileBefore;
+    // Auto preview scale follows whether any clip is transformed.
+    const bool newProfile = m_model.sequence().profile != profileBefore ||
+                            previewScaleFactor(m_previewScale, m_model.sequence().profile.height,
+                                               core::hasTransformedClip(*m_project)) != m_previewFactor;
     if (newProfile)
         rebuildOnNewProfile();
     else if (rebuild)
         rebuildAll();
-    if (inPlace)
+    if (inPlace && !newProfile)
         appliedInPlace.emit();
+}
+
+void EngineSync::dropChangedMasters(const core::Project &before, const core::Project &after)
+{
+    // A relinked, missing or found-again asset needs its file (or the
+    // placeholder) opened afresh; the cache is keyed by asset id alone.
+    for (const core::Asset &now : after.bin) {
+        auto was =
+            std::find_if(before.bin.begin(), before.bin.end(), [&](const core::Asset &a) { return a.id == now.id; });
+        if (was == before.bin.end() ||
+            (was->path == now.path && was->status == now.status && was->proxyPath == now.proxyPath))
+            continue;
+        for (uint64_t variant = 0; variant < 4; ++variant)
+            m_masterProducers.erase((now.id.value << 2) | variant);
+        m_unavailableAssets.erase(now.id.value);
+        m_proxiedAssets.erase(now.id.value);
+    }
 }
 
 void EngineSync::reset(std::shared_ptr<const core::Project> project)
@@ -178,11 +212,34 @@ void EngineSync::reset(std::shared_ptr<const core::Project> project)
 void EngineSync::setPreviewScale(PreviewScale scale)
 {
     m_previewScale = scale;
-    double factor = previewScaleFactor(scale, m_model.sequence().profile.height);
+    double factor = previewScaleFactor(scale, m_model.sequence().profile.height, core::hasTransformedClip(*m_project));
     if (factor == m_previewFactor)
         return;
     Log::debug("[engine] preview scale factor " + std::to_string(m_previewFactor) + " -> " + std::to_string(factor));
     rebuildOnNewProfile();
+}
+
+void EngineSync::setUseProxies(bool use)
+{
+    if (use == m_useProxies)
+        return;
+    m_useProxies = use;
+    const auto &bin = m_model.project().bin;
+    if (std::none_of(bin.begin(), bin.end(), [](const core::Asset &a) { return !a.proxyPath.empty(); }))
+        return; // nothing plays differently
+    dropProxiedMasters();
+    rebuildAll();
+}
+
+void EngineSync::dropProxiedMasters()
+{
+    for (const core::Asset &asset : m_model.project().bin) {
+        if (asset.proxyPath.empty())
+            continue;
+        for (uint64_t variant = 0; variant < 4; ++variant)
+            m_masterProducers.erase((asset.id.value << 2) | variant);
+        m_proxiedAssets.erase(asset.id.value);
+    }
 }
 
 void EngineSync::rebuildOnNewProfile()
@@ -190,8 +247,10 @@ void EngineSync::rebuildOnNewProfile()
     Log::debug("[engine] new profile: dropping " + std::to_string(m_masterProducers.size()) +
                " cached master producer(s)");
     m_masterProducers.clear();
+    m_proxiedAssets.clear();
     // Built from the old profile, which applyProfile() below replaces.
     m_blackMaster.reset();
+    m_transformBackground.reset(); // the old filters keep their references
 
     // Keep the OLD profile alive across applyProfile()+rebuildAll(), not
     // just swap it in place: applyProfile() would otherwise destroy it
@@ -215,7 +274,7 @@ void EngineSync::rebuildOnNewProfile()
 void EngineSync::applyProfile()
 {
     const core::Profile &sequenceProfile = m_model.sequence().profile;
-    m_previewFactor = previewScaleFactor(m_previewScale, sequenceProfile.height);
+    m_previewFactor = previewScaleFactor(m_previewScale, sequenceProfile.height, core::hasTransformedClip(*m_project));
     m_profile = makeProfileFrom(sequenceProfile);
     if (m_previewFactor != 1.0) {
         // Even dimensions: yuv420p sources and most scalers need them, and
@@ -314,8 +373,27 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
     const uint64_t key = (assetId.value << 2) | (videoEnabled ? 1u : 0u) | (audioEnabled ? 2u : 0u);
     auto it = m_masterProducers.find(key);
     if (it == m_masterProducers.end()) {
-        auto producer = std::make_shared<Mlt::Producer>(*m_profile, asset.path.c_str());
-        if (!producer->is_valid()) {
+        // A file already known to be missing (checked on load) isn't
+        // opened at all: straight to the placeholder, no warning.
+        const bool knownMissing = asset.status == core::Asset::Status::Missing;
+        if (knownMissing)
+            m_unavailableAssets.insert(assetId.value);
+        // The proxy when asked for and its file is there; the cache may have
+        // been cleared, which isn't missing media: the original plays.
+        std::string resource = asset.path;
+        m_proxiedAssets.erase(assetId.value);
+        if (m_useProxies && !knownMissing && !asset.proxyPath.empty()) {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(asset.proxyPath, ec)) {
+                resource = asset.proxyPath;
+                m_proxiedAssets.insert(assetId.value);
+            } else {
+                Log::debug("[engine] proxy of asset " + std::to_string(assetId.value) +
+                           " is gone; playing the original");
+            }
+        }
+        auto producer = std::make_shared<Mlt::Producer>(*m_profile, knownMissing ? kMissingResource : resource.c_str());
+        if (!knownMissing && !producer->is_valid()) {
             // Untrusted input (CLAUDE.md): a project can reference a file
             // that's since been moved, deleted, or lives on an unmounted
             // drive. Confirmed empirically (standalone repro) that an
@@ -328,17 +406,19 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
             // the ONLY place that can catch it: by the time a bad
             // producer would otherwise reach rebuildTrackPlaylist(), it's
             // already too late to tell it apart from a real one. Falls
-            // back to a black placeholder sized to the asset's own
-            // recorded length, so the clip's span keeps its correct
+            // back to the missing-media placeholder sized to the asset's
+            // own recorded length, so the clip's span keeps its correct
             // duration and every other clip's timing is unaffected --
-            // only its own frames show black instead of crashing the app.
+            // only its own frames show the placeholder instead of crashing.
             // Once per asset, not once per stream-switch variant.
             if (m_unavailableAssets.insert(assetId.value).second) {
                 Log::error("[engine] could not open asset " + std::to_string(assetId.value) + " (" + asset.path +
-                           ") -- showing black in its place");
+                           ") -- showing the missing-media placeholder in its place");
                 mediaUnavailable.emit(asset.path);
             }
-            producer = std::make_shared<Mlt::Producer>(*m_profile, kBlackResource);
+            producer = std::make_shared<Mlt::Producer>(*m_profile, kMissingResource);
+        }
+        if (knownMissing || m_unavailableAssets.contains(assetId.value)) {
             core::FrameIndex placeholderLength = std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1);
             producer->set("length", static_cast<int>(placeholderLength));
             producer->set_in_and_out(0, static_cast<int>(placeholderLength - 1));
@@ -453,6 +533,107 @@ Mlt::Producer &EngineSync::producerForClip(const core::Clip &clip)
     return masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled);
 }
 
+double EngineSync::outputScale() const
+{
+    const int projectWidth = m_model.sequence().profile.width;
+    return projectWidth > 0 ? static_cast<double>(m_profile->width()) / projectWidth : 1.0;
+}
+
+double EngineSync::sourceScale(const core::Clip &clip)
+{
+    // Crop is in source pixels; a proxy's frames are smaller.
+    if (!m_proxiedAssets.contains(clip.asset.value) || !m_model.hasAsset(clip.asset))
+        return 1.0;
+    const int sourceWidth = m_model.asset(clip.asset).info.width;
+    const int playing = masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled).get_int("meta.media.width");
+    return sourceWidth > 0 && playing > 0 ? static_cast<double>(playing) / sourceWidth : 1.0;
+}
+
+void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip)
+{
+    if (!m_model.hasAsset(clip.asset))
+        return;
+    const core::MediaInfo &info = m_model.asset(clip.asset).info;
+    const std::vector<core::NativeFilter> natives = core::transformFilters(
+        clip.transform.get(), info.width, info.height, m_model.sequence().profile, outputScale(), sourceScale(clip));
+    if (natives.empty())
+        return; // identity: the track compositor scales it to the frame
+    TransformFilters &kept = m_transformFilters[clip.id.value];
+    kept.shape.clear();
+    std::vector<std::shared_ptr<Mlt::Filter>> filters;
+    for (const core::NativeFilter &native : natives) {
+        kept.shape += native.service + ";";
+        auto filter = std::make_shared<Mlt::Filter>(*m_profile, native.service.c_str());
+        for (const auto &[name, value] : native.properties)
+            filter->set(name.c_str(), value.c_str());
+        if (native.service == "affine") {
+            // The filter draws onto a background it makes itself ("colour:0"),
+            // and producer_colour caches its last image in its properties:
+            // one frame-sized RGBA image per filter, kept for the filter's
+            // life (8 MB at 1080p; 2.4 GB for 300 played transformed cuts).
+            // Hand every filter the same one, a reference each (unset
+            // _background keeps the filter from replacing it). Safe across
+            // render threads: the filter holds its own lock for its whole
+            // get_image and producer_colour locks itself around the cache
+            // (filter_affine.c, producer_colour.c, MLT 7.40; TSan-checked by
+            // tests/engine/test_transform). Standalone repro 2026-09-25.
+            if (!m_transformBackground)
+                m_transformBackground = std::make_unique<Mlt::Producer>(*m_profile, "colour:0");
+            m_transformBackground->inc_ref();
+            filter->set(
+                "producer", m_transformBackground->get_producer(), 0,
+                +[](void *producer) { mlt_producer_close(static_cast<mlt_producer>(producer)); });
+        }
+        attachToCut(cut, *filter); // animated from the cut's own start (engine_extension.h)
+        filters.push_back(std::move(filter));
+    }
+    kept.cuts.push_back(std::move(filters));
+}
+
+bool EngineSync::applyTransformsInPlace(const core::Project &next)
+{
+    // Only transforms may differ: the same graph input with them blanked.
+    auto blank = [](core::Project project) {
+        for (core::Sequence &seq : project.sequences)
+            for (auto &[id, clip] : seq.clips)
+                clip.transform.set(core::Transform{});
+        return project;
+    };
+    if (!sameGraphInput(blank(*m_project), blank(next)))
+        return false;
+    const core::Sequence *seq = nullptr;
+    for (const core::Sequence &candidate : next.sequences)
+        if (candidate.id == next.activeSequence)
+            seq = &candidate;
+    if (!seq)
+        return false;
+    const core::Profile &profile = seq->profile;
+    bool changed = false;
+    for (const auto &[id, clip] : seq->clips) {
+        const core::Clip &before = m_model.clip(id);
+        if (before.transform == clip.transform)
+            continue;
+        const core::MediaInfo &info = m_model.asset(clip.asset).info;
+        const std::vector<core::NativeFilter> natives = core::transformFilters(
+            clip.transform.get(), info.width, info.height, profile, outputScale(), sourceScale(clip));
+        std::string shape;
+        for (const core::NativeFilter &native : natives)
+            shape += native.service + ";";
+        auto kept = m_transformFilters.find(id.value);
+        const std::string keptShape = kept == m_transformFilters.end() ? std::string() : kept->second.shape;
+        if (shape != keptShape)
+            return false; // filters to add or remove (identity <-> placed, a flip): rebuild
+        for (const auto &filters : kept->second.cuts)
+            for (size_t i = 0; i < natives.size() && i < filters.size(); ++i)
+                for (const auto &[name, value] : natives[i].properties)
+                    filters[i]->set(name.c_str(), value.c_str());
+        changed = true;
+    }
+    if (changed)
+        Log::debug("[engine] clip transforms applied in place");
+    return changed;
+}
+
 void EngineSync::decorateCut(Mlt::Producer &cut, const core::Clip &clip, core::FrameIndex in, core::FrameIndex out)
 {
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
@@ -469,11 +650,13 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     std::unique_ptr<Mlt::Producer> tailA(
         masterA.cut(static_cast<int>(clipA.out - t.length + 1), static_cast<int>(clipA.out)));
     decorateCut(*tailA, clipA, clipA.out - t.length + 1, clipA.out);
+    applyTransform(*tailA, clipA);
 
     Mlt::Producer &masterB = producerForClip(clipB);
     std::unique_ptr<Mlt::Producer> headB(
         masterB.cut(static_cast<int>(clipB.in), static_cast<int>(clipB.in + t.length - 1)));
     decorateCut(*headB, clipB, clipB.in, clipB.in + t.length - 1);
+    applyTransform(*headB, clipB);
 
     // IP3: a drop-in's recipe (wipes, motion; FX3) builds the whole segment.
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
@@ -598,6 +781,7 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
             Mlt::Producer &master = producerForClip(clip);
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
             decorateCut(*cut, clip, seg.in, seg.out);
+            applyTransform(*cut, clip);
             target().append(*cut);
         } else {
             target().append(*buildTransitionSubTractor(seg));
@@ -622,6 +806,7 @@ void EngineSync::rebuildAll()
     FactoryPolicy::raiseAvformatDecoderLimit(trackCount);
     m_clipProducers.clear();
     m_extensionProducers.clear();
+    m_transformFilters.clear();
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         extension->beginBuild();
     auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
@@ -648,8 +833,8 @@ void EngineSync::rebuildAll()
         m_blackMaster->set_in_and_out(0, kBlackMasterLength - 1);
     }
     core::FrameIndex sequenceLength = std::max<core::FrameIndex>(seq.length(), 1);
-    // Mlt::Producer::cut() returns a new, caller-owned wrapper (README's
-    // "mlt++ accessors" note); set_track() takes its own reference.
+    // Mlt::Producer::cut() returns a new, caller-owned wrapper (the "mlt++
+    // accessors" note, docs/developer/notes/engine-sync.md); set_track() takes its own reference.
     std::unique_ptr<Mlt::Producer> black(
         m_blackMaster->cut(0, static_cast<int>(std::min<core::FrameIndex>(sequenceLength, kBlackMasterLength) - 1)));
     newTractor->set_track(*black, 0);
@@ -697,9 +882,13 @@ void EngineSync::rebuildAll()
         playlists.push_back(std::move(playlist));
     }
 
-    // Chain composite (video) + mix (audio) across every adjacent index --
-    // matches v1's proven-working MltEngine::plantTrackTransitions exactly
-    // (see the class comment for why this is simpler than doc 05's graph).
+    // Video: every track composited onto track 0 (the background), bottom
+    // to top. Audio: mix chained across adjacent indexes, as v1's
+    // MltEngine::plantTrackTransitions did. Chaining the video compositor
+    // too (i-1 -> i) lost an upper clip's alpha: a transformed picture
+    // showed black instead of the tracks under it (the F spike, ADR-018,
+    // standalone repro 2026-09-25); onto track 0 (kdenlive's arrangement)
+    // it shows them.
     // One owned Field wrapper for the whole tractor -- see
     // buildTransitionSubTractor()'s comment (sanitizer report S1).
     std::unique_ptr<Mlt::Field> field(newTractor->field());
@@ -708,12 +897,20 @@ void EngineSync::rebuildAll()
         std::unique_ptr<Mlt::Transition> compositor;
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
             if (!compositor)
-                compositor = extension->compositor(*m_profile, index - 1, index);
+                compositor = extension->compositor(*m_profile, 0, index);
         if (compositor) {
-            field->plant_transition(*compositor, index - 1, index);
+            field->plant_transition(*compositor, 0, index);
         } else {
+            // composite, with fill=1 (its YAML says that's the default; the
+            // code's is 0): it scales a same-aspect picture to the frame, and
+            // a transformed or other-aspect cut arrives frame-sized from its
+            // affine filter (ADR-018). An affine compositor fits any aspect
+            // itself but cost 21 ms a frame for one untransformed 1080p track
+            // against composite's 5 (39 against 7 for four). Standalone
+            // repros, MLT 7.40, 2026-09-25; docs/developer/notes/engine-sync.md.
             Mlt::Transition composite(*m_profile, "composite");
-            field->plant_transition(composite, index - 1, index);
+            composite.set("fill", 1);
+            field->plant_transition(composite, 0, index);
         }
 
         Mlt::Transition mix(*m_profile, "mix");
@@ -810,7 +1007,7 @@ std::vector<std::string> EngineSync::verify() const
                 // not the asset's own path -- that mismatch is the
                 // intended fallback (see its own comment), not a sync bug.
                 if (m_model.hasAsset(clip.asset) && !m_unavailableAssets.contains(clip.asset.value) &&
-                    !m_extensionProducers.contains(clip.id.value)) {
+                    !m_proxiedAssets.contains(clip.asset.value) && !m_extensionProducers.contains(clip.id.value)) {
                     std::string expectedResource = m_model.asset(clip.asset).path;
                     // MLT's "resource" property for a "service:arg" shorthand
                     // producer (color:/noise:/tone: generators, used by
@@ -914,28 +1111,16 @@ const std::string &h264Encoder()
         Log::ScopedTimer timer("[engine] H.264 encoder query");
         // avformat's documented "list" value (consumer_avformat.yml):
         // start() fills the consumer's "vcodec" data with every encoder
-        // name, and also printf()s them all to stdout. That goes to
-        // /dev/null: fd 1 is swapped for the call, with stdout's buffer
-        // flushed on both sides so nothing written before lands there and
-        // nothing of the list leaks out after. The app writes nothing to
-        // stdout itself (logs go to stderr).
-        std::fflush(stdout);
-        const int savedStdout = ::dup(STDOUT_FILENO);
-        const int devNull = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
-        if (savedStdout >= 0 && devNull >= 0)
-            ::dup2(devNull, STDOUT_FILENO);
+        // name, and also printf()s them all to stdout, which is silenced
+        // for the call (platform::ScopedStdoutSilence).
         Mlt::Profile profile;
         Mlt::Consumer consumer(profile, "avformat");
         consumer.set("vcodec", "list");
-        consumer.start();
-        consumer.stop();
-        std::fflush(stdout);
-        if (savedStdout >= 0 && devNull >= 0)
-            ::dup2(savedStdout, STDOUT_FILENO);
-        if (devNull >= 0)
-            ::close(devNull);
-        if (savedStdout >= 0)
-            ::close(savedStdout);
+        {
+            platform::ScopedStdoutSilence silence;
+            consumer.start();
+            consumer.stop();
+        }
         auto *list = static_cast<mlt_properties>(consumer.get_data("vcodec"));
         std::string found;
         if (!list) {
@@ -964,7 +1149,8 @@ std::optional<bool> h264HasQualityMode()
 
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int, int)> onProgress, const std::atomic<bool> *cancel,
-                   const core::RenderProfile &profile, int threadBudget)
+                   const core::RenderProfile &profile, int threadBudget,
+                   const std::vector<std::pair<std::string, std::string>> &extra)
 {
     Log::ScopedTimer timer("[engine] renderProject total");
     // Another output rate: render a retimed copy, built on a profile at that
@@ -1059,6 +1245,8 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     } else {
         consumer.set("real_time", -1);
     }
+    for (const auto &[name, value] : extra)
+        consumer.set(name.c_str(), value.c_str());
     consumer.connect(renderSync.tractor());
 
     // Registered before run() (which blocks until the render finishes),

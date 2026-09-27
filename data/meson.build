@@ -34,5 +34,15 @@ gnome = import('gnome')
 ustudio_gschemas_compiled = gnome.compile_schemas(build_by_default: true,
                                                    depend_files: files('com.ustudio.VideoEditor.gschema.xml'))
 
+# An installed build (the Flatpak, `meson install` into a prefix) needs the
+# schema compiled where it was installed, or settings.cpp finds no schema and
+# the app shows "Settings can't be saved" (seen in the first Flatpak build).
+# meson skips these when DESTDIR is set, leaving it to the distro packaging.
+gnome.post_install(
+  glib_compile_schemas: true,
+  gtk_update_icon_cache: true,
+  update_desktop_database: true,
+)
+
 # GResource compilation happens in src/app/meson.build, not here -- see the
 # rationale comment there. This file only owns packaging metadata.

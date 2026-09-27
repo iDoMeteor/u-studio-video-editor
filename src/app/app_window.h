@@ -7,10 +7,12 @@
 #include <atomic>
 #include <expected>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "action_registry.h"
@@ -27,6 +29,7 @@
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "import_queue.h"
+#include "proxy_queue.h"
 #include "project_loader.h"
 #include "save_queue.h"
 #include "settings.h"
@@ -36,6 +39,8 @@
 #include "timeline/texture_cache.h"
 #include "timeline/timeline_renderer.h"
 #include "timeline/viewport.h"
+#include "media_badges.h"
+#include "transform_gestures.h"
 
 namespace ustudio::app {
 
@@ -167,6 +172,84 @@ class AppWindow : public ShellHost
     void showImportReport(size_t imported, size_t total, const std::vector<std::string> &failures,
                           const std::string &notes);
     void onImportFolderClicked();
+
+    // M4 B, missing media (app/missing_media.cpp). Assets marked Missing on
+    // load (core::markMissingMedia) or when the engine couldn't open them.
+    // The banner and relink dialog exist only once something is missing.
+    std::vector<core::AssetId> missingAssets(bool usedOnly) const;
+    // " 2 media files are missing.", for the Opened status; "" if none.
+    std::string missingMediaNotice() const;
+    void refreshMissingBanner();
+    void showRelinkDialog();
+    void refreshRelinkDialog();
+    // Probes each candidate on the pool (it must open and be long enough
+    // for the clips using it), then relinks the good ones as one command.
+    void relinkTo(std::vector<std::pair<core::AssetId, std::string>> candidates);
+    void searchFolderForMissing(const std::string &folder);
+    void onMediaUnavailable(const std::string &path);
+    // M4 F2, transform handles over the preview (app/transform_overlay.cpp).
+    void setUpTransformOverlay();
+    void drawTransformOverlay(cairo_t *cr);
+    // The one selected clip, when its picture shows at the current frame.
+    std::optional<gestures::VisibleClip> transformTarget() const;
+    void onTransformDragBegin(double x, double y);
+    void onTransformDragUpdate(double dx, double dy);
+    void onTransformDragEnd();
+    void onTransformMotion(double x, double y);
+    bool onTransformKey(guint keyval, GdkModifierType state);
+    bool applyTransform(core::ClipId clip, const core::Transform &transform, uint64_t gesture);
+    void noteTransformSelection();
+    void endTransformDrag();
+    void setPreviewOwnsArrows(bool owns);
+    // The actions, the right-click menu and the dialog (app/transform_actions.cpp).
+    std::optional<core::ClipId> transformActionTarget();
+    core::Transform explicitTransformOf(core::ClipId clip) const;
+    void runTransformAction(const std::string &name);
+    void buildTransformMenu();
+    void onTransformMenuRequested(double x, double y);
+    void showEditTransformDialog();
+    GtkWidget *m_transformMenu = nullptr;
+    void refreshTransformDialog();
+    GtkWidget *m_transformDialog = nullptr;
+    void *m_transformDialogState = nullptr; // EditTransformState, owned by m_transformDialog
+    GtkWidget *m_transformOverlay = nullptr;
+    GtkGesture *m_transformDragGesture = nullptr;
+    struct TransformDrag
+    {
+        core::ClipId clip;
+        gestures::DragStart start;
+        uint64_t gesture = 0;
+        double widgetX = 0, widgetY = 0; // where it began
+    };
+    std::optional<TransformDrag> m_transformDrag;
+    std::vector<gestures::Guide> m_transformGuides;
+    core::ClipId m_transformHover;
+    core::ClipId m_transformShownSelection;
+    uint64_t m_nextTransformGesture = 1;
+    bool m_applyingTransform = false;
+    // M4 C, proxies (app/proxies.cpp).
+    void setUpProxies();
+    void buildProxyToggle(GtkWidget *transport);
+    void addProxyMenuItems(GtkWidget *menuBox);
+    void updateProxyMenuItems();
+    void addProxySettingsRow(AdwPreferencesGroup *group);
+    void createProxies(const std::vector<core::AssetId> &assets, int height);
+    void onProxyDone(core::AssetId asset, const std::string &output);
+    void removeProxy(core::AssetId asset);
+    // After an import: sources taller than 1080 are offered proxies once per
+    // project, or get them if the project said "always".
+    void offerProxiesAfterImport();
+    std::unique_ptr<ProxyQueue> m_proxyQueue;
+    GtkWidget *m_proxyToggle = nullptr;
+    GtkWidget *m_createProxyButton = nullptr;
+    GtkWidget *m_conformProxyButton = nullptr;
+    GtkWidget *m_removeProxyButton = nullptr;
+
+    AdwBanner *m_missingBanner = nullptr;
+    AdwDialog *m_relinkDialog = nullptr;
+    AdwPreferencesGroup *m_relinkGroup = nullptr;
+    std::vector<GtkWidget *> m_relinkRows;
+    static void relinkDialogClosedTrampoline(AdwDialog *dialog, gpointer userData);
     // Enhancement #7 (media-browser half): adds the file to the project bin
     // only -- no clip, no track needed.
     // Doc 13 R7: the profile an import should set first (the first video
@@ -360,6 +443,9 @@ class AppWindow : public ShellHost
     void onClearLoopClicked();
     void onVolumeChanged();
     void onPreviewScaleChanged();
+    // "Auto (Full)" / "Auto (Half)": what Auto resolved to, from the engine.
+    void updatePreviewScaleLabel();
+    bool m_relabellingPreviewScale = false;
     void onSplitClicked();
     // Double-clicks only (renames): a single click arrives as a drag that
     // never moved (onTrackDragEnd), so modifier clicks aren't applied twice.
@@ -404,6 +490,13 @@ class AppWindow : public ShellHost
     // each replace m_model wholesale (same call sites refreshTimeline()
     // itself already runs at, for the same reason).
     void refreshMediaBrowser();
+    void setUpMediaList(GtkWidget *scroller);
+    void setUpMediaRow(GtkListItem *item);
+    void bindMediaRow(GtkListItem *item);
+    core::AssetId mediaItemAsset(GtkListItem *item) const;
+    void replaceMediaItem(guint position, uint64_t id);
+    void refreshMediaThumbnails();
+    std::vector<MediaBadge> mediaBadgesOf(const core::Asset &asset) const;
     // Right-click on a media browser row: records which asset it landed
     // on (m_contextMenuAssetId) and pops m_mediaBrowserContextMenu at the
     // click point. `row` is the specific row widget the click landed on
@@ -575,9 +668,24 @@ class AppWindow : public ShellHost
     void showSettingsDialog();
     // Help's Controls tab: every ui_hints.h entry, grouped by category, so
     // a drop-in's registered hints appear there too.
-    GtkWidget *buildControlsPage() const;
-    GtkWidget *buildShortcutsPage() const;
-    GtkWidget *buildAboutPage() const;
+    // Help (app/help_dialog.cpp). M4 G: collapsible sections that come
+    // back as they were left (the session's here, and Settings').
+    GtkWidget *buildControlsPage();
+    GtkWidget *buildShortcutsPage();
+    GtkWidget *buildReleaseNotesPage();
+    GtkWidget *buildAboutPage();
+    // Help's diagnostics (0.49.0-beta.2): the log folder in the file
+    // manager, and a report for the clipboard (app/help_dialog.cpp).
+    void openLogFolder();
+    void copyDiagnostics();
+    void loadHelpState();
+    AdwExpanderRow *helpSection(AdwPreferencesGroup *group, const char *tab, const std::string &title,
+                                const std::string &subtitle);
+    GtkAdjustment *restoreHelpScroll(GtkWidget *page, const char *tab);
+    bool m_helpStateLoaded = false;
+    std::set<std::string> m_helpOpenSections; // "<tab>:<section>"
+    std::string m_helpTab;
+    std::map<std::string, double> m_helpScroll;
 
     // Audit A1: the transport actions installActions() binds to bare
     // letters and Left/Right/Home/End (+ Ctrl/Alt variants) are global
@@ -681,6 +789,7 @@ class AppWindow : public ShellHost
     GtkLabel *m_hoverTimecode = nullptr;
     GtkLabel *m_hoverText = nullptr;
     guint m_hoverTimerId = 0;
+    gint64 m_hoverShownAt = 0; // monotonic µs
     struct HoverTarget
     {
         std::string resource; // "" for no thumbnail (audio, or the toggle's off)
@@ -729,6 +838,10 @@ class AppWindow : public ShellHost
     static void undoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void redoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void playPauseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    // "open-log-folder" and "copy-diagnostics": dispatched by name.
+    static void diagnosticsActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    // Every "transform-*" action (M4 F2): dispatched by name.
+    static void transformActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void saveActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void saveAsActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void projectFrameRateActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
@@ -781,18 +894,22 @@ class AppWindow : public ShellHost
     GtkPicture *m_preview = nullptr;
     // Media browser: a collapsible panel to the left of the preview
     // (same row) listing every imported asset as a row (thumbnail, name,
-    // length, fps, format). m_mediaBrowserPanel is the whole collapsible
-    // widget (a GtkScrolledWindow); m_mediaBrowserList is rebuilt from
-    // scratch by refreshMediaBrowser() each time the bin changes (mirrors
-    // refreshTimeline()'s own call-site-driven resync -- see its own
-    // comment for why this app doesn't subscribe to Model::changed
-    // directly). A plain vertical GtkBox of per-row GtkBoxes, not a
-    // GtkGrid: each row needs to be one widget a right-click gesture and
-    // a drag source can attach to (a GtkGrid has no such per-row widget,
-    // only per-cell ones), so each row lays out its own cells at fixed
-    // widths to keep columns aligned across rows instead.
+    // length, fps, format, badges). m_mediaBrowserPanel is the whole
+    // collapsible widget (a GtkScrolledWindow); m_mediaBrowserList is a
+    // GtkListView resynced by refreshMediaBrowser() each time the bin
+    // changes (mirrors refreshTimeline()'s own call-site-driven resync --
+    // see its own comment for why this app doesn't subscribe to
+    // Model::changed directly), rebinding only rows that changed. Each row
+    // is one widget a right-click gesture and a drag source attach to, and
+    // lays out its cells at fixed widths so columns align across rows.
     GtkWidget *m_mediaBrowserPanel = nullptr;
-    GtkBox *m_mediaBrowserList = nullptr;
+    GtkWidget *m_mediaBrowserList = nullptr; // a GtkListView (M4 D)
+    GtkStringList *m_mediaIds = nullptr;     // its items: asset ids, in bin order
+    std::vector<std::pair<uint64_t, std::string>> m_mediaRows; // each row's id and what it shows
+    std::set<uint64_t> m_mediaAwaitingThumbnail;
+    std::unordered_map<uint64_t, GtkWidget *> m_mediaBoundThumbs; // bound rows' pictures, by asset
+    bool m_mediaWaitingForHeight = false;
+    timeline::TextureCache m_mediaTextures{256};
     // Two-button popover ("Remove from Project" / "Delete File...") for
     // whichever row was last right-clicked (m_contextMenuAssetId) --
     // reparented onto that row each time (see
@@ -1051,7 +1168,9 @@ class AppWindow : public ShellHost
     GtkLabel *m_renderBadge = nullptr;
     GtkPopover *m_renderMenu = nullptr;
     std::string m_lastRenderedPath; // non-empty: the button offers to open it
-    void queueRender(const core::RenderProfile &profile, const std::string &path);
+    // Every render goes through here. With missing media in use it asks
+    // first ("Relink first / Render anyway") unless `missingConfirmed`.
+    void queueRender(const core::RenderProfile &profile, const std::string &path, bool missingConfirmed = false);
     // `<project>-<profile>-YYYYMMDD-HHMMSS.mp4` in exportFolder(), unused.
     std::string autoRenderPath(const core::RenderProfile &profile) const;
     void askCancelOrQueueRender();

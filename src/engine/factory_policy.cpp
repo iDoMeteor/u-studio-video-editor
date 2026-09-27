@@ -317,4 +317,10 @@ FactoryPolicy::~FactoryPolicy()
     }
 }
 
+std::string FactoryPolicy::mltVersion()
+{
+    const char *version = mlt_version_get_string();
+    return version ? version : "";
+}
+
 } // namespace ustudio::engine

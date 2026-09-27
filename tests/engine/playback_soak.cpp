@@ -5,7 +5,12 @@
 // 2026-09-24: HD is the primary target; doc 19); 4K is run on demand for
 // MT4. Not part of `meson test` (it runs for minutes against the real
 // audio device); run by hand:
-//   playback_soak <media> <minutes> [clips]
+//   playback_soak <media> <minutes> [clips] [--scale auto|full|half|quarter]
+//                 [--transformed N]
+// --scale defaults to half (the recorded soaks). --transformed N adds N
+// video tracks above V1 carrying the same clips, each scaled to half size,
+// placed in a quadrant and rotated a few degrees (M4 F, ADR-018): its
+// real-time acceptance is three of them at Auto.
 // Use more than 64 clips so the track is built chunked (doc 19 MT2).
 // Builds a timeline of `clips` back-to-back copies of <media> in a sequence
 // whose size and frame rate match the source (a 60 fps source in a default
@@ -21,6 +26,7 @@
 // because the main loop didn't drain it in time (see "stall"). Load,
 // temperature and clock say whether the machine was fit to judge by.
 #include "core/model/model.h"
+#include "core/model/transform.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "engine/playback_controller.h"
@@ -100,8 +106,28 @@ double averageCpuMhz()
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s <media> <minutes> [clips]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <media> <minutes> [clips] [--scale auto|full|half|quarter] [--transformed N]\n",
+                     argv[0]);
         return 2;
+    }
+    int clipsArg = 0, transformed = 0;
+    PreviewScale scale = PreviewScale::Half;
+    const char *scaleName = "Half";
+    for (int i = 3; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--transformed" && i + 1 < argc) {
+            transformed = std::atoi(argv[++i]);
+        } else if (arg == "--scale" && i + 1 < argc) {
+            const std::string name = argv[++i];
+            if (name == "auto")
+                scale = PreviewScale::Auto, scaleName = "Auto";
+            else if (name == "full")
+                scale = PreviewScale::Full, scaleName = "Full";
+            else if (name == "quarter")
+                scale = PreviewScale::Quarter, scaleName = "Quarter";
+        } else {
+            clipsArg = std::atoi(argv[i]);
+        }
     }
     // Same as main.cpp: without it SDL (initialised by the sdl2_audio
     // consumer) swallows SIGTERM/SIGINT and the soak can't be stopped.
@@ -129,27 +155,45 @@ int main(int argc, char **argv)
             profile.fps = first.fps;
     }
     Model model = Model::createEmpty(profile);
-    EngineSync sync(model, PreviewScale::Half);
+    EngineSync sync(model, scale);
     EngineSync::ProbedMedia probed = sync.probeMedia(media); // length in this sequence's frames
 
     const int fps = static_cast<int>(sync.profile().fps() + 0.5);
     const int needed = minutes * 60 * fps;
-    const int clips = argc > 3 ? std::atoi(argv[3]) : static_cast<int>(needed / probed.length + 1);
+    const int clips = clipsArg > 0 ? clipsArg : static_cast<int>(needed / probed.length + 1);
     Asset asset;
     asset.path = media;
     asset.displayName = "soak";
     asset.info.hasVideo = true;
     asset.info.hasAudio = probed.hasAudio;
     asset.info.lengthInSequenceFrames = probed.length;
+    asset.info.width = probed.width;
+    asset.info.height = probed.height;
     AssetId assetId = model.addAsset(asset);
-    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
-    for (int i = 0; i < clips; ++i)
-        model.insertClip(track, assetId, static_cast<FrameIndex>(i) * probed.length, 0, probed.length - 1);
+    for (int t = 0; t <= transformed; ++t) {
+        // index 0 is the top: V1 ends up at the bottom.
+        TrackId track = model.addTrack(Track::Kind::Video, 0, "V" + std::to_string(t + 1));
+        for (int i = 0; i < clips; ++i) {
+            ClipId clip =
+                model.insertClip(track, assetId, static_cast<FrameIndex>(i) * probed.length, 0, probed.length - 1);
+            if (t == 0)
+                continue;
+            Transform placed;
+            placed.bounds = Transform::Bounds::None;
+            placed.x.value = profile.width * ((t % 2) != 0 ? 0.25 : 0.75);
+            placed.y.value = profile.height * (((t - 1) / 2 % 2) != 0 ? 0.75 : 0.25);
+            placed.width.value = profile.width / 2.0;
+            placed.height.value = profile.height / 2.0;
+            placed.rotation.value = 5.0 * t;
+            model.setClipTransform(clip, placed);
+        }
+    }
     sync.setProject(model.snapshot());
     std::printf("timeline: %d x %d frames (%s, source %dx%d @ %d/%d) in a %dx%d @ %d fps sequence; "
-                "playback profile %dx%d (preview Half)\n",
+                "playback profile %dx%d (preview %s); %d transformed tracks\n",
                 clips, static_cast<int>(probed.length), media.c_str(), probed.width, probed.height, probed.fps.num,
-                probed.fps.den, profile.width, profile.height, fps, sync.profile().width(), sync.profile().height());
+                probed.fps.den, profile.width, profile.height, fps, sync.profile().width(), sync.profile().height(),
+                scaleName, transformed);
 
     PlaybackController controller;
     std::atomic<long> delivered{0};
@@ -186,15 +230,16 @@ int main(int argc, char **argv)
         double maxStallMs = 0;
         std::atomic<long> *delivered, *skipped;
         GMainLoop *loop;
-    } state{&controller, fps, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), 0, 0, 0, 0, 0,
-            &delivered, &skipped, g_main_loop_new(nullptr, FALSE)};
+    } state{&controller, fps,      std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), 0, 0, 0, 0, 0,
+            &delivered,  &skipped, g_main_loop_new(nullptr, FALSE)};
 
     g_timeout_add(
         5,
         [](gpointer data) -> gboolean {
             auto *st = static_cast<State *>(data);
             auto now = std::chrono::steady_clock::now();
-            st->maxStallMs = std::max(st->maxStallMs, std::chrono::duration<double, std::milli>(now - st->lastTick).count());
+            st->maxStallMs =
+                std::max(st->maxStallMs, std::chrono::duration<double, std::milli>(now - st->lastTick).count());
             st->lastTick = now;
             return G_SOURCE_CONTINUE;
         },

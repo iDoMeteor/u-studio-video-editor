@@ -1,5 +1,7 @@
 #include "writer.h"
 
+#include "core/model/transform.h"
+
 #include "core/model/audio_level.h"
 #include "core/model/mlt_order.h"
 #include "core/model/track_segments.h"
@@ -39,7 +41,7 @@ namespace fs = std::filesystem;
 // exactly) and a record playlist (the model, what the reader reads); 5 adds
 // effects as <filter>s, clip source parameters, transition recipes,
 // adjustment blocks and looks (IP2, doc 15; core/xml/effect_io.h).
-constexpr int kFormatVersion = 5;
+constexpr int kFormatVersion = 6; // 6: clip transforms (ADR-018)
 
 // Every effect in `effects` as a <filter> under `parent` (effect_io.h);
 // `cutIn` for a clip's render cut.
@@ -186,7 +188,10 @@ void writeAssetProducer(xmlNodePtr mlt, const Asset &asset, const fs::path &proj
     addProperty(producer, "ustudio:folder", asset.folder);
     addProperty(producer, "ustudio:fingerprint", asset.fileFingerprint);
     addProperty(producer, "ustudio:proxy", asset.proxyPath);
-    addProperty(producer, "ustudio:status", std::to_string(static_cast<int>(asset.status)));
+    // Missing is what this run found on disk, not part of the project
+    // (doc 07; the next open checks again).
+    const Asset::Status status = asset.status == Asset::Status::Missing ? Asset::Status::Ready : asset.status;
+    addProperty(producer, "ustudio:status", std::to_string(static_cast<int>(status)));
 
     const MediaInfo &info = asset.info;
     addProperty(producer, "ustudio:has_video", info.hasVideo ? "1" : "0");
@@ -236,10 +241,34 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
         addProperty(entry, "ustudio:fade_out", std::to_string(clip.fadeOut->length));
     xml_detail::writeParams(entry, "ustudio:source_param.", clip.sourceParams);
     writeEffects(entry, clip.effects, 0, clip.length(), true);
+    // ADR-018: the clip's transform, when it isn't the default (values
+    // only; keyframes come with animation).
+    if (const Transform &t = clip.transform.get(); !(t == Transform{})) {
+        const char *bounds = t.bounds == Transform::Bounds::None      ? "none"
+                             : t.bounds == Transform::Bounds::Stretch ? "stretch"
+                                                                      : "fit";
+        addProperty(entry, "ustudio:transform.bounds", bounds);
+        const std::pair<const char *, const KeyframedValue *> values[] = {{"x", &t.x},
+                                                                          {"y", &t.y},
+                                                                          {"width", &t.width},
+                                                                          {"height", &t.height},
+                                                                          {"rotation", &t.rotation},
+                                                                          {"crop_left", &t.cropLeft},
+                                                                          {"crop_top", &t.cropTop},
+                                                                          {"crop_right", &t.cropRight},
+                                                                          {"crop_bottom", &t.cropBottom}};
+        for (const auto &[name, value] : values)
+            if (value->value != 0.0)
+                addProperty(entry, std::string("ustudio:transform.") + name, doubleToString(value->value));
+        if (t.flipH)
+            addProperty(entry, "ustudio:transform.flip_h", "1");
+        if (t.flipV)
+            addProperty(entry, "ustudio:transform.flip_v", "1");
+    }
 }
 
 void writeRecordPlaylist(xmlNodePtr mlt, const Model &model, const Track &track, const std::string &playlistId,
-                        size_t visualIndex, const std::unordered_map<uint64_t, std::string> &producerIdByAsset)
+                         size_t visualIndex, const std::unordered_map<uint64_t, std::string> &producerIdByAsset)
 {
     xmlNodePtr playlist = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
     xmlNewProp(playlist, BAD_CAST "id", BAD_CAST playlistId.c_str());
@@ -279,13 +308,26 @@ void writeRecordPlaylist(xmlNodePtr mlt, const Model &model, const Track &track,
 // segment's own source range.
 // With the clip's effects as native filters, animated for this cut
 // (it starts in - clip.in frames into the clip).
-void writeRenderCut(xmlNodePtr playlist, const std::string &producerId, FrameIndex in, FrameIndex out, const Clip &clip)
+void writeRenderCut(xmlNodePtr playlist, const std::string &producerId, FrameIndex in, FrameIndex out, const Clip &clip,
+                    const Model &model)
 {
     xmlNodePtr entry = xmlNewChild(playlist, nullptr, BAD_CAST "entry", nullptr);
     xmlNewProp(entry, BAD_CAST "producer", BAD_CAST producerId.c_str());
     xmlNewProp(entry, BAD_CAST "in", BAD_CAST std::to_string(in).c_str());
     xmlNewProp(entry, BAD_CAST "out", BAD_CAST std::to_string(out).c_str());
     writeEffects(entry, clip.effects, in - clip.in, out - in + 1, false, in);
+    // After the effects, as EngineSync attaches them (ADR-018): the same
+    // filters from the same function, so melt plays what the editor does.
+    const MediaInfo &info = model.asset(clip.asset).info;
+    for (const NativeFilter &native :
+         transformFilters(clip.transform.get(), info.width, info.height, model.sequence().profile)) {
+        xmlNodePtr filter = xmlNewChild(entry, nullptr, BAD_CAST "filter", nullptr);
+        xmlNewProp(filter, BAD_CAST "in", BAD_CAST std::to_string(in).c_str());
+        xmlNewProp(filter, BAD_CAST "out", BAD_CAST std::to_string(out).c_str());
+        addProperty(filter, "mlt_service", native.service);
+        for (const auto &[name, value] : native.properties)
+            addProperty(filter, name, value);
+    }
 }
 
 // The producer a clip's cuts come from, mirroring EngineSync's
@@ -348,11 +390,11 @@ std::string writeDissolveTractor(xmlNodePtr mlt, const Model &model, const Track
 
     xmlNodePtr tailA = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
     xmlNewProp(tailA, BAD_CAST "id", BAD_CAST(id + "_a").c_str());
-    writeRenderCut(tailA, producers.idFor(clipA), clipA.out - t.length + 1, clipA.out, clipA);
+    writeRenderCut(tailA, producers.idFor(clipA), clipA.out - t.length + 1, clipA.out, clipA, model);
 
     xmlNodePtr headB = xmlNewChild(mlt, nullptr, BAD_CAST "playlist", nullptr);
     xmlNewProp(headB, BAD_CAST "id", BAD_CAST(id + "_b").c_str());
-    writeRenderCut(headB, producers.idFor(clipB), clipB.in, clipB.in + t.length - 1, clipB);
+    writeRenderCut(headB, producers.idFor(clipB), clipB.in, clipB.in + t.length - 1, clipB, model);
 
     xmlNodePtr tractor = xmlNewChild(mlt, nullptr, BAD_CAST "tractor", nullptr);
     xmlNewProp(tractor, BAD_CAST "id", BAD_CAST id.c_str());
@@ -425,7 +467,7 @@ void writeRenderPlaylist(xmlNodePtr mlt, const Model &model, const Track &track,
         }
         if (segment.kind == TrackSegment::Kind::Clip) {
             writeRenderCut(playlist, producerIdByClip.at(segment.clip.value), segment.in, segment.out,
-                           model.clip(segment.clip));
+                           model.clip(segment.clip), model);
         } else {
             xmlNodePtr entry = xmlNewChild(playlist, nullptr, BAD_CAST "entry", nullptr);
             xmlNewProp(entry, BAD_CAST "producer",
@@ -566,12 +608,13 @@ std::string saveProject(const Model &model, const std::string &path)
 
     // Matches EngineSync::rebuildAll() exactly, so `melt`/u-studio-render
     // (no editor) sees the identical compositing/mix graph our own
-    // playback does. See EngineSync's class comment for why this is a
-    // uniform chain rather than doc 05's video/audio-split graph.
+    // playback does. See EngineSync's class comment for why every track
+    // has both, rather than doc 05's video/audio-split graph.
     for (size_t index = 1; index <= order.size(); ++index) {
         xmlNodePtr composite = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
         addProperty(composite, "mlt_service", "composite");
-        addProperty(composite, "a_track", std::to_string(index - 1));
+        addProperty(composite, "a_track", "0"); // onto the background, as EngineSync (alpha; ADR-018)
+        addProperty(composite, "fill", "1");    // as EngineSync: the code's default is 0
         addProperty(composite, "b_track", std::to_string(index));
 
         xmlNodePtr mix = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);

@@ -9,7 +9,8 @@ gnome = import('gnome')
 app_resources = gnome.compile_resources(
   'ustudio-resources',
   meson.project_source_root() / 'data' / 'ustudio.gresource.xml',
-  source_dir: 'style',
+  # data/ too: Help's Release notes read the AppStream metainfo (M4 G).
+  source_dir: ['style', meson.project_source_root() / 'data'],
   c_name: 'ustudio',
 )
 
@@ -36,14 +37,14 @@ app_autosave_dep = declare_dependency(
 app_settings_lib = static_library(
   'ustudio_app_settings',
   files('settings.cpp', 'render_profiles.cpp', 'snap_env.cpp'),
-  dependencies: [gio_dep, glib_dep, libustudio_core_dep],
+  dependencies: [gio_dep, glib_dep, libustudio_core_dep, libustudio_platform_dep],
   include_directories: src_inc,
   install: false,
 )
 app_settings_dep = declare_dependency(
   link_with: app_settings_lib,
   include_directories: src_inc,
-  dependencies: [gio_dep, glib_dep, libustudio_core_dep],
+  dependencies: [gio_dep, glib_dep, libustudio_core_dep, libustudio_platform_dep],
 )
 
 # GLib-only, like the two libraries above, so tests/app/ can exercise it
@@ -76,11 +77,12 @@ app_render_queue_dep = declare_dependency(
   dependencies: [libustudio_core_dep, app_settings_dep, glib_dep],
 )
 
-# The timeline's GTK-free parts (doc 06: Viewport, and the
-# TimelineController to come), unit-tested in tests/app/.
+# The shell's GTK-free parts (doc 06: Viewport, the TimelineController;
+# M4 F2's transform gestures), unit-tested in tests/app/.
 app_timeline_lib = static_library(
   'ustudio_app_timeline',
-  files('timeline/selection.cpp', 'timeline/timeline_controller.cpp', 'timeline/viewport.cpp'),
+  files('timeline/selection.cpp', 'timeline/timeline_controller.cpp', 'timeline/viewport.cpp',
+        'transform_gestures.cpp', 'media_badges.cpp', 'diagnostics.cpp'),
   dependencies: [libustudio_core_dep],
   include_directories: src_inc,
   install: false,
@@ -104,7 +106,7 @@ app_tokens_h = custom_target(
 # hint and action tables against each other (test_ui_hints.cpp).
 app_window_lib = static_library(
   'ustudio_app_window',
-  files('action_registry.cpp', 'app_window.cpp', 'dropins_page.cpp', 'import_queue.cpp', 'project_loader.cpp', 'render_profiles_page.cpp', 'save_queue.cpp', 'shell_hosts.cpp', 'stall_monitor.cpp', 'ui_hints.cpp', 'timeline/timeline_renderer.cpp',
+  files('action_registry.cpp', 'app_window.cpp', 'dropins_page.cpp', 'help_dialog.cpp', 'import_queue.cpp', 'missing_media.cpp', 'proxies.cpp', 'proxy_launcher.cpp', 'proxy_queue.cpp', 'project_loader.cpp', 'render_profiles_page.cpp', 'save_queue.cpp', 'shell_hosts.cpp', 'transform_actions.cpp', 'transform_overlay.cpp', 'stall_monitor.cpp', 'ui_hints.cpp', 'timeline/timeline_renderer.cpp',
         'timeline/us_timeline_view.cpp'),
   app_tokens_h,
   dependencies: [libustudio_engine_dep, libustudio_dropins_dep, app_timeline_dep, app_autosave_dep, app_settings_dep, app_portal_dep, app_render_queue_dep, libustudio_platform_dep, gtk4_dep, adwaita_dep, gio_dep],

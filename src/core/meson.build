@@ -8,6 +8,7 @@ libustudio_core_sources = files(
   'model/profile_match.cpp',
   'model/retime.cpp',
   'model/animation.cpp',
+  'model/transform.cpp',
   'commands/primitives.cpp',
   'commands/undo_stack.cpp',
   'commands/timeline_edits.cpp',
@@ -15,8 +16,10 @@ libustudio_core_sources = files(
   'xml/reader.cpp',
   'xml/backup.cpp',
   'xml/effect_io.cpp',
+  'xml/release_notes.cpp',
   'render/render_profile.cpp',
   'media/fingerprint.cpp',
+  'media/missing_media.cpp',
 )
 
 threads_dep = dependency('threads')

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -123,6 +124,56 @@ struct KeyframedValue
     bool operator==(const KeyframedValue &) const = default;
 };
 
+// Where a clip's picture sits in the frame, OBS-style (ADR-018). Project
+// pixels, so proxies and preview scale don't matter. Every number is a
+// KeyframedValue (single-valued for now; keyframing is additive later).
+struct Transform
+{
+    enum class Bounds
+    {
+        Fit,     // the (cropped) picture fitted into the frame, centred: the default
+        Stretch, // the frame filled, aspect ignored
+        None,    // placed explicitly: centre (x, y), size (width, height)
+    };
+    Bounds bounds = Bounds::Fit;
+    KeyframedValue x, y;          // the picture's centre (None)
+    KeyframedValue width, height; // its size on screen (None)
+    KeyframedValue rotation;      // degrees clockwise, about the centre
+    // Source pixels cut from each edge before placing.
+    KeyframedValue cropLeft, cropTop, cropRight, cropBottom;
+    bool flipH = false, flipV = false;
+
+    bool operator==(const Transform &) const = default;
+};
+
+// A clip's Transform, copy-on-write. Every snapshot copies every clip
+// (doc 19's publish budget: under 1 ms at 2,000 clips), and nine
+// KeyframedValues per clip measured +0.45 ms there; most clips keep the
+// default, which is a null pointer here, and a copy is a pointer copy.
+class TransformSlot
+{
+  public:
+    const Transform &get() const
+    {
+        static const Transform kDefault;
+        return m_transform ? *m_transform : kDefault;
+    }
+    void set(Transform transform)
+    {
+        if (transform == Transform{})
+            m_transform.reset();
+        else
+            m_transform = std::make_shared<const Transform>(std::move(transform));
+    }
+    bool operator==(const TransformSlot &other) const
+    {
+        return get() == other.get();
+    }
+
+  private:
+    std::shared_ptr<const Transform> m_transform;
+};
+
 struct Color
 {
     uint8_t r = 0, g = 0, b = 0, a = 255;
@@ -196,6 +247,7 @@ struct Clip
     // Parameters of the clip's own producer, for clips a drop-in generates
     // (titles, doc 16). Empty for media.
     std::vector<Param> sourceParams;
+    TransformSlot transform; // ADR-018; Fit by default (transform.get())
 
     FrameIndex length() const
     {

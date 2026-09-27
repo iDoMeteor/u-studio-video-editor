@@ -93,6 +93,13 @@ A `justfile` (or `Makefile`) at the root wraps `setup`, `build`, `test`,
   registered with Fontconfig via the Flatpak's font dirs. SDL2 (for
   `sdl2_audio`) and ffmpeg come from the runtime/extension
   (`org.freedesktop.Platform.ffmpeg-full`).
+
+  > REVIEW: VE Installers (2026-09-25): the beta Flatpak that shipped
+  > differs from this plan (`packaging/flatpak/README.md`). It uses
+  > `com.ustudio.VideoEditor.yml` on `org.gnome.Platform//51` and builds its
+  > own FFmpeg 8.1.3 with libx264, because no runtime or extension carries
+  > an H.264 encoder. SDL2 comes from the runtime. MLT is built with only
+  > the modules the app requests. Fonts aren't bundled yet.
 - Version from `meson.project_version()` into a generated `config.h`; the
   About dialog reads it.
 

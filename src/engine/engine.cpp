@@ -172,6 +172,7 @@ class Engine::Thread
         state.speed = controller->speed();
         state.totalFrames = controller->totalFrames();
         state.fps = controller->fps();
+        state.previewFactor = sync->previewFactor();
         state.backend = controller->backendName();
         bool rebuilt = std::exchange(m_rebuilt, false);
         MainThreadDispatcher::post(m_ownerToken,
@@ -282,6 +283,11 @@ void Engine::reset(std::shared_ptr<const core::Project> project)
     m_thread->enqueue(std::move(entry));
 }
 
+void Engine::setUseProxies(bool use)
+{
+    send([use](Thread &t) { t.sync->setUseProxies(use); });
+}
+
 void Engine::setPreviewScale(PreviewScale scale)
 {
     send([scale](Thread &t) { t.sync->setPreviewScale(scale); });
@@ -363,6 +369,7 @@ void Engine::applyState(const State &state, bool graphRebuilt)
 {
     m_totalFrames = state.totalFrames;
     m_fps = state.fps;
+    m_previewFactor = state.previewFactor;
     m_backend = state.backend;
     if (state.seq >= m_sent) {
         // Nothing newer has been sent: this is where the engine really is.
@@ -382,6 +389,15 @@ void Engine::onFrame(std::vector<uint8_t> rgba, int width, int height, int posit
         m_position = position;
     if (m_frameCallback)
         m_frameCallback(std::move(rgba), width, height, position);
+}
+
+int Engine::consumerRestartsForTesting()
+{
+    auto count = std::make_shared<std::atomic<int>>(-1);
+    send([count](Thread &t) { count->store(t.controller->consumerRestartCount()); });
+    if (!syncForTesting())
+        return -1;
+    return count->load();
 }
 
 bool Engine::syncForTesting()

@@ -4,6 +4,79 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.50.0-beta.2
+
+- The clip tooltip on the timeline no longer flashes: its own appearance
+  sent a motion and a leave that hid and re-armed it.
+
+## 0.50.0-beta.1
+
+- The media browser no longer redraws every row while a folder imports:
+  new files are appended. A releasable beta.
+
+## 0.50.0
+
+- Media browser badges: each asset shows what it is (image, sequence,
+  audio), its resolution (cyan when taller than the project) and its state
+  (probing, failed, missing, proxy and its progress, proxy missing). Large
+  bins stay responsive: the list updates only the rows that changed.
+
+## 0.49.0-beta.2
+
+- Help › About gains Open Log Folder and Copy Diagnostics (app, MLT, GTK
+  and libadwaita versions, whether it runs in Flatpak, the log folder and
+  the last 50 log lines) for bug reports. Also in Keyboard Shortcuts under
+  Help.
+
+## 0.49.0-beta.1
+
+- Help: every section of Controls and Keyboard Shortcuts folds away and
+  opens with a click; Help remembers the open sections, the tab and where
+  you scrolled, also after a restart. A new Release notes tab lists each
+  released build's notes, newest first. This is the first beta.
+
+## 0.48.0
+
+- Transform handles on the preview: click a picture to select it, then
+  move, scale, stretch, rotate and crop it by dragging, with snapping to
+  the frame and other pictures and arrow-key nudges. A right-click menu
+  resets, fits, stretches, centres, flips and rotates it, and Edit
+  Transform (Ctrl+T) sets exact numbers. Undo and redo now keep the
+  selection.
+
+## 0.47.2
+
+- Auto preview scale plays at Half once a clip is moved, scaled, rotated,
+  cropped or flipped, so a transformed overlay plays smoothly at 1080p;
+  the dropdown shows what Auto chose, e.g. "Auto (Half)".
+
+## 0.47.1
+
+- Pictures of another size or aspect are fitted and centred in the frame
+  (a 4:3 or 1344×768 source no longer sits at the left), and each clip
+  now keeps a transform (position, size, rotation, crop, flip) that is
+  saved, survives split, trim, ripple and copy, and renders exactly as it
+  plays; project format 6, older projects load fitted (M4 F1).
+
+## 0.47.0
+
+- Proxies: Create Proxy / Create Conformed Proxy in the media browser, a
+  Proxies toggle beside the preview scale, and an offer once per project for
+  footage above 1080p. Made in the background by `u-studio-render --proxy`;
+  renders always use the originals.
+
+## 0.46.1
+
+- A video smaller than the project (720p or 640x360 in a 1080p project) now
+  fills the frame; it played at its own size in the top-left corner.
+
+## 0.46.0
+
+- Missing media: a project whose files moved opens with those clips striped red
+  (playing dark red), a banner, and a Relink dialog (locate each file or
+  search a folder); relinking changes nothing else and undoes in one step.
+  Renders ask before using missing media.
+
 ## 0.45.2
 
 - Saving an untitled project, or quitting with nothing unsaved, no longer

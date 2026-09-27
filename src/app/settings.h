@@ -107,7 +107,25 @@ class Settings
     // Settings > Drop-ins: installed drop-ins not to load, read once at
     // startup (unloading native code at runtime isn't safe; doc 17).
     std::vector<std::string> disabledDropIns() const;
+
+    // M4 C: whether playback uses proxies (view state, remembered here, not
+    // in the project), and the height new ones get (0: source size).
+    static constexpr int kDefaultProxyHeight = 540;
+    bool useProxies() const;
+    void setUseProxies(bool use);
+    int proxyHeight() const;
+    void setProxyHeight(int height);
     void setDropInEnabled(const std::string &name, bool enabled);
+
+    // M4 G: Help as it was left: the open sections ("<tab>:<section>"),
+    // the tab, and each tab's scroll position ("<tab>=<pixels>"). Empty
+    // without a schema, or with an older installed one lacking the keys.
+    std::vector<std::string> helpOpenSections() const;
+    void setHelpOpenSections(const std::vector<std::string> &sections);
+    std::string helpTab() const;
+    void setHelpTab(const std::string &tab);
+    std::vector<std::string> helpScroll() const;
+    void setHelpScroll(const std::vector<std::string> &positions);
 
     // False when the schema wasn't found (not installed, and
     // GSETTINGS_SCHEMA_DIR doesn't point at a compiled one) -- every
@@ -124,6 +142,11 @@ class Settings
     void setBool(const char *key, bool value);
     std::string getString(const char *key, const char *fallback) const;
     void setString(const char *key, const std::string &value);
+    // For keys newer than a schema that may be installed: g_settings_get_*
+    // aborts on a key the schema doesn't have.
+    bool hasKey(const char *key) const;
+    std::vector<std::string> getStrv(const char *key) const;
+    void setStrv(const char *key, const std::vector<std::string> &values);
 
     GSettings *m_settings = nullptr;
 };

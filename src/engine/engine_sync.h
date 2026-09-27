@@ -17,6 +17,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace ustudio::engine {
@@ -49,9 +50,10 @@ namespace core = ustudio::core;
 // (including the black backing track), rather than doc 05's more precise
 // video-only-composite / audio-only-mix split. That split hasn't been
 // empirically verified (project rule: reproduce before relying), while
-// v1's uniform chaining is proven working. M1 reuses v1's pattern
-// unchanged; refining it to doc 05's graph is PlaybackController/M2
-// territory, where it can be verified against real rendered frames.
+// v1's uniform chaining is proven working. M1 reused v1's pattern; since
+// M4 F (ADR-018) every "composite" takes track 0 as its A track instead of
+// the track below (a chain lost an upper clip's alpha), and "mix" stays
+// chained.
 class EngineSync
 {
   public:
@@ -99,6 +101,16 @@ class EngineSync
     // `rebuilt`; setting the same factor again does nothing. Positions,
     // lengths and fps are unaffected; only pixel dimensions change.
     void setPreviewScale(PreviewScale scale);
+    // M4 C: play each asset's proxy (Asset::proxyPath) instead of its file
+    // when there is one. View state, not the model's; renders build their
+    // own EngineSync with it off, so export always uses the originals. A
+    // proxy whose file is gone (the cache was cleared) falls back to the
+    // original quietly. Rebuilds when it changes anything.
+    void setUseProxies(bool use);
+    bool useProxies() const
+    {
+        return m_useProxies;
+    }
     PreviewScale previewScale() const
     {
         return m_previewScale;
@@ -255,6 +267,31 @@ class EngineSync
     // verify() skips its resource check for these, since the mismatch
     // there is the intended fallback, not a sync bug.
     std::unordered_set<uint64_t> m_unavailableAssets;
+    bool m_useProxies = false;
+    // ADR-018: each clip's transform filters, per cut (the exclusive cut
+    // and any dissolve tail or head), kept so a transform-only snapshot
+    // updates them in place (applyTransformsInPlace()); per build.
+    struct TransformFilters
+    {
+        std::string shape; // the services in order: a change of shape rebuilds
+        std::vector<std::vector<std::shared_ptr<Mlt::Filter>>> cuts;
+    };
+    std::unordered_map<uint64_t, TransformFilters> m_transformFilters;
+    // One transparent background for every transform filter (see
+    // applyTransform()), built from the current profile.
+    std::unique_ptr<Mlt::Producer> m_transformBackground;
+    void applyTransform(Mlt::Producer &cut, const core::Clip &clip);
+    bool applyTransformsInPlace(const core::Project &next);
+    // Output pixels per project pixel, and the playing file's pixels per
+    // source pixel (a proxy is smaller).
+    double outputScale() const;
+    double sourceScale(const core::Clip &clip);
+    // Assets playing their proxy this build (verify() skips their resource).
+    std::unordered_set<uint64_t> m_proxiedAssets;
+    void dropProxiedMasters();
+    // Forgets the masters of assets whose path or status changed (relink,
+    // missing on load, found again), so the next build opens them afresh.
+    void dropChangedMasters(const core::Project &before, const core::Project &after);
     // MLT tractor index -> model TrackId; std::nullopt at index 0 (the
     // black backing track, not a model track).
     std::vector<std::optional<core::TrackId>> m_mltTrackOrder;
@@ -321,10 +358,14 @@ class EngineSync
 // the pre-profile settings, which the engine tests rely on. `threadBudget`
 // > 0 caps the render's threads (core::splitRenderThreads()); 0 leaves
 // MLT's defaults (one render thread, the encoder's automatic count).
+//
+// `extra`: further avformat consumer properties, set last (a proxy's
+// keyframe interval, "g").
 bool renderProject(core::Model &model, const std::string &outputPath, std::string &error,
                    std::function<void(int currentFrame, int totalFrames)> onProgress = {},
                    const std::atomic<bool> *cancel = nullptr,
-                   const core::RenderProfile &profile = core::legacyRenderProfile(), int threadBudget = 0);
+                   const core::RenderProfile &profile = core::legacyRenderProfile(), int threadBudget = 0,
+                   const std::vector<std::pair<std::string, std::string>> &extra = {});
 
 // The H.264 encoder renderProject uses: libx264 where ffmpeg has it,
 // otherwise libopenh264 (stock Fedora's ffmpeg-free ships only that one;

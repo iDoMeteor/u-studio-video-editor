@@ -111,6 +111,15 @@ test_shell_hosts_exe = executable(
 )
 test('app-shell-hosts', test_shell_hosts_exe)
 
+# M4 C: the proxy queue, with a fake u-studio-render.
+test_proxy_queue_exe = executable(
+  'test_proxy_queue',
+  files('test_proxy_queue.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+test('app-proxy-queue', test_proxy_queue_exe)
+
 test_viewport_exe = executable(
   'test_viewport',
   files('test_viewport.cpp'),
@@ -119,6 +128,33 @@ test_viewport_exe = executable(
 )
 
 test('app-viewport', test_viewport_exe)
+
+# M4 F2: the preview's transform handles, as arithmetic.
+test_transform_gestures_exe = executable(
+  'test_transform_gestures',
+  files('test_transform_gestures.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+test('app-transform-gestures', test_transform_gestures_exe)
+
+# M4 D: the media browser's badges.
+test_media_badges_exe = executable(
+  'test_media_badges',
+  files('test_media_badges.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+test('app-media-badges', test_media_badges_exe)
+
+# Help's Copy Diagnostics (0.49.0-beta.2).
+test_diagnostics_exe = executable(
+  'test_diagnostics',
+  files('test_diagnostics.cpp'),
+  dependencies: [doctest_dep, app_timeline_dep],
+  install: false,
+)
+test('app-diagnostics', test_diagnostics_exe)
 
 test_timeline_controller_exe = executable(
   'test_timeline_controller',

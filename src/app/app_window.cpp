@@ -5,9 +5,11 @@
 #include "portal_path.h"
 #include "timeline/us_timeline_view.h"
 #include "ui_hints.h"
+#include "media_badges.h"
 #include "core/commands/composite_command.h"
 #include "platform/process.h"
 #include "core/media/fingerprint.h"
+#include "core/media/missing_media.h"
 #include "core/media/utf8_path.h"
 #include "core/commands/primitives.h"
 #include "core/commands/timeline_edits.h"
@@ -32,6 +34,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <memory>
@@ -169,11 +172,9 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         m_lastEditMonotonicUsec = g_get_monotonic_time();
         if (m_unsavedSinceMonotonicUsec == 0)
             m_unsavedSinceMonotonicUsec = m_lastEditMonotonicUsec;
+        updatePreviewScaleLabel(); // Auto may have changed with the edit
     });
-    m_engine->mediaUnavailable.connect([this](const std::string &path) {
-        showStatus("Couldn't open \"" + path + "\" — showing black in its place. The file may have moved or been "
-                   "deleted.");
-    });
+    m_engine->mediaUnavailable.connect([this](const std::string &path) { onMediaUnavailable(path); });
     m_engine->setFrameCallback([this](std::vector<uint8_t> rgba, int width, int height, int frameNumber) {
         onFrameReady(std::move(rgba), width, height, frameNumber);
     });
@@ -235,7 +236,14 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         [token = std::weak_ptr<void>(m_lifetime)](std::function<void()> fn) {
             engine::MainThreadDispatcher::post(token, std::move(fn));
         },
-        core::loadProject);
+        // Pool: the parse, then which media files are missing (a stat each;
+        // doc 07), so a slow mount never stalls the window.
+        [](const std::string &path) {
+            ProjectLoader::Result loaded = core::loadProject(path);
+            if (loaded)
+                core::markMissingMedia(*loaded);
+            return loaded;
+        });
     // doc 19 MT3: the caches run on the pool too, capped so imports, probes
     // and saves still get threads: about half the pool between the timeline's
     // strips and its waveforms, plus one job for the media browser's row
@@ -291,6 +299,11 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         // IP5: drop-ins' inspector pages refresh, the selection already
         // pruned.
         m_shellProjectChanged.emit();
+        refreshMissingBanner(); // a relink, or its undo
+        endTransformDrag();     // unless the change is the drag's own
+        refreshTransformDialog();
+        if (m_transformOverlay)
+            gtk_widget_queue_draw(m_transformOverlay);
     });
 
     gchar *sessionUuid = g_uuid_string_random();
@@ -302,6 +315,8 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
     installActions(app);
     // Doc 15 IP5: the drop-ins' pages, actions and overlays, into the
     // finished shell (shell_hosts.cpp).
+    setUpProxies();
+    setUpTransformOverlay();
     m_hasShellExtensions = !shellExtensions.empty();
     for (const dropins::ShellExtension &extension : shellExtensions)
         extension(*this);
@@ -383,6 +398,8 @@ void AppWindow::prepareForShutdown()
     if (m_importQueue)
         m_importQueue->cancelAll();
     m_importQueue.reset();
+    if (m_proxyQueue)
+        m_proxyQueue->cancelAll(); // the children stop and remove their .part files
     if (m_projectLoader)
         m_projectLoader->cancel();
     m_projectLoader.reset();
@@ -594,12 +611,7 @@ void AppWindow::buildUi(GtkApplication *app)
                                    GTK_POLICY_AUTOMATIC);
     gtk_widget_set_size_request(mediaBrowserScroller, 320, -1);
     gtk_widget_add_css_class(mediaBrowserScroller, "media-browser-panel");
-    m_mediaBrowserList = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 4));
-    gtk_widget_set_margin_top(GTK_WIDGET(m_mediaBrowserList), 6);
-    gtk_widget_set_margin_bottom(GTK_WIDGET(m_mediaBrowserList), 6);
-    gtk_widget_set_margin_start(GTK_WIDGET(m_mediaBrowserList), 6);
-    gtk_widget_set_margin_end(GTK_WIDGET(m_mediaBrowserList), 6);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(mediaBrowserScroller), GTK_WIDGET(m_mediaBrowserList));
+    setUpMediaList(mediaBrowserScroller);
     m_mediaBrowserPanel = mediaBrowserScroller;
     gtk_widget_set_visible(m_mediaBrowserPanel, FALSE); // starts collapsed
 
@@ -644,6 +656,7 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(m_deleteAssetFileButton, "clicked", G_CALLBACK(&AppWindow::deleteAssetFileClickedTrampoline),
                       this);
     gtk_box_append(GTK_BOX(mediaContextBox), m_deleteAssetFileButton);
+    addProxyMenuItems(mediaContextBox);
     gtk_popover_set_child(m_mediaBrowserContextMenu, mediaContextBox);
     // A popover parented with gtk_widget_set_parent() has to be unparented
     // by hand before its parent goes (post-M3 audit P10: GTK warned on every
@@ -1048,6 +1061,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // Settings default never reached playback; apply it once here.
     onPreviewScaleChanged();
     gtk_box_append(GTK_BOX(transport), GTK_WIDGET(m_previewScaleDropdown));
+    buildProxyToggle(transport);
 
     m_loopStatusLabel = GTK_LABEL(gtk_label_new(""));
     gtk_widget_add_css_class(GTK_WIDGET(m_loopStatusLabel), "dim-label");
@@ -1136,158 +1150,6 @@ void AppWindow::setAccelsForAction(GtkApplication *app, const char *name, const 
     std::vector<const char *> accelsWithNull(accels.begin(), accels.end());
     accelsWithNull.push_back(nullptr);
     gtk_application_set_accels_for_action(app, ("win." + std::string(name)).c_str(), accelsWithNull.data());
-}
-
-GtkWidget *AppWindow::buildShortcutsPage() const
-{
-    GtkWidget *page = adw_preferences_page_new();
-
-    // One AdwPreferencesGroup per ActionSpec::category, created the first
-    // time that category is seen -- action_registry.h's table is already
-    // grouped by category (Playback, Editing, Project), so this walks it
-    // once, in that same order, rather than sorting or pre-declaring the
-    // category list separately.
-    std::vector<std::pair<std::string, AdwPreferencesGroup *>> groups;
-
-    // The shell's actions, then the drop-ins' under their own categories.
-    for (const ActionSpec &spec : allActionSpecs()) {
-        AdwPreferencesGroup *group = nullptr;
-        for (auto &entry : groups) {
-            if (entry.first == spec.category) {
-                group = entry.second;
-                break;
-            }
-        }
-        if (group == nullptr) {
-            group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-            adw_preferences_group_set_title(group, spec.category);
-            adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), group);
-            groups.emplace_back(spec.category, group);
-        }
-
-        std::string accelLabel = shortcutLabel(spec.name);
-
-        // Row titles and subtitles are Pango markup: a shortcut's label can
-        // be "<" itself ("Shift+,, <" failed to parse and showed nothing).
-        GtkWidget *row = adw_action_row_new();
-        char *title = g_markup_escape_text(spec.label, -1);
-        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
-        g_free(title);
-        if (!accelLabel.empty()) {
-            char *subtitle = g_markup_escape_text(accelLabel.c_str(), -1);
-            adw_action_row_set_subtitle(ADW_ACTION_ROW(row), subtitle);
-            g_free(subtitle);
-        }
-        adw_preferences_group_add(group, row);
-    }
-
-    return page;
-}
-
-GtkWidget *AppWindow::buildControlsPage() const
-{
-    GtkWidget *page = adw_preferences_page_new();
-    std::vector<std::pair<std::string, AdwPreferencesGroup *>> groups;
-
-    for (const HintSpec &hint : hintSpecs()) {
-        AdwPreferencesGroup *group = nullptr;
-        for (auto &entry : groups) {
-            if (entry.first == hint.category) {
-                group = entry.second;
-                break;
-            }
-        }
-        if (group == nullptr) {
-            group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-            adw_preferences_group_set_title(group, hint.category);
-            adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), group);
-            groups.emplace_back(hint.category, group);
-        }
-
-        // "Click the clip, then Delete": the gesture, then the key.
-        std::string how = hint.gesture != nullptr ? hint.gesture : "";
-        if (std::string shortcut = shortcutLabel(hint.action); !shortcut.empty())
-            how += how.empty() ? shortcut : " " + shortcut;
-        std::string subtitle = how;
-        if (hint.detail != nullptr)
-            subtitle += subtitle.empty() ? hint.detail : std::string("\n") + hint.detail;
-
-        // Row titles and subtitles are Pango markup.
-        GtkWidget *row = adw_action_row_new();
-        char *title = g_markup_escape_text(hint.title, -1);
-        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
-        g_free(title);
-        if (!subtitle.empty()) {
-            char *escaped = g_markup_escape_text(subtitle.c_str(), -1);
-            adw_action_row_set_subtitle(ADW_ACTION_ROW(row), escaped);
-            g_free(escaped);
-        }
-        adw_preferences_group_add(group, row);
-    }
-
-    return page;
-}
-
-GtkWidget *AppWindow::buildAboutPage() const
-{
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
-    gtk_widget_set_vexpand(box, TRUE);
-    gtk_widget_set_margin_top(box, 24);
-    gtk_widget_set_margin_bottom(box, 24);
-    gtk_widget_set_margin_start(box, 24);
-    gtk_widget_set_margin_end(box, 24);
-
-    GtkWidget *title = gtk_label_new("u Studio Video Editor");
-    gtk_widget_add_css_class(title, "title-1");
-    gtk_box_append(GTK_BOX(box), title);
-
-    GtkWidget *version = gtk_label_new("Version " USTUDIO_VERSION);
-    gtk_widget_add_css_class(version, "dim-label");
-    gtk_box_append(GTK_BOX(box), version);
-
-    // Verbatim from data/com.ustudio.VideoEditor.metainfo.xml's <summary>
-    // -- one source of truth for the app's own self-description.
-    GtkWidget *summary = gtk_label_new("Non-linear video editor built on GTK4, libadwaita and MLT");
-    gtk_label_set_wrap(GTK_LABEL(summary), TRUE);
-    gtk_label_set_justify(GTK_LABEL(summary), GTK_JUSTIFY_CENTER);
-    gtk_widget_set_margin_top(summary, 12);
-    gtk_box_append(GTK_BOX(box), summary);
-
-    GtkWidget *license = gtk_label_new("GPL-3.0-or-later");
-    gtk_widget_add_css_class(license, "dim-label");
-    gtk_widget_set_margin_top(license, 12);
-    gtk_box_append(GTK_BOX(box), license);
-
-    return box;
-}
-
-void AppWindow::showHelpDialog()
-{
-    AdwDialog *dialog = ADW_DIALOG(adw_dialog_new());
-    adw_dialog_set_title(dialog, "Help");
-    adw_dialog_set_content_width(dialog, 640);
-    adw_dialog_set_content_height(dialog, 560);
-
-    AdwViewStack *stack = ADW_VIEW_STACK(adw_view_stack_new());
-    adw_view_stack_add_titled_with_icon(stack, buildControlsPage(), "controls", "Controls", "input-mouse-symbolic");
-    adw_view_stack_add_titled_with_icon(stack, buildShortcutsPage(), "shortcuts", "Keyboard Shortcuts",
-                                        "preferences-desktop-keyboard-shortcuts-symbolic");
-    adw_view_stack_add_titled_with_icon(stack, buildAboutPage(), "about", "About", "help-about-symbolic");
-
-    GtkWidget *switcher = adw_view_switcher_new();
-    adw_view_switcher_set_stack(ADW_VIEW_SWITCHER(switcher), stack);
-    adw_view_switcher_set_policy(ADW_VIEW_SWITCHER(switcher), ADW_VIEW_SWITCHER_POLICY_WIDE);
-
-    GtkWidget *headerBar = adw_header_bar_new();
-    adw_header_bar_set_title_widget(ADW_HEADER_BAR(headerBar), switcher);
-
-    GtkWidget *toolbarView = adw_toolbar_view_new();
-    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbarView), headerBar);
-    adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbarView), GTK_WIDGET(stack));
-
-    adw_dialog_set_child(dialog, toolbarView);
-    adw_dialog_present(dialog, GTK_WIDGET(m_window));
 }
 
 void AppWindow::showSettingsDialog()
@@ -1398,6 +1260,7 @@ void AppWindow::showSettingsDialog()
     adw_combo_row_set_selected(scaleRow, scaleIndex);
     g_signal_connect(scaleRow, "notify::selected", G_CALLBACK(&AppWindow::settingsPreviewScaleChangedTrampoline), this);
     adw_preferences_group_add(previewGroup, GTK_WIDGET(scaleRow));
+    addProxySettingsRow(previewGroup);
 
     AdwPreferencesGroup *backgroundGroup = addGroup(performancePage, "Background work");
     // 0 is "Automatic (N)" (the output/input handlers below); the pool is
@@ -1533,6 +1396,12 @@ void AppWindow::onSettingsToggleChanged(const std::string &key, bool active)
 
 void AppWindow::onTimelineHover(double x, double y)
 {
+    // Showing the popover makes the compositor send a motion (and a
+    // leave) at the same spot; treating that as a move hid it and re-armed
+    // it, over and over (the tooltip flashed). Only a real move re-arms.
+    const bool pending = m_hoverTimerId != 0 || gtk_widget_get_visible(GTK_WIDGET(m_hoverPreview));
+    if (pending && std::abs(x - m_hover.x) < 3 && std::abs(y - m_hover.y) < 3)
+        return;
     // Moving re-arms the delay; the tooltip only shows once the pointer rests.
     hideHoverPreview();
     if (m_timelineController.mode() != timeline::TimelineController::Mode::None)
@@ -1571,6 +1440,7 @@ void AppWindow::showHoverPreview()
     const GdkRectangle at{static_cast<int>(m_hover.x), static_cast<int>(m_hover.y), 1, 1};
     gtk_popover_set_pointing_to(m_hoverPreview, &at);
     gtk_popover_popup(m_hoverPreview);
+    m_hoverShownAt = g_get_monotonic_time();
     showHoverPreviewIfReady();
 }
 
@@ -2024,6 +1894,7 @@ void AppWindow::startImport(std::vector<std::string> paths, std::optional<core::
                 showStatus("Couldn't import " + state->failures.front());
             else
                 showImportReport(state->imported, total, state->failures, notes);
+            offerProxiesAfterImport();
         });
 }
 
@@ -2339,7 +2210,7 @@ void AppWindow::loadProjectFromPath(const std::string &requestedPath)
             m_pendingAutosaveCleanupMetaPath.clear();
             refreshTimeline();
             refreshMediaBrowser();
-            showStatus("Opened: " + path + unplayedEffectsNotice());
+            showStatus("Opened: " + path + unplayedEffectsNotice() + missingMediaNotice());
             // Enhancement #15: recorded regardless of how the project got
             // opened (dialog or the recent-projects menu itself), so
             // re-opening it later keeps bumping it back to the top.
@@ -2394,6 +2265,7 @@ void AppWindow::replaceProject(core::Model model)
     m_undoStack.clear();
     m_activeTrack = 0;
     m_timelineController.selection().clear();
+    refreshMissingBanner();
 }
 
 void AppWindow::onReloadProjectClicked()
@@ -2454,6 +2326,14 @@ void AppWindow::performNewProject()
 core::RenderProfile AppWindow::defaultRenderProfile() const
 {
     return m_renderProfiles->find(m_settings->defaultRenderProfile()).value_or(core::builtInRenderProfiles()[0]);
+}
+
+std::string AppWindow::missingMediaNotice() const
+{
+    const size_t missing = missingAssets(false).size();
+    if (missing == 0)
+        return {};
+    return missing == 1 ? " 1 media file is missing." : " " + std::to_string(missing) + " media files are missing.";
 }
 
 std::string AppWindow::unplayedEffectsNotice() const
@@ -2589,8 +2469,40 @@ std::string AppWindow::autoRenderPath(const core::RenderProfile &profile) const
     return path;
 }
 
-void AppWindow::queueRender(const core::RenderProfile &profile, const std::string &path)
+void AppWindow::queueRender(const core::RenderProfile &profile, const std::string &path, bool missingConfirmed)
 {
+    // Never export red placeholders without asking (M4 B).
+    if (!missingConfirmed) {
+        if (const size_t missing = missingAssets(true).size(); missing > 0) {
+            struct Pending
+            {
+                AppWindow *self;
+                core::RenderProfile profile;
+                std::string path;
+            };
+            const std::string heading =
+                missing == 1 ? "1 file is missing" : std::to_string(missing) + " files are missing";
+            AdwDialog *dialog =
+                adw_alert_dialog_new(heading.c_str(), "The render will show red frames where they're used.");
+            adw_alert_dialog_add_responses(ADW_ALERT_DIALOG(dialog), "relink", "Relink First", "render",
+                                           "Render Anyway", nullptr);
+            adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "relink");
+            adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "relink");
+            adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "render", ADW_RESPONSE_DESTRUCTIVE);
+            adw_alert_dialog_choose(
+                ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
+                [](GObject *source, GAsyncResult *result, gpointer data) {
+                    std::unique_ptr<Pending> pending(static_cast<Pending *>(data));
+                    const std::string response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
+                    if (response == "render")
+                        pending->self->queueRender(pending->profile, pending->path, true);
+                    else
+                        pending->self->showRelinkDialog();
+                },
+                new Pending{this, profile, path});
+            return;
+        }
+    }
     if (pathIsProjectAsset(path)) {
         showStatus("Refusing to render over a file already in this project's media: " + path);
         return;
@@ -2812,7 +2724,8 @@ void AppWindow::onAddTrackClicked()
 void AppWindow::onUndo()
 {
     if (m_undoStack.undo()) {
-        m_timelineController.selection().clear();
+        // The selection stays: m_undoStack.changed pruned what's gone (with
+        // the preview's handles, losing it on every undo was jarring).
         refreshTimeline();
         showStatus("Undid: " + m_undoStack.redoLabel());
     }
@@ -2821,7 +2734,8 @@ void AppWindow::onUndo()
 void AppWindow::onRedo()
 {
     if (m_undoStack.redo()) {
-        m_timelineController.selection().clear();
+        // The selection stays: m_undoStack.changed pruned what's gone (with
+        // the preview's handles, losing it on every undo was jarring).
         refreshTimeline();
         showStatus("Redid: " + m_undoStack.undoLabel());
     }
@@ -3099,8 +3013,33 @@ void AppWindow::onVolumeChanged()
     m_engine->setVolume(gtk_range_get_value(GTK_RANGE(m_volumeScale)));
 }
 
+void AppWindow::updatePreviewScaleLabel()
+{
+    if (!m_previewScaleDropdown)
+        return;
+    // Only the selected Auto says what it resolved to: the engine's factor
+    // is the manual one otherwise.
+    const guint selected = gtk_drop_down_get_selected(m_previewScaleDropdown);
+    const double factor = m_engine->previewFactor();
+    const char *label = "Auto";
+    if (selected == 0)
+        label = factor >= 1.0 ? "Auto (Full)" : factor >= 0.5 ? "Auto (Half)" : "Auto (Quarter)";
+    GtkStringList *list = GTK_STRING_LIST(gtk_drop_down_get_model(m_previewScaleDropdown));
+    if (std::strcmp(gtk_string_list_get_string(list, 0), label) == 0)
+        return;
+    // Replacing the selected item deselects it: put the selection back
+    // without it reaching the engine as a change.
+    m_relabellingPreviewScale = true;
+    const char *items[] = {label, nullptr};
+    gtk_string_list_splice(list, 0, 1, items);
+    gtk_drop_down_set_selected(m_previewScaleDropdown, selected);
+    m_relabellingPreviewScale = false;
+}
+
 void AppWindow::onPreviewScaleChanged()
 {
+    if (m_relabellingPreviewScale)
+        return;
     // EngineSync owns the preview scale: it builds the playback tractor on
     // a scaled profile (doc 05), rebuilding -- and so restarting playback
     // via `rebuilt` -- only when the resolved factor actually changes.
@@ -3118,6 +3057,9 @@ void AppWindow::onPreviewScaleChanged()
         m_engine->setPreviewScale(engine::PreviewScale::Auto);
         break;
     }
+    // Right away when the factor doesn't change (no rebuild follows);
+    // `rebuilt` relabels it when it does.
+    updatePreviewScaleLabel();
 }
 
 void AppWindow::onSplitClicked()
@@ -3774,6 +3716,7 @@ void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int heigh
     timeline::snapshotTimeline(snapshot, scene, width, height);
     g_object_unref(layout);
     noteSelectionForShell();
+    noteTransformSelection();
 }
 
 void AppWindow::snapshotPlayheadOverlay(GtkSnapshot *snapshot, int width, int height)
@@ -3835,7 +3778,7 @@ void AppWindow::onThumbnailReady()
     // in the meantime in a single rebuild.
     if (!gtk_widget_get_visible(m_mediaBrowserPanel))
         return;
-    refreshMediaBrowser();
+    refreshMediaThumbnails();
 }
 
 void AppWindow::onToggleMediaBrowserClicked()
@@ -3843,7 +3786,7 @@ void AppWindow::onToggleMediaBrowserClicked()
     bool visible = gtk_widget_get_visible(m_mediaBrowserPanel);
     gtk_widget_set_visible(m_mediaBrowserPanel, !visible);
     if (!visible)
-        refreshMediaBrowser(); // was hidden -- may be stale/never built
+        queueRefresh(); // was hidden: stale or never built; after layout (refreshMediaBrowser())
 }
 
 void AppWindow::recordRecentProject(const std::string &path)
@@ -3944,104 +3887,283 @@ void AppWindow::openRecentProject(const std::string &path)
     confirmDiscardIfDirty([this, path] { loadProjectFromPath(path); });
 }
 
+void AppWindow::setUpMediaList(GtkWidget *scroller)
+{
+    // M4 D: a GtkListView over the bin's asset ids (strings, in bin
+    // order), so only rows on screen exist and a change rebinds only the
+    // rows it touches. Rebuilding every row took 81-105 ms per refresh at
+    // 500 assets, and showing the panel stalled 1.2 s laying out ~3,000
+    // widgets (debug build, 2026-09-25).
+    m_mediaIds = gtk_string_list_new(nullptr);
+    GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
+    g_signal_connect(factory, "setup", G_CALLBACK(+[](GtkSignalListItemFactory *, GObject *item, gpointer self) {
+                         static_cast<AppWindow *>(self)->setUpMediaRow(GTK_LIST_ITEM(item));
+                     }),
+                     this);
+    g_signal_connect(factory, "bind", G_CALLBACK(+[](GtkSignalListItemFactory *, GObject *item, gpointer self) {
+                         static_cast<AppWindow *>(self)->bindMediaRow(GTK_LIST_ITEM(item));
+                     }),
+                     this);
+    g_signal_connect(factory, "unbind", G_CALLBACK(+[](GtkSignalListItemFactory *, GObject *item, gpointer self) {
+                         auto *window = static_cast<AppWindow *>(self);
+                         const core::AssetId id = window->mediaItemAsset(GTK_LIST_ITEM(item));
+                         GtkWidget *row = gtk_list_item_get_child(GTK_LIST_ITEM(item));
+                         auto bound = window->m_mediaBoundThumbs.find(id.value);
+                         if (row && bound != window->m_mediaBoundThumbs.end() &&
+                             bound->second == g_object_get_data(G_OBJECT(row), "thumb"))
+                             window->m_mediaBoundThumbs.erase(bound);
+                     }),
+                     this);
+    GtkNoSelection *selection = gtk_no_selection_new(G_LIST_MODEL(m_mediaIds)); // takes the list
+    m_mediaBrowserList = gtk_list_view_new(GTK_SELECTION_MODEL(selection), factory); // takes both
+    gtk_widget_add_css_class(m_mediaBrowserList, "media-list");
+    gtk_widget_set_margin_top(m_mediaBrowserList, 6);
+    gtk_widget_set_margin_bottom(m_mediaBrowserList, 6);
+    gtk_widget_set_margin_start(m_mediaBrowserList, 6);
+    gtk_widget_set_margin_end(m_mediaBrowserList, 6);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), m_mediaBrowserList);
+}
+
+void AppWindow::setUpMediaRow(GtkListItem *item)
+{
+    // The widgets of one row, reused for whichever asset it's bound to.
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto keep = [row](const char *name, GtkWidget *widget) { g_object_set_data(G_OBJECT(row), name, widget); };
+
+    GtkWidget *thumbCell = gtk_picture_new();
+    gtk_widget_set_size_request(thumbCell, 120, 68);
+    gtk_picture_set_content_fit(GTK_PICTURE(thumbCell), GTK_CONTENT_FIT_CONTAIN);
+    gtk_box_append(GTK_BOX(row), thumbCell);
+    keep("thumb", thumbCell);
+
+    // Name over its badges (M4 D).
+    GtkWidget *info = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_valign(info, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(info, 140, -1);
+    GtkWidget *nameLabel = gtk_label_new(nullptr);
+    gtk_label_set_ellipsize(GTK_LABEL(nameLabel), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_xalign(GTK_LABEL(nameLabel), 0.0);
+    gtk_box_append(GTK_BOX(info), nameLabel);
+    GtkWidget *badges = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_box_append(GTK_BOX(info), badges);
+    gtk_box_append(GTK_BOX(row), info);
+    keep("name", nameLabel);
+    keep("badges", badges);
+
+    auto column = [&](const char *name, int width) {
+        GtkWidget *label = gtk_label_new(nullptr);
+        gtk_widget_add_css_class(label, "dim-label");
+        gtk_widget_set_size_request(label, width, -1);
+        gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+        gtk_box_append(GTK_BOX(row), label);
+        keep(name, label);
+    };
+    column("length", 60);
+    column("fps", 40);
+    column("format", 50);
+
+    GtkGesture *rowRightClick = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(rowRightClick), GDK_BUTTON_SECONDARY);
+    g_signal_connect(rowRightClick, "pressed", G_CALLBACK(&AppWindow::mediaBrowserRowRightClickTrampoline), this);
+    gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(rowRightClick));
+
+    // Enhancement #8: double-click inserts at the playhead on the
+    // active track -- default GDK_BUTTON_PRIMARY, so left-click only.
+    GtkGesture *rowActivate = gtk_gesture_click_new();
+    g_signal_connect(rowActivate, "pressed", G_CALLBACK(&AppWindow::mediaBrowserRowActivatedTrampoline), this);
+    gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(rowActivate));
+
+    // Drag-to-timeline: the content (the AssetId's value, a G_TYPE_INT64
+    // onTimelineDrop looks up in the bin) is set when the row is bound.
+    GtkDragSource *dragSource = gtk_drag_source_new();
+    gtk_drag_source_set_actions(dragSource, GDK_ACTION_COPY);
+    gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(dragSource));
+    g_object_set_data(G_OBJECT(row), "drag-source", dragSource);
+
+    gtk_list_item_set_child(item, row);
+}
+
+core::AssetId AppWindow::mediaItemAsset(GtkListItem *item) const
+{
+    auto *entry = GTK_STRING_OBJECT(gtk_list_item_get_item(item));
+    return core::AssetId{entry ? std::strtoull(gtk_string_object_get_string(entry), nullptr, 10) : 0};
+}
+
+void AppWindow::bindMediaRow(GtkListItem *item)
+{
+    GtkWidget *row = gtk_list_item_get_child(item);
+    const core::AssetId id = mediaItemAsset(item);
+    if (!row || !m_model.hasAsset(id))
+        return;
+    const core::Asset &asset = m_model.asset(id);
+    auto part = [row](const char *name) { return GTK_WIDGET(g_object_get_data(G_OBJECT(row), name)); };
+    // Right-click and double-click read which asset the row is for.
+    g_object_set_data(G_OBJECT(row), "ustudio-asset-id", reinterpret_cast<void *>(static_cast<uintptr_t>(id.value)));
+
+    // thumbnailFor() queues a background job on a miss and returns null:
+    // the row shows an empty cell until onThumbnailReady() rebinds it.
+    GdkTexture *texture = nullptr;
+    if (const engine::ThumbnailCache::Data *thumb = m_thumbnails->thumbnailFor(asset.path))
+        texture = m_mediaTextures.get(asset.path, thumb->rgba, thumb->width, thumb->height);
+    if (!texture)
+        m_mediaAwaitingThumbnail.insert(id.value);
+    gtk_picture_set_paintable(GTK_PICTURE(part("thumb")), texture ? GDK_PAINTABLE(texture) : nullptr);
+    m_mediaBoundThumbs[id.value] = part("thumb");
+
+    gtk_label_set_text(GTK_LABEL(part("name")), asset.displayName.c_str());
+    gtk_widget_set_tooltip_text(part("name"), asset.path.c_str());
+    gtk_label_set_text(GTK_LABEL(part("length")), formatMediaLength(asset.info.nativeDurationSeconds).c_str());
+    gtk_label_set_text(GTK_LABEL(part("fps")), formatMediaFps(asset.info.fps).c_str());
+    std::string formatText = asset.info.container;
+    for (char &c : formatText)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    gtk_label_set_text(GTK_LABEL(part("format")), formatText.empty() ? "—" : formatText.c_str());
+
+    // The row's badge labels are reused across binds (a list view keeps
+    // ~200 rows and rebinds them as it scrolls); more are made only when
+    // an asset has more badges than the row has had before.
+    const std::vector<MediaBadge> badges = mediaBadgesOf(asset);
+    GtkWidget *badgeBox = part("badges");
+    GtkWidget *label = gtk_widget_get_first_child(badgeBox);
+    for (const MediaBadge &badge : badges) {
+        if (!label) {
+            label = gtk_label_new(nullptr);
+            gtk_box_append(GTK_BOX(badgeBox), label);
+        }
+        gtk_label_set_text(GTK_LABEL(label), badge.text.c_str());
+        const char *classes[] = {"media-badge", badge.cssClass.c_str(), nullptr};
+        gtk_widget_set_css_classes(label, classes);
+        gtk_widget_set_visible(label, TRUE);
+        label = gtk_widget_get_next_sibling(label);
+    }
+    for (; label; label = gtk_widget_get_next_sibling(label))
+        gtk_widget_set_visible(label, FALSE);
+
+    GdkContentProvider *content = gdk_content_provider_new_typed(G_TYPE_INT64, static_cast<gint64>(id.value));
+    gtk_drag_source_set_content(GTK_DRAG_SOURCE(g_object_get_data(G_OBJECT(row), "drag-source")), content);
+    g_object_unref(content);
+}
+
+std::vector<MediaBadge> AppWindow::mediaBadgesOf(const core::Asset &asset) const
+{
+    ProxyState proxy;
+    if (m_proxyQueue)
+        proxy.progress = m_proxyQueue->progressOf(asset.id);
+    std::error_code ec;
+    proxy.fileExists =
+        !asset.proxyPath.empty() && std::filesystem::is_regular_file(core::pathFromUtf8(asset.proxyPath), ec);
+    return mediaBadges(asset, m_model.sequence().profile, proxy);
+}
+
 void AppWindow::refreshMediaBrowser()
 {
     core::trace::Scope trace("refreshMediaBrowser");
-    GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(m_mediaBrowserList));
-    while (child) {
-        GtkWidget *next = gtk_widget_get_next_sibling(child);
-        gtk_box_remove(m_mediaBrowserList, child);
-        child = next;
-    }
-
-    const auto &bin = m_model.project().bin;
-    for (const core::Asset &asset : bin) {
-        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        // Right-click (context menu) and drag-to-timeline both need to
-        // know which asset this row is for; stashed on the row itself
-        // rather than captured per-signal-connection since the row (and
-        // everything on it) is torn down and rebuilt wholesale on every
-        // refreshMediaBrowser() anyway.
-        g_object_set_data(G_OBJECT(row), "ustudio-asset-id",
-                          reinterpret_cast<void *>(static_cast<uintptr_t>(asset.id.value)));
-
-        GtkWidget *thumbCell = gtk_picture_new();
-        gtk_widget_set_size_request(thumbCell, 120, 68);
-        gtk_picture_set_content_fit(GTK_PICTURE(thumbCell), GTK_CONTENT_FIT_CONTAIN);
-        // thumbnailFor() kicks off a background job on a miss and returns
-        // nullptr; onThumbnailReady() re-calls refreshMediaBrowser() once
-        // it's ready, so a still-loading row just shows an empty cell for
-        // one redraw cycle rather than a placeholder icon.
-        const engine::ThumbnailCache::Data *thumb = m_thumbnails->thumbnailFor(asset.path);
-        if (thumb && thumb->width > 0 && thumb->height > 0) {
-            GBytes *bytes = g_bytes_new(thumb->rgba.data(), thumb->rgba.size());
-            GdkTexture *texture = gdk_memory_texture_new(thumb->width, thumb->height, GDK_MEMORY_R8G8B8A8, bytes,
-                                                          static_cast<gsize>(thumb->width) * 4);
-            g_bytes_unref(bytes);
-            gtk_picture_set_paintable(GTK_PICTURE(thumbCell), GDK_PAINTABLE(texture));
-            g_object_unref(texture);
+    // Not while hidden: a list view with no height binds ~200 rows for
+    // nothing (52 ms at 500 assets). Showing the panel refreshes it, from
+    // an idle, once it has its height and binds only the rows on screen.
+    if (!gtk_widget_get_visible(m_mediaBrowserPanel))
+        return;
+    // Just shown and not laid out yet (an idle runs before the next frame's
+    // layout): wait for its height, once, or it binds ~200 rows anyway.
+    GtkAdjustment *vertical = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(m_mediaBrowserPanel));
+    if (gtk_adjustment_get_page_size(vertical) <= 0) {
+        if (!m_mediaWaitingForHeight) {
+            m_mediaWaitingForHeight = true;
+            g_signal_connect(vertical, "changed", G_CALLBACK(+[](GtkAdjustment *adjustment, gpointer self) {
+                                 auto *window = static_cast<AppWindow *>(self);
+                                 if (!window->m_mediaWaitingForHeight || gtk_adjustment_get_page_size(adjustment) <= 0)
+                                     return;
+                                 window->m_mediaWaitingForHeight = false;
+                                 window->queueRefresh();
+                             }),
+                             this);
         }
-        gtk_box_append(GTK_BOX(row), thumbCell);
+        return;
+    }
+    // Each asset's row as data: an unchanged one isn't touched; a changed
+    // one is rebound (its item replaced); a new order replaces them all,
+    // which a list view makes cheap (only rows on screen are built).
+    std::vector<std::pair<uint64_t, std::string>> rows;
+    const auto &bin = m_model.project().bin;
+    rows.reserve(bin.size());
+    for (const core::Asset &asset : bin) {
+        std::string signature = asset.displayName + '\n' + asset.path + '\n' + asset.info.container + '\n' +
+                                formatMediaLength(asset.info.nativeDurationSeconds) + '\n' +
+                                formatMediaFps(asset.info.fps);
+        for (const MediaBadge &badge : mediaBadgesOf(asset))
+            signature += '\n' + badge.text + ' ' + badge.cssClass;
+        rows.emplace_back(asset.id.value, std::move(signature));
+    }
+    // The same assets in the same order, maybe with more after them (an
+    // import appends): rebind the changed rows, append the new ones. A
+    // removal or a reorder replaces the list.
+    const bool samePrefix =
+        rows.size() >= m_mediaRows.size() &&
+        std::equal(m_mediaRows.begin(), m_mediaRows.end(), rows.begin(),
+                   [](const auto &a, const auto &b) { return a.first == b.first; });
+    if (samePrefix) {
+        for (size_t i = 0; i < m_mediaRows.size(); ++i)
+            if (rows[i].second != m_mediaRows[i].second)
+                replaceMediaItem(static_cast<guint>(i), rows[i].first);
+        if (rows.size() > m_mediaRows.size()) {
+            std::vector<std::string> added;
+            for (size_t i = m_mediaRows.size(); i < rows.size(); ++i)
+                added.push_back(std::to_string(rows[i].first));
+            std::vector<const char *> raw;
+            for (const std::string &id : added)
+                raw.push_back(id.c_str());
+            raw.push_back(nullptr);
+            gtk_string_list_splice(m_mediaIds, static_cast<guint>(m_mediaRows.size()), 0, raw.data());
+        }
+    } else {
+        std::vector<std::string> ids;
+        ids.reserve(rows.size());
+        for (const auto &[id, signature] : rows)
+            ids.push_back(std::to_string(id));
+        std::vector<const char *> raw;
+        raw.reserve(ids.size() + 1);
+        for (const std::string &id : ids)
+            raw.push_back(id.c_str());
+        raw.push_back(nullptr);
+        gtk_string_list_splice(m_mediaIds, 0, g_list_model_get_n_items(G_LIST_MODEL(m_mediaIds)), raw.data());
+    }
+    m_mediaRows = std::move(rows);
+}
 
-        GtkWidget *nameLabel = gtk_label_new(asset.displayName.c_str());
-        gtk_label_set_ellipsize(GTK_LABEL(nameLabel), PANGO_ELLIPSIZE_MIDDLE);
-        gtk_label_set_xalign(GTK_LABEL(nameLabel), 0.0);
-        gtk_widget_set_size_request(nameLabel, 140, -1);
-        gtk_widget_set_tooltip_text(nameLabel, asset.path.c_str());
-        gtk_box_append(GTK_BOX(row), nameLabel);
+void AppWindow::replaceMediaItem(guint position, uint64_t id)
+{
+    // The same id again: the list view rebinds that row.
+    const std::string text = std::to_string(id);
+    const char *items[] = {text.c_str(), nullptr};
+    gtk_string_list_splice(m_mediaIds, position, 1, items);
+}
 
-        GtkWidget *lengthLabel = gtk_label_new(formatMediaLength(asset.info.nativeDurationSeconds).c_str());
-        gtk_widget_add_css_class(lengthLabel, "dim-label");
-        gtk_widget_set_size_request(lengthLabel, 60, -1);
-        gtk_label_set_xalign(GTK_LABEL(lengthLabel), 0.0);
-        gtk_box_append(GTK_BOX(row), lengthLabel);
-
-        GtkWidget *fpsLabel = gtk_label_new(formatMediaFps(asset.info.fps).c_str());
-        gtk_widget_add_css_class(fpsLabel, "dim-label");
-        gtk_widget_set_size_request(fpsLabel, 40, -1);
-        gtk_label_set_xalign(GTK_LABEL(fpsLabel), 0.0);
-        gtk_box_append(GTK_BOX(row), fpsLabel);
-
-        std::string formatText = asset.info.container;
-        for (char &c : formatText)
-            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        GtkWidget *formatLabel = gtk_label_new(formatText.empty() ? "—" : formatText.c_str());
-        gtk_widget_add_css_class(formatLabel, "dim-label");
-        gtk_widget_set_size_request(formatLabel, 50, -1);
-        gtk_label_set_xalign(GTK_LABEL(formatLabel), 0.0);
-        gtk_box_append(GTK_BOX(row), formatLabel);
-
-        GtkGesture *rowRightClick = gtk_gesture_click_new();
-        gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(rowRightClick), GDK_BUTTON_SECONDARY);
-        g_signal_connect(rowRightClick, "pressed", G_CALLBACK(&AppWindow::mediaBrowserRowRightClickTrampoline),
-                         this);
-        gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(rowRightClick));
-
-        // Enhancement #8: double-click inserts at the playhead on the
-        // active track -- default GDK_BUTTON_PRIMARY, so left-click only.
-        GtkGesture *rowActivate = gtk_gesture_click_new();
-        g_signal_connect(rowActivate, "pressed", G_CALLBACK(&AppWindow::mediaBrowserRowActivatedTrampoline), this);
-        gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(rowActivate));
-
-        // Drag-to-timeline: content is just the AssetId's value (a
-        // G_TYPE_INT64), which onTimelineDrop looks back up against
-        // m_model.project().bin -- the row itself never needs to travel,
-        // only which asset it names.
-        GtkDragSource *dragSource = gtk_drag_source_new();
-        gtk_drag_source_set_actions(dragSource, GDK_ACTION_COPY);
-        GdkContentProvider *content =
-            gdk_content_provider_new_typed(G_TYPE_INT64, static_cast<gint64>(asset.id.value));
-        gtk_drag_source_set_content(dragSource, content);
-        g_object_unref(content);
-        gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(dragSource));
-
-        gtk_box_append(m_mediaBrowserList, row);
+void AppWindow::refreshMediaThumbnails()
+{
+    // Thumbnails that finished since their rows were bound: onto the rows
+    // still showing those assets, without rebinding them. A row bound
+    // later picks its thumbnail up in bindMediaRow().
+    std::set<uint64_t> waiting;
+    waiting.swap(m_mediaAwaitingThumbnail);
+    for (uint64_t id : waiting) {
+        auto bound = m_mediaBoundThumbs.find(id);
+        if (bound == m_mediaBoundThumbs.end() || !m_model.hasAsset(core::AssetId{id}))
+            continue; // not on a row any more: nothing to update
+        const std::string &path = m_model.asset(core::AssetId{id}).path;
+        const engine::ThumbnailCache::Data *thumb = m_thumbnails->thumbnailFor(path);
+        GdkTexture *texture = thumb ? m_mediaTextures.get(path, thumb->rgba, thumb->width, thumb->height) : nullptr;
+        if (!texture) {
+            m_mediaAwaitingThumbnail.insert(id);
+            continue;
+        }
+        gtk_picture_set_paintable(GTK_PICTURE(bound->second), GDK_PAINTABLE(texture));
     }
 }
 
 void AppWindow::onMediaBrowserRowRightClicked(core::AssetId assetId, GtkWidget *row, double x, double y)
 {
     m_contextMenuAssetId = assetId;
+    updateProxyMenuItems();
 
     graphene_point_t local = GRAPHENE_POINT_INIT(static_cast<float>(x), static_cast<float>(y));
     graphene_point_t inPanel{};
@@ -5219,7 +5341,11 @@ void AppWindow::timelineMotionTrampoline(GtkEventControllerMotion *, double x, d
 
 void AppWindow::timelineLeaveTrampoline(GtkEventControllerMotion *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->hideHoverPreview();
+    auto *self = static_cast<AppWindow *>(userData);
+    // The leave the popover's own appearance causes (see onTimelineHover()).
+    if (g_get_monotonic_time() - self->m_hoverShownAt < 300000)
+        return;
+    self->hideHoverPreview();
 }
 
 gboolean AppWindow::hoverPreviewTimerTrampoline(gpointer userData)

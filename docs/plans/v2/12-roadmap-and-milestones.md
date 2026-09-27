@@ -260,13 +260,42 @@ time, a beep marks each whole second):
 Deliverables: bin panel, multi-import, drag to timeline, probing with
 validation, missing-media placeholders and relink dialog, still images and
 image sequences, proxies (generate/toggle) via `u-studio-render --proxy`.
+Clip transform (F, ADR-018, owner 2026-09-25): `Clip::transform` in the
+core model, format and engine (F1), then preview handles, snapping, nudge
+keys and an Edit Transform dialog (F2).
+Image sequences were spiked and parked (0.50.0, doc 07's REVIEW note): the
+import UX needs a decision, since camera photos look like sequences.
 
 Acceptance:
-- [ ] Importing a folder of 200 mixed files does not block the UI; failures
-      are listed, not silent.
-- [ ] Move a media file away, reopen project → red placeholders, playback
-      continues, relink restores everything with no other model change.
-- [ ] Proxy on/off changes nothing in the model except `proxyPath`.
+- [x] Importing a folder of 200 mixed files does not block the UI; failures
+      are listed, not silent (0.45.0; doc 19's 200-file numbers; the
+      media browser became a virtualised list in 0.50.0).
+- [x] Move a media file away, reopen project → red placeholders, playback
+      continues, relink restores everything with no other model change
+      (0.46.0, `tests/engine/test_missing_media`).
+- [x] Proxy on/off changes nothing in the model except `proxyPath` (0.47.0;
+      the toggle is view state and changes nothing at all;
+      `tests/engine/test_proxy`).
+- [x] A 1344×768 source in a 1080p project is fitted and centred by
+      default; projects from before the transform load as Fit (0.47.1,
+      tests/core and tests/engine `test_transform`).
+- [x] Move, scale, rotate, crop and flip show in the preview and are
+      identical in export (0.47.1: preview, melt and a lossless render
+      byte for byte).
+- [x] A handle drag is one undo step and doesn't restart the consumer
+      (0.48.0; live: 12 moves applied in place, no rebuild). The first
+      transform in a project with none switches Auto preview scale to
+      Half, which rebuilds once (0.47.2).
+- [x] Handles snap to the frame's edges and centre, and to other
+      pictures; Ctrl bypasses it (0.48.0, `app-transform-gestures`).
+- [x] A transform survives save/load, trim, split, ripple, copy and a
+      frame-rate change (0.47.1).
+- [ ] 1080p30 plays in real time with three transformed tracks at Auto
+      preview scale (Full reported alongside; Full is MT4's, doc 19).
+      Since 0.47.2 Auto is Half once a clip is transformed: one
+      transformed track then plays every frame (30/s, the owner's webcam
+      case), three about 22/s (26/s and about 16/s at Full). Open; the
+      remaining levers are MT4's (doc 19).
 
 ## M5 — Effects, keyframes, transitions (the FX track)
 

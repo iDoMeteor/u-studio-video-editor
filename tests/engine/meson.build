@@ -67,6 +67,42 @@ test_probe_media_exe = executable(
 
 test('engine-probe-media', test_probe_media_exe)
 
+# M4 B: missing media plays a placeholder; relink restores it exactly.
+test_missing_media_exe = executable(
+  'test_missing_media',
+  files('test_missing_media.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-missing-media', test_missing_media_exe, timeout: 60)
+
+# composite's fill (a picture smaller than the project fills the frame).
+test_composite_fill_exe = executable(
+  'test_composite_fill',
+  files('test_composite_fill.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-composite-fill', test_composite_fill_exe, timeout: 60)
+
+# M4 C: proxies (render, toggle, fallback, originals for export).
+test_proxy_exe = executable(
+  'test_proxy',
+  files('test_proxy.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-proxy', test_proxy_exe, timeout: 120)
+
+# ADR-018 (M4 F1): clip transforms in the engine.
+test_transform_exe = executable(
+  'test_transform',
+  files('test_transform.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-transform', test_transform_exe, timeout: 180)
+
 test_waveform_cache_exe = executable(
   'test_waveform_cache',
   files('test_waveform_cache.cpp'),
@@ -74,7 +110,9 @@ test_waveform_cache_exe = executable(
   install: false,
 )
 
-test('engine-waveform-cache', test_waveform_cache_exe)
+# Serial: a perf case waits a bounded time for a long clip's peaks, which a
+# machine loaded with the rest of the suite (or two sanitizer suites) can miss.
+test('engine-waveform-cache', test_waveform_cache_exe, is_parallel: false)
 
 test_thumbnail_cache_exe = executable(
   'test_thumbnail_cache',

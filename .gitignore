@@ -3,3 +3,4 @@ logs/
 .claude/
 subprojects/.wraplock
 subprojects/packagecache/
+build-flatpak/

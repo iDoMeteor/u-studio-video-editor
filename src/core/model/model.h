@@ -93,6 +93,18 @@ class Model
     // bit" contract). Same "asserts on an unknown id, callers validate
     // first" contract as every other mutator here.
     void setAssetLength(AssetId, FrameIndex length);
+    // Missing or Ready as found on disk (doc 07): runtime state, not an
+    // edit, so not a command (and never saved as Missing).
+    void setAssetStatus(AssetId, Asset::Status status);
+    // Where the asset's file is (RelinkAsset): its path, fingerprint and
+    // status together.
+    void setAssetSource(AssetId, std::string path, std::string fingerprint, Asset::Status status);
+    // The asset's proxy file ("" none; M4 C). Like a probe result, not an
+    // edit: not a command, not undone, saved with the project.
+    void setAssetProxy(AssetId, std::string proxyPath);
+    // Project::settings[key] ("" removes it); the project's own
+    // preferences, saved with it (the proxy prompt's answer). Not a command.
+    void setProjectSetting(const std::string &key, const std::string &value);
 
     TrackId addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId = std::nullopt);
     void removeTrack(TrackId);
@@ -256,6 +268,8 @@ class Model
     bool hasLook(LookId) const;
 
     void setClipSourceParams(ClipId, std::vector<Param> params);
+    // ADR-018: where the clip's picture sits (SetClipTransform).
+    void setClipTransform(ClipId, Transform transform);
     void setTransitionRecipe(TransitionId, std::string recipe, std::vector<Param> params);
 
     // Verbatim restore, used by Command::revert paths (core/commands) that

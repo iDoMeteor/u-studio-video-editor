@@ -1,4 +1,5 @@
 #include "model.h"
+#include "transform.h"
 
 #include "core/log.h"
 
@@ -309,6 +310,56 @@ void Model::setAssetLength(AssetId id, FrameIndex length)
     notify(AssetChanged{id});
 }
 
+void Model::setAssetStatus(AssetId id, Asset::Status status)
+{
+    auto &bin = m_project.bin;
+    auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
+    if (it == bin.end()) {
+        preconditionFailed("Model::setAssetStatus: unknown AssetId");
+        return;
+    }
+    if (it->status == status)
+        return;
+    it->status = status;
+    notify(AssetChanged{id});
+}
+
+void Model::setAssetSource(AssetId id, std::string path, std::string fingerprint, Asset::Status status)
+{
+    auto &bin = m_project.bin;
+    auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
+    if (it == bin.end()) {
+        preconditionFailed("Model::setAssetSource: unknown AssetId");
+        return;
+    }
+    it->path = std::move(path);
+    it->fileFingerprint = std::move(fingerprint);
+    it->status = status;
+    notify(AssetChanged{id});
+}
+
+void Model::setAssetProxy(AssetId id, std::string proxyPath)
+{
+    auto &bin = m_project.bin;
+    auto it = std::find_if(bin.begin(), bin.end(), [id](const Asset &entry) { return entry.id == id; });
+    if (it == bin.end()) {
+        preconditionFailed("Model::setAssetProxy: unknown AssetId");
+        return;
+    }
+    if (it->proxyPath == proxyPath)
+        return;
+    it->proxyPath = std::move(proxyPath);
+    notify(AssetChanged{id});
+}
+
+void Model::setProjectSetting(const std::string &key, const std::string &value)
+{
+    if (value.empty())
+        m_project.settings.erase(key);
+    else
+        m_project.settings[key] = value;
+}
+
 // --- Track mutators --------------------------------------------------------
 
 TrackId Model::addTrack(Track::Kind kind, size_t index, std::string name, std::optional<TrackId> reuseId)
@@ -587,6 +638,15 @@ ClipId Model::splitClip(ClipId id, FrameIndex at, std::optional<ClipId> reuseRig
     insertedRight.speed = right.speed;
     insertedRight.name = right.name;
     insertedRight.fadeOut = right.fadeOut;
+    // A generated clip's source (titles) and its placement (ADR-018) are the
+    // same on both halves; transform keyframes shift like effects' do.
+    insertedRight.sourceParams = right.sourceParams;
+    Transform placed = right.transform.get();
+    for (KeyframedValue *value : {&placed.x, &placed.y, &placed.width, &placed.height, &placed.rotation,
+                                  &placed.cropLeft, &placed.cropTop, &placed.cropRight, &placed.cropBottom})
+        for (Keyframe &keyframe : value->keyframes)
+            keyframe.at -= offsetIntoClip;
+    insertedRight.transform.set(std::move(placed));
 
     notify(ClipResized{id});
     notify(BatchEnd{});
@@ -1054,6 +1114,16 @@ void Model::setClipSourceParams(ClipId id, std::vector<Param> params)
     notify(ClipSourceChanged{id});
 }
 
+void Model::setClipTransform(ClipId id, Transform transform)
+{
+    if (!hasClip(id)) {
+        preconditionFailed("Model::setClipTransform: unknown ClipId");
+        return;
+    }
+    mutableClip(id).transform.set(std::move(transform));
+    notify(ClipTransformChanged{id});
+}
+
 void Model::setTransitionRecipe(TransitionId id, std::string recipe, std::vector<Param> params)
 {
     auto &transitions = activeSequence().transitions;
@@ -1243,6 +1313,8 @@ std::vector<std::string> Model::check() const
         };
         for (const auto &[clipId, clipEntry] : seq.clips) {
             checkEffects(clipEntry.effects, "clip " + std::to_string(clipId.value));
+            if (std::string problem = transformProblem(clipEntry.transform.get()); !problem.empty())
+                problems.push_back("clip " + std::to_string(clipId.value) + ": " + problem);
             for (const Param &param : clipEntry.sourceParams)
                 if (!keyframesSorted(param.keyframes))
                     problems.push_back("clip " + std::to_string(clipId.value) + "'s source parameter " + param.name +

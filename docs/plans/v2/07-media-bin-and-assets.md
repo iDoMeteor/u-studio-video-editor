@@ -42,6 +42,26 @@ Image sequences (`%04d.png`) and stills: still images get a default length
 of 5 s (setting), `isStillImage=true`, and the `pixbuf` producer with
 `ttl`/`length` set by `EngineSync`.
 
+> REVIEW: VE Core, 2026-09-25 (M4 E spike, parked): image sequences are
+> fiddlier than they look, so they wait for a decision. Standalone repro
+> (MLT 7.40, a 30-frame PNG sequence with the frame number burned in):
+> - `pixbuf:<dir>/frame_%04d.png?begin=1` plays one picture per frame
+>   with `ttl=1` (the default is 25 frames each), but its length is a
+>   default 15,000 and it loops after the last file: the length must come
+>   from counting the files. `?begin=` works only with the explicit
+>   `pixbuf:` prefix; through the default loader the producer is invalid
+>   (without it, pixbuf finds a start within 100).
+> - `avformat:` (image2) opens it (length 36 at 30 fps, `seekable=0`) but
+>   every frame is the last picture: no fallback where gdk-pixbuf can't
+>   load images (the glycin sandbox in a container; check the Flatpak).
+> Open before building it: (1) the import UX, since camera photos
+> (`IMG_0001.jpg`...) look exactly like a sequence, so it has to be an
+> explicit choice (a checkbox or a separate Import Sequence); (2)
+> `MediaInfo::isBoundless()` treats sequences as unbounded though they
+> have a real length; (3) missing-media and fingerprint checks test a
+> file, not a pattern; (4) whether gdk-pixbuf loads images in the
+> Flatpak, since there is no working fallback.
+
 ## Master producers and cuts
 
 `EngineSync` keeps `AssetId → std::shared_ptr<Mlt::Producer>` (the master).
@@ -87,6 +107,8 @@ Optional per-asset proxy: 960px-wide H.264 (`avformat` consumer with
 resource for the proxy path while keeping in/out (same frame count, ensured
 by rendering at the sequence fps). Export always uses originals.
 
+> REVIEW: VE Core, 2026-09-25 (M4 C, 0.47.0): as built. `u-studio-render --proxy <source> <output> --height N --fps n/d` is a core subcommand (listed before the drop-ins'; none may take the name); settings reach it as arguments, since the tool reads no GSettings. It renders the source alone through `renderProject()` at draft quality (CRF 28 veryfast) with a keyframe every half second (`g`, verified to pass through to x264), constant-rate at the sequence's rate with the source's duration, so in/out map by time, and it prints JSON progress lines. Cancel is `platform::requestTermination()` (SIGTERM), which the tool turns into a clean stop that removes the .part file. The editor runs one at a time (`ProxyQueue` on `GSubprocess`) and finds the tool next to itself or in the build tree (`USTUDIO_RENDER_BIN` overrides). Decisions: making or removing a proxy sets only `proxyPath`, isn't an undo step (c), and marks the project dirty; "Proxies" (beside the preview scale) is view state, remembered in GSettings, never saved in the project (d); proxy files live in `$XDG_CACHE_HOME/ustudio/proxies`, named for the file's fingerprint and height (e), and a proxy whose file is gone plays the original quietly (the bin says PROXY MISSING), never as missing media. Sources taller than 1080 are offered proxies once per project (`Project::settings["proxies"]`: always or never); 1080p ones only when asked. "Create Conformed Proxy" is a source-size proxy: constant-rate, easy to decode, for VFR footage (doc 12, "Frame rate"). Size is a setting (540p default). A relink to a different file drops the stale proxy. Export always uses the originals: a render builds its own EngineSync with proxies off.
+
 ## Missing media and relink
 
 On load, every asset's path is checked. Missing → `Status::Missing`; clips
@@ -95,6 +117,8 @@ render as a striped red placeholder and the engine substitutes a
 The relink dialog lists missing assets, lets the user pick a file or a folder
 to search (matching by filename, then by fingerprint), and applies
 `RelinkAsset` commands.
+
+> REVIEW: VE Core, 2026-09-25 (M4 B, 0.46.0): as built. The loader marks missing files on the pool with the parse (`core::markMissingMedia`: absolute file paths only, never generators); Missing is runtime state (decision (f)), set by `Model::setAssetStatus` outside the undo stack and saved as Ready, so the next open checks again. The engine opens nothing for a known-missing asset and plays `color:#7a2232` (style.css's danger red, darkened; the engine can't include tokens.h), opaque rather than doc 07's translucent `0x40000040`, so it reads the same on any track; a file that fails to open later becomes Missing too. The timeline stripes those clips in the danger token, the bin says MISSING, and a banner ("N media files are missing") opens the relink dialog: Locate… per file, or Search a Folder… (by file name, then fingerprint among several of that name). Each candidate is probed on the pool and must be long enough for the clips that use it; the good ones become `RelinkAsset` commands (path, fingerprint, status only), one undo step. The engine drops the cached masters of any asset whose path or status changed. Every render with missing media in use asks first: Relink First or Render Anyway.
 
 ## Bin panel
 

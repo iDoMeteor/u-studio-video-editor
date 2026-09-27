@@ -111,6 +111,32 @@
       <summary>Default render profile</summary>
       <description>The render profile the Render button uses: a built-in's name or one from render-profiles.ini.</description>
     </key>
+    <key name="use-proxies" type="b">
+      <default>true</default>
+      <summary>Play proxies</summary>
+      <description>Play each clip's proxy, where it has one, instead of its file (renders always use the files).</description>
+    </key>
+    <key name="proxy-height" type="i">
+      <range min="0" max="2160"/>
+      <default>540</default>
+      <summary>Proxy size</summary>
+      <description>Height of new proxies in pixels; 0 is the source's own size (a conformed proxy).</description>
+    </key>
+    <key name="help-open-sections" type="as">
+      <default>[]</default>
+      <summary>Help sections left open</summary>
+      <description>Help's expanded sections, as "tab:section".</description>
+    </key>
+    <key name="help-tab" type="s">
+      <default>""</default>
+      <summary>Help tab</summary>
+      <description>The Help tab shown last.</description>
+    </key>
+    <key name="help-scroll" type="as">
+      <default>[]</default>
+      <summary>Help scroll positions</summary>
+      <description>Each Help tab's scroll position, as "tab=pixels".</description>
+    </key>
     <key name="disabled-drop-ins" type="as">
       <default>[]</default>
       <summary>Disabled drop-ins</summary>

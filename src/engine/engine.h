@@ -53,6 +53,8 @@ class Engine
     // A different project (EngineSync::reset()).
     void reset(std::shared_ptr<const core::Project> project);
     void setPreviewScale(PreviewScale scale);
+    // EngineSync::setUseProxies().
+    void setUseProxies(bool use);
 
     // Main thread, once per displayed frame.
     void setFrameCallback(FrameCallback callback);
@@ -99,6 +101,12 @@ class Engine
     {
         return m_backend;
     }
+    // The playback size relative to the sequence (EngineSync::
+    // previewFactor()): what Auto preview scale resolved to.
+    double previewFactor() const
+    {
+        return m_previewFactor;
+    }
 
     // Sends shutdown and joins the engine thread: the consumer is stopped
     // and every MLT object dropped when this returns (post-M3 audit P2:
@@ -116,6 +124,9 @@ class Engine
     // main context while waiting). False if that took over two minutes.
     // Never called by the app.
     [[nodiscard]] bool syncForTesting();
+    // Tests only: how many times the consumer has restarted (a rebuild
+    // restarts it; a transform drag must not; ADR-018). Syncs first.
+    int consumerRestartsForTesting();
 
   private:
     struct State
@@ -126,6 +137,7 @@ class Engine
         double speed = 0.0;
         int totalFrames = 0;
         double fps = 0.0;
+        double previewFactor = 1.0;
         std::string backend;
     };
     class Thread;
@@ -148,6 +160,7 @@ class Engine
     double m_speed = 0.0;
     int m_totalFrames = 0;
     double m_fps = 0.0;
+    double m_previewFactor = 1.0;
     std::string m_backend;
     double m_volume = 1.0;
     std::optional<std::pair<int, int>> m_loopRange;

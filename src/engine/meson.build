@@ -8,6 +8,7 @@ libustudio_engine_sources = files(
   'engine.cpp',
   'engine_sync.cpp',
   'engine_extension.cpp',
+  'proxy.cpp',
 )
 
 # The real MLT module directory (e.g. /usr/lib64/mlt-7), baked in at build
@@ -21,7 +22,7 @@ libustudio_engine = static_library(
   'ustudio_engine',
   libustudio_engine_sources,
   cpp_args: factory_policy_args,
-  dependencies: [libustudio_core_dep, mltpp_dep, mlt_dep, glib_dep],
+  dependencies: [libustudio_core_dep, libustudio_platform_dep, mltpp_dep, mlt_dep, glib_dep],
   include_directories: src_inc,
   install: false,
 )
@@ -29,5 +30,5 @@ libustudio_engine = static_library(
 libustudio_engine_dep = declare_dependency(
   link_with: libustudio_engine,
   include_directories: src_inc,
-  dependencies: [libustudio_core_dep, mltpp_dep, mlt_dep, glib_dep],
+  dependencies: [libustudio_core_dep, libustudio_platform_dep, mltpp_dep, mlt_dep, glib_dep],
 )

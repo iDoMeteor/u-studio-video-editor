@@ -6,7 +6,7 @@ endif
 
 libustudio_platform = static_library(
   'ustudio_platform',
-  files('process_linux.cpp'),
+  files('process_linux.cpp', 'console_linux.cpp'),
   include_directories: src_inc,
   install: false,
 )

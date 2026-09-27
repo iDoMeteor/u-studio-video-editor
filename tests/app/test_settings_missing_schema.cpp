@@ -38,6 +38,14 @@ TEST_CASE("Settings: schema not found -- every getter falls back to its default,
     CHECK(settings.shuttleMaxSpeed() == doctest::Approx(Settings::kDefaultShuttleMaxSpeed));
     CHECK(settings.recentProjectsMax() == Settings::kDefaultRecentProjectsMax);
     CHECK(settings.workerThreads() == Settings::kDefaultWorkerThreads);
+
+    // M4 G: Help keeps its state for the session only.
+    settings.setHelpOpenSections({"controls:Preview"});
+    settings.setHelpTab("releases");
+    settings.setHelpScroll({"controls=240"});
+    CHECK(settings.helpOpenSections().empty());
+    CHECK(settings.helpTab().empty());
+    CHECK(settings.helpScroll().empty());
 }
 
 TEST_CASE("Settings: without GSETTINGS_SCHEMA_DIR, a binary in builddir finds builddir/data's schema")
