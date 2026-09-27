@@ -1,0 +1,212 @@
+#include "title_page.h"
+
+#include "core/clip_fields.h"
+#include "core/title_xml.h"
+
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace ustudio::titles {
+
+namespace {
+
+class TitlePage
+{
+  public:
+    // The window it serves: a new host replaces the old one's page.
+    void bind(app::ShellHost &host)
+    {
+        m_host = &host;
+        m_clip.reset();
+        m_rows.clear();
+        m_cachedPath.clear();
+        build();
+        host.addHints({{"titles.page-edit", "Titles", "Edit title",
+                        "Open this title in U Stu Titles to change its design", "titles-edit", nullptr},
+                       {"titles.page-field", "Titles", "Title field",
+                        "This clip's text for the field; the title's default when left as it is", nullptr, nullptr}});
+        host.setTooltip(m_edit, "titles.page-edit");
+        host.addInspectorPage({"titles.title", "Title", "insert-text-symbolic", m_root});
+        host.selectionChanged().connect([this] { refresh(); });
+        host.projectChanged().connect([this] { refresh(); });
+        refresh();
+    }
+
+  private:
+    struct Row
+    {
+        std::string name, defaultValue;
+        GtkWidget *entry = nullptr;
+    };
+
+    void build()
+    {
+        m_root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+        gtk_widget_set_margin_start(m_root, 12);
+        gtk_widget_set_margin_end(m_root, 12);
+        gtk_widget_set_margin_top(m_root, 12);
+        gtk_widget_set_margin_bottom(m_root, 12);
+
+        m_empty = gtk_label_new("Select a title clip to fill in its fields.");
+        gtk_label_set_wrap(GTK_LABEL(m_empty), TRUE);
+        gtk_widget_add_css_class(m_empty, "dim-label");
+        gtk_box_append(GTK_BOX(m_root), m_empty);
+
+        m_content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+        GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        m_name = gtk_label_new("");
+        gtk_label_set_xalign(GTK_LABEL(m_name), 0.0f);
+        gtk_label_set_ellipsize(GTK_LABEL(m_name), PANGO_ELLIPSIZE_MIDDLE);
+        gtk_widget_set_hexpand(m_name, TRUE);
+        gtk_widget_add_css_class(m_name, "heading");
+        gtk_box_append(GTK_BOX(header), m_name);
+        m_edit = gtk_button_new_with_label("Edit Title…");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(m_edit), "win.titles-edit");
+        gtk_box_append(GTK_BOX(header), m_edit);
+        gtk_box_append(GTK_BOX(m_content), header);
+
+        m_fieldsLabel = gtk_label_new("Fields");
+        gtk_label_set_xalign(GTK_LABEL(m_fieldsLabel), 0.0f);
+        gtk_widget_add_css_class(m_fieldsLabel, "heading");
+        gtk_box_append(GTK_BOX(m_content), m_fieldsLabel);
+        m_fields = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+        gtk_box_append(GTK_BOX(m_content), m_fields);
+        m_noFields = gtk_label_new("This title has no fields. Add one in U Stu Titles by typing {{name}} in a "
+                                   "text layer.");
+        gtk_label_set_wrap(GTK_LABEL(m_noFields), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(m_noFields), 0.0f);
+        gtk_widget_add_css_class(m_noFields, "dim-label");
+        gtk_box_append(GTK_BOX(m_content), m_noFields);
+        gtk_box_append(GTK_BOX(m_root), m_content);
+    }
+
+    // The first selected clip that plays a title.
+    std::optional<core::ClipId> selectedTitleClip() const
+    {
+        const core::Model &model = m_host->model();
+        for (core::ClipId id : m_host->currentSelection().clips)
+            if (model.hasClip(id)) {
+                const core::Clip &clip = model.clip(id);
+                if (model.hasAsset(clip.asset) && isTitleFile(model.asset(clip.asset).path))
+                    return id;
+            }
+        return std::nullopt;
+    }
+
+    // The title's fields, read again only when its file changed.
+    const std::vector<Field> &fieldsOf(const core::Asset &asset)
+    {
+        if (asset.path != m_cachedPath || asset.fileFingerprint != m_cachedFingerprint) {
+            m_cachedPath = asset.path;
+            m_cachedFingerprint = asset.fileFingerprint;
+            auto read = readTitle(asset.path);
+            m_cachedFields = read ? read->document.fields : std::vector<Field>{};
+        }
+        return m_cachedFields;
+    }
+
+    void refresh()
+    {
+        const std::optional<core::ClipId> id = selectedTitleClip();
+        gtk_widget_set_visible(m_empty, !id);
+        gtk_widget_set_visible(m_content, id.has_value());
+        if (!id) {
+            m_clip.reset();
+            return;
+        }
+        const core::Model &model = m_host->model();
+        const core::Clip &clip = model.clip(*id);
+        const core::Asset &asset = model.asset(clip.asset);
+        gtk_label_set_text(GTK_LABEL(m_name), asset.displayName.c_str());
+        const std::vector<Field> &fields = fieldsOf(asset);
+        const std::map<std::string, std::string> values = clipFieldValues(clip);
+
+        bool same = m_clip == id && m_rows.size() == fields.size();
+        for (size_t i = 0; same && i < fields.size(); ++i)
+            same = m_rows[i].name == fields[i].name && m_rows[i].defaultValue == fields[i].defaultValue;
+        if (!same) {
+            ++m_gesture; // another clip or title: a new undo step
+            m_clip = id;
+            while (GtkWidget *child = gtk_widget_get_first_child(m_fields))
+                gtk_box_remove(GTK_BOX(m_fields), child);
+            m_rows.clear();
+            for (const Field &field : fields) {
+                GtkWidget *label = gtk_label_new(field.name.c_str());
+                gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+                gtk_widget_add_css_class(label, "caption");
+                gtk_box_append(GTK_BOX(m_fields), label);
+                GtkWidget *entry = gtk_entry_new();
+                m_host->setTooltip(entry, "titles.page-field");
+                gtk_accessible_update_property(GTK_ACCESSIBLE(entry), GTK_ACCESSIBLE_PROPERTY_LABEL, field.name.c_str(),
+                                               -1);
+                gtk_box_append(GTK_BOX(m_fields), entry);
+                g_signal_connect(entry, "changed", G_CALLBACK(&TitlePage::onChangedTrampoline), this);
+                GtkEventController *focus = gtk_event_controller_focus_new();
+                g_signal_connect(focus, "leave", G_CALLBACK(&TitlePage::onFocusLeaveTrampoline), this);
+                gtk_widget_add_controller(entry, focus);
+                m_rows.push_back({field.name, field.defaultValue, entry});
+            }
+        }
+        gtk_widget_set_visible(m_fieldsLabel, !fields.empty());
+        gtk_widget_set_visible(m_noFields, fields.empty());
+        // Undo, redo, another clip: show the clip's values, but never
+        // rewrite what's being typed (it's what the model has already).
+        m_updating = true;
+        for (Row &row : m_rows) {
+            auto value = values.find(row.name);
+            const std::string &text = value != values.end() ? value->second : row.defaultValue;
+            if (text != gtk_editable_get_text(GTK_EDITABLE(row.entry)))
+                gtk_editable_set_text(GTK_EDITABLE(row.entry), text.c_str());
+        }
+        m_updating = false;
+    }
+
+    void onChanged()
+    {
+        if (m_updating || !m_clip || !m_host->model().hasClip(*m_clip))
+            return;
+        // Values for fields the title no longer has stay with the clip.
+        std::map<std::string, std::string> values = clipFieldValues(m_host->model().clip(*m_clip));
+        for (const Row &row : m_rows) {
+            const std::string text = gtk_editable_get_text(GTK_EDITABLE(row.entry));
+            if (text == row.defaultValue)
+                values.erase(row.name);
+            else
+                values[row.name] = text;
+        }
+        m_host->execute(std::make_unique<SetClipFields>(*m_clip, std::move(values), m_gesture));
+    }
+
+    app::ShellHost *m_host = nullptr;
+    GtkWidget *m_root = nullptr, *m_empty = nullptr, *m_content = nullptr, *m_name = nullptr, *m_edit = nullptr,
+              *m_fieldsLabel = nullptr, *m_fields = nullptr, *m_noFields = nullptr;
+    std::optional<core::ClipId> m_clip;
+    std::vector<Row> m_rows;
+    std::string m_cachedPath, m_cachedFingerprint;
+    std::vector<Field> m_cachedFields;
+    uint64_t m_gesture = 1;
+    bool m_updating = false;
+
+    // --- GTK trampolines -------------------------------------------------
+    static void onChangedTrampoline(GtkEditable *, gpointer self)
+    {
+        static_cast<TitlePage *>(self)->onChanged();
+    }
+    static void onFocusLeaveTrampoline(GtkEventControllerFocus *, gpointer self)
+    {
+        ++static_cast<TitlePage *>(self)->m_gesture; // the next visit is its own undo step
+    }
+};
+
+} // namespace
+
+void addTitlePage(app::ShellHost &host)
+{
+    // For the process, as the host requires.
+    static TitlePage page;
+    page.bind(host);
+}
+
+} // namespace ustudio::titles

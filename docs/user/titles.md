@@ -141,6 +141,14 @@ designer shows the video at the playhead behind the title, without the title
 itself, so you design over the real picture. Save there, and the editor
 picks up the change.
 
+**Fields** make one title serve many clips: a lower third with `{{name}}`
+and `{{role}}` in its text works for every guest. Select a title clip and
+open the inspector (the button at the top right of the preview), then the
+**Title** page. It has a box for each field. What you type there changes
+only that clip, and the preview updates as you type. A box left at the
+title's own text (its default) follows the title if you change it later.
+**Ctrl+Z** undoes each box's edit in one step.
+
 ## Any length you like
 
 Every title has three parts: an **intro** (it animates in), a **hold** (it

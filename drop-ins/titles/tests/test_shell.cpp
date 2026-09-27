@@ -9,6 +9,7 @@
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
 #include "editor/title_launch.h"
+#include "core/clip_fields.h"
 #include "editor/title_shell.h"
 #include "platform/process.h"
 
@@ -58,7 +59,10 @@ class FakeShell : public app::ShellHost
     {
         return m_selectionChanged;
     }
-    void addInspectorPage(const app::InspectorPage &) override {}
+    void addInspectorPage(const app::InspectorPage &page) override
+    {
+        pages.push_back(page.widget);
+    }
     void addHints(const std::vector<app::HintSpec> &) override {}
     void setTooltip(GtkWidget *, const char *) override {}
     void addPreviewOverlay(GtkWidget *) override {}
@@ -93,6 +97,12 @@ class FakeShell : public app::ShellHost
     app::ShellSelection selection;
     std::vector<app::ImportHandler> importHandlers;
     std::vector<core::AssetId> changedOnDisk;
+    std::vector<GtkWidget *> pages;
+    void select(std::vector<core::ClipId> clips)
+    {
+        selection.clips = std::move(clips);
+        m_selectionChanged.emit();
+    }
     // As the window does: an undo is a project change.
     void undo()
     {
@@ -105,6 +115,24 @@ class FakeShell : public app::ShellHost
     core::UndoStack m_undo{m_model};
     core::Signal<> m_projectChanged, m_selectionChanged;
 };
+
+// extendShell() builds the Title page's widgets, which need a display.
+bool haveGtk()
+{
+    if (gtk_init_check())
+        return true;
+    MESSAGE("no display: skipped");
+    return false;
+}
+
+// Every GtkEntry under `widget`, in order.
+void entriesIn(GtkWidget *widget, std::vector<GtkWidget *> &out)
+{
+    if (GTK_IS_ENTRY(widget))
+        out.push_back(widget);
+    for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
+        entriesIn(child, out);
+}
 
 fs::path scratch()
 {
@@ -184,6 +212,8 @@ TEST_CASE("importing a title: an asset, and a clip of its designed length at the
 
 TEST_CASE("a saved title is reported changed within a second, once per save")
 {
+    if (!haveGtk())
+        return;
     core::Profile profile;
     FakeShell shell(profile);
     titles::extendShell(shell);
@@ -213,6 +243,8 @@ TEST_CASE("a saved title is reported changed within a second, once per save")
 
 TEST_CASE("Edit Title: the action and a double-click open a title clip, and nothing else")
 {
+    if (!haveGtk())
+        return;
     std::vector<std::string> launched;
     titles::setTitlesLauncherForTesting([&](const std::string &path, GdkTexture *) {
         launched.push_back(path);
@@ -254,4 +286,49 @@ TEST_CASE("Edit Title: the action and a double-click open a title clip, and noth
 TEST_CASE("the designer is found: next to the program, else this build's")
 {
     CHECK(titles::titlesAppPath() == TITLES_APP_BUILD_PATH);
+}
+
+TEST_CASE("the Title page edits the selected clip's fields, one undo step per entry visit")
+{
+    if (!haveGtk())
+        return;
+    core::Profile profile;
+    FakeShell shell(profile);
+    titles::extendShell(shell);
+    REQUIRE(shell.pages.size() == 1);
+    GtkWidget *page = shell.pages[0];
+    const fs::path file = scratch() / "guest.ustitle";
+    {
+        std::FILE *f = std::fopen(file.string().c_str(), "w");
+        std::fputs(R"(<ustitle version="1" width="1920" height="1080" fps="30/1">
+  <timing intro="0" hold="60" outro="0"/>
+  <field name="name" default="Jay Doe"/><field name="role" default="Host"/>
+  <layer kind="text" x="10" y="10" w="500"><text>{{name}}, {{role}}</text></layer>
+</ustitle>)",
+                   f);
+        std::fclose(f);
+    }
+    REQUIRE(titles::importTitle(shell, core::utf8String(file), shell.video, 0).has_value());
+    const core::ClipId clip = shell.model().track(shell.video).clips.front();
+
+    std::vector<GtkWidget *> entries;
+    entriesIn(page, entries);
+    CHECK(entries.empty()); // nothing selected
+    shell.select({clip});
+    entriesIn(page, entries);
+    REQUIRE(entries.size() == 2);
+    CHECK(std::string(gtk_editable_get_text(GTK_EDITABLE(entries[0]))) == "Jay Doe");
+
+    // Typing is one step; the default isn't stored.
+    gtk_editable_set_text(GTK_EDITABLE(entries[0]), "A");
+    gtk_editable_set_text(GTK_EDITABLE(entries[0]), "Ada");
+    auto values = titles::clipFieldValues(shell.model().clip(clip));
+    CHECK(values == std::map<std::string, std::string>{{"name", "Ada"}});
+    shell.undo();
+    CHECK(titles::clipFieldValues(shell.model().clip(clip)).empty());
+    CHECK(std::string(gtk_editable_get_text(GTK_EDITABLE(entries[0]))) == "Jay Doe"); // the page follows undo
+
+    // Nothing selected: no entries.
+    shell.select({});
+    CHECK_FALSE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(entries[0]))));
 }

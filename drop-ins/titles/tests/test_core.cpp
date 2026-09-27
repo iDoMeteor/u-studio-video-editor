@@ -4,6 +4,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/clip_fields.h"
 #include "core/evaluate.h"
 #include "core/title_xml.h"
 
@@ -245,4 +246,39 @@ TEST_CASE("dynamic fields read the clock")
     CHECK(hasDynamicFields("{{date:%A}}"));
     CHECK_FALSE(hasDynamicFields("{{name}} {{countdown:x}}"));
     CHECK_FALSE(hasDynamicFields("{{timecode"));
+}
+
+TEST_CASE("SetClipFields: a clip's own values, one undo step per gesture")
+{
+    core::Model model = core::Model::createEmpty();
+    const core::TrackId track = model.addTrack(core::Track::Kind::Video, 0, "V1");
+    core::Asset asset;
+    asset.path = "/titles/lt.ustitle";
+    asset.info.hasVideo = true;
+    asset.info.lengthInSequenceFrames = 1000;
+    const core::ClipId clip = model.insertClip(track, model.addAsset(asset), 0, 0, 99);
+    model.setClipSourceParams(clip, {{"other", std::string("kept"), {}}, {"field.role", std::string("Host"), {}}});
+    const core::Model before = model;
+
+    SetClipFields set(clip, {{"name", "Ada"}});
+    REQUIRE(set.apply(model));
+    CHECK(clipFieldValues(model.clip(clip)) == std::map<std::string, std::string>{{"name", "Ada"}});
+    const auto &params = model.clip(clip).sourceParams;
+    CHECK(std::any_of(params.begin(), params.end(), [](const core::Param &p) { return p.name == "other"; }));
+    set.revert(model);
+    CHECK(model == before);
+
+    // Typing: one gesture merges; the first command keeps what to revert to.
+    SetClipFields first(clip, {{"name", "A"}}, 7);
+    REQUIRE(first.apply(model));
+    SetClipFields second(clip, {{"name", "Ada"}}, 7);
+    REQUIRE(second.apply(model));
+    CHECK(first.mergeWith(second));
+    CHECK(clipFieldValues(model.clip(clip)).at("name") == "Ada");
+    first.revert(model);
+    CHECK(model == before);
+    SetClipFields other(clip, {{"name", "x"}}, 8);
+    CHECK_FALSE(first.mergeWith(other));
+    CHECK_FALSE(SetClipFields(clip, {}, 0).mergeWith(SetClipFields(clip, {}, 0)));
+    CHECK_FALSE(SetClipFields(core::ClipId{9999}, {}).apply(model));
 }

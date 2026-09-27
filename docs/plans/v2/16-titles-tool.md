@@ -501,7 +501,10 @@ Rack, New Title and insert-at-playhead over D-Bus, Bake title.
 
 Acceptance:
 
-- [ ] Ten lower thirds with different names come from one template file.
+- [x] Ten lower thirds with different names come from one template file.
+      (Per-clip field values from the Title inspector page, 0.62.0;
+      tests `titles-engine` "field values are the clip's own" and
+      `titles-shell` "the Title page edits the selected clip's fields".)
 - [ ] A baked title plays in stock `melt`.
 - [ ] A user template survives an app restart and appears in New Title.
 - [ ] Editing a built-in leaves it unchanged and adds a copy to My
