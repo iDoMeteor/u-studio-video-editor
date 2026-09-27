@@ -45,17 +45,29 @@ Flathub submission (`tools/flathub_prep.py`).
 | MLT 7.40.0 | release tarball, sha256-pinned | Distros such as Mint 22 ship 7.22; the engine relies on 7.40 |
 | U Stu | this repo (`dir` source) | `-Dbuildtype=release`, editor plus `u-studio-render` |
 
-- **MLT modules.** Only the modules the app requests are built: core,
-  plus (the `affine` clip transform), normalize (`volume`), avformat, xml,
-  sdl2, rtaudio, gdk (`pixbuf` stills), resample, and movit (GPU,
-  ADR-019).
+- **MLT modules.** Only the modules the app and MLT's loader use are
+  built: core, plus (the `affine` clip transform), normalize (`volume`),
+  avformat, xml, sdl2, rtaudio, gdk (`pixbuf` stills), resample, xine
+  (the loader's `deinterlace` normaliser) and movit (GPU, ADR-019).
+  - Every normaliser named in MLT's `core/loader.ini` must have its first
+    choice built. Without xine the loader falls back to `avdeinterlace`,
+    which turns every frame into BT.601 limited-range YUV: an extra
+    conversion per frame, and the GPU probe failed on the shifted colour.
+  - MLT carries VE GPU's `patches/mlt-movit-convert-input-leak.patch`
+    (a movit.convert leak of about 10 MB a minute of GPU playback) until
+    upstream has a fix.
   - The movit module is inert until the app creates a `glsl.manager`.
     Then every producer opened through `loader` gets GPU normalisers;
     only the `loader-nogl` service stays on the CPU chain (ADR-019,
     decisions 3 and 4).
   - movit links FFTW, libepoxy and GL from the GNOME runtime (FFTW 3.3.11
     is in the Platform) and the GL extension through `--device=dri`, so
-    none of those is bundled.
+    none of those is bundled. Flatpak installs the runtime's
+    `org.freedesktop.Platform.GL.default` (Mesa) automatically.
+  - Check a build with `u-studio-render --gpu-probe` in the sandbox
+    (`flatpak run --command=u-studio-render com.ustudio.VideoEditor
+    --gpu-probe`): it prints `{"status":"ok",…}` and exits 0 when the GPU
+    pipeline works. The smoke test runs it.
   - The Qt6 and glaxnimate modules are explicitly off (ADR-007), and so is
     frei0r (a future drop-in, ADR-014).
   - To recheck the list, match the service strings in `src/` against the

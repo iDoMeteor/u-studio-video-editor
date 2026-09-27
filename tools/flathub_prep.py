@@ -5,8 +5,8 @@
 
 Reads packaging/flatpak/<app-id>.yml (the manifest `just flatpak` builds),
 swaps its local `dir` source for this repo's git URL pinned to <tag> and the
-commit it points at, and writes the manifest, the shared module files and
-flathub.json to outdir (default build-flathub/<app-id>/): the files that go
+commit it points at, and writes the manifest, the shared module files, their
+patches and flathub.json to outdir (default build-flathub/<app-id>/): the files that go
 into the flathub/<app-id> repository, or into the new-pr submission branch.
 
 Refuses a tag that isn't on origin: Flathub builds offline from pinned,
@@ -69,6 +69,10 @@ def main() -> int:
     (out / manifest.name).write_text(text)
     for module in sorted((PACKAGING / "modules").glob("*.yml")):
         shutil.copy2(module, out / "modules" / module.name)
+    # Module files name their patches as ../patches/<file>, so the layout
+    # (modules/ beside patches/) is kept.
+    if (PACKAGING / "patches").is_dir():
+        shutil.copytree(PACKAGING / "patches", out / "patches")
     # x86_64 only until an aarch64 build has been run and smoke-tested.
     (out / "flathub.json").write_text('{\n  "only-arches": ["x86_64"]\n}\n')
     print(f"{out}: {app_id} at {tag} ({commit[:12]})")
