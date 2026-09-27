@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="540" viewBox="0 0 900 270">
+<defs><linearGradient id="title" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#F5F8FF"/><stop offset=".62" stop-color="#CFE9FF"/><stop offset="1" stop-color="#39DDEB"/></linearGradient></defs>
+<g transform="translate(38 27) scale(1.7)"><defs>
+ <linearGradient id="field" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1A1035"/><stop offset="1" stop-color="#080914"/></linearGradient>
+ <linearGradient id="mane" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FC3CBA"/><stop offset=".52" stop-color="#A04BFA"/><stop offset="1" stop-color="#23DDF2"/></linearGradient>
+ <linearGradient id="horn" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#36E8F4"/><stop offset="1" stop-color="#D770FF"/></linearGradient>
+ </defs>
+ <rect x="3" y="3" width="122" height="122" rx="29" fill="url(#field)" stroke="#6453AC" stroke-opacity=".7" stroke-width="2"/>
+ <!-- energetic neon mane, bold enough for app icon scale -->
+ <path d="M47 37 C35 36 27 44 26 55 C21 67 19 78 14 90 C29 87 37 81 39 70 C34 85 32 97 27 108 C47 103 55 91 54 74 L58 42 Z" fill="url(#mane)"/>
+ <path d="M44 27 C35 19 26 21 17 27 C27 28 33 33 36 43 Z" fill="#EC46D1"/>
+ <!-- iconic horn and upright ear -->
+ <path d="M70 35 L91 11 L82 40 Z" fill="url(#horn)" stroke="#E5F9FF" stroke-width="1.4" stroke-linejoin="round"/>
+ <path d="M54 40 L52 27 Q59 22 69 33 L70 46 Z" fill="#ECF9FF"/>
+ <path d="M58 37 L57 31 Q61 29 65 35 Z" fill="#D164D7"/>
+ <!-- equine head / neck silhouette -->
+ <path d="M56 39 C68 34 81 39 87 48 C90 53 92 58 98 60 L108 65 Q113 68 111 74 L108 81 Q103 86 95 84 L86 80 Q82 94 89 108 L49 108 Q59 92 56 81 Q44 65 47 54 Q49 44 56 39 Z" fill="#F3F8FF"/>
+ <path d="M86 73 Q96 77 109 73 L108 81 Q102 86 95 84 L86 80 Z" fill="#CBD9EF"/>
+ <!-- negative-space video play inside cheek -->
+ <path d="M65 57 Q65 55 68 56 L80 63 Q82 64 80 66 L68 73 Q65 74 65 71 Z" fill="#10152F"/>
+ <path d="M75 48 Q79 45 83 48" fill="none" stroke="#151630" stroke-width="3.4" stroke-linecap="round"/>
+ <circle cx="103" cy="69" r="2.2" fill="#292243"/>
+ <!-- one unmistakable tear -->
+ <path d="M91 84 C88 89 86 92 86 95 A5 5 0 0 0 96 95 C96 92 94 89 91 84 Z" fill="#2CE8F0"/>
+ <path d="M53 108 H91" stroke="#32DDEB" stroke-width="3" stroke-linecap="round" opacity=".85"/>
+</g>
+<text x="294" y="132" fill="url(#title)" font-family="DejaVu Sans, sans-serif" font-weight="bold" font-size="86" letter-spacing="-4">U Stu</text>
+<rect x="300" y="155" width="78" height="6" rx="3" fill="#F042C5"/><rect x="385" y="155" width="210" height="6" rx="3" fill="#2CDBEF"/>
+<text x="296" y="201" fill="#D9D0FB" font-family="DejaVu Sans, sans-serif" font-weight="bold" font-size="29" letter-spacing="8">VIDEO EDITOR</text>
+<text x="299" y="238" fill="#9589BA" font-family="DejaVu Sans, sans-serif" font-size="17" letter-spacing="3">BY UNICORN TEARS</text>
+</svg>

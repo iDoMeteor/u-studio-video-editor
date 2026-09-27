@@ -28,7 +28,7 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
-    <release version="0.50.0-beta.4" date="2026-09-25" type="development">
+    <release version="0.50.0-beta.5" date="2026-09-25" type="development">
       <description>
         <p>New since the previous beta:</p>
         <ul>
@@ -37,7 +37,7 @@
           <li>The clip tooltip on the timeline no longer flashes on and off.</li>
           <li>No more crackle in the first half second after pressing play on a large project.</li>
           <li>Fixed a crash after changing the project frame rate and then undoing it.</li>
-          <li>A new app icon.</li>
+          <li>A new app icon, and Help › About shows the new logo, the Unicorn Tears Project and the source code. The editor is now MIT-licensed.</li>
         </ul>
         <p>Known issues:</p>
         <ul>
