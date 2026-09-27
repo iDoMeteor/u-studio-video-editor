@@ -323,6 +323,7 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
     for (const dropins::ShellExtension &extension : shellExtensions)
         extension(*this);
     g_signal_connect(m_window, "notify::is-active", G_CALLBACK(&AppWindow::windowActiveChangedTrampoline), this);
+    g_signal_connect(m_window, "notify::focus-widget", G_CALLBACK(&AppWindow::focusWidgetChangedTrampoline), this);
     g_signal_connect(m_window, "close-request", G_CALLBACK(&AppWindow::closeRequestTrampoline), this);
     // Heartbeat, not a one-shot timer reset on every edit: simpler to
     // reason about than adding/removing a GSource on every
@@ -677,6 +678,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_hexpand(GTK_WIDGET(m_preview), TRUE);
     gtk_widget_set_vexpand(GTK_WIDGET(m_preview), TRUE);
     gtk_frame_set_child(GTK_FRAME(previewFrame), GTK_WIDGET(m_preview));
+    addTextFocusRelease(GTK_WIDGET(m_preview));
     gtk_box_append(GTK_BOX(previewRow), previewFrame);
 
     gtk_paned_set_start_child(GTK_PANED(paned), previewRow);
@@ -717,6 +719,7 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(motion, "leave", G_CALLBACK(&AppWindow::timelineLeaveTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), motion);
 
+    addTextFocusRelease(GTK_WIDGET(m_timeline));
     GtkGesture *click = gtk_gesture_click_new();
     g_signal_connect(click, "pressed", G_CALLBACK(&AppWindow::timelineClickTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(click));
@@ -1647,6 +1650,39 @@ void AppWindow::chooseDefaultFolder(const std::string &key, AdwActionRow *row)
 
 void AppWindow::setTransportActionsEnabled(bool enabled)
 {
+    m_inlineEditOpen = !enabled;
+    applyTransportActionsEnabled();
+}
+
+void AppWindow::onFocusWidgetChanged()
+{
+    // Entries, spin buttons and AdwEntryRow all type through an inner
+    // GtkText; a GtkTextView is the multi-line case.
+    GtkWidget *focus = gtk_window_get_focus(GTK_WINDOW(m_window));
+    // A read-only one (a copyable path) types nothing, so it keeps them.
+    m_textHasFocus = (focus && GTK_IS_TEXT(focus) && gtk_editable_get_editable(GTK_EDITABLE(focus))) ||
+                     (focus && GTK_IS_TEXT_VIEW(focus) && gtk_text_view_get_editable(GTK_TEXT_VIEW(focus)));
+    applyTransportActionsEnabled();
+}
+
+void AppWindow::addTextFocusRelease(GtkWidget *widget)
+{
+    // Capture phase, any button, never claimed: the widget's own gestures
+    // still see the press.
+    GtkGesture *press = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(press), 0);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(press), GTK_PHASE_CAPTURE);
+    g_signal_connect(press, "pressed", G_CALLBACK(&AppWindow::textFocusReleaseTrampoline), this);
+    gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(press));
+}
+
+void AppWindow::applyTransportActionsEnabled()
+{
+    const bool enabled = !m_inlineEditOpen && !m_textHasFocus;
+    if (enabled == m_transportActionsEnabled)
+        return;
+    m_transportActionsEnabled = enabled;
+    Log::debug(std::string("[app] single-key shortcuts ") + (enabled ? "on" : "off (text entry)"));
     static const char *kTransportActions[] = {
         "shuttle-forward", "shuttle-reverse",     "shuttle-stop",         "step-forward",
         "step-backward",   "seek-home",           "seek-end",             "loop-set-in",
@@ -6107,6 +6143,18 @@ gboolean AppWindow::autosaveHeartbeatTrampoline(gpointer userData)
 void AppWindow::windowActiveChangedTrampoline(GObject *, GParamSpec *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onWindowActiveChanged();
+}
+
+void AppWindow::focusWidgetChangedTrampoline(GObject *, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onFocusWidgetChanged();
+}
+
+void AppWindow::textFocusReleaseTrampoline(GtkGestureClick *, int, double, double, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    if (self->m_textHasFocus)
+        gtk_window_set_focus(GTK_WINDOW(self->m_window), nullptr);
 }
 
 gboolean AppWindow::closeRequestTrampoline(GtkWindow *, gpointer userData)

@@ -203,3 +203,37 @@ TEST_CASE("a gradient's middle stop and a layer's lock round-trip")
     REQUIRE(again.has_value());
     CHECK(again->document == doc);
 }
+
+TEST_CASE("keys at the playhead: in its zone, set, replaced, removed")
+{
+    const Timing timing{10, 40, 10};
+    Layer layer = makeShapeLayer(TitleDocument{}, ShapeKind::Rect);
+    CHECK(keyAtFrame(timing, 5, 1).zone == Zone::Intro);
+    CHECK(keyAtFrame(timing, 20, 1).zone == Zone::Hold);
+    CHECK(keyAtFrame(timing, 20, 1).key.at == 10);
+    CHECK(keyAtFrame(timing, 55, 1).zone == Zone::Outro);
+    CHECK(keyAtFrame(timing, 55, 1).key.at == 5);
+    CHECK_FALSE(isAnimated(layer, Property::Opacity));
+    setKey(layer, timing, Property::Opacity, 55, 0.0);
+    setKey(layer, timing, Property::Opacity, 5, 0.0, ustudio::core::Easing::CubicOut);
+    setKey(layer, timing, Property::Opacity, 20, 1.0);
+    CHECK(isAnimated(layer, Property::Opacity));
+    REQUIRE(layer.animation.size() == 1);
+    CHECK(layer.animation[0].keys.size() == 3);
+    CHECK(layer.animation[0].keys[0].zone == Zone::Intro); // sorted by place
+    CHECK(layer.animation[0].keys[2].zone == Zone::Outro);
+    setKey(layer, timing, Property::Opacity, 20, 0.5); // replaces, keeps easing
+    CHECK(layer.animation[0].keys.size() == 3);
+    REQUIRE(findKey(layer, timing, Property::Opacity, 20));
+    CHECK(findKey(layer, timing, Property::Opacity, 20)->key.value == 0.5);
+    CHECK(findKey(layer, timing, Property::Opacity, 5)->key.easing == ustudio::core::Easing::CubicOut);
+    CHECK(findKey(layer, timing, Property::Opacity, 21) == nullptr);
+    CHECK(removeKey(layer, timing, Property::Opacity, 20));
+    CHECK_FALSE(removeKey(layer, timing, Property::Opacity, 20));
+    CHECK(removeKey(layer, timing, Property::Opacity, 5));
+    CHECK(removeKey(layer, timing, Property::Opacity, 55));
+    CHECK(layer.animation.empty()); // an empty track goes
+    setBaseValue(layer, Property::Rotation, 12);
+    CHECK(baseValue(layer, Property::Rotation) == 12);
+    CHECK(baseValue(layer, Property::Reveal) == 1.0);
+}

@@ -16,8 +16,9 @@ the file changes, and render the same in `u-studio-render`. T2 (the
 snapping, undo, save and open, backgrounds), T2b (layers list,
 inspector, brand kit), T2c (typing on the canvas, pictures, Edit Title
 from the editor, the smoke test `tools/titles-smoke/`) and T2d (export with
-alpha or flattened, `u-studio-render --title-export`) are in: T2 is done
-but for its one engine-blocked item (dark fringes when compositing).
+alpha or flattened, `u-studio-render --title-export`) are in: T2 is done.
+T3 (animation: behaviours, text animators, loops, keyframes, the animation
+strip and the behaviour drawer) is done. Next: T4, templates.
 
 ## Layout
 

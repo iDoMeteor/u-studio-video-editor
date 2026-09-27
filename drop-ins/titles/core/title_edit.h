@@ -89,6 +89,22 @@ class TitleHistory
     std::string m_mergeKey;
 };
 
+// Keyframes at a moment (the designer's playhead), T3b. A moment belongs
+// to the zone it falls in, so a key set in the outro stays with the outro.
+TitleKey keyAtFrame(const Timing &timing, core::FrameIndex frame, double value,
+                    core::Easing easing = core::Easing::Linear);
+// The layer's key for `property` at `frame`, if it has one there.
+const TitleKey *findKey(const Layer &layer, const Timing &timing, Property property, core::FrameIndex frame);
+// Sets (adds or replaces) the key at `frame`; removes it. Keys stay sorted.
+void setKey(Layer &layer, const Timing &timing, Property property, core::FrameIndex frame, double value,
+            std::optional<core::Easing> easing = std::nullopt);
+bool removeKey(Layer &layer, const Timing &timing, Property property, core::FrameIndex frame);
+// Whether `property` has any keys (then editing it keys the playhead).
+bool isAnimated(const Layer &layer, Property property);
+// The layer's own value of `property` without animation, and setting it.
+double baseValue(const Layer &layer, Property property);
+void setBaseValue(Layer &layer, Property property, double value);
+
 // Common edits, for TitleHistory::apply().
 bool addLayer(TitleDocument &doc, Layer layer, std::optional<size_t> index = std::nullopt);
 bool removeLayer(TitleDocument &doc, const std::string &id);

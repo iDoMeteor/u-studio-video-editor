@@ -707,6 +707,14 @@ class AppWindow : public ShellHost
     // set: they're modifier combos, not bare keys a text entry would ever
     // want to consume itself.
     void setTransportActionsEnabled(bool enabled);
+    // The same guard for every text field in the window (dialog entries,
+    // spin buttons, drop-in inspector pages): follows the focus widget.
+    void onFocusWidgetChanged();
+    void applyTransportActionsEnabled();
+    // A press on the timeline or the preview takes the keys back from a
+    // text field: neither is focusable, so without this an inspector
+    // entry would keep them off until the user tabbed out of it.
+    void addTextFocusRelease(GtkWidget *widget);
 
     static void importClickedTrampoline(GtkButton *button, gpointer userData);
     static void fileOpenedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
@@ -1111,6 +1119,11 @@ class AppWindow : public ShellHost
     // popover down, so the "closed" signal that follows knows to discard
     // the entry's text instead of committing it.
     bool m_inlineEditCancelled = false;
+    // Why the single-key actions are off: the inline editor is open, or a
+    // text field has focus. Either one keeps them off.
+    bool m_inlineEditOpen = false;
+    bool m_textHasFocus = false;
+    bool m_transportActionsEnabled = true;
 
     bool m_suppressSeekSignal = false;
 
@@ -1201,6 +1214,8 @@ class AppWindow : public ShellHost
     void onWindowActiveChanged();
     static gboolean autosaveHeartbeatTrampoline(gpointer userData);
     static void windowActiveChangedTrampoline(GObject *object, GParamSpec *pspec, gpointer userData);
+    static void focusWidgetChangedTrampoline(GObject *object, GParamSpec *pspec, gpointer userData);
+    static void textFocusReleaseTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
     static gboolean closeRequestTrampoline(GtkWindow *window, gpointer userData);
 };
 

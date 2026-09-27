@@ -1,5 +1,7 @@
 #include "title_edit.h"
 
+#include "evaluate.h"
+
 #include <algorithm>
 
 namespace ustudio::titles {
@@ -171,6 +173,158 @@ bool updateLayer(TitleDocument &doc, const std::string &id, const std::function<
         return false;
     change(doc.layers[*index]);
     return true;
+}
+
+} // namespace ustudio::titles
+
+namespace ustudio::titles {
+
+TitleKey keyAtFrame(const Timing &timing, core::FrameIndex frame, double value, core::Easing easing)
+{
+    if (frame < timing.intro)
+        return {Zone::Intro, {frame, value, easing}};
+    if (frame < timing.intro + timing.hold)
+        return {Zone::Hold, {frame - timing.intro, value, easing}};
+    return {Zone::Outro, {frame - timing.intro - timing.hold, value, easing}};
+}
+
+namespace {
+PropertyTrack *trackOf(Layer &layer, Property property)
+{
+    for (PropertyTrack &track : layer.animation)
+        if (track.property == property)
+            return &track;
+    return nullptr;
+}
+} // namespace
+
+const TitleKey *findKey(const Layer &layer, const Timing &timing, Property property, core::FrameIndex frame)
+{
+    for (const PropertyTrack &track : layer.animation)
+        if (track.property == property)
+            for (const TitleKey &key : track.keys)
+                if (static_cast<core::FrameIndex>(keyPosition(timing, key)) == frame)
+                    return &key;
+    return nullptr;
+}
+
+void setKey(Layer &layer, const Timing &timing, Property property, core::FrameIndex frame, double value,
+            std::optional<core::Easing> easing)
+{
+    PropertyTrack *track = trackOf(layer, property);
+    if (!track) {
+        layer.animation.push_back({property, {}});
+        track = &layer.animation.back();
+    }
+    for (TitleKey &key : track->keys)
+        if (static_cast<core::FrameIndex>(keyPosition(timing, key)) == frame) {
+            key.key.value = value;
+            if (easing)
+                key.key.easing = *easing;
+            return;
+        }
+    track->keys.push_back(keyAtFrame(timing, frame, value, easing.value_or(core::Easing::Linear)));
+    std::stable_sort(track->keys.begin(), track->keys.end(), [&](const TitleKey &a, const TitleKey &b) {
+        return keyPosition(timing, a) < keyPosition(timing, b);
+    });
+}
+
+bool removeKey(Layer &layer, const Timing &timing, Property property, core::FrameIndex frame)
+{
+    PropertyTrack *track = trackOf(layer, property);
+    if (!track)
+        return false;
+    const auto before = track->keys.size();
+    std::erase_if(track->keys, [&](const TitleKey &key) {
+        return static_cast<core::FrameIndex>(keyPosition(timing, key)) == frame;
+    });
+    const bool removed = track->keys.size() != before;
+    std::erase_if(layer.animation, [](const PropertyTrack &t) { return t.keys.empty(); });
+    return removed;
+}
+
+bool isAnimated(const Layer &layer, Property property)
+{
+    for (const PropertyTrack &track : layer.animation)
+        if (track.property == property && !track.keys.empty())
+            return true;
+    return false;
+}
+
+double baseValue(const Layer &layer, Property property)
+{
+    switch (property) {
+    case Property::X:
+        return layer.x;
+    case Property::Y:
+        return layer.y;
+    case Property::Opacity:
+        return layer.opacity;
+    case Property::Scale:
+        return layer.scale;
+    case Property::Rotation:
+        return layer.rotation;
+    case Property::Blur:
+        return layer.blur;
+    case Property::Tracking:
+        return layer.font.tracking;
+    case Property::Reveal:
+        return 1.0;
+    case Property::Shift:
+        return 0.0;
+    case Property::FillR:
+        return layer.fill.color.r;
+    case Property::FillG:
+        return layer.fill.color.g;
+    case Property::FillB:
+        return layer.fill.color.b;
+    case Property::FillA:
+        return layer.fill.color.a;
+    case Property::ShadowOpacity:
+        return 1.0;
+    }
+    return 0.0;
+}
+
+void setBaseValue(Layer &layer, Property property, double value)
+{
+    switch (property) {
+    case Property::X:
+        layer.x = value;
+        break;
+    case Property::Y:
+        layer.y = value;
+        break;
+    case Property::Opacity:
+        layer.opacity = value;
+        break;
+    case Property::Scale:
+        layer.scale = value;
+        break;
+    case Property::Rotation:
+        layer.rotation = value;
+        break;
+    case Property::Blur:
+        layer.blur = value;
+        break;
+    case Property::Tracking:
+        layer.font.tracking = value;
+        break;
+    case Property::FillR:
+        layer.fill.color.r = value;
+        break;
+    case Property::FillG:
+        layer.fill.color.g = value;
+        break;
+    case Property::FillB:
+        layer.fill.color.b = value;
+        break;
+    case Property::FillA:
+        layer.fill.color.a = value;
+        break;
+    default:
+        break; // reveal, shift, shadow opacity: animation only
+    }
 }
 
 } // namespace ustudio::titles

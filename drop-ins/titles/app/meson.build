@@ -26,7 +26,7 @@ if get_option('dropin_titles') == 'module'
 endif
 titles_app_lib = static_library(
   'ustudio_titles_app',
-  files('canvas.cpp', 'export.cpp', 'inspector.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp',
+  files('animation_strip.cpp', 'behavior_drawer.cpp', 'canvas.cpp', 'export.cpp', 'inspector.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp',
         'view_settings.cpp'),
   titles_app_tokens_h,
   include_directories: [src_inc, titles_inc],

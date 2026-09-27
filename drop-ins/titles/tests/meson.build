@@ -61,9 +61,9 @@ test('titles-edit', titles_test_edit)
 # The app's render worker (the app's only thread), without a display.
 titles_test_worker = executable(
   'test_titles_worker',
-  files('test_worker.cpp', '../app/render_worker.cpp'),
+  files('test_worker.cpp', '../app/render_worker.cpp', '../app/behavior_drawer.cpp'),
   include_directories: [src_inc, titles_inc],
-  dependencies: [titles_doctest_dep, titles_render_dep, glib_dep],
+  dependencies: [titles_doctest_dep, titles_render_dep, gtk4_dep],
   install: false,
 )
 test('titles-worker', titles_test_worker)

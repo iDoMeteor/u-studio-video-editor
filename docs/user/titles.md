@@ -62,7 +62,42 @@ gradient), timing and canvas size.
 colours, gradients and fonts, one click each. **Apply Brand** (with nothing
 selected) restyles the whole title in the brand, keeping its layout.
 
-Animation is on the way.
+## Animating a title
+
+Under the canvas is the **animation strip**: the title's **Intro**, **Hold**
+and **Outro** on a ruler, and a row for each layer.
+
+- **Click or drag** on the strip to move the playhead; the canvas shows
+  that moment. Click a layer's row to select it.
+- **Drag the dividers** on the ruler to make the intro, the hold or the
+  outro longer or shorter.
+- Press **Space** (or the play button) to watch the title: the intro, two
+  seconds of the hold and the outro, over and over.
+
+**Behaviours** are ready-made animations. Select a layer, then in the
+inspector's **Animation** section use **Add In…**, **Add Out…** or
+**Add Loop…**. Each thumbnail shows the behaviour on your own layer; click
+one to add it.
+
+| Slot | Behaviours |
+|---|---|
+| In (as the title comes in) | Fade, Rise, Drop, Pop, Typewriter, Word by word, Blur, Wipe, Scramble, Split lines, Kinetic stack |
+| Out (as it goes) | The same, plus Collapse |
+| Loop (through the hold) | Float, Pulse, Shimmer, Wiggle, Glow breathe |
+
+A layer has one behaviour for each slot; adding another replaces it. Set
+its length in frames next to it (a loop's is how often it repeats), or
+remove it. On the strip, In is pink, Out cyan and Loop violet.
+
+**Keyframes** animate anything else. Put the playhead where you want a
+change, then click **◆** next to Position, Rotation, Scale, Opacity or Blur
+in the inspector. Once a value has keyframes, changing it changes it at the
+playhead (adding a keyframe there). Keyframes show as diamonds on the
+strip. **Detach to Keyframes** turns a layer's in and out behaviours into
+keyframes you can adjust one by one.
+
+Keyframes set in the outro stay with the outro, so making the hold longer
+never moves the way a title leaves.
 
 ## Exporting a title on its own
 
