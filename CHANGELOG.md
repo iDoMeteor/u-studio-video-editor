@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.50.0-beta.5
+
+- Help › About shows the new logo, says what the editor is and that it's
+  part of the Unicorn Tears Project, links the source code, and states the
+  MIT licence (the Flatpak's FFmpeg and x264 are GPL).
+
 ## 0.50.0-beta.4
 
 - Fixed a crash some seconds after changing the project frame rate (and

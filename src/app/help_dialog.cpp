@@ -12,6 +12,7 @@
 
 #include "action_registry.h"
 #include "diagnostics.h"
+#include "project_links.h"
 #include "ui_hints.h"
 #include "core/log.h"
 #include "core/media/utf8_path.h"
@@ -250,26 +251,46 @@ GtkWidget *AppWindow::buildAboutPage()
     gtk_widget_set_margin_start(box, 24);
     gtk_widget_set_margin_end(box, 24);
 
-    GtkWidget *title = gtk_label_new("u Studio Video Editor");
-    gtk_widget_add_css_class(title, "title-1");
-    gtk_box_append(GTK_BOX(box), title);
+    // The owner's wordmark (data/logos, in the GResource), scaled to fit;
+    // the name as text if it can't be loaded (no SVG loader, say).
+    GtkWidget *logo = gtk_picture_new_for_resource("/com/ustudio/VideoEditor/logos/u-stu-video-editor-full.svg");
+    if (gtk_picture_get_paintable(GTK_PICTURE(logo))) {
+        gtk_picture_set_content_fit(GTK_PICTURE(logo), GTK_CONTENT_FIT_CONTAIN);
+        gtk_widget_set_size_request(logo, 420, 126);
+        gtk_picture_set_alternative_text(GTK_PICTURE(logo), "u Studio Video Editor");
+        gtk_box_append(GTK_BOX(box), logo);
+    } else {
+        g_object_ref_sink(logo);
+        g_object_unref(logo);
+        GtkWidget *title = gtk_label_new("u Studio Video Editor");
+        gtk_widget_add_css_class(title, "title-1");
+        gtk_box_append(GTK_BOX(box), title);
+    }
 
     GtkWidget *version = gtk_label_new("Version " USTUDIO_VERSION);
     gtk_widget_add_css_class(version, "dim-label");
     gtk_box_append(GTK_BOX(box), version);
 
-    // Verbatim from data/com.ustudio.VideoEditor.metainfo.xml's <summary>
-    // -- one source of truth for the app's own self-description.
-    GtkWidget *summary = gtk_label_new("Non-linear video editor built on GTK4, libadwaita and MLT");
-    gtk_label_set_wrap(GTK_LABEL(summary), TRUE);
-    gtk_label_set_justify(GTK_LABEL(summary), GTK_JUSTIFY_CENTER);
-    gtk_widget_set_margin_top(summary, 12);
-    gtk_box_append(GTK_BOX(box), summary);
-
-    GtkWidget *license = gtk_label_new("GPL-3.0-or-later");
-    gtk_widget_add_css_class(license, "dim-label");
-    gtk_widget_set_margin_top(license, 12);
-    gtk_box_append(GTK_BOX(box), license);
+    auto paragraph = [&](const std::string &markup, int top, bool dim) {
+        GtkWidget *label = gtk_label_new(nullptr);
+        gtk_label_set_markup(GTK_LABEL(label), markup.c_str());
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);
+        gtk_label_set_max_width_chars(GTK_LABEL(label), 60);
+        gtk_widget_set_margin_top(label, top);
+        if (dim)
+            gtk_widget_add_css_class(label, "dim-label");
+        gtk_box_append(GTK_BOX(box), label);
+    };
+    auto link = [](const char *url, const char *text) {
+        return std::string("<a href=\"") + url + "\">" + text + "</a>";
+    };
+    paragraph("A GNOME-native multi-track video editor built on GTK4, libadwaita and MLT, made for "
+              "livestream and promo editing. It is fast, and it never uses the network.",
+              14, false);
+    paragraph(std::string("Part of ") + link(links::kProjectUrl, links::kProjectName) + ".", 8, false);
+    paragraph(link(links::kSourceUrl, "Source code") + " · " + link(links::kLicenseUrl, "MIT licence"), 8, false);
+    paragraph("The Flatpak also bundles FFmpeg and x264, which are GPL-licensed.", 8, true);
 
     // For bug reports (0.49.0-beta.2).
     GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);

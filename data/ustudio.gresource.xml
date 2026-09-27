@@ -3,5 +3,6 @@
   <gresource prefix="/com/ustudio/VideoEditor">
     <file compressed="true">style.css</file>
     <file compressed="true">com.ustudio.VideoEditor.metainfo.xml</file>
+    <file compressed="true">logos/u-stu-video-editor-full.svg</file>
   </gresource>
 </gresources>
