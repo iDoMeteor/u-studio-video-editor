@@ -60,8 +60,13 @@ ProxyQueue::ProxyQueue(std::unique_ptr<Launcher> launcher, std::string toolPath,
 
 std::vector<std::string> ProxyQueue::commandFor(const Job &job) const
 {
-    return {m_toolPath, "--proxy",    job.source, job.output, "--height", std::to_string(job.height),
-            "--fps",    rate(job.fps)};
+    std::vector<std::string> argv{m_toolPath, "--proxy", job.source,   job.output,
+                                  "--height",  std::to_string(job.height), "--fps", rate(job.fps)};
+    if (job.sequenceCount > 0) {
+        argv.push_back("--sequence");
+        argv.push_back(std::to_string(job.sequenceBegin) + ":" + std::to_string(job.sequenceCount));
+    }
+    return argv;
 }
 
 void ProxyQueue::add(Job job)

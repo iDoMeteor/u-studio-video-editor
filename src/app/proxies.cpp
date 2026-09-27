@@ -26,7 +26,7 @@ constexpr const char *kProxySetting = "proxies"; // Project::settings: "always" 
 
 bool proxyable(const core::Asset &asset)
 {
-    return asset.info.hasVideo && !asset.info.isStillImage && !asset.info.isImageSequence && asset.status != core::Asset::Status::Missing &&
+    return asset.info.hasVideo && !asset.info.isStillImage && asset.status != core::Asset::Status::Missing &&
            asset.info.height > 0;
 }
 
@@ -124,8 +124,13 @@ void AppWindow::createProxies(const std::vector<core::AssetId> &assets, int heig
         if (!m_model.hasAsset(id) || !proxyable(m_model.asset(id)))
             continue;
         const core::Asset &asset = m_model.asset(id);
-        m_proxyQueue->add({id, asset.path, proxyPathFor(asset.fileFingerprint, asset.path, height), height,
-                           m_model.sequence().profile.fps});
+        ProxyQueue::Job job{id, asset.path, proxyPathFor(asset.fileFingerprint, asset.path, height), height,
+                            m_model.sequence().profile.fps};
+        if (asset.info.isImageSequence) {
+            job.sequenceBegin = asset.info.sequenceBegin;
+            job.sequenceCount = static_cast<int>(asset.info.lengthInSequenceFrames);
+        }
+        m_proxyQueue->add(std::move(job));
         ++queued;
     }
     if (queued > 0)

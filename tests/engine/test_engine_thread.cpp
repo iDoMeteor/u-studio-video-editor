@@ -201,10 +201,20 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
     int rebuilds = 0;
     engine.rebuilt.connect([&] { ++rebuilds; });
     REQUIRE(engine.syncForTesting());
-    rebuilds = 0;
 
     TrackId track = model.sequence().tracks.front().id;
     AssetId asset = model.project().bin.front().id;
+    // One build's time on this machine, under whatever load it has now:
+    // the yardstick below. Fixed limits (50 ms) failed on a loaded machine
+    // (2026-09-27, two runs beside a Flatpak build), where a descheduled
+    // main thread is slow without waiting on anything.
+    model.insertClip(track, asset, 29'000, 0, 9);
+    const auto buildStart = std::chrono::steady_clock::now();
+    engine.publish(model.snapshot());
+    REQUIRE(engine.syncForTesting());
+    const double buildMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - buildStart).count();
+    rebuilds = 0;
     double slowestCallMs = 0;
     std::vector<double> callMs;
     for (int i = 0; i < 20; ++i) {
@@ -222,6 +232,7 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
     CAPTURE(rebuilds);
     CAPTURE(slowestCallMs);
     CAPTURE(medianCallMs);
+    CAPTURE(buildMs);
     // Each publish is followed by a seek, so snapshots don't sit next to
     // each other in the queue: the burst collapses only where the engine
     // fell behind. It must never take more builds than edits.
@@ -229,16 +240,18 @@ TEST_CASE("Engine: a burst of snapshots is latest-wins, and the main thread neve
     CHECK(rebuilds <= 20);
     CHECK(engine.totalFrames() == 30'000 + 19 * 10 + 10);
     // The question is whether a call ever waits on a build: that would take
-    // as long as the build (well over 100 ms at 2,000 clips). A call is a
-    // queue append, so the typical one is far under a millisecond; under
-    // heavy load a descheduled main thread can still stretch one (18 ms,
-    // once in 16 runs alongside both sanitizer suites), which isn't waiting.
+    // at least as long as a build (buildMs, measured above under the same
+    // load; well over 100 ms at 2,000 clips on an idle machine). A call is
+    // a queue append, so the typical one is far under a millisecond; under
+    // heavy load a descheduled main thread stretches some calls (18 ms once
+    // in 16 runs beside both sanitizer suites), which isn't waiting, so the
+    // limits scale with the build rather than being fixed.
     if (kSanitized) {
         MESSAGE("sanitizer build: publish+seek median " << medianCallMs << " ms, slowest " << slowestCallMs
                                                         << " ms, reported, not checked");
     } else {
-        CHECK(medianCallMs < 1.0);
-        CHECK(slowestCallMs < 50.0);
+        CHECK(medianCallMs < std::max(1.0, buildMs / 20));
+        CHECK(slowestCallMs < buildMs / 2);
     }
 
     // Back to back with nothing between, twenty publishes collapse to at

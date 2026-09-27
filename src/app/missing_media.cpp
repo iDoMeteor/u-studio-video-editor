@@ -7,6 +7,8 @@
 
 #include "app_window.h"
 
+#include "core/media/image_sequence.h"
+
 #include "core/commands/composite_command.h"
 #include "core/commands/primitives.h"
 #include "core/log.h"
@@ -17,6 +19,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <map>
+#include <set>
 
 namespace ustudio::app {
 
@@ -210,7 +213,11 @@ void AppWindow::searchFolderForMissing(const std::string &folder)
     std::vector<Wanted> wanted;
     for (core::AssetId id : missingAssets(false)) {
         const core::Asset &asset = m_model.asset(id);
-        wanted.push_back({id, fileNameOf(asset.path), asset.fileFingerprint});
+        // An image sequence is looked for by its first file (M4 E).
+        const std::string file = asset.info.isImageSequence
+                                     ? core::imageSequenceFile(asset.path, asset.info.sequenceBegin)
+                                     : asset.path;
+        wanted.push_back({id, fileNameOf(file), asset.fileFingerprint});
     }
     if (wanted.empty())
         return;
@@ -254,14 +261,36 @@ void AppWindow::relinkTo(std::vector<std::pair<core::AssetId, std::string>> cand
         core::AssetId id;
         std::string path, fingerprint;
         engine::EngineSync::ProbedMedia probed;
+        std::optional<int> sequenceBegin; // an image sequence (M4 E): its first file number
+        bool notASequence = false;
     };
+    std::set<uint64_t> sequences;
+    for (const auto &[id, path] : candidates)
+        if (m_model.hasAsset(id) && m_model.asset(id).info.isImageSequence)
+            sequences.insert(id.value);
     const uint64_t generation = m_projectGeneration;
-    m_pool->submit([this, candidates = std::move(candidates), profile = m_model.sequence().profile, generation,
-                    token = std::weak_ptr<void>(m_lifetime)](std::stop_token) {
+    m_pool->submit([this, candidates = std::move(candidates), sequences, profile = m_model.sequence().profile,
+                    generation, token = std::weak_ptr<void>(m_lifetime)](std::stop_token) {
         std::vector<Checked> checked;
-        for (const auto &[id, path] : candidates)
-            checked.push_back(
-                {id, path, core::fileFingerprint(path), engine::EngineSync::probeMediaFile(profile, path)});
+        for (const auto &[id, path] : candidates) {
+            if (!sequences.contains(id.value)) {
+                checked.push_back(
+                    {id, path, core::fileFingerprint(path), engine::EngineSync::probeMediaFile(profile, path), {}, false});
+                continue;
+            }
+            // A sequence: any of its files was picked (or its first found).
+            const std::optional<core::ImageSequence> sequence = core::findImageSequence(path);
+            if (!sequence) {
+                checked.push_back({id, path, {}, {}, {}, true});
+                continue;
+            }
+            const std::string first = core::imageSequenceFile(sequence->pattern, sequence->begin);
+            engine::EngineSync::ProbedMedia probed = engine::EngineSync::probeMediaFile(profile, first);
+            if (probed.length > 0)
+                probed.length = sequence->count; // one frame per file
+            probed.isStillImage = false;
+            checked.push_back({id, sequence->pattern, core::fileFingerprint(first), probed, sequence->begin, false});
+        }
         engine::MainThreadDispatcher::post(token, [this, checked = std::move(checked), generation] {
             if (generation != m_projectGeneration)
                 return; // another project now
@@ -275,6 +304,10 @@ void AppWindow::relinkTo(std::vector<std::pair<core::AssetId, std::string>> cand
                     continue;
                 const core::Asset &asset = m_model.asset(check.id);
                 const std::string name = fileNameOf(check.path);
+                if (check.notASequence) {
+                    problems.push_back(name + " isn't part of a numbered image sequence");
+                    continue;
+                }
                 if (check.probed.length <= 0) {
                     problems.push_back(name + " can't be opened");
                     continue;
@@ -291,7 +324,8 @@ void AppWindow::relinkTo(std::vector<std::pair<core::AssetId, std::string>> cand
                 }
                 if (!asset.proxyPath.empty() && asset.fileFingerprint != check.fingerprint)
                     staleProxies.push_back(check.id);
-                steps.push_back(std::make_unique<core::RelinkAsset>(check.id, check.path, check.fingerprint));
+                steps.push_back(
+                    std::make_unique<core::RelinkAsset>(check.id, check.path, check.fingerprint, check.sequenceBegin));
             }
             const size_t relinked = steps.size();
             if (relinked > 0 &&
