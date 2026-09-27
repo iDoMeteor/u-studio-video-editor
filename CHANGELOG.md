@@ -5,6 +5,14 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.60.0-beta.1
+
+- GPU acceleration (Settings › Performance › Hardware, on by default where a
+  startup check passes): the preview composites tracks and places clips on
+  the graphics card, so several moved or scaled 1080p tracks play smoothly
+  at full size; soft edges and dissolves blend in linear light. Hardware
+  video decoding is used alongside it. Exports still use the processor.
+
 ## 0.59.1-beta.1
 
 - Single-key shortcuts (Space, J/K/L, X, Delete, letters) no longer fire
