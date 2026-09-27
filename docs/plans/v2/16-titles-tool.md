@@ -376,11 +376,11 @@ Acceptance:
       and letters into the inspector's text and the canvas text box).
 - [x] The canvas background can be any colour, and the choice is
       remembered.
-- [ ] A title with no background composites over coloured video with clean
+- [x] A title with no background composites over coloured video with clean
       anti-aliased edges (no dark fringes); one with a background covers the
-      frame. Blocked on the engine: any source with alpha fringes dark at
-      its edges today, PNG stills included (reported to VE Core; the test
-      is `titles-engine`'s may_fail case).
+      frame. Fixed in the engine by VE Core (9b3ddd2: composite's 4:2:2
+      blend gave each pixel of a pair its own alpha); `titles-engine`'s
+      fringe case now must pass.
 - [x] A title exports as a PNG sequence and as an alpha video that `ffprobe`
       reports with an alpha plane, and flattened as H.264 (2026-09-27:
       ProRes 4444 `yuva444p12le`, QuickTime Animation `argb`, VP9
