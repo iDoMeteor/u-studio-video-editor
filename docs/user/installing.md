@@ -2,7 +2,7 @@
 
 [Docs home](../README.md) › [User guide](README.md) › Installing
 
-u Studio ships as a Flatpak bundle. It runs on any Linux distribution with
+U Stu ships as a Flatpak bundle. It runs on any Linux distribution with
 Flatpak. It's tested on Fedora 44 and made for Linux Mint 22.
 
 ## Install
@@ -20,7 +20,7 @@ flatpak run com.ustudio.VideoEditor
 ```
 
 The first install also downloads the GNOME runtime, about 450 MB. After
-that, u Studio shows up in your app menu.
+that, U Stu shows up in your app menu.
 
 On **Linux Mint** you can double-click the downloaded file instead, and it
 opens in Software Manager.

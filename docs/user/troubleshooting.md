@@ -32,7 +32,7 @@ A conformed proxy also fixes phone recordings with a variable frame rate.
   strip says "Muted").
 - Check that the clip has sound: an audio-less video clip has no
   waveform.
-- u Studio plays through PipeWire or PulseAudio. Check that the right
+- U Stu plays through PipeWire or PulseAudio. Check that the right
   output device is selected in your system's sound settings.
 
 ### Clips are red and striped
