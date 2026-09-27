@@ -39,6 +39,8 @@ LogLevel level();
 // Where the log files go: $XDG_STATE_HOME/ustudio/logs (Help's Open Log
 // Folder). Whether or not init() could create it.
 std::filesystem::path directory();
+// This run's log file, or empty if none could be opened.
+std::filesystem::path currentFile();
 // The last `count` lines written (at most 200 are kept), oldest first:
 // Help's Copy Diagnostics.
 std::vector<std::string> recentLines(size_t count);

@@ -41,4 +41,5 @@ TEST_CASE("diagnostics: the log keeps its last lines, oldest first, at most 200"
     CHECK(last.back().ends_with("[test] line 249"));
     CHECK(core::Log::recentLines(1000).size() == 200);
     CHECK_FALSE(core::Log::directory().empty());
+    CHECK(core::Log::currentFile().empty()); // init() wasn't called: no file to show
 }
