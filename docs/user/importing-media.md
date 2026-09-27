@@ -36,8 +36,10 @@ numbered too and shouldn't turn into a clip by themselves.
 - The media browser names it with its range, `frame_[0001-0030].png`, and
   marks it **SEQUENCE**.
 - If its first image is moved or deleted it shows as missing, like any
-  file. Relinking a sequence isn't supported yet: import it again.
-- Sequences don't get proxies.
+  file. Relink it like any missing file: pick any image of the sequence in
+  its new place (or let **Search a Folder** find its first image). It may
+  be numbered from somewhere else now, as long as it has enough images.
+- Sequences get proxies like video (right-click › Create Proxy).
 - Limits: images are loaded through GTK's image loaders (gdk-pixbuf); if
   those can't open a format, the frames stay blank. A sequence whose
   numbers start above 100 may show no thumbnail in the media browser

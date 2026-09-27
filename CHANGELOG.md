@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.52.0-beta.1
+
+- Image sequences can be relinked (pick any of their images, or search a
+  folder) and get proxies.
+
 ## 0.51.0-beta.3
 
 - Open Log Folder opens the folder the first time too, with this

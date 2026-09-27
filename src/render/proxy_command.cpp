@@ -51,12 +51,23 @@ int usage(std::ostream &out, const std::string &why)
 {
     out << R"({"status":"error","message":")"
         << jsonEscape("usage: --proxy <source> <output> [--height N] "
-                      "[--fps n/d] [--threads N]: " +
+                      "[--fps n/d] [--sequence BEGIN:COUNT] [--threads N]: " +
                       why)
         << "\"}\n";
     return 2;
 }
 
+} // namespace
+
+namespace {
+// "BEGIN:COUNT": an image sequence's first file number and file count.
+bool parseSequence(const std::string &value, engine::ProxyRequest &request)
+{
+    const size_t colon = value.find(':');
+    return colon != std::string::npos && parseInt(value.substr(0, colon), request.sequenceBegin) &&
+           parseInt(value.substr(colon + 1), request.sequenceCount) && request.sequenceBegin >= 0 &&
+           request.sequenceCount > 0;
+}
 } // namespace
 
 dropins::RenderSubcommand proxySubcommand(const std::atomic<bool> *cancel)
@@ -74,6 +85,7 @@ dropins::RenderSubcommand proxySubcommand(const std::atomic<bool> *cancel)
                     const std::string &name = args[i], &value = args[i + 1];
                     const bool ok = name == "--height" ? parseInt(value, request.height) && request.height >= 0
                                     : name == "--fps"  ? parseRate(value, request.fps)
+                                    : name == "--sequence" ? parseSequence(value, request)
                                     : name == "--threads"
                                         ? parseInt(value, request.threadBudget) && request.threadBudget >= 0
                                         : false;
