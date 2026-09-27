@@ -71,14 +71,21 @@ Transform explicitTransform(const Transform &t, int sourceWidth, int sourceHeigh
 bool isIdentity(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile)
 {
     // The track compositor (composite, fill=1) scales a picture of the
-    // frame's aspect to fill it, so Fit or Stretch of one is no filter; any
-    // other aspect is fitted by the affine filter (composite would leave it
-    // at the left). Unknown sizes (not probed yet) count as matching.
+    // frame's aspect to fill it, so Fit or Stretch of one is no filter. It
+    // keeps another aspect's shape, so Stretch of one needs the affine
+    // filter (Fit may not: compositorFits()). Unknown sizes (not probed yet)
+    // count as matching.
     const bool sameAspect = sourceWidth <= 0 || sourceHeight <= 0 || profile.width <= 0 || profile.height <= 0 ||
                             std::abs(static_cast<long long>(sourceWidth) * profile.height -
                                      static_cast<long long>(sourceHeight) * profile.width) <=
                                 static_cast<long long>(std::max(profile.width, profile.height));
     return t.bounds != Transform::Bounds::None && sameAspect && !t.flipH && !t.flipV && t.rotation.value == 0.0 &&
+           t.cropLeft.value == 0.0 && t.cropTop.value == 0.0 && t.cropRight.value == 0.0 && t.cropBottom.value == 0.0;
+}
+
+bool compositorFits(const Transform &t)
+{
+    return t.bounds == Transform::Bounds::Fit && !t.flipH && !t.flipV && t.rotation.value == 0.0 &&
            t.cropLeft.value == 0.0 && t.cropTop.value == 0.0 && t.cropRight.value == 0.0 && t.cropBottom.value == 0.0;
 }
 

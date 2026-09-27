@@ -160,15 +160,17 @@ std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 }
 } // namespace
 
-EngineSync::EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale)
+EngineSync::EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale, FrameReads reads,
+                       OutputSize outputSize)
     : m_extensions(createEngineExtensions()), m_project(std::move(project)), m_model(*m_project),
-      m_previewScale(previewScale)
+      m_previewScale(previewScale), m_reads(reads), m_outputSize(outputSize)
 {
     applyProfile();
     rebuildAll();
 }
 
-EngineSync::EngineSync(const core::Model &model, PreviewScale previewScale) : EngineSync(model.snapshot(), previewScale)
+EngineSync::EngineSync(const core::Model &model, PreviewScale previewScale, FrameReads reads, OutputSize outputSize)
+    : EngineSync(model.snapshot(), previewScale, reads, outputSize)
 {}
 
 EngineSync::~EngineSync() = default;
@@ -333,6 +335,10 @@ void EngineSync::applyProfile()
         };
         m_profile->set_width(scaled(sequenceProfile.width));
         m_profile->set_height(scaled(sequenceProfile.height));
+    }
+    if (m_outputSize.width > 0 && m_outputSize.height > 0) {
+        m_profile->set_width(m_outputSize.width);
+        m_profile->set_height(m_outputSize.height);
     }
     Log::debug("[engine] playback profile " + std::to_string(m_profile->width()) + "x" +
                std::to_string(m_profile->height()) + " (preview factor " + std::to_string(m_previewFactor) + ")");
@@ -626,20 +632,32 @@ double EngineSync::sourceScale(const core::Clip &clip)
     return sourceWidth > 0 && playing > 0 ? static_cast<double>(playing) / sourceWidth : 1.0;
 }
 
-void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip)
+bool EngineSync::compositorFits(const core::Clip &clip, bool inDissolve) const
+{
+    return m_reads == FrameReads::ProfileSize && !inDissolve && core::compositorFits(clip.transform.get());
+}
+
+void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve)
 {
     if (!m_model.hasAsset(clip.asset))
         return;
     const core::MediaInfo &info = m_model.asset(clip.asset).info;
-    const std::vector<core::NativeFilter> natives = core::transformFilters(
-        clip.transform.get(), info.width, info.height, m_model.sequence().profile, outputScale(), sourceScale(clip));
-    if (natives.empty())
-        return; // identity: the track compositor scales it to the frame
+    // Empty when the track compositor places the picture by itself.
+    const std::vector<core::NativeFilter> natives =
+        compositorFits(clip, inDissolve)
+            ? std::vector<core::NativeFilter>{}
+            : core::transformFilters(clip.transform.get(), info.width, info.height, m_model.sequence().profile,
+                                     outputScale(), sourceScale(clip));
+    // Every cut is recorded, filtered or not: a clip's own cuts and its
+    // dissolve cuts can differ (compositorFits()), and applyTransformsInPlace()
+    // may only update a clip whose cuts all share one shape.
+    std::string shape;
+    for (const core::NativeFilter &native : natives)
+        shape += native.service + ";";
     TransformFilters &kept = m_transformFilters[clip.id.value];
-    kept.shape.clear();
+    kept.shape = kept.cuts.empty() || kept.shape == shape ? shape : std::string(kMixedShape);
     std::vector<std::shared_ptr<Mlt::Filter>> filters;
     for (const core::NativeFilter &native : natives) {
-        kept.shape += native.service + ";";
         auto filter = std::make_shared<Mlt::Filter>(*m_profile, native.service.c_str());
         for (const auto &[name, value] : native.properties)
             filter->set(name.c_str(), value.c_str());
@@ -691,8 +709,12 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
         if (before.transform == clip.transform)
             continue;
         const core::MediaInfo &info = m_model.asset(clip.asset).info;
-        const std::vector<core::NativeFilter> natives = core::transformFilters(
-            clip.transform.get(), info.width, info.height, profile, outputScale(), sourceScale(clip));
+        // As applyTransform() builds a clip's own cuts; a clip with dissolve
+        // cuts of another shape is kMixedShape and rebuilds.
+        const std::vector<core::NativeFilter> natives =
+            compositorFits(clip, false) ? std::vector<core::NativeFilter>{}
+                                        : core::transformFilters(clip.transform.get(), info.width, info.height, profile,
+                                                                 outputScale(), sourceScale(clip));
         std::string shape;
         for (const core::NativeFilter &native : natives)
             shape += native.service + ";";
@@ -700,11 +722,13 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
         const std::string keptShape = kept == m_transformFilters.end() ? std::string() : kept->second.shape;
         if (shape != keptShape)
             return false; // filters to add or remove (identity <-> placed, a flip): rebuild
+        changed = true;
+        if (kept == m_transformFilters.end())
+            continue; // no cut in the graph, nothing to update
         for (const auto &filters : kept->second.cuts)
             for (size_t i = 0; i < natives.size() && i < filters.size(); ++i)
                 for (const auto &[name, value] : natives[i].properties)
                     filters[i]->set(name.c_str(), value.c_str());
-        changed = true;
     }
     if (changed)
         Log::debug("[engine] clip transforms applied in place");
@@ -727,13 +751,13 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     std::unique_ptr<Mlt::Producer> tailA(
         masterA.cut(static_cast<int>(clipA.out - t.length + 1), static_cast<int>(clipA.out)));
     decorateCut(*tailA, clipA, clipA.out - t.length + 1, clipA.out);
-    applyTransform(*tailA, clipA);
+    applyTransform(*tailA, clipA, true);
 
     Mlt::Producer &masterB = producerForClip(clipB);
     std::unique_ptr<Mlt::Producer> headB(
         masterB.cut(static_cast<int>(clipB.in), static_cast<int>(clipB.in + t.length - 1)));
     decorateCut(*headB, clipB, clipB.in, clipB.in + t.length - 1);
-    applyTransform(*headB, clipB);
+    applyTransform(*headB, clipB, true);
 
     // IP3: a drop-in's recipe (wipes, motion; FX3) builds the whole segment.
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
@@ -986,8 +1010,17 @@ void EngineSync::rebuildAll()
             // itself but cost 21 ms a frame for one untransformed 1080p track
             // against composite's 5 (39 against 7 for four). Standalone
             // repros, MLT 7.40, 2026-09-25; docs/developer/notes/engine-sync.md.
+            // Centred (the YAML's values; defaults left/top) when frames are
+            // read at the profile's size (FrameReads), so a plain Fit of
+            // another aspect needs no affine filter: 20 ms a frame against
+            // 63 for a 1344x768 source in 1080p, the edges within a pixel
+            // (standalone repro, 2026-09-27).
             Mlt::Transition composite(*m_profile, "composite");
             composite.set("fill", 1);
+            if (m_reads == FrameReads::ProfileSize) {
+                composite.set("halign", "centre");
+                composite.set("valign", "middle");
+            }
             field->plant_transition(composite, 0, index);
         }
 
@@ -1250,7 +1283,25 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
         }
     }
     core::Model &renderModel = retimed ? *retimed : model;
-    EngineSync renderSync(renderModel); // its own Profile/Tractor, independent of any live one
+    // Its own Profile/Tractor, independent of any live one. An export at
+    // another size is built at that size, so frames are read at the
+    // profile's (FrameReads): read smaller, composite's alignment and the
+    // affine filter's rect, both in profile pixels, came out wrong (a Fit
+    // or placed picture ran to the right edge of a 720p export of a 1080p
+    // project; tests/engine/test_transform, 2026-09-27). A non-square-pixel
+    // sequence keeps the consumer's scaling: its export changes the pixel
+    // shape, which one outputScale() can't express.
+    const core::EncoderSettings settings =
+        core::encoderSettings(profile, renderModel.sequence().profile, h264Encoder() == "libx264");
+    const core::Profile &sequenceProfile = renderModel.sequence().profile;
+    const bool resized = settings.width > 0 && settings.height > 0 &&
+                         (settings.width != sequenceProfile.width || settings.height != sequenceProfile.height);
+    const bool squarePixels = sequenceProfile.sar.num == sequenceProfile.sar.den;
+    EngineSync renderSync(renderModel, PreviewScale::Full,
+                          !resized || squarePixels ? EngineSync::FrameReads::ProfileSize
+                                                   : EngineSync::FrameReads::AnySize,
+                          resized && squarePixels ? EngineSync::OutputSize{settings.width, settings.height}
+                                                  : EngineSync::OutputSize{0, 0});
 
     // Audit A6: render to a "<path>.part" sibling and rename into place
     // only on success, matching CLAUDE.md's "renders... written to an
@@ -1288,8 +1339,6 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // the profile -- scale the output. "frame_rate_num/den" only relabel
     // the stream's rate (60 frames at 60 fps played 1 s, not 2), so the
     // output always keeps the project's frame rate.
-    const core::EncoderSettings settings =
-        core::encoderSettings(profile, renderModel.sequence().profile, h264Encoder() == "libx264");
     if (settings.width > 0 && settings.height > 0) {
         consumer.set("width", settings.width);
         consumer.set("height", settings.height);

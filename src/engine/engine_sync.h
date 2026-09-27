@@ -67,8 +67,33 @@ class EngineSync
     // batch of edits is one snapshot and one rebuild, and the graph can be
     // built on another thread. The Model overload takes model.snapshot()
     // once, for callers (render, tests) that build a graph of one state.
-    explicit EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale = PreviewScale::Full);
-    explicit EngineSync(const core::Model &model, PreviewScale previewScale = PreviewScale::Full);
+    //
+    // `reads` says at what size the graph's frames are read. ProfileSize
+    // (playback, a render at the sequence's size) lets the track compositor
+    // centre a Fit picture of another aspect by itself, skipping its affine
+    // filter (core::compositorFits()). composite's alignment is right only
+    // for frames read at the profile's own size: at any other it shifts the
+    // picture right by the difference, a frame-sized one too (MLT 7.40:
+    // get_image aligns item.w, in profile pixels, against the B image's
+    // width in requested pixels; standalone repro 2026-09-27). AnySize, the
+    // default, keeps every compositor left-aligned and fits with affine.
+    enum class FrameReads
+    {
+        AnySize,
+        ProfileSize,
+    };
+    // An export's own frame size, which the graph is built at (as a scaled
+    // preview is), so its frames are still read at the profile's size.
+    // Square-pixel sequences only; 0x0 is the sequence's size.
+    struct OutputSize
+    {
+        int width;
+        int height;
+    };
+    explicit EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale = PreviewScale::Full,
+                        FrameReads reads = FrameReads::AnySize, OutputSize outputSize = {0, 0});
+    explicit EngineSync(const core::Model &model, PreviewScale previewScale = PreviewScale::Full,
+                        FrameReads reads = FrameReads::AnySize, OutputSize outputSize = {0, 0});
     ~EngineSync();
 
     // A new state of the same project. Rebuilds unless nothing the graph is
@@ -253,6 +278,9 @@ class EngineSync
     std::unique_ptr<Mlt::Profile> m_profile;
     std::shared_ptr<Mlt::Tractor> m_tractor;
     PreviewScale m_previewScale = PreviewScale::Full;
+    FrameReads m_reads = FrameReads::AnySize;
+    OutputSize m_outputSize{0, 0};
+    bool compositorFits(const core::Clip &clip, bool inDissolve) const;
     double m_previewFactor = 1.0;
     // Keyed by AssetId::value plus the clip's two stream switches (see
     // masterProducerFor()).
@@ -280,7 +308,8 @@ class EngineSync
     // One transparent background for every transform filter (see
     // applyTransform()), built from the current profile.
     std::unique_ptr<Mlt::Producer> m_transformBackground;
-    void applyTransform(Mlt::Producer &cut, const core::Clip &clip);
+    static constexpr const char *kMixedShape = "mixed"; // cuts of different shapes: never updated in place
+    void applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve = false);
     bool applyTransformsInPlace(const core::Project &next);
     // Output pixels per project pixel, and the playing file's pixels per
     // source pixel (a proxy is smaller).

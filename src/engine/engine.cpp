@@ -90,7 +90,8 @@ class Engine::Thread
         pthread_setname_np(pthread_self(), "ustudio-engine");
         {
             core::trace::Scope trace("engine: start");
-            sync = std::make_unique<EngineSync>(std::move(project), scale);
+            // Its frames are read only by the consumer, at the profile's size.
+            sync = std::make_unique<EngineSync>(std::move(project), scale, EngineSync::FrameReads::ProfileSize);
             controller = std::make_unique<PlaybackController>();
             // The consumer thread's frame hand-off lands here, not on the
             // main thread: its loop wrap seeks the tractor, which only this

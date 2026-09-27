@@ -12,6 +12,13 @@ docs-only changes are not listed (CLAUDE.md).
   is selected. The Unicorn Tears colours, gradients and fonts are one
   click away, and Apply Brand restyles a whole title.
 
+## 0.54.0-beta.2
+
+- Clips of another shape than the project (4:3, phone video) play much
+  faster at their default Fit.
+- Exporting at another size (e.g. 720p from a 1080p project) places moved,
+  scaled and fitted pictures correctly; they used to run off to the right.
+
 ## 0.54.0-beta.1
 
 - U Stu Titles, the title designer (with the Titles drop-in; early): add
