@@ -49,6 +49,9 @@ class TitlesWindow
     void chooseBackdropImage();
     // A PNG for a new picture layer, or for `replaceId`'s.
     void choosePicture(const std::optional<std::string> &replaceId);
+    // Export (T2d): the format and length, then where.
+    void showExportDialog();
+    void chooseExportPath(const std::string &format, double seconds);
     std::string pictureSource(const std::string &path) const;
     // Typing on the canvas: a text box over the layer, in its font.
     void editTextOnCanvas(const std::string &id);
@@ -69,6 +72,8 @@ class TitlesWindow
     GtkWidget *m_textEditor = nullptr;
     std::string m_textEditId;
     guint m_finishIdle = 0;
+    // Cancelled when the window goes, so an export finishing later is dropped.
+    GCancellable *m_cancellable = nullptr;
     std::unique_ptr<TitleCanvas> m_canvas;
     std::unique_ptr<LayersPanel> m_layers;
     std::unique_ptr<Inspector> m_inspector;
@@ -82,6 +87,7 @@ class TitlesWindow
     static gboolean onCloseRequest(GtkWindow *, gpointer self);
     static void onAction(GSimpleAction *action, GVariant *parameter, gpointer self);
     static void onDestroy(GtkWidget *, gpointer self);
+    static void onExportChosen(GtkButton *, gpointer data);
     static gboolean onTextEditorKey(GtkEventControllerKey *, guint keyval, guint, GdkModifierType state, gpointer self);
     static void onTextEditorFocusLeave(GtkEventControllerFocus *, gpointer self);
     static void onTextEditorChanged(GtkTextBuffer *buffer, gpointer);

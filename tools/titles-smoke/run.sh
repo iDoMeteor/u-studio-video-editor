@@ -7,8 +7,10 @@
 #
 #   tools/titles-smoke/run.sh <builddir> <outdir>
 #
-# Needs Xvfb, python3 with gi (Atspi) and python-xlib, ImageMagick's
-# `import`, and the AT-SPI bus. Exit status 0 when every check passes.
+# Then exports it with alpha (ProRes 4444) through the Export dialog and
+# checks the file with ffprobe. Needs Xvfb, python3 with gi (Atspi) and
+# python-xlib, ImageMagick's `import`, ffprobe, the AT-SPI bus, and the
+# build's u-studio-render. Exit status 0 when every check passes.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 BUILD=$(realpath "${1:?usage: run.sh <builddir> <outdir>}")

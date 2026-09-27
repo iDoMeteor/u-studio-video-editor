@@ -76,6 +76,7 @@ it). Typing in a text box never triggers them.
 | `Ctrl+N` | New title (in a new window) |
 | `Ctrl+O` | Open a title |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
+| `Ctrl+E` | Export the title on its own (with alpha, or flattened) |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo |
 | `Ctrl+T` | Add text |
 | `Ctrl+Shift+R` | Add a rounded rectangle |

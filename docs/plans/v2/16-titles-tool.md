@@ -381,8 +381,11 @@ Acceptance:
       frame. Blocked on the engine: any source with alpha fringes dark at
       its edges today, PNG stills included (reported to VE Core; the test
       is `titles-engine`'s may_fail case).
-- [ ] A title exports as a PNG sequence and as an alpha video that `ffprobe`
-      reports with an alpha plane, and flattened as H.264.
+- [x] A title exports as a PNG sequence and as an alpha video that `ffprobe`
+      reports with an alpha plane, and flattened as H.264 (2026-09-27:
+      ProRes 4444 `yuva444p12le`, QuickTime Animation `argb`, VP9
+      `alpha_mode=1`, PNG `rgba`; decoded back, a 92% bar reads 0.92 and an
+      empty corner 0; the smoke test exports through the dialog).
 
 > REVIEW: VE Text, 2026-09-27: T2a as built. (1) Undo keeps whole
 > documents (`TitleHistory`), not inverse commands: a title is a few
@@ -421,6 +424,18 @@ Acceptance:
 > `ustudio_title` producer honours `video_index=-1` for that. (4) The
 > designer is found next to the editor (one bundle in the Flatpak), else
 > the build tree, else PATH, and started with GSubprocess.
+
+> REVIEW: VE Text, 2026-09-27: T2d as built. (1) Export is
+> `u-studio-render --title-export` (IP6), run by the designer in a child
+> process: the designer stays MLT-free. (2) Alpha formats take the
+> `ustudio_title` producer's frames straight to the encoder with no
+> compositing, so the alpha is the renderer's own; H.264 is flattened by the
+> producer drawing the background itself (its `background` property), not
+> by a compositor. (3) Formats: ProRes 4444 (`prores_ks`, `vprofile=4`,
+> `yuva444p10le`), VP9 (`yuva420p`, `auto-alt-ref=0`), QuickTime Animation
+> (`argb`), PNG (`rgba`), H.264 (`libx264`, `yuv420p`, CRF 18). (4) Export
+> Title… in the editor isn't done: it's the same subcommand, so it's cheap,
+> but it waits for T4's clip workflow.
 
 ### T3 — Animation (about 2 weeks)
 

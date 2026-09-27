@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.58.0-beta.1
+
+- U Stu Titles: Export (Ctrl+E) a title on its own for OBS and other apps:
+  ProRes 4444, WebM VP9 or QuickTime Animation with a transparent
+  background, a PNG sequence, or H.264 on its background.
+
 ## 0.57.0-beta.1
 
 - U Stu Titles: double-click text to type on the canvas; picture (PNG)

@@ -29,7 +29,8 @@ if get_option('render_tool')
 endif
 titles_test_engine = executable(
   'test_titles_engine',
-  files('test_engine.cpp', '../engine/backdrop.cpp', '../engine/title_extension.cpp', '../engine/title_frames.cpp'),
+  files('test_engine.cpp', '../engine/backdrop.cpp', '../engine/title_export.cpp', '../engine/title_extension.cpp',
+        '../engine/title_frames.cpp'),
   cpp_args: titles_engine_args,
   include_directories: [src_inc, titles_inc],
   dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, glib_dep],
@@ -66,3 +67,14 @@ titles_test_worker = executable(
   install: false,
 )
 test('titles-worker', titles_test_worker)
+
+# The packaging drafts stay valid (when the validators are installed).
+desktop_file_validate = find_program('desktop-file-validate', required: false)
+if desktop_file_validate.found()
+  test('titles-desktop-file', desktop_file_validate, args: [meson.current_source_dir() / '..' / 'data' / 'com.ustudio.Titles.desktop'])
+endif
+appstreamcli = find_program('appstreamcli', required: false)
+if appstreamcli.found()
+  test('titles-metainfo', appstreamcli,
+       args: ['validate', '--no-net', meson.current_source_dir() / '..' / 'data' / 'com.ustudio.Titles.metainfo.xml'])
+endif

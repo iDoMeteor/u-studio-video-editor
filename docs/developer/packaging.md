@@ -196,6 +196,15 @@ MLT module in the installed directory, so a package that moves it must keep
 that path, or it falls back to the build tree's. Details:
 [the drop-in's README](../../drop-ins/titles/README.md).
 
+The designer, `u-studio-titles`, installs to `bindir` next to the editor,
+which looks for it there first (so one Flatpak bundle serves both). Its
+desktop entry, the `.ustitle` MIME type (`application/x-ustudio-title`) and
+its AppStream file are in `drop-ins/titles/data/` and install with the
+drop-in; they're drafts with a placeholder icon name until the owner's new
+logos. The designer exports through `u-studio-render`, found next to it.
+Tests `titles-desktop-file` and `titles-metainfo` validate the drafts when
+`desktop-file-validate` and `appstreamcli` are installed.
+
 ## Releases
 
 - Everyday version bumps go in [`CHANGELOG.md`](../../CHANGELOG.md).

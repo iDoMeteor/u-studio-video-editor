@@ -12,6 +12,9 @@
 //   field.<name>    the clip's value for {{name}}
 //   video_index     -1: the picture is off (fully transparent frames), as
 //                   the editor switches a clip's video off for media
+//   background      "#rrggbb": a title with no background of its own is
+//                   drawn on this colour (a flattened export, with no
+//                   compositing)
 //
 // Frames are straight RGBA (mlt_image_rgba) with the title's alpha, at the
 // size the consumer asks for, drawn by the same function the titles app
@@ -119,7 +122,18 @@ int getImage(mlt_frame frame, uint8_t **buffer, mlt_image_format *format, int *w
         }
     }
     if (!cached) {
-        const RenderResult result = renderTitle(title.doc, time, fields, *width, *height);
+        const TitleDocument *doc = &title.doc;
+        TitleDocument flattened;
+        if (const char *background = mlt_properties_get(properties, "background");
+            background && title.doc.background.kind == FillKind::None) {
+            if (auto colour = parseColor(background)) {
+                flattened = title.doc;
+                flattened.background.kind = FillKind::Solid;
+                flattened.background.color = *colour;
+                doc = &flattened;
+            }
+        }
+        const RenderResult result = renderTitle(*doc, time, fields, *width, *height);
         toStraightRgba(result.frame, image);
         logOnce(producer, title, result.warnings);
         std::lock_guard lock(title.mutex);
@@ -241,6 +255,9 @@ mlt_properties metadata(mlt_service_type, const char *, void *)
         {"resource", "File", "string", "The .ustitle file.", "yes"},
         {"length", "Length", "integer", "The clip's length in frames; the title's hold stretches to fit it.", "no"},
         {"field.*", "Field values", "string", "A value for each {{field}} in the title's text, e.g. field.name.", "no"},
+        {"video_index", "Video", "integer", "-1: the picture is off (transparent frames).", "no"},
+        {"background", "Background", "string", "#rrggbb: draw a title with no background of its own on this colour.",
+         "no"},
     };
     int index = 0;
     for (const Parameter &p : kParameters) {

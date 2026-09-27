@@ -6,6 +6,7 @@
 #include "dropins/dropin_host.h"
 #include "editor/title_shell.h"
 #include "engine/title_extension.h"
+#include "engine/title_export.h"
 #include "engine/title_frames.h"
 
 #include <filesystem>
@@ -30,6 +31,9 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
     // IP6: u-studio-render --title-frames <project> <frame>...
     host->addRenderSubcommand({"title-frames", "Hash frames of a project with titles; one JSON line (T1 checks)",
                                &ustudio::titles::runTitleFrames});
+    // IP6: u-studio-render --title-export <title> <output> <format> (the designer's Export).
+    host->addRenderSubcommand({"title-export", "Export a title on its own, with alpha or flattened",
+                               &ustudio::titles::runTitleExport});
     // IP5: .ustitle import and the file watch.
     host->addShellExtension([](ustudio::app::ShellHost &shell) { ustudio::titles::extendShell(shell); });
 }

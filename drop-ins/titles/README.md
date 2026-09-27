@@ -14,19 +14,21 @@ through the `ustudio_title` MLT producer, fit any clip length, reload when
 the file changes, and render the same in `u-studio-render`. T2 (the
 `u-studio-titles` designer) in progress: T2a (canvas, move and resize with
 snapping, undo, save and open, backgrounds), T2b (layers list,
-inspector, brand kit) and T2c (typing on the canvas, pictures, Edit Title
-from the editor, the smoke test `tools/titles-smoke/`) are in.
+inspector, brand kit), T2c (typing on the canvas, pictures, Edit Title
+from the editor, the smoke test `tools/titles-smoke/`) and T2d (export with
+alpha or flattened, `u-studio-render --title-export`) are in: T2 is done
+but for its one engine-blocked item (dark fringes when compositing).
 
 ## Layout
 
 | Folder | What | May use |
 |---|---|---|
 | `core/` | `TitleDocument`, the `.ustitle` reader and writer, elastic timing, keyframe evaluation, `{{field}}` substitution; the designer's editing (`title_edit`: operations and snapshot undo), `snapping` (guides, safe areas, hit testing) and `brand_kit` (parsing a kit, Apply Brand) |
-| `data/` | `brand.xml`: the Unicorn Tears kit (values copied from the design system; compiled into the app) | — | std, libxml2, `src/core` (keyframes are `core::Keyframe`, evaluated by `core::easedValue()`) |
+| `data/` | `brand.xml`: the Unicorn Tears kit (values copied from the design system; compiled into the app); the designer's desktop entry, MIME type and AppStream drafts | — | std, libxml2, `src/core` (keyframes are `core::Keyframe`, evaluated by `core::easedValue()`) |
 | `render/` | `renderTitle()`: a title at a moment into premultiplied ARGB32, and `toStraightRgba()` for MLT | Pango, PangoCairo, Cairo, fontconfig |
 | `app/` | `u-studio-titles`, the designer: the window, the canvas (a GtkWidget drawn with GSK, rendering through a worker thread), the layers list, the inspector, view settings | GTK4, libadwaita, `core/`, `render/`; never MLT (checked by the build) |
 | `mltmodule/` | `libmltustudio.so`: the `ustudio_title` MLT producer (`resource`, `length`, `field.<name>`). Self-contained, exports only `mlt_register` | MLT's C API, `core/`, `render/` |
-| `engine/` | The engine extension (IP3: a producer per title clip), `u-studio-render --title-frames` (IP6), and the designer's backdrop (the frame without the title, on a worker thread) | `src/engine`, mlt++ |
+| `engine/` | The engine extension (IP3: a producer per title clip), `u-studio-render --title-frames` and `--title-export` (IP6), and the designer's backdrop (the frame without the title, on a worker thread) | `src/engine`, mlt++ |
 | `editor/` | The editor window's side (IP5): the `.ustitle` import handler, the file watch, Edit Title (an action and a double-click on a title clip) and the designer's launcher | `src/app/shell_host.h`, GIO |
 | `register.cpp` | The drop-in's describe function; IP4 contributes the module's directory | the drop-in host API |
 | `tests/` | `titles-core`, `titles-render`, `titles-edit`, `titles-worker`, `titles-engine`, `titles-shell` | doctest |

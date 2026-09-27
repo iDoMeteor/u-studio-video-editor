@@ -12,7 +12,7 @@ titles_inc = include_directories('.')
 # core/: std, libxml2 and src/core only (tools/dropin_boundary_check.sh).
 titles_core = static_library(
   'ustudio_titles_core',
-  files('core/brand_kit.cpp', 'core/evaluate.cpp', 'core/snapping.cpp', 'core/title_document.cpp', 'core/title_edit.cpp', 'core/title_xml.cpp'),
+  files('core/brand_kit.cpp', 'core/evaluate.cpp', 'core/export_formats.cpp', 'core/snapping.cpp', 'core/title_document.cpp', 'core/title_edit.cpp', 'core/title_xml.cpp'),
   include_directories: titles_inc,
   dependencies: [libustudio_core_dep],
   pic: true,
@@ -54,7 +54,8 @@ titles_register_args = [
 # The editor's side: the engine extension (IP3), the render tool's
 # --title-frames (IP6) and the shell's import and file watch (IP5).
 titles_dropin_sources = files('register.cpp', 'editor/title_launch.cpp', 'editor/title_shell.cpp',
-                              'engine/backdrop.cpp', 'engine/title_extension.cpp', 'engine/title_frames.cpp')
+                              'engine/backdrop.cpp', 'engine/title_export.cpp', 'engine/title_extension.cpp',
+                              'engine/title_frames.cpp')
 if get_option('dropin_titles') == 'module'
   # A module resolves core, engine and drop-in host symbols against the
   # program (built with export_dynamic and those libraries linked whole,
@@ -87,6 +88,13 @@ else
   )
   dropin_titles_dep = declare_dependency(link_with: titles_builtin, dependencies: [titles_core_dep, gtk4_dep])
 endif
+
+# u-studio-titles' desktop entry, the .ustitle MIME type and its AppStream
+# metadata (drafts until the owner's new logos; Icon= is a placeholder).
+install_data('data/com.ustudio.Titles.desktop', install_dir: get_option('datadir') / 'applications')
+install_data('data/com.ustudio.Titles.metainfo.xml', install_dir: get_option('datadir') / 'metainfo')
+install_data('data/com.ustudio.Titles.mime.xml', install_dir: get_option('datadir') / 'mime' / 'packages',
+             rename: 'com.ustudio.Titles.xml')
 
 # The drop-in's own tests. tests/meson.build runs after drop-ins/, so look
 # doctest up here (meson caches the lookup).
