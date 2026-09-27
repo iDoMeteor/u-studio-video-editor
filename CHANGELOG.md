@@ -5,6 +5,12 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.63.0-beta.1
+
+- Exports started while GPU acceleration is on render on the graphics card
+  too, so soft edges and dissolves look exactly as in the preview; turning
+  it off mid-export doesn't disturb that export.
+
 ## 0.62.0-beta.1
 
 - The inspector has a Title page: select a title clip and fill in its
