@@ -65,5 +65,6 @@ These are planned; see the [roadmap](../../README.md#roadmap).
 - Renders are MP4 (H.264 + AAC) only.
 - Markers can't be named, and the loop region isn't drawn on the timeline.
 - Keyboard shortcuts can't be changed.
-- Image sequences aren't imported as sequences yet.
+- Image sequences need their own command (Import Image Sequence…), and a
+  moved sequence can't be relinked: import it again.
 - Linux only for now. Windows is planned later; macOS isn't planned.

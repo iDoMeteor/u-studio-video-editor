@@ -9,6 +9,7 @@
 #include "core/commands/composite_command.h"
 #include "platform/process.h"
 #include "core/media/fingerprint.h"
+#include "core/media/image_sequence.h"
 #include "core/media/missing_media.h"
 #include "core/media/utf8_path.h"
 #include "core/commands/primitives.h"
@@ -1706,6 +1707,81 @@ void AppWindow::onImportFolderClicked()
         },
         this);
     g_object_unref(dialog);
+}
+
+void AppWindow::onImportImageSequenceClicked()
+{
+    // M4 E: an explicit command, never guessed on import (camera photos
+    // are numbered too). Any file of the sequence will do.
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Import Image Sequence: pick any of its images");
+    GtkFileFilter *images = gtk_file_filter_new();
+    gtk_file_filter_set_name(images, "Images");
+    gtk_file_filter_add_mime_type(images, "image/*");
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, images);
+    g_object_unref(images);
+    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+    g_object_unref(filters);
+    gtk_file_dialog_open(
+        dialog, GTK_WINDOW(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer userData) {
+            GError *error = nullptr;
+            GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
+            if (!file) {
+                if (error)
+                    g_error_free(error);
+                return;
+            }
+            std::string path = localPathFor(file);
+            g_object_unref(file);
+            if (!path.empty())
+                static_cast<AppWindow *>(userData)->importImageSequence(path);
+        },
+        this);
+    g_object_unref(dialog);
+}
+
+void AppWindow::importImageSequence(const std::string &pickedFile)
+{
+    // The folder scan and the probe of its first image run on the pool.
+    const uint64_t generation = m_projectGeneration;
+    m_pool->submit([this, pickedFile, profile = m_model.sequence().profile, generation,
+                    token = std::weak_ptr<void>(m_lifetime)](std::stop_token) {
+        std::optional<core::ImageSequence> sequence = core::findImageSequence(pickedFile);
+        engine::EngineSync::ProbedMedia probed;
+        if (sequence) {
+            const std::string first = core::imageSequenceFile(sequence->pattern, sequence->begin);
+            probed = engine::EngineSync::probeMediaFile(profile, first);
+            probed.fingerprint = core::fileFingerprint(first);
+        }
+        engine::MainThreadDispatcher::post(token, [this, pickedFile, sequence, probed, generation] {
+            if (generation != m_projectGeneration)
+                return;
+            const std::string name = core::utf8String(core::pathFromUtf8(pickedFile).filename());
+            if (!sequence) {
+                showStatus(name + " isn't part of a numbered sequence (its neighbours need the same name, "
+                                  "numbered on without a gap).");
+                return;
+            }
+            if (probed.length <= 0 || probed.width <= 0) {
+                showStatus("Couldn't open the images of " + sequence->displayName + ".");
+                return;
+            }
+            const core::Rational fps = m_model.sequence().profile.fps;
+            core::Asset asset = makeImportedAsset(sequence->pattern, sequence->count, probed, fps);
+            asset.displayName = sequence->displayName;
+            asset.info.isStillImage = false;
+            asset.info.isImageSequence = true;
+            asset.info.sequenceBegin = sequence->begin;
+            asset.info.hasAudio = false;
+            if (m_undoStack.execute(std::make_unique<core::AddAsset>(std::move(asset)))) {
+                showStatus("Imported " + sequence->displayName + ": " + std::to_string(sequence->count) +
+                           " images, one per frame. Drag it to the timeline.");
+                queueRefresh();
+            }
+        });
+    });
 }
 
 void AppWindow::showImportReport(size_t imported, size_t total, const std::vector<std::string> &failures,
@@ -5563,6 +5639,11 @@ void AppWindow::importActionActivated(GSimpleAction *, GVariant *, gpointer user
 void AppWindow::importFolderActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onImportFolderClicked();
+}
+
+void AppWindow::importImageSequenceActivated(GSimpleAction *, GVariant *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onImportImageSequenceClicked();
 }
 
 void AppWindow::splitAtPlayheadActivated(GSimpleAction *, GVariant *, gpointer userData)

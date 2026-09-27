@@ -78,6 +78,7 @@ const std::vector<ActionSpec> &actionSpecs()
         {"new-project",   "New Project",       "Project", {"<Control>n"},             &AppWindow::newProjectActionActivated},
         {"import",        "Import…",           "Project", {"<Control>i"},             &AppWindow::importActionActivated},
         {"import-folder", "Import Folder…",    "Project", {"<Control><Shift>i"},      &AppWindow::importFolderActivated},
+        {"import-image-sequence", "Import Image Sequence…", "Project", {"<Control><Alt>i"}, &AppWindow::importImageSequenceActivated},
 
         // --- Help: for bug reports (0.49.0-beta.2) ---
         {"open-log-folder",      "Open Log Folder",            "Help", {},                  &AppWindow::diagnosticsActionActivated},

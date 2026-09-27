@@ -72,7 +72,8 @@ permissions · [Getting started](docs/user/getting-started.md)
 ### Secondary
 
 - Import files or whole folders, or drag them in; bad files are listed, not
-  silently dropped. → [Importing](docs/user/importing-media.md)
+  silently dropped. Numbered image sequences import as one clip.
+  → [Importing](docs/user/importing-media.md)
 - Media browser with thumbnails and badges for resolution, proxy and
   missing state. → [Importing](docs/user/importing-media.md#the-media-browser)
 - Proxies for 4K and variable-frame-rate phone footage; renders always use

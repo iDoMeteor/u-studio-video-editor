@@ -28,6 +28,7 @@ struct MediaInfo
     double nativeDurationSeconds = 0.0;
     std::string videoCodec, audioCodec, container;
     bool isImageSequence = false;
+    int sequenceBegin = 0; // an image sequence's first file number (the path is its %0Nd pattern)
     bool isStillImage = false;
 
     // Still images/sequences and assets with no known length (0 = length
@@ -37,7 +38,8 @@ struct MediaInfo
     // InsertClip all share this predicate so the definition can't drift).
     bool isBoundless() const
     {
-        return isStillImage || isImageSequence || lengthInSequenceFrames <= 0;
+        // An image sequence has a real length: one frame per file (M4 E).
+        return isStillImage || lengthInSequenceFrames <= 0;
     }
 
     bool operator==(const MediaInfo &) const = default;

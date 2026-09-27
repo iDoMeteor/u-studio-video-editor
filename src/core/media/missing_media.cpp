@@ -1,5 +1,7 @@
 #include "core/media/missing_media.h"
 
+#include "core/media/image_sequence.h"
+
 #include "core/media/utf8_path.h"
 
 #include <filesystem>
@@ -18,7 +20,10 @@ std::vector<AssetId> markMissingMedia(Model &model)
         if (!isFileResource(asset.path))
             continue;
         std::error_code ec;
-        const bool present = std::filesystem::is_regular_file(pathFromUtf8(asset.path), ec);
+        // An image sequence's path is a %0Nd pattern: its first file stands for it.
+        const std::string file =
+            asset.info.isImageSequence ? imageSequenceFile(asset.path, asset.info.sequenceBegin) : asset.path;
+        const bool present = std::filesystem::is_regular_file(pathFromUtf8(file), ec);
         if (!present)
             missing.push_back(asset.id);
         const Asset::Status status =

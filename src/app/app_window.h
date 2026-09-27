@@ -172,6 +172,8 @@ class AppWindow : public ShellHost
     void showImportReport(size_t imported, size_t total, const std::vector<std::string> &failures,
                           const std::string &notes);
     void onImportFolderClicked();
+    void onImportImageSequenceClicked(); // M4 E
+    void importImageSequence(const std::string &pickedFile);
 
     // M4 B, missing media (app/missing_media.cpp). Assets marked Missing on
     // load (core::markMissingMedia) or when the engine couldn't open them.
@@ -855,6 +857,7 @@ class AppWindow : public ShellHost
     static void newProjectActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void importActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void importFolderActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
+    static void importImageSequenceActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void deleteSelectedClipActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void splitAtPlayheadActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void shuttleForwardActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);

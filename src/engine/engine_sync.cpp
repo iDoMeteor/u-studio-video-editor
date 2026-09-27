@@ -352,6 +352,17 @@ EngineSync::ProbedMedia EngineSync::probeMediaFile(const core::Profile &sequence
             result.fps = core::Rational{fpsNum, fpsDen};
         result.width = producer.get_int("meta.media.width");
         result.height = producer.get_int("meta.media.height");
+    } else {
+        // A still's size too (M4 E: an image sequence is probed by its first
+        // image, and fitting a picture needs its aspect). pixbuf sets
+        // meta.media.width/height when it loads the image, on the first
+        // get_image; avformat's single-image path on its first frame.
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 0, h = 0;
+        frame->get_image(format, w, h);
+        result.width = producer.get_int("meta.media.width");
+        result.height = producer.get_int("meta.media.height");
     }
 
     return result;
@@ -392,7 +403,21 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
                            " is gone; playing the original");
             }
         }
+        // An image sequence (M4 E): pixbuf with its first number (`begin`
+        // needs the explicit "pixbuf:" prefix; the default loader refuses
+        // the query), one picture per frame (ttl 1; the default is 25), and
+        // the counted length (pixbuf reports 15000 and loops). Standalone
+        // repro, MLT 7.40, docs/developer/notes/engine-sync.md.
+        const bool sequence = asset.info.isImageSequence && resource == asset.path;
+        if (sequence)
+            resource = "pixbuf:" + asset.path + "?begin=" + std::to_string(asset.info.sequenceBegin);
         auto producer = std::make_shared<Mlt::Producer>(*m_profile, knownMissing ? kMissingResource : resource.c_str());
+        if (sequence && !knownMissing && producer->is_valid()) {
+            const int frames = static_cast<int>(std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1));
+            producer->set("ttl", 1);
+            producer->set("length", frames);
+            producer->set_in_and_out(0, frames - 1);
+        }
         if (!knownMissing && !producer->is_valid()) {
             // Untrusted input (CLAUDE.md): a project can reference a file
             // that's since been moved, deleted, or lives on an unmounted
@@ -1028,6 +1053,10 @@ std::vector<std::string> EngineSync::verify() const
                     // test_xml_playback) -- the same producer, not a mismatch.
                     if (expectedResource.empty() && actualResource == "<producer>")
                         actualResource.clear();
+                    // An image sequence opens as "<pattern>?begin=N" (masterProducerFor()).
+                    if (m_model.asset(clip.asset).info.isImageSequence &&
+                        actualResource.starts_with(expectedResource + "?begin="))
+                        actualResource = expectedResource;
                     if (actualResource != expectedResource) {
                         problems.push_back("clip " + std::to_string(seg.clip.value) + ": playlist resource '" +
                                            actualResource + "' != asset path '" + expectedResource + "'");

@@ -10,6 +10,7 @@
 | `Ctrl+Shift+I` (Import Folder…), or drop a folder | Adds every file in the folder and its subfolders to the media browser (hidden files are skipped). |
 | Drag files onto the timeline | Imports them and places them one after another, starting where you dropped. |
 | Drag files onto the media browser | Adds them to the project without placing a clip. |
+| `Ctrl+Alt+I` (Import Image Sequence…) | Pick any image of a numbered sequence; it becomes one clip in the media browser (below). |
 
 - Files are opened in the background. The status bar shows progress
   ("Importing 3 of 12…") and the window stays responsive.
@@ -19,6 +20,28 @@
   seconds to open.
 - **Still images** (PNG, JPEG, …) stretch from where they land to the end
   of the project, so a logo on an empty top track covers the whole video.
+
+### Image sequences
+
+Numbered images (`frame_0001.png`, `frame_0002.png`, …: a render from a
+3D or animation tool) can be one clip, one image per frame at the
+project's frame rate. Use **Import Image Sequence…** (`Ctrl+Alt+I`) and
+pick any image of it. It's a separate command because camera photos are
+numbered too and shouldn't turn into a clip by themselves.
+
+- The sequence is every image with the same name before and after the
+  number and the same number of digits, counting on from the one you
+  picked **without a gap**: `frame_0001`–`frame_0030`, then a missing
+  `frame_0031`, ends it at 30 images.
+- The media browser names it with its range, `frame_[0001-0030].png`, and
+  marks it **SEQUENCE**.
+- If its first image is moved or deleted it shows as missing, like any
+  file. Relinking a sequence isn't supported yet: import it again.
+- Sequences don't get proxies.
+- Limits: images are loaded through GTK's image loaders (gdk-pixbuf); if
+  those can't open a format, the frames stay blank. A sequence whose
+  numbers start above 100 may show no thumbnail in the media browser
+  (the clip itself plays).
 
 ## Frame rates and sizes
 

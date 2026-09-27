@@ -401,6 +401,7 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         info.audioCodec = prop(node, "ustudio:audio_codec");
         info.container = prop(node, "ustudio:container");
         info.isImageSequence = toBool(prop(node, "ustudio:is_image_sequence"));
+        info.sequenceBegin = static_cast<int>(toI64(prop(node, "ustudio:sequence_begin")));
         info.isStillImage = toBool(prop(node, "ustudio:is_still_image"));
         // Read the length directly rather than deriving it from the node's
         // "out" attribute: the writer collapses both "boundless/unknown"
