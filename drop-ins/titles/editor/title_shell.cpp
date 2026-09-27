@@ -7,6 +7,7 @@
 #include "core/title_xml.h"
 #include "engine/backdrop.h"
 #include "title_launch.h"
+#include "title_page.h"
 
 #include <gio/gio.h>
 
@@ -401,6 +402,7 @@ void extendShell(app::ShellHost &host)
     watcher.bind(host);
     watcher.sync();
     host.projectChanged().connect([] { watcher.sync(); });
+    addTitlePage(host);
 }
 
 } // namespace ustudio::titles

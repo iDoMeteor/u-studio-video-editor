@@ -41,7 +41,7 @@ test('titles-engine', titles_test_engine, depends: titles_mlt_module, timeout: 1
 # IP5: import and the file watch, with a fake ShellHost.
 titles_test_shell = executable(
   'test_titles_shell',
-  files('test_shell.cpp', '../editor/title_shell.cpp', '../editor/title_launch.cpp', '../engine/backdrop.cpp'),
+  files('test_shell.cpp', '../editor/title_shell.cpp', '../editor/title_launch.cpp', '../editor/title_page.cpp', '../engine/backdrop.cpp'),
   cpp_args: ['-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"'],
   include_directories: [src_inc, titles_inc],
   dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, gtk4_dep],
