@@ -4,12 +4,19 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
-## 0.52.0-beta.3
+## 0.53.0-beta.2
 
 - Clips of another shape than the project (4:3, phone video) play much
   faster at their default Fit.
 - Exporting at another size (e.g. 720p from a 1080p project) places moved,
   scaled and fitted pictures correctly; they used to run off to the right.
+
+## 0.53.0-beta.1
+
+- Titles, with the Titles drop-in (not in the packages yet): `.ustitle`
+  files import as title clips that play over the video with transparency,
+  fit any clip length (only the hold stretches), and update in the editor
+  within a second when the file is saved.
 
 ## 0.52.0-beta.2
 

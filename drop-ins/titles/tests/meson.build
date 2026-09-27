@@ -14,3 +14,35 @@ titles_test_render = executable(
   install: false,
 )
 test('titles-render', titles_test_render, timeout: 120)
+
+# IP3/IP4/IP6: the producer module in real graphs, and u-studio-render's
+# --title-frames (defined after drop-ins/, so named by path; `meson test`
+# builds everything first).
+titles_engine_args = ['-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"']
+if get_option('render_tool')
+  titles_engine_args += '-DTITLES_RENDER_TOOL="' + meson.project_build_root() / 'src' / 'render' / 'u-studio-render' + '"'
+  if get_option('dropin_titles') == 'module'
+    # An uninstalled render tool finds the module only through the
+    # development override (ADR-014).
+    titles_engine_args += '-DTITLES_DROPIN_MODULE_DIR="' + meson.current_build_dir() / '..' + '"'
+  endif
+endif
+titles_test_engine = executable(
+  'test_titles_engine',
+  files('test_engine.cpp', '../engine/title_extension.cpp', '../engine/title_frames.cpp'),
+  cpp_args: titles_engine_args,
+  include_directories: [src_inc, titles_inc],
+  dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, glib_dep],
+  install: false,
+)
+test('titles-engine', titles_test_engine, depends: titles_mlt_module, timeout: 180)
+
+# IP5: import and the file watch, with a fake ShellHost.
+titles_test_shell = executable(
+  'test_titles_shell',
+  files('test_shell.cpp', '../editor/title_shell.cpp'),
+  include_directories: [src_inc, titles_inc],
+  dependencies: [titles_doctest_dep, titles_core_dep, libustudio_platform_dep, gtk4_dep],
+  install: false,
+)
+test('titles-shell', titles_test_shell, timeout: 60)

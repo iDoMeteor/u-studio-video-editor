@@ -113,6 +113,11 @@ class RecordingShell : public app::ShellHost
     {
         importHandlers.push_back(std::move(handler));
     }
+    void assetChangedOnDisk(core::AssetId asset) override
+    {
+        changedOnDisk.push_back(asset);
+    }
+    std::vector<core::AssetId> changedOnDisk;
 
     core::TrackId video, audio;
     app::ShellSelection selection;

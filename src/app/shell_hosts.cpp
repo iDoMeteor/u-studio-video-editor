@@ -6,6 +6,7 @@
 #include "app_window.h"
 
 #include "core/log.h"
+#include "core/media/fingerprint.h"
 #include "core/media/utf8_path.h"
 
 #include <algorithm>
@@ -186,6 +187,24 @@ bool AppWindow::overlayClaimsPress(double x, double y, int nPress)
         }
     }
     return false;
+}
+
+void AppWindow::assetChangedOnDisk(core::AssetId id)
+{
+    if (!m_model.hasAsset(id))
+        return;
+    const core::Asset &asset = m_model.asset(id);
+    const std::string fingerprint = core::fileFingerprint(asset.path);
+    const auto status = fingerprint.empty() ? core::Asset::Status::Missing : core::Asset::Status::Ready;
+    if (fingerprint == asset.fileFingerprint && status == asset.status)
+        return;
+    // A new fingerprint changes the bin, so the next build is a full one
+    // (EngineSync::setProject()), and drop-in producers are made afresh.
+    m_model.setAssetSource(id, asset.path, fingerprint, status);
+    m_engine->publish(m_model.snapshot());
+    refreshTimeline();
+    refreshMediaBrowser();
+    refreshMissingBanner();
 }
 
 void AppWindow::addImportHandler(ImportHandler handler)

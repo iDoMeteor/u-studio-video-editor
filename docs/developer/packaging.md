@@ -187,6 +187,15 @@ default for now), `builtin` or `module`. `just dropins-builtin` and
 drop-in whose folder is in the tree (only `drop-ins/titles/` so far). The planned
 catalogue is in [v2 doc 17](../plans/v2/17-drop-in-catalogue-and-distribution.md).
 
+A titles package ships two libraries: the drop-in
+(`$libdir/u-studio/drop-ins/libustudio-dropin-titles.so` when built as a
+module) and its MLT module (`$libdir/u-studio/mlt/libmltustudio.so`, in
+every mode). At run time it needs Pango, PangoCairo, Cairo, fontconfig and
+libxml2, which the editor already has through GTK. The drop-in looks for the
+MLT module in the installed directory, so a package that moves it must keep
+that path, or it falls back to the build tree's. Details:
+[the drop-in's README](../../drop-ins/titles/README.md).
+
 ## Releases
 
 - Everyday version bumps go in [`CHANGELOG.md`](../../CHANGELOG.md).

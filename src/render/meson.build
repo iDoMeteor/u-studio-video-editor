@@ -15,5 +15,6 @@ executable(
   files('main.cpp'),
   dependencies: [libustudio_engine_dep, drop_ins_dep, libustudio_render_cli_dep],
   export_dynamic: dropin_any_module,
+  link_whole: dropin_any_module ? [libustudio_core, libustudio_engine, libustudio_dropins] : [], # as src/app
   install: true,
 )

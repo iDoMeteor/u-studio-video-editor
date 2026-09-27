@@ -17,6 +17,9 @@ namespace ustudio::titles {
 
 constexpr int kTitleFormatVersion = 1;
 
+// Whether `path` names a title file (".ustitle", any case).
+bool isTitleFile(std::string_view path);
+
 struct ReadResult
 {
     TitleDocument document;

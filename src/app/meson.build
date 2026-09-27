@@ -146,6 +146,10 @@ executable(
   app_resources,
   dependencies: [app_window_dep, drop_ins_dep],
   export_dynamic: dropin_any_module,
+  # A drop-in module resolves the core, engine and drop-in symbols it calls
+  # against this program, including ones the editor never uses itself
+  # (doc 15, step 0's REVIEW note).
+  link_whole: dropin_any_module ? [libustudio_core, libustudio_engine, libustudio_dropins] : [],
   install: true,
   cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
 )

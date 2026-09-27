@@ -9,8 +9,10 @@ Pango/Cairo renderer behind an MLT producer) and
 [ADR-013](../../docs/plans/v2/adr/013-effects-and-titles-as-drop-in-modules.md)
 (one self-contained folder; nothing in `src/` includes from here).
 
-Status: T1 in progress. The document model and the renderer are built and
-tested; the MLT producer and the editor's side come next.
+Status: T1 done. `.ustitle` files import as title clips, play with alpha
+through the `ustudio_title` MLT producer, fit any clip length, reload when
+the file changes, and render the same in `u-studio-render`. Next: T2, the
+`u-studio-titles` designer app.
 
 ## Layout
 
@@ -18,19 +20,30 @@ tested; the MLT producer and the editor's side come next.
 |---|---|---|
 | `core/` | `TitleDocument`, the `.ustitle` reader and writer, elastic timing, keyframe evaluation, `{{field}}` substitution | std, libxml2, `src/core` (keyframes are `core::Keyframe`, evaluated by `core::easedValue()`) |
 | `render/` | `renderTitle()`: a title at a moment into premultiplied ARGB32, and `toStraightRgba()` for MLT | Pango, PangoCairo, Cairo, fontconfig |
-| `register.cpp` | The drop-in's describe function | the drop-in host API |
-| `tests/` | `titles-core`, `titles-render` | doctest |
+| `mltmodule/` | `libmltustudio.so`: the `ustudio_title` MLT producer (`resource`, `length`, `field.<name>`). Self-contained, exports only `mlt_register` | MLT's C API, `core/`, `render/` |
+| `engine/` | The engine extension (IP3: a producer per title clip) and `u-studio-render --title-frames` (IP6) | `src/engine`, mlt++ |
+| `editor/` | The editor window's side (IP5): the `.ustitle` import handler and the file watch | `src/app/shell_host.h`, GIO |
+| `register.cpp` | The drop-in's describe function; IP4 contributes the module's directory | the drop-in host API |
+| `tests/` | `titles-core`, `titles-render`, `titles-engine`, `titles-shell` | doctest |
 
 ## Building and testing
 
 ```sh
 meson configure builddir -Ddropin_titles=builtin   # or module
 meson compile -C builddir
-meson test -C builddir titles-core titles-render
+meson test -C builddir titles-core titles-render titles-engine titles-shell
 ```
 
 The drop-in's tests build only when the option isn't `disabled`. Both
-`builtin` and `module` must pass the whole suite (ADR-013).
+`builtin` and `module` must pass the whole suite (ADR-013):
+`just dropins-builtin` and `just dropins-module`.
+
+Installed, the MLT module goes to `$libdir/u-studio/mlt/` and the drop-in
+module (in `module` mode) to `$libdir/u-studio/drop-ins/`. Run from a build
+directory, the drop-in uses the build's own `libmltustudio` when nothing is
+installed. `u-studio-render --title-frames <project> <frame>...` prints a
+hash of each frame's pixels, which is how the tests compare the render tool
+with the editor.
 
 ## The `.ustitle` format (version 1)
 
