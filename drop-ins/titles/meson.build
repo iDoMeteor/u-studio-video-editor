@@ -48,11 +48,13 @@ titles_register_args = [
   '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
   '-DTITLES_MLT_INSTALL_DIR="' + titles_mlt_install_dir + '"',
   '-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"',
+  # Running from a build directory: the designer built next to it.
+  '-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"',
 ]
 # The editor's side: the engine extension (IP3), the render tool's
 # --title-frames (IP6) and the shell's import and file watch (IP5).
-titles_dropin_sources = files('register.cpp', 'editor/title_shell.cpp', 'engine/title_extension.cpp',
-                              'engine/title_frames.cpp')
+titles_dropin_sources = files('register.cpp', 'editor/title_launch.cpp', 'editor/title_shell.cpp',
+                              'engine/backdrop.cpp', 'engine/title_extension.cpp', 'engine/title_frames.cpp')
 if get_option('dropin_titles') == 'module'
   # A module resolves core, engine and drop-in host symbols against the
   # program (built with export_dynamic and those libraries linked whole,
@@ -68,6 +70,7 @@ if get_option('dropin_titles') == 'module'
     dependencies: [
       libustudio_engine_dep.partial_dependency(compile_args: true, includes: true),
       libustudio_dropins_dep.partial_dependency(compile_args: true, includes: true),
+      libustudio_platform_dep.partial_dependency(compile_args: true, includes: true),
       mltpp_dep, mlt_dep, gtk4_dep, libxml2_dep,
     ],
     install: true,
@@ -79,7 +82,7 @@ else
     titles_dropin_sources,
     cpp_args: titles_register_args,
     include_directories: [src_inc, titles_inc],
-    dependencies: [titles_core_dep, libustudio_engine_dep, libustudio_dropins_dep, gtk4_dep],
+    dependencies: [titles_core_dep, libustudio_engine_dep, libustudio_dropins_dep, libustudio_platform_dep, gtk4_dep],
     install: false,
   )
   dropin_titles_dep = declare_dependency(link_with: titles_builtin, dependencies: [titles_core_dep, gtk4_dep])

@@ -41,6 +41,9 @@ void canvasClassInit(gpointer klass, gpointer)
     widgetClass->snapshot = canvasSnapshot;
     widgetClass->measure = canvasMeasure;
     gtk_widget_class_set_css_name(widgetClass, "ustitlecanvas");
+    // A group, not the generic role (which AT-SPI leaves out of the tree):
+    // screen readers and the smoke test find it by its label.
+    gtk_widget_class_set_accessible_role(widgetClass, GTK_ACCESSIBLE_ROLE_GROUP);
 }
 
 void canvasInit(GTypeInstance *instance, gpointer)
@@ -97,6 +100,7 @@ TitleCanvas::TitleCanvas(Callbacks callbacks)
     g_object_ref_sink(m_widget);
     reinterpret_cast<UsTitleCanvasWidget *>(m_widget)->owner = this;
     gtk_widget_set_name(m_widget, "title-canvas");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(m_widget), GTK_ACCESSIBLE_PROPERTY_LABEL, "Title canvas", -1);
 
     GtkGesture *click = gtk_gesture_click_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), GDK_BUTTON_PRIMARY);

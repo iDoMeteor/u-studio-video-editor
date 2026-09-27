@@ -116,6 +116,16 @@ bool TitleHistory::redo()
     return true;
 }
 
+void TitleHistory::setBaseDirectory(const std::string &directory)
+{
+    m_doc.baseDirectory = directory;
+    m_saved.baseDirectory = directory;
+    for (Step &step : m_undo)
+        step.before.baseDirectory = directory;
+    for (Step &step : m_redo)
+        step.before.baseDirectory = directory;
+}
+
 void TitleHistory::reset(TitleDocument doc)
 {
     m_doc = std::move(doc);

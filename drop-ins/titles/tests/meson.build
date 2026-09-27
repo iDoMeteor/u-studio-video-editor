@@ -29,7 +29,7 @@ if get_option('render_tool')
 endif
 titles_test_engine = executable(
   'test_titles_engine',
-  files('test_engine.cpp', '../engine/title_extension.cpp', '../engine/title_frames.cpp'),
+  files('test_engine.cpp', '../engine/backdrop.cpp', '../engine/title_extension.cpp', '../engine/title_frames.cpp'),
   cpp_args: titles_engine_args,
   include_directories: [src_inc, titles_inc],
   dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, glib_dep],
@@ -40,9 +40,10 @@ test('titles-engine', titles_test_engine, depends: titles_mlt_module, timeout: 1
 # IP5: import and the file watch, with a fake ShellHost.
 titles_test_shell = executable(
   'test_titles_shell',
-  files('test_shell.cpp', '../editor/title_shell.cpp'),
+  files('test_shell.cpp', '../editor/title_shell.cpp', '../editor/title_launch.cpp', '../engine/backdrop.cpp'),
+  cpp_args: ['-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"'],
   include_directories: [src_inc, titles_inc],
-  dependencies: [titles_doctest_dep, titles_core_dep, libustudio_platform_dep, gtk4_dep],
+  dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, gtk4_dep],
   install: false,
 )
 test('titles-shell', titles_test_shell, timeout: 60)

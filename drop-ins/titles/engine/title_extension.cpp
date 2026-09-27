@@ -29,7 +29,12 @@ class TitleExtension : public engine::EngineExtension
         // The producer spans source frames 0..out: a clip cut from later in
         // the title (the right half of a split) still sees its outro at its
         // end.
-        return makeTitleProducer(profile, asset.path, clip.out + 1, clip.sourceParams);
+        auto producer = makeTitleProducer(profile, asset.path, clip.out + 1, clip.sourceParams);
+        // The clip's picture switched off: the engine's convention for
+        // media (masterProducerFor()), which ustudio_title honours.
+        if (producer && !clip.videoEnabled)
+            producer->set("video_index", -1);
+        return producer;
     }
 };
 

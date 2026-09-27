@@ -45,6 +45,8 @@ const char *iconFor(const Layer &layer)
 {
     if (layer.kind == LayerKind::Text)
         return "format-text-plain-symbolic";
+    if (layer.kind == LayerKind::Image)
+        return "image-x-generic-symbolic";
     switch (layer.shape) {
     case ShapeKind::Ellipse:
         return "media-record-symbolic";
@@ -63,6 +65,9 @@ std::string labelFor(const Layer &layer)
             text = text.substr(0, 27) + "…";
         return text;
     }
+    if (layer.kind == LayerKind::Image && !layer.src.empty())
+        return layer.src.substr(layer.src.find_last_of("/\\") == std::string::npos ? 0
+                                                                                   : layer.src.find_last_of("/\\") + 1);
     return layer.id;
 }
 

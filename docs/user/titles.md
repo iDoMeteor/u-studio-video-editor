@@ -26,7 +26,10 @@ chapter cards. They play over your video with transparency. Each title is a
 `.ustitle` file, or starts a new one.
 
 - **Add** (the **+** button) puts text, a rectangle, a rounded rectangle,
-  an ellipse or a line in the middle of the frame.
+  an ellipse, a line or a picture (PNG) in the middle of the frame.
+  **Ctrl+T** adds text; **Ctrl+Shift+R** a rounded rectangle.
+- **Double-click text** to type on the canvas, in the title's own font.
+  **Enter** keeps it, **Shift+Enter** starts a new line, **Escape** cancels.
 - **Click** a layer to select it. **Drag** it to move it. It snaps to the
   frame's centre and edges, the safe areas, the thirds and the other
   layers; the line it snapped to shows while you drag. Hold **Alt** to move
@@ -59,7 +62,15 @@ gradient), timing and canvas size.
 colours, gradients and fonts, one click each. **Apply Brand** (with nothing
 selected) restyles the whole title in the brand, keeping its layout.
 
-Editing text on the canvas itself, and animation, are on the way.
+Animation is on the way.
+
+## From the editor
+
+**Double-click a title clip** on the timeline (or select it and press
+**Ctrl+Shift+T**, Edit Title) to open it in U Stu Titles. The
+designer shows the video at the playhead behind the title, without the title
+itself, so you design over the real picture. Save there, and the editor
+picks up the change.
 
 ## Any length you like
 

@@ -137,6 +137,71 @@ void checkFont(ThreadFonts &fonts, const Font &font, const PangoFontDescription 
         warnings.insert(font.family + " isn't installed; using " + (it->second.empty() ? "a fallback" : it->second));
 }
 
+// Decoded PNGs, per thread (the producer draws every frame): the newest
+// few, each re-read when its file changes.
+struct CachedImage
+{
+    std::string path;
+    std::filesystem::file_time_type modified;
+    Surface surface;
+};
+
+std::string imagePath(const TitleDocument &doc, const Layer &layer)
+{
+    const std::filesystem::path src = core::pathFromUtf8(layer.src);
+    if (src.is_absolute() || doc.baseDirectory.empty())
+        return core::utf8String(src);
+    return core::utf8String(core::pathFromUtf8(doc.baseDirectory) / src);
+}
+
+// The layer's picture, or null (and a warning) if it doesn't read.
+cairo_surface_t *layerImage(const TitleDocument &doc, const Layer &layer, std::set<std::string> &warnings)
+{
+    thread_local std::vector<CachedImage> cache;
+    if (layer.src.empty())
+        return nullptr;
+    const std::string path = imagePath(doc, layer);
+    std::error_code ec;
+    const auto modified = std::filesystem::last_write_time(core::pathFromUtf8(path), ec);
+    if (ec) {
+        warnings.insert("the picture " + layer.src + " isn't there");
+        return nullptr;
+    }
+    for (CachedImage &cached : cache)
+        if (cached.path == path && cached.modified == modified)
+            return cached.surface.get();
+    Surface surface(cairo_image_surface_create_from_png(path.c_str()));
+    if (cairo_surface_status(surface.get()) != CAIRO_STATUS_SUCCESS) {
+        warnings.insert("the picture " + layer.src + " isn't a PNG that reads");
+        return nullptr;
+    }
+    constexpr size_t kCached = 16;
+    std::erase_if(cache, [&](const CachedImage &c) { return c.path == path; });
+    if (cache.size() >= kCached)
+        cache.erase(cache.begin());
+    cache.push_back({path, modified, std::move(surface)});
+    return cache.back().surface.get();
+}
+
+// An image layer's box: its own size where w or h is 0.
+Box imageBox(const Layer &layer, const LayerState &state, cairo_surface_t *image)
+{
+    double w = layer.w, h = layer.h;
+    const double iw = image ? cairo_image_surface_get_width(image) : 0.0;
+    const double ih = image ? cairo_image_surface_get_height(image) : 0.0;
+    if (iw > 0 && ih > 0) {
+        if (w <= 0 && h <= 0) {
+            w = iw;
+            h = ih;
+        } else if (w <= 0) {
+            w = h * iw / ih;
+        } else if (h <= 0) {
+            h = w * ih / iw;
+        }
+    }
+    return {state.x, state.y, std::max(w, 1.0), std::max(h, 1.0)};
+}
+
 // A text layer's Pango layout in canvas pixels, fitted to its box, and
 // where its top-left goes (`origin`) and the box it fills (`box`).
 struct TextLayout
@@ -358,6 +423,13 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
 
     TextLayout text;
     Box box{state.x, state.y, layer.w, layer.h};
+    cairo_surface_t *image = nullptr;
+    if (layer.kind == LayerKind::Image) {
+        image = layerImage(doc, layer, warnings);
+        if (!image)
+            return;
+        box = imageBox(layer, state, image);
+    }
     if (layer.kind == LayerKind::Text) {
         const std::string content = substituteFields(layer.text, doc.fields, fields);
         if (content.empty())
@@ -428,6 +500,22 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
             cairo_move_to(cr.get(), text.originX, text.originY);
             pango_cairo_layout_path(cr.get(), text.layout.get());
             strokeAndFill(cr.get(), layer, text.box);
+        } else if (layer.kind == LayerKind::Image) {
+            cairo_save(cr.get());
+            cairo_translate(cr.get(), box.x, box.y);
+            cairo_scale(cr.get(), box.w / cairo_image_surface_get_width(image),
+                        box.h / cairo_image_surface_get_height(image));
+            cairo_set_source_surface(cr.get(), image, 0, 0);
+            cairo_pattern_set_filter(cairo_get_source(cr.get()), CAIRO_FILTER_GOOD);
+            cairo_paint(cr.get());
+            cairo_restore(cr.get());
+            if (layer.stroke.width > 0.0) {
+                cairo_rectangle(cr.get(), box.x, box.y, box.w, box.h);
+                const Rgba &c = layer.stroke.color;
+                cairo_set_source_rgba(cr.get(), c.r, c.g, c.b, c.a * layer.stroke.opacity);
+                cairo_set_line_width(cr.get(), layer.stroke.width * 2);
+                cairo_stroke(cr.get());
+            }
         } else {
             shapePath(cr.get(), layer, box);
             strokeAndFill(cr.get(), layer, box);
@@ -512,6 +600,10 @@ std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleF
         LayerGeometry geometry{
             layer.id, {state.x, state.y, layer.w, layer.h}, state.rotation, state.scale, layer.visible};
         geometry.locked = layer.locked;
+        if (layer.kind == LayerKind::Image) {
+            const Box box = imageBox(layer, state, layerImage(doc, layer, warnings));
+            geometry.box = {box.x, box.y, box.w, box.h};
+        }
         if (layer.kind == LayerKind::Text) {
             std::string content = substituteFields(layer.text, doc.fields, fields);
             if (content.empty())

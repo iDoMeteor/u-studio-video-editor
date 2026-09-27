@@ -60,6 +60,12 @@ page matches `src/app/action_registry.cpp` as of 0.50.0-beta.2.
 |---|---|
 | `Ctrl+T` | Edit Transform (exact values) |
 
+## Titles (in the editor)
+
+| Key | Action |
+|---|---|
+| `Ctrl+Shift+T` | Edit Title: open the selected title clip in U Stu Titles (or double-click it) |
+
 ## U Stu Titles (the title designer)
 
 Keys that work on the canvas only act while the canvas has focus (click
@@ -72,6 +78,8 @@ it). Typing in a text box never triggers them.
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo |
 | `Ctrl+T` | Add text |
+| `Ctrl+Shift+R` | Add a rounded rectangle |
+| Double-click text | Type on the canvas (`Enter` keeps it, `Shift+Enter` a new line, `Escape` cancels) |
 | `Ctrl+;` | Show or hide the safe areas |
 | `Delete` / `Backspace` | Delete the selected layer (canvas) |
 | Arrow keys | Nudge the selected layer 1 pixel; with `Shift`, 10 (canvas) |

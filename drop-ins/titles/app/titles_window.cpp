@@ -7,8 +7,11 @@
 #include "core/brand_kit.h"
 #include "core/title_xml.h"
 
+#include <cairo.h>
+
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 namespace ustudio::titles::app {
 
@@ -33,9 +36,10 @@ constexpr ActionEntry kActions[] = {
     {"redo", "<Control><Shift>z"},
     {"add-text", "<Control>t"},
     {"add-rectangle", nullptr},
-    {"add-rounded", nullptr},
+    {"add-rounded", "<Control><Shift>r"},
     {"add-ellipse", nullptr},
     {"add-line", nullptr},
+    {"add-image", nullptr},
     {"backdrop-checkerboard", nullptr},
     {"backdrop-colour", nullptr},
     {"backdrop-image", nullptr},
@@ -143,7 +147,11 @@ TitlesWindow::TitlesWindow(GtkApplication *app, const std::string &path, const s
     gtk_window_set_focus(GTK_WINDOW(m_window), m_canvas->widget());
 }
 
-TitlesWindow::~TitlesWindow() = default;
+TitlesWindow::~TitlesWindow()
+{
+    if (m_finishIdle)
+        g_source_remove(m_finishIdle);
+}
 
 void TitlesWindow::buildUi()
 {
@@ -152,7 +160,7 @@ void TitlesWindow::buildUi()
         [this](const std::string &id, double x, double y, bool final) { moveLayerTo(id, x, y, final); },
         [this](const std::string &id, const Rect &box, bool final) { resizeLayer(id, box, final); },
         [this](const std::string &id) { deleteLayer(id); },
-        nullptr,
+        [this](const std::string &id) { editTextOnCanvas(id); },
     });
 
     GtkWidget *header = adw_header_bar_new();
@@ -173,6 +181,7 @@ void TitlesWindow::buildUi()
     g_menu_append(add, "Rounded Rectangle", "win.add-rounded");
     g_menu_append(add, "Ellipse", "win.add-ellipse");
     g_menu_append(add, "Line", "win.add-line");
+    g_menu_append(add, "Picture…", "win.add-image");
     GtkWidget *addButton = gtk_menu_button_new();
     gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(addButton), "list-add-symbolic");
     gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(addButton), G_MENU_MODEL(add));
@@ -245,6 +254,7 @@ void TitlesWindow::buildUi()
                     toast("Already in the brand");
             },
             [this] { m_inspector->show(m_history.document(), m_canvas->selection()); },
+            [this](const std::string &id) { choosePicture(id); },
         },
         loadBrandKit());
 
@@ -252,7 +262,11 @@ void TitlesWindow::buildUi()
     GtkWidget *panes = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_box_append(GTK_BOX(panes), m_layers->widget());
     gtk_box_append(GTK_BOX(panes), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
-    gtk_box_append(GTK_BOX(panes), m_canvas->widget());
+    // The canvas under an overlay: the text box for typing on it goes there.
+    m_canvasOverlay = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(m_canvasOverlay), m_canvas->widget());
+    gtk_widget_set_hexpand(m_canvasOverlay, TRUE);
+    gtk_box_append(GTK_BOX(panes), m_canvasOverlay);
     gtk_box_append(GTK_BOX(panes), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
     gtk_box_append(GTK_BOX(panes), m_inspector->widget());
     adw_toast_overlay_set_child(m_toasts, panes);
@@ -326,6 +340,25 @@ void TitlesWindow::open(const std::string &path)
 
 void TitlesWindow::save(const std::string &path)
 {
+    // Pictures stored relative to the old folder keep pointing at the same
+    // files from the new one.
+    const std::string folder = core::utf8String(core::pathFromUtf8(path).parent_path());
+    const std::string oldFolder = m_history.document().baseDirectory;
+    if (!oldFolder.empty() && oldFolder != folder) {
+        m_history.apply("Save As", [&](TitleDocument &doc) {
+            for (Layer &layer : doc.layers) {
+                if (layer.kind != LayerKind::Image || layer.src.empty())
+                    continue;
+                const std::filesystem::path src = core::pathFromUtf8(layer.src);
+                if (src.is_absolute())
+                    continue;
+                const std::filesystem::path absolute = core::pathFromUtf8(oldFolder) / src;
+                layer.src = core::utf8String(absolute.lexically_relative(core::pathFromUtf8(folder)));
+            }
+            return true;
+        });
+    }
+    m_history.setBaseDirectory(folder);
     const std::string error = saveTitle(m_history.document(), path);
     if (!error.empty()) {
         toast("Couldn't save: " + error);
@@ -467,6 +500,154 @@ void TitlesWindow::addLayerOf(Layer layer, const std::string &label)
         m_canvas->setSelection(id);
 }
 
+std::string TitlesWindow::pictureSource(const std::string &path) const
+{
+    // Relative when it's in (or under) the title's folder, so the two move
+    // together; absolute otherwise, and for a title not yet saved.
+    const std::string &folder = m_history.document().baseDirectory;
+    if (!folder.empty()) {
+        const std::filesystem::path relative = core::pathFromUtf8(path).lexically_relative(core::pathFromUtf8(folder));
+        const std::string text = core::utf8String(relative);
+        if (!relative.empty() && !text.starts_with(".."))
+            return text;
+    }
+    return path;
+}
+
+void TitlesWindow::choosePicture(const std::optional<std::string> &replaceId)
+{
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, replaceId ? "Replace Picture" : "Add Picture");
+    GtkFileFilter *filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "PNG pictures");
+    gtk_file_filter_add_suffix(filter, "png");
+    gtk_file_dialog_set_default_filter(dialog, filter);
+    g_object_unref(filter);
+    struct Request
+    {
+        TitlesWindow *window;
+        std::optional<std::string> replaceId;
+    };
+    gtk_file_dialog_open(
+        dialog, GTK_WINDOW(m_window), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer data) {
+            std::unique_ptr<Request> request(static_cast<Request *>(data));
+            GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, nullptr);
+            if (!file)
+                return;
+            const std::string path = utf8Path(file);
+            g_object_unref(file);
+            TitlesWindow *window = request->window;
+            // Its size, and whether it reads at all (PNG only, doc 16).
+            cairo_surface_t *png = cairo_image_surface_create_from_png(path.c_str());
+            const bool ok = cairo_surface_status(png) == CAIRO_STATUS_SUCCESS;
+            const int width = ok ? cairo_image_surface_get_width(png) : 0;
+            cairo_surface_destroy(png);
+            if (!ok) {
+                window->toast("That isn't a PNG picture that reads");
+                return;
+            }
+            const std::string src = window->pictureSource(path);
+            if (request->replaceId) {
+                const std::string id = *request->replaceId;
+                window->edit("Replace Picture",
+                             [&](TitleDocument &doc) { return updateLayer(doc, id, [&](Layer &l) { l.src = src; }); });
+                return;
+            }
+            const TitleDocument &doc = window->m_history.document();
+            Layer layer;
+            layer.id = uniqueLayerId(doc, "picture");
+            layer.kind = LayerKind::Image;
+            layer.src = src;
+            // At its own size, or half the canvas wide if it's bigger.
+            if (width > doc.width / 2)
+                layer.w = doc.width / 2.0;
+            layer.x = doc.width / 4.0;
+            layer.y = doc.height / 4.0;
+            window->addLayerOf(layer, "Add Picture");
+        },
+        new Request{this, replaceId});
+    g_object_unref(dialog);
+}
+
+void TitlesWindow::editTextOnCanvas(const std::string &id)
+{
+    finishTextEdit(true);
+    const TitleDocument &doc = m_history.document();
+    const std::optional<size_t> index = layerIndex(doc, id);
+    if (!index || doc.layers[*index].kind != LayerKind::Text)
+        return;
+    const Layer &layer = doc.layers[*index];
+    const std::vector<LayerGeometry> geometry = measureLayers(doc, static_cast<double>(doc.timing.intro), {});
+    const Rect box = geometry[*index].box;
+    const TitleCanvas::Mapping map = m_canvas->mapping();
+
+    m_textEditId = id;
+    m_textEditor = gtk_text_view_new();
+    gtk_widget_add_css_class(m_textEditor, "title-text-editor");
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(m_textEditor),
+                                layer.fit == Fit::Wrap ? GTK_WRAP_WORD_CHAR : GTK_WRAP_NONE);
+    static constexpr GtkJustification kJustify[] = {GTK_JUSTIFY_LEFT, GTK_JUSTIFY_CENTER, GTK_JUSTIFY_RIGHT};
+    gtk_text_view_set_justification(GTK_TEXT_VIEW(m_textEditor), kJustify[static_cast<size_t>(layer.align)]);
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(m_textEditor));
+    gtk_text_buffer_set_text(buffer, layer.text.c_str(), -1);
+    // The layer's font at the canvas's scale (a tag: no per-widget CSS).
+    // GTK sizes text in points at 96 dpi: 0.75 pt a pixel.
+    GtkTextTag *look =
+        gtk_text_buffer_create_tag(buffer, "look", "family", layer.font.family.c_str(), "weight", layer.font.weight,
+                                   "size-points", std::max(4.0, layer.font.size * map.scale * 0.75), nullptr);
+    (void)look;
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    gtk_text_buffer_apply_tag_by_name(buffer, "look", &start, &end);
+    // Keep typed text in the same look.
+    g_signal_connect(buffer, "changed", G_CALLBACK(onTextEditorChanged), nullptr);
+
+    gtk_widget_set_halign(m_textEditor, GTK_ALIGN_START);
+    gtk_widget_set_valign(m_textEditor, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(m_textEditor, static_cast<int>(std::lround(map.x + box.x * map.scale)));
+    gtk_widget_set_margin_top(m_textEditor, static_cast<int>(std::lround(map.y + box.y * map.scale)));
+    gtk_widget_set_size_request(m_textEditor, std::max(120, static_cast<int>(std::lround(box.w * map.scale)) + 24),
+                                std::max(24, static_cast<int>(std::lround(box.h * map.scale))));
+    GtkEventController *keys = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(onTextEditorKey), this);
+    gtk_widget_add_controller(m_textEditor, keys);
+    GtkEventController *focus = gtk_event_controller_focus_new();
+    g_signal_connect(focus, "leave", G_CALLBACK(onTextEditorFocusLeave), this);
+    gtk_widget_add_controller(m_textEditor, focus);
+    gtk_overlay_add_overlay(GTK_OVERLAY(m_canvasOverlay), m_textEditor);
+
+    // The canvas shows the title without this layer while you type over it.
+    TitleDocument shown = doc;
+    shown.layers[*index].visible = false;
+    m_canvas->setDocument(shown);
+    gtk_widget_grab_focus(m_textEditor);
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    gtk_text_buffer_select_range(buffer, &end, &start);
+}
+
+void TitlesWindow::finishTextEdit(bool commit)
+{
+    if (!m_textEditor)
+        return;
+    GtkWidget *editor = m_textEditor;
+    m_textEditor = nullptr; // re-entry (focus leaves as it's removed)
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(editor));
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    char *raw = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+    const std::string text = raw;
+    g_free(raw);
+    gtk_overlay_remove_overlay(GTK_OVERLAY(m_canvasOverlay), editor);
+    const std::string id = m_textEditId;
+    m_textEditId.clear();
+    if (!commit ||
+        !edit("Edit Text", [&](TitleDocument &doc) { return updateLayer(doc, id, [&](Layer &l) { l.text = text; }); }))
+        refresh(); // shows the layer again
+    gtk_widget_grab_focus(m_canvas->widget());
+}
+
 bool TitlesWindow::confirmClose()
 {
     if (!m_history.isDirty() || m_closing)
@@ -565,6 +746,45 @@ gboolean TitlesWindow::onCloseRequest(GtkWindow *, gpointer self)
     return static_cast<TitlesWindow *>(self)->confirmClose() ? FALSE : TRUE;
 }
 
+gboolean TitlesWindow::onTextEditorKey(GtkEventControllerKey *, guint keyval, guint, GdkModifierType state,
+                                       gpointer self)
+{
+    auto *window = static_cast<TitlesWindow *>(self);
+    if (keyval == GDK_KEY_Escape) {
+        window->finishTextEdit(false);
+        return TRUE;
+    }
+    // Enter commits; Shift+Enter is a new line.
+    if ((keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter) && !(state & GDK_SHIFT_MASK)) {
+        window->finishTextEdit(true);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+void TitlesWindow::onTextEditorChanged(GtkTextBuffer *buffer, gpointer)
+{
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    gtk_text_buffer_apply_tag_by_name(buffer, "look", &start, &end);
+}
+
+void TitlesWindow::onTextEditorFocusLeave(GtkEventControllerFocus *, gpointer self)
+{
+    // From an idle: the focus change is still being delivered to it.
+    auto *window = static_cast<TitlesWindow *>(self);
+    if (!window->m_finishIdle)
+        window->m_finishIdle = g_idle_add(&onFinishTextEdit, window);
+}
+
+gboolean TitlesWindow::onFinishTextEdit(gpointer self)
+{
+    auto *window = static_cast<TitlesWindow *>(self);
+    window->m_finishIdle = 0;
+    window->finishTextEdit(true);
+    return G_SOURCE_REMOVE;
+}
+
 void TitlesWindow::onDestroy(GtkWidget *, gpointer self)
 {
     delete static_cast<TitlesWindow *>(self);
@@ -603,6 +823,8 @@ void TitlesWindow::onAction(GSimpleAction *action, GVariant *, gpointer self)
         window->addLayerOf(makeShapeLayer(doc, ShapeKind::Ellipse), "Add Ellipse");
     } else if (name == "add-line") {
         window->addLayerOf(makeShapeLayer(doc, ShapeKind::Line), "Add Line");
+    } else if (name == "add-image") {
+        window->choosePicture(std::nullopt);
     } else if (name == "backdrop-checkerboard") {
         window->m_canvas->setBackdropImage(nullptr);
         ViewSettings view = loadViewSettings();

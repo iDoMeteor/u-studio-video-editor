@@ -8,6 +8,7 @@
 #include "core/commands/undo_stack.h"
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
+#include "editor/title_launch.h"
 #include "editor/title_shell.h"
 #include "platform/process.h"
 
@@ -51,14 +52,13 @@ class FakeShell : public app::ShellHost
     }
     app::ShellSelection currentSelection() const override
     {
-        return {};
+        return selection;
     }
     core::Signal<> &selectionChanged() override
     {
         return m_selectionChanged;
     }
     void addInspectorPage(const app::InspectorPage &) override {}
-    void addActions(const std::vector<app::ActionSpec> &, gpointer) override {}
     void addHints(const std::vector<app::HintSpec> &) override {}
     void setTooltip(GtkWidget *, const char *) override {}
     void addPreviewOverlay(GtkWidget *) override {}
@@ -67,7 +67,15 @@ class FakeShell : public app::ShellHost
         return {};
     }
     void redrawPreviewOverlays() override {}
-    void addTimelineOverlay(app::timeline::TimelineOverlayProvider *) override {}
+    void addTimelineOverlay(app::timeline::TimelineOverlayProvider *provider) override
+    {
+        overlays.push_back(provider);
+    }
+    void addActions(const std::vector<app::ActionSpec> &specs, gpointer target) override
+    {
+        for (const app::ActionSpec &spec : specs)
+            actions.push_back({spec, target});
+    }
     void redrawTimeline() override {}
     void addImportHandler(app::ImportHandler handler) override
     {
@@ -80,6 +88,9 @@ class FakeShell : public app::ShellHost
 
     core::TrackId video;
     std::string status;
+    std::vector<app::timeline::TimelineOverlayProvider *> overlays;
+    std::vector<std::pair<app::ActionSpec, gpointer>> actions;
+    app::ShellSelection selection;
     std::vector<app::ImportHandler> importHandlers;
     std::vector<core::AssetId> changedOnDisk;
     // As the window does: an undo is a project change.
@@ -198,4 +209,49 @@ TEST_CASE("a saved title is reported changed within a second, once per save")
     saveTitle("watched.ustitle", "#ff3cc7");
     spinUntil([] { return false; }, std::chrono::milliseconds(500));
     CHECK(shell.changedOnDisk.empty());
+}
+
+TEST_CASE("Edit Title: the action and a double-click open a title clip, and nothing else")
+{
+    std::vector<std::string> launched;
+    titles::setTitlesLauncherForTesting([&](const std::string &path, GdkTexture *) {
+        launched.push_back(path);
+        return std::string();
+    });
+    core::Profile profile;
+    FakeShell shell(profile);
+    titles::extendShell(shell);
+    REQUIRE(shell.overlays.size() == 1);
+    REQUIRE(shell.actions.size() == 1);
+    CHECK(std::string(shell.actions[0].first.name) == "titles-edit");
+    const std::string path = saveTitle("edit-me.ustitle");
+    REQUIRE(titles::importTitle(shell, path, shell.video, 100).has_value()); // frames 100..192
+    const core::ClipId clip = shell.model().track(shell.video).clips.front();
+
+    // The action: nothing selected, then the title clip.
+    shell.actions[0].first.activated(nullptr, nullptr, shell.actions[0].second);
+    CHECK(launched.empty());
+    CHECK(shell.status == "Select a title clip to edit it.");
+    shell.selection.clips = {clip};
+    shell.actions[0].first.activated(nullptr, nullptr, shell.actions[0].second);
+    REQUIRE(launched.size() == 1);
+    CHECK(launched[0] == path);
+
+    // The double-click: on the clip (under the name strip), not a single
+    // click, not beside it.
+    const app::timeline::Viewport viewport; // one pixel a frame from x = 0
+    app::timeline::RowLayout layout;
+    const double x = viewport.xForFrame(150.0), y = layout.rowHeight - 5.0;
+    CHECK_FALSE(shell.overlays[0]->pressed(shell.model(), viewport, layout, x, y, 1));
+    CHECK(shell.overlays[0]->pressed(shell.model(), viewport, layout, x, y, 2));
+    CHECK(launched.size() == 2);
+    CHECK_FALSE(shell.overlays[0]->pressed(shell.model(), viewport, layout, viewport.xForFrame(50.0), y, 2));
+    CHECK_FALSE(shell.overlays[0]->pressed(shell.model(), viewport, layout, x, 2.0, 2)); // the name strip
+    CHECK(launched.size() == 2);
+    titles::setTitlesLauncherForTesting(nullptr);
+}
+
+TEST_CASE("the designer is found: next to the program, else this build's")
+{
+    CHECK(titles::titlesAppPath() == TITLES_APP_BUILD_PATH);
 }

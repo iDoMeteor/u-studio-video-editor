@@ -5,13 +5,31 @@
 #include "core/media/fingerprint.h"
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
+#include "engine/backdrop.h"
+#include "title_launch.h"
 
 #include <gio/gio.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <list>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <set>
+#include <thread>
+
+// GLib's main-context lock is invisible to ThreadSanitizer: annotate the
+// hand-off, as MainThreadDispatcher does (src/engine/dispatcher.cpp).
+#ifdef __SANITIZE_THREAD__
+#include <sanitizer/tsan_interface.h>
+#define TITLES_TSAN_RELEASE(addr) __tsan_release(addr)
+#define TITLES_TSAN_ACQUIRE(addr) __tsan_acquire(addr)
+#else
+#define TITLES_TSAN_RELEASE(addr) ((void)(addr))
+#define TITLES_TSAN_ACQUIRE(addr) ((void)(addr))
+#endif
 
 namespace ustudio::titles {
 
@@ -27,12 +45,26 @@ constexpr guint kSettleMs = 150;
 class TitleWatcher
 {
   public:
-    explicit TitleWatcher(app::ShellHost &host) : m_host(host) {}
+    // The window it serves (the editor has one per process; a new host
+    // replaces the old, and its watches go).
+    void bind(app::ShellHost &host)
+    {
+        for (auto &[id, watch] : m_watches)
+            stop(watch);
+        m_watches.clear();
+        m_pending.clear();
+        if (m_timer)
+            g_source_remove(m_timer);
+        m_timer = 0;
+        m_host = &host;
+    }
 
     void sync()
     {
+        if (!m_host)
+            return;
         std::map<uint64_t, std::string> wanted;
-        for (const core::Asset &asset : m_host.model().project().bin)
+        for (const core::Asset &asset : m_host->model().project().bin)
             if (isTitleFile(asset.path))
                 wanted.emplace(asset.id.value, asset.path);
         for (auto it = m_watches.begin(); it != m_watches.end();) {
@@ -90,10 +122,11 @@ class TitleWatcher
         const std::set<uint64_t> pending = std::move(m_pending);
         m_pending.clear();
         for (uint64_t id : pending)
-            m_host.assetChangedOnDisk(core::AssetId{id});
+            if (m_host)
+                m_host->assetChangedOnDisk(core::AssetId{id});
     }
 
-    app::ShellHost &m_host;
+    app::ShellHost *m_host = nullptr;
     std::map<uint64_t, Watch> m_watches;
     std::set<uint64_t> m_pending;
     guint m_timer = 0;
@@ -113,6 +146,191 @@ class TitleWatcher
         static_cast<TitleWatcher *>(self)->settled();
         return G_SOURCE_REMOVE;
     }
+};
+
+// Backdrop renders in flight: each on its own thread with its own graph
+// (never the main or the engine thread). Joined when the app shuts down,
+// before MLT closes.
+class BackdropJobs
+{
+  public:
+    static BackdropJobs &instance()
+    {
+        static BackdropJobs jobs;
+        return jobs;
+    }
+
+    void start(std::function<void()> work)
+    {
+        std::lock_guard lock(m_mutex);
+        // Finished ones go first.
+        for (auto it = m_jobs.begin(); it != m_jobs.end();) {
+            if (it->done->load()) {
+                it->thread.join();
+                it = m_jobs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        if (!m_hooked) {
+            if (GApplication *app = g_application_get_default())
+                g_signal_connect(app, "shutdown", G_CALLBACK(onShutdown), this);
+            m_hooked = true;
+        }
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        m_jobs.push_back({std::thread([work = std::move(work), done] {
+                              work();
+                              done->store(true);
+                          }),
+                          done});
+    }
+
+  private:
+    struct Job
+    {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> done;
+    };
+    void joinAll()
+    {
+        std::lock_guard lock(m_mutex);
+        for (Job &job : m_jobs)
+            job.thread.join();
+        m_jobs.clear();
+    }
+
+    std::mutex m_mutex;
+    std::list<Job> m_jobs;
+    bool m_hooked = false;
+
+    // --- GLib trampolines --------------------------------------------------
+    static void onShutdown(GApplication *, gpointer self)
+    {
+        static_cast<BackdropJobs *>(self)->joinAll();
+    }
+};
+
+// A result back on the main thread.
+struct Posted
+{
+    std::function<void()> fn;
+};
+gboolean runPosted(gpointer data)
+{
+    TITLES_TSAN_ACQUIRE(data);
+    std::unique_ptr<Posted> posted(static_cast<Posted *>(data));
+    posted->fn();
+    return G_SOURCE_REMOVE;
+}
+void postToMain(std::function<void()> fn)
+{
+    auto *posted = new Posted{std::move(fn)};
+    TITLES_TSAN_RELEASE(posted);
+    g_idle_add_full(G_PRIORITY_DEFAULT, &runPosted, posted, nullptr);
+}
+
+void launch(app::ShellHost &host, const std::string &path, const std::string &name, GdkTexture *backdrop)
+{
+    const std::string error = launchTitlesApp(path, backdrop);
+    host.showStatus(error.empty() ? "Editing " + name + " in U Stu Titles: save it there to update it here."
+                                  : "Couldn't open U Stu Titles: " + error);
+}
+
+// Opens a title clip in U Stu Titles, over the editor's frame at the
+// playhead (within the clip) without the title itself.
+void editTitleClip(app::ShellHost &host, core::ClipId id)
+{
+    const core::Model &model = host.model();
+    if (!model.hasClip(id))
+        return;
+    const core::Clip &clip = model.clip(id);
+    if (!model.hasAsset(clip.asset) || !isTitleFile(model.asset(clip.asset).path))
+        return;
+    const core::Asset &asset = model.asset(clip.asset);
+    const std::string path = asset.path, name = asset.displayName;
+    if (titlesLauncherIsForTesting()) {
+        launch(host, path, name, nullptr);
+        return;
+    }
+    const core::FrameIndex frame = std::clamp(host.currentFrame(), clip.position, clip.end() - 1);
+    std::shared_ptr<const core::Project> project = model.snapshot();
+    host.showStatus("Opening " + name + " in U Stu Titles…");
+    app::ShellHost *hostPtr = &host; // the window lives for the process
+    BackdropJobs::instance().start([project, id, frame, path, name, hostPtr] {
+        auto backdrop = std::make_shared<Backdrop>(renderBackdrop(project, id, frame));
+        postToMain([backdrop, path, name, hostPtr] {
+            GdkTexture *texture = nullptr;
+            if (!backdrop->rgba.empty()) {
+                GBytes *bytes = g_bytes_new(backdrop->rgba.data(), backdrop->rgba.size());
+                texture = gdk_memory_texture_new(backdrop->width, backdrop->height, GDK_MEMORY_R8G8B8A8, bytes,
+                                                 static_cast<gsize>(backdrop->width) * 4);
+                g_bytes_unref(bytes);
+            }
+            launch(*hostPtr, path, name, texture);
+            if (texture)
+                g_object_unref(texture);
+        });
+    });
+}
+
+// Edit Title (the action): the first selected title clip.
+void onEditTitle(GSimpleAction *, GVariant *, gpointer target)
+{
+    auto &host = *static_cast<app::ShellHost *>(target);
+    const core::Model &model = host.model();
+    for (core::ClipId id : host.currentSelection().clips) {
+        if (!model.hasClip(id))
+            continue;
+        const core::Clip &clip = model.clip(id);
+        if (model.hasAsset(clip.asset) && isTitleFile(model.asset(clip.asset).path)) {
+            editTitleClip(host, id);
+            return;
+        }
+    }
+    host.showStatus("Select a title clip to edit it.");
+}
+
+// A double-click on a title clip opens it (anywhere but the track's name
+// strip, which still renames the track). Paints nothing.
+class TitleClipClicks : public app::timeline::TimelineOverlayProvider
+{
+  public:
+    void bind(app::ShellHost &host)
+    {
+        m_host = &host;
+    }
+
+    void paintOverlay(GtkSnapshot *, const core::Model &, const app::timeline::Viewport &,
+                      const app::timeline::RowLayout &, double, double) const override
+    {}
+
+    bool pressed(const core::Model &model, const app::timeline::Viewport &viewport,
+                 const app::timeline::RowLayout &layout, double x, double y, int nPress) override
+    {
+        if (nPress < 2 || layout.inNameStrip(y))
+            return false;
+        const int row = layout.rowAt(y);
+        const auto &tracks = model.sequence().tracks;
+        if (row < 0 || static_cast<size_t>(row) >= tracks.size())
+            return false;
+        for (core::ClipId id : model.track(tracks[static_cast<size_t>(row)].id).clips) {
+            const core::Clip &clip = model.clip(id);
+            // Against the clip's edges on screen (xForFrame is the timeline's
+            // own mapping).
+            if (x < viewport.xForFrame(static_cast<double>(clip.position)) ||
+                x >= viewport.xForFrame(static_cast<double>(clip.end())))
+                continue;
+            if (!model.hasAsset(clip.asset) || !isTitleFile(model.asset(clip.asset).path))
+                return false;
+            if (m_host)
+                editTitleClip(*m_host, id);
+            return true;
+        }
+        return false;
+    }
+
+  private:
+    app::ShellHost *m_host = nullptr;
 };
 
 } // namespace
@@ -172,7 +390,15 @@ void extendShell(app::ShellHost &host)
     host.addImportHandler({{"ustitle"}, "Titles", [&host](const std::string &path, auto track, auto position) {
                                return importTitle(host, path, track, position);
                            }});
-    static TitleWatcher watcher(host); // one window per process
+    host.addActions({{"titles-edit", "Edit Title", "Titles", {"<Control><Shift>t"}, &onEditTitle}}, &host);
+    host.addHints({{"titles.edit", "Titles", "Edit title", "Open the selected title clip in U Stu Titles",
+                    "titles-edit", "Double-click a title clip"}});
+    // For the process, as the host requires; bound to this window.
+    static TitleClipClicks clicks;
+    clicks.bind(host);
+    host.addTimelineOverlay(&clicks);
+    static TitleWatcher watcher;
+    watcher.bind(host);
     watcher.sync();
     host.projectChanged().connect([] { watcher.sync(); });
 }
