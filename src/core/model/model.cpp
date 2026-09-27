@@ -1166,6 +1166,18 @@ void Model::setClipSourceParams(ClipId id, std::vector<Param> params)
     notify(ClipSourceChanged{id});
 }
 
+void Model::setClipSource(ClipId id, AssetId asset, std::vector<Param> params)
+{
+    if (!hasClip(id) || !hasAsset(asset)) {
+        preconditionFailed("Model::setClipSource: unknown ClipId or AssetId");
+        return;
+    }
+    Clip &clip = mutableClip(id);
+    clip.asset = asset;
+    clip.sourceParams = std::move(params);
+    notify(ClipSourceChanged{id});
+}
+
 void Model::setClipTransform(ClipId id, Transform transform)
 {
     if (!hasClip(id)) {

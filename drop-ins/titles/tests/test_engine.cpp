@@ -20,10 +20,13 @@
 #include "engine/title_frames.h"
 #include "platform/process.h"
 
+#include <cairo.h>
 #include <glib.h>
 #include <mlt++/Mlt.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -442,6 +445,79 @@ TEST_CASE("animated frames from the producer are the renderer's own, byte for by
         titles::toStraightRgba(reference.frame, straight.data());
         CHECK(std::equal(straight.begin(), straight.end(), image));
     }
+}
+
+TEST_CASE("a bake: the sequence's rate and length, and stock melt plays it with its alpha")
+{
+    setUp();
+    const std::string path = writeTitle("bake.ustitle");
+    titles::TitleExportRequest request;
+    request.title = path;
+    request.output = utf8String(scratch() / "bake (baked).mov");
+    request.format = "prores";
+    request.frames = 93;
+    request.fps = core::Rational{25, 1};
+    request.fields = {{"field.name", std::string("Ada"), {}}};
+    std::atomic<bool> cancel{false};
+    auto written = titles::exportTitle(request, &cancel);
+    REQUIRE_MESSAGE(written.has_value(), (written ? "" : written.error()));
+    CHECK(*written == 93);
+    core::Profile profile;
+    profile.fps = {25, 1};
+    const auto probed = engine::EngineSync::probeMediaFile(profile, request.output);
+    CHECK(probed.length == 93);
+    CHECK(probed.width == 1920);
+
+    // Cancelled: nothing left behind.
+    titles::TitleExportRequest again = request;
+    again.output = utf8String(scratch() / "cancelled.mov");
+    again.frames = 3000;
+    std::atomic<bool> stop{false};
+    std::thread canceller([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        stop.store(true);
+    });
+    auto stopped = titles::exportTitle(again, &stop);
+    canceller.join();
+    CHECK_FALSE(stopped.has_value());
+    CHECK_FALSE(fs::exists(scratch() / "cancelled.mov"));
+    CHECK_FALSE(fs::exists(scratch() / "cancelled.mov.part"));
+
+#ifdef TITLES_MELT
+    // Stock melt, without the titles module, renders frame 40 (the hold) to
+    // a PNG: the bar is opaque white, the frame around it transparent.
+    const fs::path png = scratch() / "melt-frame.png";
+    fs::remove(png);
+    std::vector<std::string> args = {TITLES_MELT, "-profile",   "atsc_1080p_25", request.output,
+                                     "in=40",     "out=40",     "-consumer",     "avformat:" + utf8String(png),
+                                     "f=image2",  "vcodec=png", "pix_fmt=rgba",  "mlt_image_format=rgba",
+                                     "update=1"};
+    std::vector<char *> argv;
+    for (std::string &arg : args)
+        argv.push_back(arg.data());
+    argv.push_back(nullptr);
+    // A plain environment: what a user's shell gives melt, and nothing a
+    // sandboxed parent (a snap's LD paths) leaks into it.
+    std::string home = std::string("HOME=") + g_get_home_dir();
+    std::string pathVar = "PATH=/usr/bin:/bin";
+    std::vector<char *> envp = {home.data(), pathVar.data(), nullptr};
+    gint status = 0;
+    REQUIRE(g_spawn_sync(nullptr, argv.data(), envp.data(),
+                         static_cast<GSpawnFlags>(G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL), nullptr,
+                         nullptr, nullptr, nullptr, &status, nullptr));
+    CHECK(g_spawn_check_wait_status(status, nullptr));
+    REQUIRE(fs::exists(png));
+    cairo_surface_t *image = cairo_image_surface_create_from_png(utf8String(png).c_str());
+    REQUIRE(cairo_surface_status(image) == CAIRO_STATUS_SUCCESS);
+    const auto *data = cairo_image_surface_get_data(image);
+    const int stride = cairo_image_surface_get_stride(image);
+    const auto alphaAt = [&](int x, int y) { return data[y * stride + x * 4 + 3]; }; // ARGB32, little-endian
+    CHECK(alphaAt(400, 880) == 255);                                                 // inside the bar
+    CHECK(alphaAt(1500, 200) == 0);                                                  // nothing there
+    cairo_surface_destroy(image);
+#else
+    MESSAGE("no melt: its check skipped");
+#endif
 }
 
 TEST_CASE("--title-export: alpha formats keep the title's alpha; H.264 is flattened")

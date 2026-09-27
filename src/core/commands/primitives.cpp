@@ -72,6 +72,31 @@ void AddAsset::revert(Model &model)
 
 RemoveAsset::RemoveAsset(AssetId asset) : m_asset(asset) {}
 
+SetClipAsset::SetClipAsset(ClipId clip, AssetId asset, std::vector<Param> params, std::string label)
+    : m_clip(clip), m_asset(asset), m_params(std::move(params)), m_label(std::move(label))
+{}
+
+bool SetClipAsset::apply(Model &model)
+{
+    if (!model.hasClip(m_clip) || !model.hasAsset(m_asset))
+        return false;
+    const Clip &clip = model.clip(m_clip);
+    if (model.track(clip.track).locked)
+        return false;
+    const MediaInfo &info = model.asset(m_asset).info;
+    if (!info.isBoundless() && clip.out >= info.lengthInSequenceFrames)
+        return false;
+    m_oldAsset = clip.asset;
+    m_oldParams = clip.sourceParams;
+    model.setClipSource(m_clip, m_asset, m_params);
+    return true;
+}
+
+void SetClipAsset::revert(Model &model)
+{
+    model.setClipSource(m_clip, m_oldAsset, m_oldParams);
+}
+
 SetClipTransform::SetClipTransform(ClipId clip, Transform transform, uint64_t gesture)
     : m_clip(clip), m_transform(std::move(transform)), m_gesture(gesture)
 {}

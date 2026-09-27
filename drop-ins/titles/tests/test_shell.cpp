@@ -5,12 +5,16 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/commands/primitives.h"
 #include "core/commands/undo_stack.h"
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
 #include "editor/title_launch.h"
 #include "core/clip_fields.h"
+#include "editor/title_bake.h"
 #include "editor/title_shell.h"
+#include "engine/factory_policy.h"
+#include "engine/title_extension.h"
 #include "platform/process.h"
 
 #include <chrono>
@@ -254,7 +258,8 @@ TEST_CASE("Edit Title: the action and a double-click open a title clip, and noth
     FakeShell shell(profile);
     titles::extendShell(shell);
     REQUIRE(shell.overlays.size() == 1);
-    REQUIRE(shell.actions.size() == 1);
+    REQUIRE(shell.actions.size() == 2); // Edit Title, Bake Title
+    CHECK(std::string(shell.actions[1].first.name) == "titles-bake");
     CHECK(std::string(shell.actions[0].first.name) == "titles-edit");
     const std::string path = saveTitle("edit-me.ustitle");
     REQUIRE(titles::importTitle(shell, path, shell.video, 100).has_value()); // frames 100..192
@@ -331,4 +336,58 @@ TEST_CASE("the Title page edits the selected clip's fields, one undo step per en
     // Nothing selected: no entries.
     shell.select({});
     CHECK_FALSE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(entries[0]))));
+}
+
+TEST_CASE("Bake Title: the clip plays a ProRes file, keeps its place and transform, and undo brings the title back")
+{
+    if (!haveGtk())
+        return;
+    static const bool mlt = [] {
+        engine::FactoryPaths paths;
+        paths.mltModuleDirs.push_back(TITLES_MLT_BUILD_DIR);
+        static engine::FactoryPolicy policy(paths);
+        engine::registerEngineExtension([] { return titles::makeTitleExtension(); });
+        return true;
+    }();
+    (void)mlt;
+    core::Profile profile;
+    profile.fps = {25, 1};
+    FakeShell shell(profile);
+    const fs::path dir = scratch() / "bake";
+    fs::create_directories(dir);
+    const std::string path = saveTitle("bake/Guest.ustitle");
+    REQUIRE(titles::importTitle(shell, path, shell.video, 30).has_value());
+    const core::ClipId clip = shell.model().track(shell.video).clips.front();
+    REQUIRE(shell.execute(
+        std::make_unique<titles::SetClipFields>(clip, std::map<std::string, std::string>{{"name", "Ada"}})));
+    core::Transform flipped;
+    flipped.flipH = true;
+    REQUIRE(shell.execute(std::make_unique<core::SetClipTransform>(clip, flipped)));
+    const core::Clip before = shell.model().clip(clip);
+
+    CHECK(core::utf8String(core::pathFromUtf8(titles::bakePath(path)).filename()) == "Guest (baked).mov");
+    titles::bakeTitleClip(shell, clip);
+    CHECK(shell.status.starts_with("Baking"));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+    while (shell.status.starts_with("Baking") && std::chrono::steady_clock::now() < deadline)
+        g_main_context_iteration(nullptr, TRUE);
+    INFO(shell.status);
+    REQUIRE(shell.status.starts_with("Baked"));
+
+    const core::Clip &baked = shell.model().clip(clip);
+    const core::Asset &asset = shell.model().asset(baked.asset);
+    CHECK(asset.path.ends_with("Guest (baked).mov"));
+    CHECK(asset.info.lengthInSequenceFrames >= baked.out + 1);
+    CHECK(baked.position == before.position);
+    CHECK(baked.in == before.in);
+    CHECK(baked.out == before.out);
+    CHECK(baked.transform.get().flipH);
+    CHECK(baked.sourceParams.empty());
+    CHECK(shell.model().check().empty());
+    // The name is taken now.
+    CHECK(core::utf8String(core::pathFromUtf8(titles::bakePath(path)).filename()) == "Guest (baked 2).mov");
+
+    shell.undo();
+    CHECK(shell.model().clip(clip).asset == before.asset);
+    CHECK(titles::clipFieldValues(shell.model().clip(clip)).at("name") == "Ada");
 }

@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.64.0-beta.1
+
+- Bake Title: turn a title clip into a ProRes 4444 file with transparency
+  that any program can play, in one undoable step (Title page › Bake…).
+
 ## 0.63.0-beta.1
 
 - Exports started while GPU acceleration is on render on the graphics card

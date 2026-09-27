@@ -6,6 +6,8 @@
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
 #include "engine/backdrop.h"
+#include "jobs.h"
+#include "title_bake.h"
 #include "title_launch.h"
 #include "title_page.h"
 
@@ -21,16 +23,6 @@
 #include <set>
 #include <thread>
 
-// GLib's main-context lock is invisible to ThreadSanitizer: annotate the
-// hand-off, as MainThreadDispatcher does (src/engine/dispatcher.cpp).
-#ifdef __SANITIZE_THREAD__
-#include <sanitizer/tsan_interface.h>
-#define TITLES_TSAN_RELEASE(addr) __tsan_release(addr)
-#define TITLES_TSAN_ACQUIRE(addr) __tsan_acquire(addr)
-#else
-#define TITLES_TSAN_RELEASE(addr) ((void)(addr))
-#define TITLES_TSAN_ACQUIRE(addr) ((void)(addr))
-#endif
 
 namespace ustudio::titles {
 
@@ -149,87 +141,6 @@ class TitleWatcher
     }
 };
 
-// Backdrop renders in flight: each on its own thread with its own graph
-// (never the main or the engine thread). Joined when the app shuts down,
-// before MLT closes.
-class BackdropJobs
-{
-  public:
-    static BackdropJobs &instance()
-    {
-        static BackdropJobs jobs;
-        return jobs;
-    }
-
-    void start(std::function<void()> work)
-    {
-        std::lock_guard lock(m_mutex);
-        // Finished ones go first.
-        for (auto it = m_jobs.begin(); it != m_jobs.end();) {
-            if (it->done->load()) {
-                it->thread.join();
-                it = m_jobs.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        if (!m_hooked) {
-            if (GApplication *app = g_application_get_default())
-                g_signal_connect(app, "shutdown", G_CALLBACK(onShutdown), this);
-            m_hooked = true;
-        }
-        auto done = std::make_shared<std::atomic<bool>>(false);
-        m_jobs.push_back({std::thread([work = std::move(work), done] {
-                              work();
-                              done->store(true);
-                          }),
-                          done});
-    }
-
-  private:
-    struct Job
-    {
-        std::thread thread;
-        std::shared_ptr<std::atomic<bool>> done;
-    };
-    void joinAll()
-    {
-        std::lock_guard lock(m_mutex);
-        for (Job &job : m_jobs)
-            job.thread.join();
-        m_jobs.clear();
-    }
-
-    std::mutex m_mutex;
-    std::list<Job> m_jobs;
-    bool m_hooked = false;
-
-    // --- GLib trampolines --------------------------------------------------
-    static void onShutdown(GApplication *, gpointer self)
-    {
-        static_cast<BackdropJobs *>(self)->joinAll();
-    }
-};
-
-// A result back on the main thread.
-struct Posted
-{
-    std::function<void()> fn;
-};
-gboolean runPosted(gpointer data)
-{
-    TITLES_TSAN_ACQUIRE(data);
-    std::unique_ptr<Posted> posted(static_cast<Posted *>(data));
-    posted->fn();
-    return G_SOURCE_REMOVE;
-}
-void postToMain(std::function<void()> fn)
-{
-    auto *posted = new Posted{std::move(fn)};
-    TITLES_TSAN_RELEASE(posted);
-    g_idle_add_full(G_PRIORITY_DEFAULT, &runPosted, posted, nullptr);
-}
-
 void launch(app::ShellHost &host, const std::string &path, const std::string &name, GdkTexture *backdrop)
 {
     const std::string error = launchTitlesApp(path, backdrop);
@@ -257,7 +168,7 @@ void editTitleClip(app::ShellHost &host, core::ClipId id)
     std::shared_ptr<const core::Project> project = model.snapshot();
     host.showStatus("Opening " + name + " in U Stu Titles…");
     app::ShellHost *hostPtr = &host; // the window lives for the process
-    BackdropJobs::instance().start([project, id, frame, path, name, hostPtr] {
+    startJob([project, id, frame, path, name, hostPtr] {
         auto backdrop = std::make_shared<Backdrop>(renderBackdrop(project, id, frame));
         postToMain([backdrop, path, name, hostPtr] {
             GdkTexture *texture = nullptr;
@@ -289,6 +200,23 @@ void onEditTitle(GSimpleAction *, GVariant *, gpointer target)
         }
     }
     host.showStatus("Select a title clip to edit it.");
+}
+
+// Bake Title (the action): the first selected title clip.
+void onBakeTitle(GSimpleAction *, GVariant *, gpointer target)
+{
+    auto &host = *static_cast<app::ShellHost *>(target);
+    const core::Model &model = host.model();
+    for (core::ClipId id : host.currentSelection().clips) {
+        if (!model.hasClip(id))
+            continue;
+        const core::Clip &clip = model.clip(id);
+        if (model.hasAsset(clip.asset) && isTitleFile(model.asset(clip.asset).path)) {
+            bakeTitleClip(host, id);
+            return;
+        }
+    }
+    host.showStatus("Select a title clip to bake it.");
 }
 
 // A double-click on a title clip opens it (anywhere but the track's name
@@ -391,9 +319,15 @@ void extendShell(app::ShellHost &host)
     host.addImportHandler({{"ustitle"}, "Titles", [&host](const std::string &path, auto track, auto position) {
                                return importTitle(host, path, track, position);
                            }});
-    host.addActions({{"titles-edit", "Edit Title", "Titles", {"<Control><Shift>t"}, &onEditTitle}}, &host);
+    host.addActions({{"titles-edit", "Edit Title", "Titles", {"<Control><Shift>t"}, &onEditTitle},
+                     {"titles-bake", "Bake Title", "Titles", {}, &onBakeTitle}},
+                    &host);
     host.addHints({{"titles.edit", "Titles", "Edit title", "Open the selected title clip in U Stu Titles",
-                    "titles-edit", "Double-click a title clip"}});
+                    "titles-edit", "Double-click a title clip"},
+                   {"titles.bake", "Titles", "Bake title",
+                    "Render the clip to a video file with transparency, for tools without U Stu's titles; undo "
+                    "brings the live title back",
+                    "titles-bake", nullptr}});
     // For the process, as the host requires; bound to this window.
     static TitleClipClicks clicks;
     clicks.bind(host);

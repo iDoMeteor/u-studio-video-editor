@@ -44,6 +44,28 @@ namespace ustudio::core {
 // state exactly -- the same reasoning RemoveTransition::revert already
 // relies on for its own single clip pair.
 
+// Points one clip at another asset (with that asset's source params),
+// keeping its place, range, effects and transform: a title baked to a
+// file (doc 16, "Bake title"). Refused on a locked track, or when the
+// clip's range doesn't fit the asset.
+class SetClipAsset : public Command
+{
+  public:
+    SetClipAsset(ClipId clip, AssetId asset, std::vector<Param> params, std::string label = "Replace clip source");
+    std::string label() const override
+    {
+        return m_label;
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    ClipId m_clip;
+    AssetId m_asset, m_oldAsset;
+    std::vector<Param> m_params, m_oldParams;
+    std::string m_label;
+};
+
 class AddAsset : public Command
 {
   public:
