@@ -36,8 +36,8 @@ std::string renderAndCheck(Mlt::Profile &profile)
 {
     Mlt::Tractor tractor(profile);
     // Through the loader, so each gets movit's normalisers (the Live chain).
-    std::unique_ptr<Mlt::Producer> black = openProducer(profile, "color:#000000", ProducerUse::Live);
-    std::unique_ptr<Mlt::Producer> picture = openProducer(profile, "color:#2080c0", ProducerUse::Live);
+    std::unique_ptr<Mlt::Producer> black = openProducer(profile, "color:#000000", ProducerUse::GpuGraph);
+    std::unique_ptr<Mlt::Producer> picture = openProducer(profile, "color:#2080c0", ProducerUse::GpuGraph);
     if (!black->is_valid() || !picture->is_valid())
         return "couldn't open colour producers";
     Mlt::Filter rect(profile, "movit.rect");

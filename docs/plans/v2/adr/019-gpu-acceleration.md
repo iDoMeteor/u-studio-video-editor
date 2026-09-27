@@ -108,12 +108,15 @@ fallback) clears the global `glslManager`, drops EngineSync's master
 producers and rebuilds, so every producer is reopened on the CPU chain.
 
 **4. One engine helper opens every producer:**
-`engine::openProducer(profile, resource, ProducerUse::Live | ProducerUse::Worker)`
-(`src/engine/producer_open.h`).
-`Worker` (thumbnails, waveforms, probes, `audio_sync`, anything off the
-live graph) always uses the `loader-nogl` service and never hardware
-decode. `Live` (EngineSync's masters and the export graph) uses `loader`
-and appends `\?hwaccel=<api>` when hardware decode is on. The suffix is an
+`engine::openProducer(profile, resource, use)` (`src/engine/producer_open.h`).
+Only a GPU graph's producers (`GpuGraph`) use the default `loader`; a
+worker's (thumbnails, waveforms, probes, `audio_sync`) and a CPU graph's
+use the `loader-nogl` service, so a CPU graph stays CPU while a GPU session
+lives elsewhere in the process (an export on a pool thread while the
+preview plays on the GPU crashed in 0.60.0-beta.1, fixed in 0.60.1-beta.1).
+A drop-in's producer (`EngineExtension::makeProducer()`) uses `Graph`, which
+follows the graph being built on that thread. EngineSync's video masters
+get `\?hwaccel=<api>` when hardware decode is on. The suffix is an
 engine-only projection like image sequences' `?begin=`: the writer never
 saves it and `verify()` strips it. A test pins that no worker producer
 carries a `movit.*` filter while a manager exists.

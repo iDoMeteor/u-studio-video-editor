@@ -8,6 +8,7 @@
 #include "core/model/transform.h"
 #include "core/render/render_profile.h"
 #include "engine/engine_extension.h"
+#include "engine/producer_open.h"
 
 #include <mlt++/Mlt.h>
 
@@ -337,6 +338,11 @@ class EngineSync
     // True when it attached filters (the picture then has transparent edges).
     // The filters realising `t` on this graph's pipeline (core::transformFilters()
     // or core::gpuTransformFilters()).
+    // How this graph opens its producers (producer_open.h).
+    ProducerUse graphUse() const
+    {
+        return m_pipeline == Pipeline::Gpu ? ProducerUse::GpuGraph : ProducerUse::CpuGraph;
+    }
     std::vector<core::NativeFilter> transformNatives(const core::Transform &t, const core::MediaInfo &info,
                                                      const core::Profile &profile, double sourceScale) const;
     bool applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve = false);

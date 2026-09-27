@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace ustudio;
@@ -365,4 +366,44 @@ TEST_CASE("GPU pipeline: switching back to the CPU reopens everything on the CPU
     CHECK(sync.verify().empty());
     checkSame(before, frameAt(sync, 5));
     fs::remove_all(scratch());
+}
+
+TEST_CASE("GPU pipeline: an export on another thread while the preview's session is live")
+{
+    sharedFactoryPolicy();
+    Scene scene(utf8String(generate("blue.mp4", 1920, 1080, "color:#2040c0")), 1920, 1080);
+    scene.model.setClipTransform(scene.clip, placed(480, 270, 960, 540));
+    Image cpu;
+    {
+        EngineSync sync(scene.model, PreviewScale::Full, EngineSync::FrameReads::ProfileSize);
+        cpu = frameAt(sync, 5);
+    }
+    std::string error;
+    std::unique_ptr<GpuSession> session = GpuSession::start(error);
+    if (!session) {
+        MESSAGE("no GPU pipeline here (" << error << ")");
+        return;
+    }
+    // As the app: the session's context belongs to the preview, and the
+    // export runs on a pool thread with none current.
+    const fs::path out = scratch() / "export-while-gpu.mp4";
+    bool ok = false;
+    std::thread worker([&] { ok = renderProject(scene.model, utf8String(out), error); });
+    worker.join();
+    INFO(error);
+    REQUIRE(ok);
+    session.reset();
+    Model check = Model::createEmpty();
+    TrackId track = check.addTrack(Track::Kind::Video, 0, "V1");
+    Asset rendered;
+    rendered.path = utf8String(out);
+    rendered.info.hasVideo = true;
+    rendered.info.width = 1920;
+    rendered.info.height = 1080;
+    rendered.info.lengthInSequenceFrames = 60;
+    check.insertClip(track, check.addAsset(rendered), 0, 0, 59);
+    EngineSync sync(check, PreviewScale::Full, EngineSync::FrameReads::ProfileSize);
+    const Image exported = frameAt(sync, 5);
+    INFO("inside cpu " << pixel(cpu, 480, 270) << " export " << pixel(exported, 480, 270));
+    CHECK(compare(cpu, exported).mean <= 3.0); // through H.264
 }

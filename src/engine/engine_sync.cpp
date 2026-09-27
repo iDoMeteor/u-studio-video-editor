@@ -587,7 +587,7 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
         if (!knownMissing && !sequence && videoEnabled && asset.info.hasVideo && !asset.info.isStillImage)
             resource = withHardwareDecode(resource, m_hardwareDecodeApi);
         std::shared_ptr<Mlt::Producer> producer =
-            openProducer(*m_profile, knownMissing ? std::string(kMissingResource) : resource, ProducerUse::Live);
+            openProducer(*m_profile, knownMissing ? std::string(kMissingResource) : resource, graphUse());
         if (sequence && !knownMissing && producer->is_valid()) {
             const int frames = static_cast<int>(std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1));
             producer->set("ttl", 1);
@@ -617,7 +617,7 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
                            ") -- showing the missing-media placeholder in its place");
                 mediaUnavailable.emit(asset.path);
             }
-            producer = std::make_shared<Mlt::Producer>(*m_profile, kMissingResource);
+            producer = openProducer(*m_profile, kMissingResource, graphUse());
         }
         if (knownMissing || m_unavailableAssets.contains(assetId.value)) {
             core::FrameIndex placeholderLength = std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1);
@@ -729,6 +729,7 @@ Mlt::Producer &EngineSync::producerForClip(const core::Clip &clip)
     if (!m_extensions.empty()) {
         if (auto it = m_clipProducers.find(clip.id.value); it != m_clipProducers.end())
             return *it->second;
+        GraphBuildScope scope(m_pipeline == Pipeline::Gpu);
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions) {
             if (std::unique_ptr<Mlt::Producer> made = extension->makeProducer(m_model, clip, *m_profile)) {
                 m_extensionProducers.insert(clip.id.value);
@@ -1057,6 +1058,8 @@ void EngineSync::rebuildAll()
 {
     Log::ScopedTimer timer("[engine] rebuildAll");
     core::trace::Scope trace("EngineSync::rebuildAll");
+    // Drop-ins' producers (titles) follow this graph's pipeline.
+    GraphBuildScope scope(m_pipeline == Pipeline::Gpu);
     const core::Sequence &seq = m_model.sequence();
     size_t clipCount = seq.clips.size();
     size_t trackCount = seq.tracks.size();
@@ -1093,8 +1096,7 @@ void EngineSync::rebuildAll()
         m_blackMaster.reset();
     if (!m_blackMaster) {
         m_blackMasterColour = seq.background;
-        m_blackMaster =
-            std::make_unique<Mlt::Producer>(*m_profile, ("color:" + core::backgroundResource(seq.background)).c_str());
+        m_blackMaster = openProducer(*m_profile, "color:" + core::backgroundResource(seq.background), graphUse());
         m_blackMaster->set("length", kBlackMasterLength);
         m_blackMaster->set_in_and_out(0, kBlackMasterLength - 1);
         const uint32_t r = seq.background >> 16 & 0xff, g = seq.background >> 8 & 0xff, b = seq.background & 0xff;

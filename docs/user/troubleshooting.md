@@ -35,6 +35,13 @@ includes what the GPU row says. If U Stu turned GPU acceleration off by
 itself, it closed unexpectedly while using the graphics card last time;
 turn it back on to try again.
 
+### Memory keeps growing during long playback with GPU acceleration on
+
+Native builds from Fedora or other distributions use their own copy of the
+MLT library, which leaks a little memory for every frame played on the
+graphics card (about 10 MB a minute). The Flatpak will carry a fix. If a long
+session gets slow, save and restart U Stu, or turn GPU acceleration off.
+
 ### No sound
 
 - Check the transport volume and that the track isn't muted (its name

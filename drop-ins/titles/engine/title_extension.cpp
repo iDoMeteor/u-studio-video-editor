@@ -1,6 +1,7 @@
 #include "title_extension.h"
 
 #include "core/title_xml.h"
+#include "engine/producer_open.h"
 
 #include <variant>
 
@@ -47,9 +48,10 @@ std::unique_ptr<Mlt::Producer> makeTitleProducer(Mlt::Profile &profile, const st
     // the loader attaches the normalising filters that convert our RGBA to
     // what the graph asks for. Made directly, the frames' RGBA bytes were
     // read as YUV 4:2:2 by the compositor (a transparent frame came out
-    // opaque green, 0,136,0: Y=U=V=0), MLT 7.40.
+    // opaque green, 0,136,0: Y=U=V=0), MLT 7.40. Which loader follows the
+    // graph being built (ADR-019: movit's normalisers only in a GPU graph).
     const std::string spec = "ustudio_title:" + path;
-    auto producer = std::make_unique<Mlt::Producer>(profile, "loader", spec.c_str());
+    std::unique_ptr<Mlt::Producer> producer = engine::openProducer(profile, spec, engine::ProducerUse::Graph);
     if (!producer->is_valid())
         return nullptr;
     producer->set("length", static_cast<int>(length));

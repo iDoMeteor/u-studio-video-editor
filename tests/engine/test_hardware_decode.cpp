@@ -120,7 +120,7 @@ TEST_CASE("worker producers keep the CPU chain once a glsl.manager exists")
             return;
         }
         // The switch this guards against: the default loader goes GPU.
-        std::unique_ptr<Mlt::Producer> live = openProducer(profile, green, ProducerUse::Live);
+        std::unique_ptr<Mlt::Producer> live = openProducer(profile, green, ProducerUse::GpuGraph);
         CHECK(hasMovitFilter(*live));
         std::unique_ptr<Mlt::Producer> worker = openProducer(profile, green, ProducerUse::Worker);
         REQUIRE(worker->is_valid());
@@ -128,7 +128,7 @@ TEST_CASE("worker producers keep the CPU chain once a glsl.manager exists")
     }
     // Destroying the manager doesn't switch MLT back; clearing the global does.
     mlt_properties_set_data(mlt_global_properties(), "glslManager", nullptr, 0, nullptr, nullptr);
-    std::unique_ptr<Mlt::Producer> after = openProducer(profile, green, ProducerUse::Live);
+    std::unique_ptr<Mlt::Producer> after = openProducer(profile, green, ProducerUse::GpuGraph);
     CHECK_FALSE(hasMovitFilter(*after));
 }
 
