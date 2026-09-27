@@ -22,7 +22,12 @@ taken on the open questions are recorded in
 **u-studio-video-editor** is a from-scratch, GNOME-native, multi-track video
 editor for Linux: GTK4 + libadwaita for the UI, MLT (via `mlt++`) for
 playback and rendering, C++ built with meson/ninja. Licence
-GPL-3.0-or-later.
+**MIT** (`LICENSE`; owner decision 2026-09-27: the most permissive licence
+that fits). Binary packages bundle third-party code under its own licence
+(FFmpeg with x264 is GPL, so a Flatpak/Snap as a whole carries GPL
+obligations: ship those licence texts and the corresponding source). New
+dependencies must be MIT-compatible to link, and anything copyleft is only
+ever bundled, never copied into `src/`.
 
 It is **not** a port of kdenlive. `~/Repos/kdenlive` is a current checkout
 kept as a *reference for MLT usage patterns* (consumer setup, track/transition
@@ -220,9 +225,15 @@ team's practice is the rule:
   standalone repro before being built on. Keep doing that, and write the
   finding into `docs/developer/notes/` (the implementation notes) or the
   engine comment where it applies, so the next agent doesn't rediscover it.
-- Only `sdl2_audio`, `rtaudio`, `null`, `avformat`, `xml`, and the core
-  transitions (`composite`, `affine`, `luma`, `mix`) are assumed present
-  (verified on this machine, doc 00). `frei0r` is required by the effects
+- The editor needs these MLT modules, and every package build must include
+  them: `core` (`composite`, `luma`, `mix`, `crop`, `mirror`, the `colour`
+  producer),
+  **`plus`** (the `affine` filter used for clip transforms, ADR-018 — it is
+  *not* in `core`), `normalize` (`volume`), `avformat`, `xml`, `sdl2`
+  (`sdl2_audio`), `rtaudio`, `gdk` (stills), `resample`. `null` is core.
+  Check a service's module in `/usr/share/mlt-7/<module>/` before assuming
+  where it lives (the Flatpak's first build left out `plus` because this
+  line used to call `affine` core). `frei0r` is required by the effects
   drop-in, **not** by the core editor (ADR-011 as narrowed by ADR-014,
   2026-09-24): nothing in `src/` may depend on a frei0r service. The core
   composites every video track onto track 0 (the background) with
@@ -401,6 +412,38 @@ own worktree.
 
 ## Documentation SOP
 
+Docs are part of "done" (owner rule, 2026-09-27, after the docs team's
+rewrite): a change that alters what a user sees, how the code is built or
+structured, or what we know about MLT/GTK is **not finished** until its docs
+are updated in the same commit or the same landing batch. Reviewers treat a
+missing doc update like a missing test.
+
+**Checklist for every landing:**
+
+1. **User-visible change?** Update the matching `docs/user/` page (the
+   feature's own page, plus `keyboard-shortcuts.md` for new actions and
+   `troubleshooting.md` for new failure modes), and README's feature or
+   "Not yet" bullets if the list changed.
+2. **New action, control or setting?** Its `ui_hints` text (tooltip and
+   Help), and the user page that explains it, in the same commit.
+3. **Build, packaging, test or architecture change?** Update
+   `docs/developer/` (`building.md`, `testing.md`, `architecture.md`,
+   `packaging.md`) and, if a design decision changed, the v2 doc or a new
+   ADR.
+4. **Found out how MLT, GTK or GLib really behaves?** Write it into the
+   matching `docs/developer/notes/` file (one file per area), with the
+   repro or source reference.
+5. **New doc file?** Link it from its section index (`docs/user/README.md`,
+   `docs/developer/README.md`, `docs/developer/notes/README.md`, ...) and,
+   if it's a new area, from `docs/README.md`. Nothing may be unreachable
+   from `README.md`.
+6. **Releasable build?** A `<releases>` entry in the metainfo (see Git
+   conventions); everyday changes stay in `CHANGELOG.md`.
+7. Say in the commit body which docs you updated, or "docs: none needed"
+   and why.
+
+**Style and structure** (keep the docs team's pattern):
+
 - `README.md` is the entry point and must stay honest and short: a tl;dr,
   install, feature bullets, roadmap bullets, links. When you land a
   capability or remove a limitation, update its "Features" / "Not yet"
@@ -421,6 +464,12 @@ own worktree.
   and commit bodies. Documentation tasks are the exception.
 - Headings in sentence case; tables for reference data; fenced code blocks
   with a language tag; backticks for paths, flags, functions, env vars.
+- Write `docs/user/` for users: plain language, what to click or press,
+  no internal names (no class names, ADR numbers or MLT service names).
+  Developer detail belongs in `docs/developer/`.
+- One home per fact: link to the page that owns a topic instead of
+  repeating it. When something changes, fix it where it lives and delete
+  stale copies rather than adding a second version.
 
 ---
 

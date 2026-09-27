@@ -43,7 +43,8 @@ just flatpak
     `identifier:` lines of MLT's module `.yml` files.
 - **SDL2** comes from the runtime (sdl2-compat on SDL3), so audio goes to
   PulseAudio/PipeWire.
-- **Licence.** Linking x264 makes the bundle GPL. flatpak-builder installs
+- **Licence.** The app itself is MIT (`LICENSE`), but linking x264 makes
+  the bundle as a whole GPL. flatpak-builder installs
   each module's licence files under `/app/share/licenses/`.
 - **Permissions.** Wayland with X11 fallback, DRI, PulseAudio, and file
   access to home, `/media`, `/run/media` and `/mnt`. There's no network

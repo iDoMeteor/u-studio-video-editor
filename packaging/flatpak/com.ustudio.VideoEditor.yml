@@ -7,7 +7,8 @@
 #   such as Ubuntu 24.04 / Mint 22 ship 7.22.
 # - H.264 export needs libx264, which no Flathub runtime or extension
 #   carries. Linking it makes FFmpeg, and so this bundle as a whole,
-#   GPL-2.0-or-later. Licence files land in /app/share/licenses.
+#   GPL-2.0-or-later; the app itself is MIT (compatible). Licence files
+#   land in /app/share/licenses.
 #
 # No Qt (ADR-007) is structural here: only the MLT modules listed in
 # modules/mlt.yml are built, and the qt6/glaxnimate ones are switched off
