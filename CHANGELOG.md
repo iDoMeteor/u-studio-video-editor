@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.65.0-beta.1
+
+- Export a title clip on its own from the editor (Title page › Export on
+  its own): with transparency for OBS, with the clip's fields and length.
+
 ## 0.64.0-beta.1
 
 - Bake Title: turn a title clip into a ProRes 4444 file with transparency

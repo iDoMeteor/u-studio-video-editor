@@ -483,6 +483,12 @@ Integration points: IP5 inspector page and action contributions.
 Fields and dynamic fields, the template gallery, fields in the editor's
 Rack, New Title and insert-at-playhead over D-Bus, Bake title.
 
+> REVIEW (VE Text, 2026-09-27): T4 runs as T4.1 (editor workflow) then
+> T4.2 (templates), so the names don't collide with doc 20's T4b. T4.1 is
+> done in 0.59.1–0.65.0: the editor's text-entry shortcut guard, dynamic
+> fields, the Title inspector page (fields per clip), Bake Title, and
+> Export Title from the editor. New Title and the gallery are T4.2.
+
 **User templates and a bigger gallery** (owner request, 2026-09-27):
 
 - **Save as Template** from any title, fields included, into a user

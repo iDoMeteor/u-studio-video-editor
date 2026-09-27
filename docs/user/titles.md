@@ -133,6 +133,11 @@ The title is saved first if it has changes. In OBS, add a **Media
 Source** with the exported file; the transparent areas show what's under
 it.
 
+From the editor, select a title clip and use **Export on its own** at the
+bottom of the inspector's **Title** page: pick a format and click
+**Export…**. You get that clip's title with its own fields, as long as the
+clip, at the project's frame rate. The project doesn't change.
+
 ## From the editor
 
 **Double-click a title clip** on the timeline (or select it and press

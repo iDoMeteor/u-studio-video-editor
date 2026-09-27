@@ -129,6 +129,19 @@ bool haveGtk()
     return false;
 }
 
+// MLT with the titles module, once, for the tests that bake or export.
+void setUpMlt()
+{
+    static const bool done = [] {
+        engine::FactoryPaths paths;
+        paths.mltModuleDirs.push_back(TITLES_MLT_BUILD_DIR);
+        static engine::FactoryPolicy policy(paths);
+        engine::registerEngineExtension([] { return titles::makeTitleExtension(); });
+        return true;
+    }();
+    (void)done;
+}
+
 // Every GtkEntry under `widget`, in order.
 void entriesIn(GtkWidget *widget, std::vector<GtkWidget *> &out)
 {
@@ -342,14 +355,7 @@ TEST_CASE("Bake Title: the clip plays a ProRes file, keeps its place and transfo
 {
     if (!haveGtk())
         return;
-    static const bool mlt = [] {
-        engine::FactoryPaths paths;
-        paths.mltModuleDirs.push_back(TITLES_MLT_BUILD_DIR);
-        static engine::FactoryPolicy policy(paths);
-        engine::registerEngineExtension([] { return titles::makeTitleExtension(); });
-        return true;
-    }();
-    (void)mlt;
+    setUpMlt();
     core::Profile profile;
     profile.fps = {25, 1};
     FakeShell shell(profile);
@@ -390,4 +396,31 @@ TEST_CASE("Bake Title: the clip plays a ProRes file, keeps its place and transfo
     shell.undo();
     CHECK(shell.model().clip(clip).asset == before.asset);
     CHECK(titles::clipFieldValues(shell.model().clip(clip)).at("name") == "Ada");
+}
+
+TEST_CASE("Export Title from the editor: the clip's title on its own, at the clip's length; the project unchanged")
+{
+    if (!haveGtk())
+        return;
+    setUpMlt();
+    core::Profile profile;
+    profile.fps = {25, 1};
+    FakeShell shell(profile);
+    const std::string path = saveTitle("export-clip.ustitle");
+    REQUIRE(titles::importTitle(shell, path, shell.video, 0).has_value());
+    const core::ClipId clip = shell.model().track(shell.video).clips.front();
+    const core::Project before = shell.model().project();
+    const fs::path out = scratch() / "export-clip-frames";
+    fs::remove_all(out);
+    titles::exportTitleClip(shell, clip, "png", core::utf8String(out));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+    while (shell.status.starts_with("Exporting") && std::chrono::steady_clock::now() < deadline)
+        g_main_context_iteration(nullptr, TRUE);
+    INFO(shell.status);
+    REQUIRE(shell.status.starts_with("Exported"));
+    size_t count = 0;
+    for (const auto &entry : fs::directory_iterator(out))
+        count += entry.path().extension() == ".png";
+    CHECK(count == static_cast<size_t>(shell.model().clip(clip).length()));
+    CHECK(shell.model().project() == before);
 }
