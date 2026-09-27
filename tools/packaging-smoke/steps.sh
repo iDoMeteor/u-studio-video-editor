@@ -131,6 +131,16 @@ d press "Create Proxies"; sleep 2
 check "no Qt mapped in u-studio-render" no_qt "$(ours u-studio-render)"
 d waitlog "status: Proxy ready" 120
 check "proxy ready" last_status_is "Proxy ready"
+
+# --- 8b: image sequence (numbered PNGs as one clip; MLT's gdk/pixbuf module)
+check "MLT gdk module in the package" sh -c "find '$TREE' -name 'libmltgdk.so' | grep -q ."
+mkdir -p "$M/seq"
+ffmpeg -loglevel error -y -f lavfi -i testsrc2=size=1280x720:rate=30:duration=1 "$M/seq/frame_%04d.png"
+d press "Add track"; sleep 1; d act active-track-top; d act seek-home
+d act import-image-sequence; sleep 1.5; d loc "$M/seq/frame_0010.png"; d enter; sleep 4
+seq_status=$(status); echo "  status: $seq_status"
+check "import a 30-image sequence" sh -c "echo \"\$1\" | grep -qE '^Imported .*: 30 '" _ "$seq_status"
+d shot 08b-sequence
 d act save; sleep 1.5
 
 # --- 9: Copy Diagnostics
