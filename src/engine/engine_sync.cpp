@@ -159,8 +159,7 @@ void attachProfileColorspace(Mlt::Producer &producer, Mlt::Profile &profile)
 // mlt_frame_get_image() converts the result to what composite asked for.
 // The affine transition blends RGBA correctly but cost 150 ms a 1080p frame
 // against composite's 25 (same repro).
-int pairAlphaImage(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height,
-                   int writable)
+int pairAlphaImage(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height, int writable)
 {
     // Without the loader's normalisers (a producer made straight from the
     // factory) nothing converts RGBA back to what composite asked for, and
@@ -191,6 +190,28 @@ mlt_frame pairAlphaProcess(mlt_filter, mlt_frame frame)
 {
     mlt_frame_push_get_image(frame, pairAlphaImage);
     return frame;
+}
+
+// On a video-track cut whose clip has its video turned off. avformat drops
+// the picture for video_index=-1, but stills (pixbuf) and image sequences
+// ignore it and kept showing (2026-09-27). A frame marked test_image is
+// what a playlist blank gives, and a transition skips such a B frame
+// (mlt_transition.c, MLT 7.40): the track below shows, the audio plays.
+mlt_frame hideVideoProcess(mlt_filter, mlt_frame frame)
+{
+    mlt_properties_set_int(MLT_FRAME_PROPERTIES(frame), "test_image", 1);
+    return frame;
+}
+
+void attachHideVideo(Mlt::Producer &producer)
+{
+    mlt_filter raw = mlt_filter_new();
+    if (!raw)
+        return;
+    raw->process = hideVideoProcess;
+    Mlt::Filter filter(raw); // its own reference
+    mlt_filter_close(raw);
+    producer.attach(filter);
 }
 
 // On a video track's cut or dissolve segment that may carry alpha; outermost,
@@ -965,7 +986,9 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
             decorateCut(*cut, clip, seg.in, seg.out);
             const bool transformed = applyTransform(*cut, clip);
-            if (video && carriesAlpha(clip, transformed))
+            if (video && !clip.videoEnabled)
+                attachHideVideo(*cut);
+            else if (video && carriesAlpha(clip, transformed))
                 attachAlphaPairing(*cut);
             target().append(*cut);
         } else {

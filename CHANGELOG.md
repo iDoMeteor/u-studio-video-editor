@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.57.1-beta.1
+
+- Transparent pictures (PNG stills, titles, rotated or scaled clips) no
+  longer get dark, coloured edges over video, in the preview and in renders.
+- A still image or image sequence with its video turned off no longer shows.
+
 ## 0.57.0-beta.1
 
 - U Stu Titles: double-click text to type on the canvas; picture (PNG)

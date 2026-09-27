@@ -8,12 +8,14 @@
 #include "core/commands/primitives.h"
 #include "core/commands/undo_stack.h"
 #include "core/media/utf8_path.h"
+#include "core/render/render_profile.h"
 #include "core/xml/reader.h"
 #include "core/xml/writer.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "platform/process.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -180,5 +182,133 @@ TEST_CASE("colour: the project background survives save and load, and plays and 
     Mlt::Producer decoded(profile, utf8String(rendered).c_str());
     REQUIRE(decoded.is_valid());
     near(pixelAt(decoded, 5, 960, 540), 0x3366cc, 6); // lossy H.264
+    fs::remove_all(dir);
+}
+
+namespace {
+
+// A rotated white rectangle on transparent, as a 1080p PNG: every edge is
+// anti-aliased, with partial alpha (MLT's affine filter, avformat's png).
+fs::path makeAlphaStill(const fs::path &dir)
+{
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+    Mlt::Profile &p = sync.profile();
+    Mlt::Producer white(p, "color:0xffffffff");
+    white.set("mlt_image_format", "rgba");
+    white.set_in_and_out(0, 0);
+    Mlt::Filter affine(p, "affine");
+    affine.set("use_normalized", 1);
+    affine.set("transition.rect", "501 301 901 401 1");
+    affine.set("transition.distort", 1);
+    affine.set("transition.repeat_off", 1);
+    affine.set("transition.mirror_off", 1);
+    affine.set("transition.fix_rotate_x", 7);
+    white.attach(affine);
+    Mlt::Consumer consumer(p, "avformat", utf8String(dir / "still_%d.png").c_str());
+    consumer.set("f", "image2");
+    consumer.set("vcodec", "png");
+    consumer.set("pix_fmt", "rgba");
+    consumer.set("start_number", 1);
+    consumer.set("an", 1);
+    consumer.set("real_time", -1);
+    consumer.connect(white);
+    consumer.run();
+    return dir / "still_1.png";
+}
+
+// Over red, white keeps red at 255 at every coverage, and green equals
+// blue: an edge pixel with less red, or a hue, is the 4:2:2 fringe.
+struct FringeLimits
+{
+    int darkest;    // the lowest red allowed on an edge
+    int skew;       // the largest |green - blue|
+    double deficit; // the largest mean (255 - red) over the edges
+};
+
+void checkNoFringe(Mlt::Producer &producer, int position, const FringeLimits &limits)
+{
+    producer.seek(position);
+    std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+    mlt_image_format format = mlt_image_rgba;
+    int w = 1920, h = 1080;
+    const uint8_t *image = frame->get_image(format, w, h);
+    int edges = 0, darkest = 255, skew = 0;
+    double deficit = 0;
+    for (size_t i = 0; i < size_t{1920} * 1080 * 4; i += 4) {
+        const int r = image[i], g = image[i + 1], b = image[i + 2];
+        if (g > 10 && g < 245) { // partly covered
+            ++edges;
+            darkest = std::min(darkest, r);
+            deficit += 255 - r;
+            skew = std::max(skew, std::abs(g - b));
+        }
+    }
+    CAPTURE(edges);
+    CHECK(edges > 500);
+    CHECK(darkest >= limits.darkest);
+    CHECK(skew <= limits.skew);
+    CHECK(deficit / std::max(edges, 1) <= limits.deficit);
+}
+
+} // namespace
+
+TEST_CASE("colour: a still's anti-aliased alpha edges over video have no dark or coloured fringe")
+{
+    static FactoryPolicy policy;
+    const fs::path dir = fs::temp_directory_path() / ("ustudio-fringe-" + std::to_string(platform::currentProcessId()));
+    fs::create_directories(dir);
+    const fs::path still = makeAlphaStill(dir);
+    REQUIRE(fs::exists(still));
+
+    Model model = Model::createEmpty();
+    const TrackId upper = model.addTrack(Track::Kind::Video, 0, "V2");
+    const TrackId lower = model.addTrack(Track::Kind::Video, 1, "V1");
+    Asset red;
+    red.path = "color:red";
+    red.info.hasVideo = true;
+    red.info.lengthInSequenceFrames = 10'000;
+    model.insertClip(lower, model.addAsset(red), 0, 0, 59);
+    Asset picture;
+    picture.path = utf8String(still);
+    picture.status = Asset::Status::Ready;
+    picture.info.hasVideo = true;
+    picture.info.isStillImage = true;
+    picture.info.width = 1920;
+    picture.info.height = 1080;
+    const ClipId stillClip = model.insertClip(upper, model.addAsset(picture), 0, 0, 59);
+    {
+        EngineSync sync(model);
+        // Without the pairing: darkest 55, skew 60, mean deficit 100.
+        checkNoFringe(sync.tractor(), 30, {250, 4, 2.0});
+    }
+
+    const fs::path rendered = dir / "fringe.mp4";
+    std::string error;
+    const auto &presets = builtInRenderProfiles();
+    const auto high = std::find_if(presets.begin(), presets.end(),
+                                   [](const RenderProfile &p) { return p.name == kDefaultRenderProfileName; });
+    REQUIRE(high != presets.end());
+    REQUIRE(renderProject(model, utf8String(rendered), error, {}, nullptr, *high));
+    Mlt::Profile profile("atsc_1080p_30");
+    Mlt::Producer decoded(profile, utf8String(rendered).c_str());
+    REQUIRE(decoded.is_valid());
+    // H.264's 4:2:0 shares one colour between four pixels, which darkens a
+    // sharp red edge by itself (opaque white would too): 146, 19, 33 here,
+    // against 49, 64, 59 without the pairing.
+    checkNoFringe(decoded, 30, {110, 32, 45.0});
+
+    // A still with its video turned off shows nothing (MLT's pixbuf ignores
+    // video_index=-1, which turns a video's picture off).
+    model.setClipEnabled(stillClip, false, true);
+    {
+        EngineSync sync(model);
+        sync.tractor().seek(30);
+        std::unique_ptr<Mlt::Frame> frame(sync.tractor().get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 1920, h = 1080;
+        const uint8_t *centre = frame->get_image(format, w, h) + (static_cast<size_t>(500) * 1920 + 950) * 4;
+        CHECK(centre[1] < 30); // red, not the white rectangle
+    }
     fs::remove_all(dir);
 }
