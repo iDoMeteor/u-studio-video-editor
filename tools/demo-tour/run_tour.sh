@@ -15,5 +15,5 @@ cd "$HERE" && timeout 3600 env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin L
   GDK_BACKEND=x11 GDK_DEBUG=no-portals USTUDIO_LOG_LEVEL=debug \
   XCURSOR_THEME=Adwaita XCURSOR_SIZE=24 XCURSOR_PATH=/usr/share/icons GTK_A11Y=atspi \
   TOUR_UPTO="${TOUR_UPTO:-99}" TOUR_OUT="$OUT" TOUR_DEMO="$HERE" TOUR_BIN="$BIN" TOUR_MEDIA="$MEDIA" \
-  dbus-run-session -- bash "$HERE/inner.sh" "$HERE/tour.py" "$OUT" "$REC" > "$OUT/run.log" 2>&1
+  dbus-run-session -- bash "$HERE/inner.sh" "${TOUR_SCRIPT:-$HERE/tour.py}" "$OUT" "$REC" > "$OUT/run.log" 2>&1
 echo "rc $?"

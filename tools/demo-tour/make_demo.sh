@@ -37,7 +37,7 @@ VERSION=$(meson introspect "$BUILD" --projectinfo | python3 -c 'import json,sys;
 
 # 3. record + post
 TOUR_MEDIA="$MEDIA" TOUR_BIN="$BUILD/src/app/u-studio-video-editor" "$HERE/run_tour.sh" "$WORK" 1
-python3 "$HERE/post.py" "$WORK" "$WORK/demo.mp4"
+TOUR_VERSION="$VERSION" python3 "$HERE/post.py" "$WORK" "$WORK/demo.mp4"
 
 # 4. save, never overwrite
 mkdir -p "$DEST"

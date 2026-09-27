@@ -66,3 +66,38 @@ cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-i', os.path.join(OUT, 'screen.mkv
        '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', FINAL]
 r = subprocess.run(cmd, capture_output=True, text=True)
 print(r.returncode, r.stderr[-800:])
+
+# ---- intro / outro cards with the owner's logo (optional)
+LOGO = os.environ.get('TOUR_LOGO', '/home/jj/projects/unicorn-tears/software assets/video editor/images/logos/'
+                      'U-Stu-Video-Editor-Logo-01-chatgpt/u-stu-video-editor-full.png')
+if os.path.exists(LOGO) and r.returncode == 0:
+    ver = os.environ.get('TOUR_VERSION', '')
+    font = '/usr/share/fonts/google-noto/NotoSans-Regular.ttf'
+    if not os.path.exists(font):
+        font = subprocess.run(['fc-match', '-f', '%{file}', 'sans'], capture_output=True, text=True).stdout.strip()
+    def card(path, secs, lines):
+        dt = ''.join(
+            f",drawtext=fontfile='{font}':text='{t}':fontcolor={c}:fontsize={fs}:x=(w-text_w)/2:y={y}"
+            for t, c, fs, y in lines)
+        fc = (f"color=c=0x080914:s=1920x1080:r=30:d={secs}[bg];[1:v]scale=1400:-1[lg];"
+              f"[bg][lg]overlay=(W-w)/2:250{dt},fade=in:st=0:d=0.7,fade=out:st={secs - 0.7}:d=0.7[v]")
+        cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', f'anullsrc=r=48000:cl=stereo',
+               '-loop', '1', '-t', str(secs), '-i', LOGO, '-filter_complex', fc, '-map', '[v]', '-map', '0:a',
+               '-t', str(secs), '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path]
+        return subprocess.run(cmd, capture_output=True, text=True)
+    intro = os.path.join(OUT, 'intro.mp4'); outro = os.path.join(OUT, 'outro.mp4')
+    card(intro, 4.5, [(f'Demo tour{"  ·  v" + ver if ver else ""}', '0xA04BFA', 38, 760)])
+    card(outro, 6, [('Part of the Unicorn Tears Project  ·  djunicorntears.com', '0xF3F8FF', 38, 760),
+                    ('Source  ·  github.com/idometeor/u-studio-video-editor', '0x23DDF2', 30, 830),
+                    ('MIT licence', '0x9A93B8', 26, 890)])
+    body = FINAL + '.body.mp4'; os.replace(FINAL, body)
+    fc = '[0:v][0:a][1:v][1:a][2:v][2:a]concat=n=3:v=1:a=1[v][a]'
+    r2 = subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', intro, '-i', body, '-i', outro,
+                         '-filter_complex', fc, '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'medium',
+                         '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart',
+                         FINAL], capture_output=True, text=True)
+    print('cards', r2.returncode, r2.stderr[-400:])
+    if r2.returncode == 0:
+        os.remove(body)
+    else:
+        os.replace(body, FINAL)

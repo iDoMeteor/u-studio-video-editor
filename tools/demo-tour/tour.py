@@ -77,6 +77,11 @@ pause(1.2); snap('c3-browser')
 v2 = [r for r in clips_in_row(752 + 38)]
 v2_end = max(r[1] for r in v2) if v2 else 900
 drag(70, 660, max(v2_end + 60, 520), 752 + 38, dur=1.6); pause(2); rest(); snap('c3-dropped')
+step('Proxies', 'right-click an asset: Create Proxy makes a light editing copy in the background; badges show kind, size and state')
+for _ in range(14):
+    mouse(230, 300, 'b4c'); time.sleep(0.08)
+pause(1); click(230, 92, button=3); pause(1.2); press('Create Proxy'); pause(9); rest(); snap('c3-proxy')
+press('Proxies'); pause(1.5); T.log(f"proxies toggle status {status()!r}")
 press('Show or hide the media browser'); pause(1)
 
 # ---------------------------------------------------------------- 3b soundtrack via Split Audio
@@ -187,6 +192,33 @@ for _ in range(3):
     press('Redo'); pause(0.7)
 act('zoom-fit'); pause(1); rest(); snap('c5-end')
 
+# ---------------------------------------------------------------- 5b transform
+step('Transform on the preview', 'click a picture to select it; drag a corner to scale, the body to move; guides snap')
+act('zoom-fit'); act('seek-home'); act('step-forward-10', 6, gap=0.1); pause(1.5)
+click(960, 385); pause(1.2)
+b = preview_box(); T.log(f"preview box {b}")
+if b:
+    x0, y0, x1, y1 = b
+    drag(x0 + 1, y0 + 1, x0 + (x1 - x0) // 2, y0 + (y1 - y0) // 2, dur=1.4); pause(1.2)
+    b = preview_box() or b; x0, y0, x1, y1 = b
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    drag(cx, cy, cx + 110, cy - 90, dur=1.4); pause(1.2); rest(); snap('c5b-pip')
+    step('Rotate', 'drag the knob above the box; Shift steps by 15°')
+    k = preview_knob(); T.log(f"knob {k}")
+    if k:
+        drag(k[0], k[1], k[0] + 140, k[1] + 36, dur=1.4); pause(1.2); rest(); snap('c5b-rotated')
+    step('Transform menu', 'right-click the preview: fit, stretch, centre, flip and rotate')
+    b = preview_box() or b; x0, y0, x1, y1 = b
+    click((x0 + x1) // 2, (y0 + y1) // 2, button=3); pause(1.5); snap('c5b-menu')
+    # The menu's items aren't in the AT-SPI tree under Xvfb; close it and flip
+    # through the same action the item runs.
+    keysym(K_ESC); pause(0.5); act('transform-flip-h'); pause(1.2); rest(); snap('c5b-flipped')
+step('Edit Transform', 'Ctrl+T shows exact values beside the preview; every change is one undo step')
+act('transform-edit'); pause(3); snap('c5b-dialog')
+# Its own window, and Esc only reaches it with focus, which Xvfb doesn't give.
+press_in('Edit Transform', 'Close'); pause(0.8)
+act('play-pause'); pause(4); act('play-pause'); pause(0.8)
+
 # ---------------------------------------------------------------- 6 save
 PROJECT = os.path.join(WORK, 'unicorn-demo.ustudio')
 HDR = {'save': (1550, 27), 'render': (1642, 27), 'settings': (1736, 27), 'help': (1772, 27)}
@@ -197,6 +229,11 @@ def name_entry_set(path):
             n.get_editable_text_iface().set_text_contents(path); return True
     return False
 
+import shutil
+os.makedirs(os.path.join(WORK, 'footage'), exist_ok=True); os.makedirs(os.path.join(WORK, 'archive'), exist_ok=True)
+EXTRA = os.path.join(WORK, 'footage', 'zizzle-extra.mp4')
+shutil.copy(os.path.join(M, 'zizzle', 'chunk_003.mp4'), EXTRA)
+act('import'); center_dialogs(1.0); set_location(EXTRA); keysym(K_RETURN); pause(4); rest()
 step('Save', 'an untitled project asks where; after that Save writes in place')
 press('Save project'); center_dialogs(1.2)
 T.log(f"name entry: {name_entry_set(PROJECT)}"); pause(1.2)
@@ -267,17 +304,47 @@ pause(1.5)
 
 # ---------------------------------------------------------------- 10 quit mid-render
 step('Quit while rendering', 'the app asks first, stops the render cleanly, and offers to restart it next time')
-click(*HDR['render'], button=3); pause(1.2); press_any('Render “Draft'); pause(3)
+click(*HDR['render'], button=3); pause(1.2)
+if not press_any('Render “Draft', timeout=2):
+    press_any('Queue “Draft')     # a render from chapter 9 is still running
+pause(3)
 press('Close', exact=True); pause(1.5); snap('c10-caution')
 press('Quit', exact=True); wait_exit(40)
+shutil.move(EXTRA, os.path.join(WORK, 'archive', 'zizzle-extra.mp4'))   # the file "goes missing"
 step('Reopen', 'the last project opens by itself, and the unfinished render is offered')
 launch(); pause(3); snap('c10-relaunch')
-press('Restart', exact=True); pause(4); rest(); snap('c10-restarted')
-click(*HDR['render']); pause(1.5); press('Cancel Render', exact=True); pause(1.5)
+press('Restart', exact=True); pause(2.5); rest(); snap('c10-restarted')
+step('Missing media', 'a moved file shows as red striped clips and a banner; rendering asks you to relink first')
+if find('Relink First', exact=True, timeout=3):
+    snap('c10-warning'); press('Relink First', exact=True)
+else:
+    press('Relink…')
+pause(2); center_dialogs(0.6); snap('c10-relink-dialog')
+step('Relink', 'Search a Folder finds the file by name and fingerprint; one undo step')
+press('Search a Folder…'); center_dialogs(1.0)
+set_location(os.path.join(WORK, 'archive') + '/'); pause(0.5)
+if not (press('Select', exact=True) or press('Open', exact=True)):
+    keysym(K_RETURN)
+pause(3); T.log(f"relink status {status()!r}"); snap('c10-relinked')
+if find('Close', exact=True, timeout=1):
+    keysym(K_ESC)
+pause(1)
+if find('Cancel Render', exact=True, timeout=1):
+    press('Cancel Render', exact=True)
+elif 'Rendering' in status():
+    click(*HDR['render']); pause(1.5); press('Cancel Render', exact=True)
+pause(1.5)
 
 # ---------------------------------------------------------------- 11 help
-step('Help', 'every control explained, and every shortcut')
-press('Help'); pause(3); snap('c11-help')
+step('Help', 'collapsible sections that remember where you were: every control and every shortcut')
+press('Help'); pause(2.5)
+for sec in ('Timeline', 'Transform'):
+    press_any(sec); pause(1.5)
+snap('c11-help')
+step('Release notes', 'what is new in each release, written for testers')
+press_any('Release Notes'); pause(2); snap('c11-notes')
+step('About and diagnostics', 'Copy Diagnostics puts versions and recent log lines on the clipboard for a bug report')
+press_any('About'); pause(2); press_any('Copy Diagnostics'); pause(2); snap('c11-about')
 keysym(K_ESC); pause(1)
 
 step('u Studio', 'built with GTK4, libadwaita and MLT')

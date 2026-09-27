@@ -133,6 +133,26 @@ def press(text, **kw):
             ai.do_action(i); log(f"press '{text}'"); return True
     log(f"press '{text}': no action"); return False
 
+def press_in(window, text, timeout=6):
+    """press() limited to the top-level window titled `window`, so a common
+    label like 'Close' can't hit the main window's button."""
+    end = time.time() + timeout
+    while time.time() < end:
+        app = app_node()
+        for i in range(app.get_child_count() if app else 0):
+            w = app.get_child_at_index(i)
+            if w is None or info(w)[0] != window:
+                continue
+            for n in walk(w):
+                nm, ds, rl = info(n)
+                if rl in ('button', 'push button') and (nm == text or ds == text):
+                    ai = n.get_action_iface()
+                    for j in range(ai.get_n_actions()):
+                        if ai.get_action_name(j) in ('click', 'activate', 'press'):
+                            ai.do_action(j); log(f"press '{text}' in '{window}'"); return True
+        time.sleep(0.3)
+    log(f"press '{text}' in '{window}': NOT FOUND"); return False
+
 def act(name, n=1, gap=0.35, param=None):
     for _ in range(n):
         args = ['gdbus', 'call', '--session', '--dest', 'com.ustudio.VideoEditor', '--object-path',
@@ -347,3 +367,31 @@ def ff_start():
 def ff_end():
     FF[-1][1] = now()
     json.dump(FF, open(os.path.join(OUT, 'ff.json'), 'w'))
+
+def _preview_cyan(y0=52, y1=718, x0=5, x1=1915):
+    im = Image.open(shot()).convert('RGB'); pts = []
+    for y in range(y0, y1, 2):
+        for x in range(x0, x1, 2):
+            p = im.getpixel((x, y))
+            if p[2] > 200 and p[1] > 180 and p[0] < 90:
+                pts.append((x, y))
+    return pts
+
+def preview_box():
+    """Bounding box of the cyan transform outline on the preview, without the
+    rotation knob above it: the top and bottom come from the left edge only."""
+    pts = _preview_cyan()
+    if not pts:
+        return None
+    xa = min(x for x, _ in pts); xb = max(x for x, _ in pts)
+    edge = [y for x, y in pts if x <= xa + 6]
+    return (xa, min(edge), xb, max(edge))
+
+def preview_knob():
+    """Centre of the rotation knob: the topmost cyan above the box's middle."""
+    b = preview_box()
+    if not b:
+        return None
+    xm = (b[0] + b[2]) // 2
+    ys = [y for x, y in _preview_cyan() if abs(x - xm) <= 8 and y < b[1] - 4]
+    return (xm, min(ys) + 6) if ys else None
