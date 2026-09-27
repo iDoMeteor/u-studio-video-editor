@@ -479,6 +479,10 @@ std::expected<ReadResult, std::string> parseTitle(std::string_view xml)
         return std::unexpected("the title was saved by a newer version (format " + std::to_string(version) + ")");
     a.integer("width", title.width, 16, kMaxCanvas);
     a.integer("height", title.height, 16, kMaxCanvas);
+    if (auto name = attr(root, "name"))
+        title.name = *name;
+    if (auto category = attr(root, "category"))
+        title.category = *category;
     if (auto fps = attr(root, "fps")) {
         const size_t slash = fps->find('/');
         Attrs dummy(root, error);
@@ -562,6 +566,10 @@ std::string writeTitle(const TitleDocument &title)
     xmlNode *root = xmlNewNode(nullptr, BAD_CAST "ustitle");
     xmlDocSetRootElement(doc.get(), root);
     setAttr(root, "version", std::to_string(kTitleFormatVersion));
+    if (!title.name.empty())
+        setAttr(root, "name", title.name);
+    if (!title.category.empty())
+        setAttr(root, "category", title.category);
     setAttr(root, "width", std::to_string(title.width));
     setAttr(root, "height", std::to_string(title.height));
     setAttr(root, "fps", std::to_string(title.fpsNum) + "/" + std::to_string(title.fpsDen));

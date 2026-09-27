@@ -5,10 +5,14 @@
 #include "doctest.h"
 
 #include "core/clip_fields.h"
+#include "core/media/utf8_path.h"
 #include "core/evaluate.h"
+#include "core/template_library.h"
 #include "core/title_xml.h"
 
+#include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 using namespace ustudio;
@@ -92,6 +96,15 @@ TEST_CASE("write then read gives the same document")
     CHECK(again->document == doc);
     CHECK(again->warnings.empty());
     CHECK(writeTitle(again->document) == xml);
+
+    // A template's name and category survive too (and "&" is escaped).
+    TitleDocument named = doc;
+    named.name = "Lower third, two lines";
+    named.category = "Lower thirds & bugs";
+    auto read = parseTitle(writeTitle(named));
+    REQUIRE(read.has_value());
+    CHECK(read->document == named);
+    CHECK(read->warnings.empty());
 }
 
 TEST_CASE("saveTitle writes atomically and readTitle reads it back")
@@ -281,4 +294,79 @@ TEST_CASE("SetClipFields: a clip's own values, one undo step per gesture")
     CHECK_FALSE(first.mergeWith(other));
     CHECK_FALSE(SetClipFields(clip, {}, 0).mergeWith(SetClipFields(clip, {}, 0)));
     CHECK_FALSE(SetClipFields(core::ClipId{9999}, {}).apply(model));
+}
+
+TEST_CASE("template library: save, list, rename, duplicate, delete, and a new title from one")
+{
+    namespace fs = std::filesystem;
+    const fs::path root =
+        fs::temp_directory_path() /
+        ("ustudio-templates-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::remove_all(root);
+    const fs::path work = root / "work", library = root / "library", builtIns = root / "builtin";
+    fs::create_directories(work);
+    fs::create_directories(builtIns);
+    // A title with a picture beside it (bytes enough: the library copies, it doesn't decode).
+    {
+        std::ofstream(work / "logo.png") << "png";
+    }
+    TitleDocument doc = lowerThird();
+    Layer logo;
+    logo.id = "logo";
+    logo.kind = LayerKind::Image;
+    logo.src = "logo.png";
+    doc.layers.push_back(logo);
+    doc.baseDirectory = core::utf8String(work);
+
+    CHECK(listTemplates(core::utf8String(library), false).empty()); // no folder yet
+    auto saved = saveTemplate(doc, core::utf8String(library), "Guest: Lower Third!");
+    REQUIRE_MESSAGE(saved.has_value(), (saved ? "" : saved.error()));
+    CHECK(saved->id == "guest-lower-third");
+    CHECK(saved->name == "Guest: Lower Third!");
+    CHECK_FALSE(saved->builtIn);
+    CHECK(fs::exists(fs::path(saved->folder) / "images" / "logo.png"));
+    auto read = readTitle(saved->path);
+    REQUIRE(read.has_value());
+    CHECK(read->document.layers.back().src == "images/logo.png"); // travels with the template
+
+    auto second = saveTemplate(doc, core::utf8String(library), "Guest: lower third");
+    REQUIRE(second.has_value());
+    CHECK(second->id == "guest-lower-third-2"); // never an existing folder
+    CHECK(listTemplates(core::utf8String(library), false).size() == 2);
+
+    auto renamed = renameTemplate(*second, "Sponsor");
+    REQUIRE(renamed.has_value());
+    CHECK(renamed->name == "Sponsor");
+    CHECK(renamed->id == second->id);
+
+    // A built-in: listed read-only, not renamed or deleted, but duplicated.
+    TitleDocument card = lowerThird();
+    card.name = "Chapter card";
+    card.category = "Cards";
+    REQUIRE(saveTitle(card, core::utf8String(builtIns / "chapter-card.ustitle")).empty());
+    const auto builtIn = listTemplates(core::utf8String(builtIns), true);
+    REQUIRE(builtIn.size() == 1);
+    CHECK(builtIn[0].builtIn);
+    CHECK(builtIn[0].category == "Cards");
+    CHECK_FALSE(renameTemplate(builtIn[0], "x").has_value());
+    CHECK_FALSE(removeTemplate(builtIn[0]).has_value());
+    auto copy = duplicateTemplate(builtIn[0], core::utf8String(library), "My chapter card");
+    REQUIRE(copy.has_value());
+    CHECK(fs::exists(builtIns / "chapter-card.ustitle")); // the built-in is untouched
+
+    // A new title: no template name, pictures beside it.
+    const fs::path title = work / "Episode 12.ustitle";
+    REQUIRE(newTitleFromTemplate(*saved, core::utf8String(title)).has_value());
+    auto made = readTitle(core::utf8String(title));
+    REQUIRE(made.has_value());
+    CHECK(made->document.name.empty());
+    CHECK(made->document.layers.back().src == "Episode 12 images/logo.png");
+    CHECK(fs::exists(work / "Episode 12 images" / "logo.png"));
+    CHECK_FALSE(newTitleFromTemplate(*saved, core::utf8String(title)).has_value()); // never overwrites
+
+    REQUIRE(removeTemplate(*saved).has_value());
+    CHECK_FALSE(fs::exists(saved->folder));
+    CHECK(listTemplates(core::utf8String(library), false).size() == 2);
+    CHECK(templateSlug("  ") == "template");
+    fs::remove_all(root);
 }
