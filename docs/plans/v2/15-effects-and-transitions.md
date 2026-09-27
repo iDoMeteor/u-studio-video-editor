@@ -729,6 +729,14 @@ Acceptance: every item has a recorded yes/no with the repro kept in
 `tests/engine` or the scratchpad notes; ADR-011 updated with anything that
 changes the plan.
 
+> REVIEW: VE Core, 2026-09-27: FX0 spikes run; every item is answered in
+> [the effects notes](../../developer/notes/effects.md). All yes, with two
+> plan changes: `decorateTractor()` covers an FX lane only on top of the
+> stack (a mid-stack lane needs a sub-tractor hook), and the drop-in's
+> curated list must leave out MLT's `not_thread_safe.txt` plugins. frei0r
+> was already installed (2.5.6), so no `dnf` was needed; no Qt in any
+> plugin. ADR-011 needs no change.
+
 ### FX1 — Engine and model (about 2 weeks)
 
 Integration points: IP1, IP2, IP3 (without `makeTransitionSegment`),
