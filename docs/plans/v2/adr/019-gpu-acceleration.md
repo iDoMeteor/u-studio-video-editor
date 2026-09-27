@@ -204,7 +204,7 @@ this ADR.
 | G2 | `platform::GlContext` (Linux EGL), `engine::probeGpu()`, `u-studio-render --gpu-probe` | Probe passes here and fails cleanly without EGL (test); no graph or UI change yet |
 | G3 | GPU graph in EngineSync behind the flag; context on the consumer's render thread; runtime fallback; the probe run from the editor with its cached result; the crash sentinel; Settings › Performance's two switches, hardware decode following the GPU pipeline | M4's box: three transformed 1080p tracks at Full play every frame; 10-minute soak holds; ASan+TSan full suites; preview matches CPU within tolerance |
 | G4 | Export on the GPU path; preview/export equality test; `u-studio-render` after MT5 | Render of a generated project matches the preview path within tolerance. Met in process (2026-09-27): 50% green over red, preview 137,137,50, export 137,138,51 (the CPU: 112,113,49); a title over video on the GPU has no dark fringe (darkest red 250+) and differs from the CPU's by 1.0 on average. `u-studio-render` waits for MT5 |
-| G5 | Flatpak (with VE Installers): GL extension, `--device=dri`, movit/FFTW modules; smoke test in the sandbox | Probe passes in the Flatpak on the owner's machine |
+| G5 | Flatpak (with VE Installers): GL extension, `--device=dri`, movit/FFTW modules, MLT's `xine` module (the loader's `deinterlace` normaliser; without it every producer arrives as BT.601 limited YUV and the probe fails, notes/gpu.md), the leak patch; smoke test in the sandbox | Probe passes in the Flatpak on the owner's machine |
 
 ## Consequences
 

@@ -193,6 +193,20 @@ compositing is the bottleneck.
 - The CPU path's own growth in the same soak (about 20 MB a minute with
   three transformed tracks) is VE Core's open item.
 
+## The loader needs MLT's `deinterlace` (the `xine` module)
+
+The loader's deinterlace normaliser is `deinterlace`, from MLT's `xine`
+module; without it (`loader.ini`: `deinterlace=deinterlace,avdeinterlace`)
+the loader falls back to avformat's `avdeinterlace`, which hands on every
+producer's frame as BT.601 limited-range YUV 4:2:2. On the GPU pipeline
+movit then gets YUV where it would have had the colour producer's RGBA,
+and `#2080c0` comes out 44,128,191: the Flatpak's first test build had
+`MOD_XINE=OFF` and its `--gpu-probe` failed with exactly that (G5,
+2026-09-27; reproduced natively with `USTUDIO_MLT_DENYLIST=qt6:glaxnimate-qt6:xine`).
+It also costs a CPU conversion per frame. `engine-factory-policy` now
+requires the `deinterlace` filter. The module has no dependencies of its
+own.
+
 ## Exports (G4)
 
 - `renderProject()` checks `GpuSession::current()` once, at the start: with

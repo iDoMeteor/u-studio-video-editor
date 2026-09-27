@@ -76,4 +76,14 @@ TEST_CASE("FactoryPolicy: no Qt loaded, required services still present")
     for (const char *name : {"affine", "composite", "luma", "mix", "matte"})
         CHECK_MESSAGE(hasService(transitions, name), "missing required transition: ", name);
     delete transitions;
+
+    // Filters, including "deinterlace" (MLT's xine module), the loader's
+    // deinterlace normaliser: without it the loader falls back to
+    // avdeinterlace, which turns every producer's frame into BT.601
+    // limited-range YUV 4:2:2, and on the GPU pipeline a colour comes out
+    // wrong (#2080c0 as 44,128,191; the Flatpak's first build, ADR-019 G5).
+    Mlt::Properties *filters = repo.filters();
+    for (const char *name : {"affine", "crop", "mirror", "volume", "deinterlace"})
+        CHECK_MESSAGE(hasService(filters, name), "missing required filter: " << std::string(name));
+    delete filters;
 }
