@@ -21,6 +21,7 @@ here unchanged on 2026-09-26.
 | [Project files](project-files.md) | MLT XML with `ustudio:` properties, the format v4 render/record playlists, untrusted-input checks, autosave recovery rules |
 | [Settings and GSettings](settings.md) | Missing-schema fallback, testing with the memory backend |
 | [Effects](effects.md) | M5 FX0 spikes: frei0r services and Qt check, parameter addressing and animation, `mask_start`/`mask_apply`, 16-bit `luma` wipes, `cairoblend` modes, adjustment blocks |
+| [Titles](titles.md) | T0 spikes: a custom MLT producer module with YAML metadata, Pango per thread, 4K cost, alpha conversion, `xml` round trip, app fonts, GApplication actions from another process |
 | [App shell](app-shell.md) | Shortcuts vs text entry, `GtkRecentInfo`, `g_file_trash()`, the playhead overlay, ruler height |
 
 Related:
