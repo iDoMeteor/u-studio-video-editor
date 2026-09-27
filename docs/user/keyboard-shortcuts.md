@@ -60,6 +60,24 @@ page matches `src/app/action_registry.cpp` as of 0.50.0-beta.2.
 |---|---|
 | `Ctrl+T` | Edit Transform (exact values) |
 
+## U Stu Titles (the title designer)
+
+Keys that work on the canvas only act while the canvas has focus (click
+it). Typing in a text box never triggers them.
+
+| Key | Action |
+|---|---|
+| `Ctrl+N` | New title (in a new window) |
+| `Ctrl+O` | Open a title |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo |
+| `Ctrl+T` | Add text |
+| `Ctrl+;` | Show or hide the safe areas |
+| `Delete` / `Backspace` | Delete the selected layer (canvas) |
+| Arrow keys | Nudge the selected layer 1 pixel; with `Shift`, 10 (canvas) |
+| `Escape` | Clear the selection (canvas) |
+| `Alt` + drag | Move without snapping |
+
 ## Mouse modifiers
 
 | Gesture | Action |

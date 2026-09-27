@@ -199,6 +199,10 @@ struct TitleDocument
     int width = 1920, height = 1080;
     int fpsNum = 30, fpsDen = 1;
     Timing timing;
+    // Behind every layer. None (the default): the title is transparent
+    // where it has no layers, for overlays; a colour or gradient bakes a
+    // background in (a full-frame card).
+    Fill background{FillKind::None, {0.0, 0.0, 0.0, 1.0}, {}, {}, 0.0, 1.0};
     std::vector<Field> fields;
     std::vector<Layer> layers; // bottom first: later layers draw over earlier ones
 

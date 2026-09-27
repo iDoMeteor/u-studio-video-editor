@@ -11,27 +11,30 @@ Pango/Cairo renderer behind an MLT producer) and
 
 Status: T1 done. `.ustitle` files import as title clips, play with alpha
 through the `ustudio_title` MLT producer, fit any clip length, reload when
-the file changes, and render the same in `u-studio-render`. Next: T2, the
-`u-studio-titles` designer app.
+the file changes, and render the same in `u-studio-render`. T2 (the
+`u-studio-titles` designer) in progress: T2a (canvas, move and resize with
+snapping, undo, save and open, backgrounds) is in.
 
 ## Layout
 
 | Folder | What | May use |
 |---|---|---|
-| `core/` | `TitleDocument`, the `.ustitle` reader and writer, elastic timing, keyframe evaluation, `{{field}}` substitution | std, libxml2, `src/core` (keyframes are `core::Keyframe`, evaluated by `core::easedValue()`) |
+| `core/` | `TitleDocument`, the `.ustitle` reader and writer, elastic timing, keyframe evaluation, `{{field}}` substitution; the designer's editing (`title_edit`: operations and snapshot undo) and `snapping` (guides, safe areas, hit testing) | std, libxml2, `src/core` (keyframes are `core::Keyframe`, evaluated by `core::easedValue()`) |
 | `render/` | `renderTitle()`: a title at a moment into premultiplied ARGB32, and `toStraightRgba()` for MLT | Pango, PangoCairo, Cairo, fontconfig |
+| `app/` | `u-studio-titles`, the designer: the window, the canvas (a GtkWidget drawn with GSK, rendering through a worker thread), view settings | GTK4, libadwaita, `core/`, `render/`; never MLT (checked by the build) |
 | `mltmodule/` | `libmltustudio.so`: the `ustudio_title` MLT producer (`resource`, `length`, `field.<name>`). Self-contained, exports only `mlt_register` | MLT's C API, `core/`, `render/` |
 | `engine/` | The engine extension (IP3: a producer per title clip) and `u-studio-render --title-frames` (IP6) | `src/engine`, mlt++ |
 | `editor/` | The editor window's side (IP5): the `.ustitle` import handler and the file watch | `src/app/shell_host.h`, GIO |
 | `register.cpp` | The drop-in's describe function; IP4 contributes the module's directory | the drop-in host API |
-| `tests/` | `titles-core`, `titles-render`, `titles-engine`, `titles-shell` | doctest |
+| `tests/` | `titles-core`, `titles-render`, `titles-edit`, `titles-worker`, `titles-engine`, `titles-shell` | doctest |
 
 ## Building and testing
 
 ```sh
 meson configure builddir -Ddropin_titles=builtin   # or module
 meson compile -C builddir
-meson test -C builddir titles-core titles-render titles-engine titles-shell
+meson test -C builddir titles-core titles-render titles-edit titles-worker titles-engine titles-shell
+./builddir/drop-ins/titles/app/u-studio-titles [FILE.ustitle] [--backdrop PICTURE]
 ```
 
 The drop-in's tests build only when the option isn't `disabled`. Both
@@ -77,6 +80,7 @@ order, first at the bottom.
 |---|---|
 | `<ustitle>` | `version` (required), `width`, `height` (16–8192), `fps` (`num/den`) |
 | `<timing>` | `intro`, `hold`, `outro` in title frames; `hold-mode` is always `elastic` |
+| `<background>` | As `<fill>`, behind every layer. Absent (the default): transparent, for overlays |
 | `<field>` | `name` (no braces), `label`, `default`; the text says `{{name}}` |
 | `<layer>` | `id`, `kind` (`text`, `shape`), `x`, `y`, `w`, `h`, `opacity`, `scale`, `rotation` (degrees, about the box's centre), `visible` (`0`/`1`); text: `align` (`left`, `center`, `right`), `fit` (`none`, `wrap`, `shrink`); shape: `shape` (`rect`, `rounded-rect`, `ellipse`, `line`), `radius` |
 | `<text>` | The text, plain (never Pango markup) |

@@ -295,3 +295,39 @@ TEST_CASE("blurAlpha: a no-op below half a pixel; spreads and conserves otherwis
     CHECK(image[10 * 21 + 10] == 255);
     CHECK(image[10 * 21 + 3] > 0);
 }
+
+TEST_CASE("the background: none leaves alpha, a colour fills the frame under the layers")
+{
+    const char *layers = R"(<layer kind="shape" x="10" y="10" w="20" h="20"><fill color="#ffffff"/></layer>)";
+    std::string none = std::string(R"(<ustitle version="1" width="100" height="50">)") + layers + "</ustitle>";
+    std::string colour = std::string(R"(<ustitle version="1" width="100" height="50"><background color="#19e3ff"/>)") +
+                         layers + "</ustitle>";
+    const Straight clear = render(parse(none.c_str()));
+    CHECK(clear.at(80, 40).a == 0);
+    const Straight filled = render(parse(colour.c_str()), 0, 200, 100); // scaled output too
+    CHECK(filled.at(160, 80).a == 255);
+    CHECK(filled.at(160, 80).g == 0xe3);
+    CHECK(filled.at(199, 99).a == 255);
+    CHECK(filled.at(40, 40).r == 255); // the layer over it
+    // It round-trips through the file.
+    auto again = parseTitle(writeTitle(parse(colour.c_str())));
+    REQUIRE(again.has_value());
+    CHECK(again->document.background.kind == FillKind::Solid);
+    CHECK(formatColor(again->document.background.color) == "#19e3ff");
+}
+
+TEST_CASE("measureLayers: each layer's box, in canvas pixels")
+{
+    const TitleDocument doc = parse(R"(<ustitle version="1" width="800" height="200">
+      <layer id="bar" kind="shape" x="10" y="20" w="300" h="40" rotation="15"><fill color="#ffffff"/></layer>
+      <layer id="name" kind="text" x="400" y="50" align="center"><text>Name</text><font family="Sans" size="40"/></layer>
+    </ustitle>)");
+    const std::vector<LayerGeometry> geometry = measureLayers(doc, 0, {});
+    REQUIRE(geometry.size() == 2);
+    CHECK(geometry[0].id == "bar");
+    CHECK(geometry[0].box == Rect{10, 20, 300, 40});
+    CHECK(geometry[0].rotation == 15);
+    CHECK(geometry[1].box.y == 50);
+    CHECK(geometry[1].box.h > 30);
+    CHECK(std::abs(geometry[1].box.x + geometry[1].box.w / 2 - 400) < 1); // centred on x
+}

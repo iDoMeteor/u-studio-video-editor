@@ -344,11 +344,53 @@ Canvas with backdrop, guides and snapping; layers; inspector; on-canvas
 typing; shapes and images; brand kit; save and open; launch from the
 editor on a file.
 
+**Backgrounds and export** (owner requirement, 2026-09-27: "set the
+background to any colour we like, and titles either include the background
+or drop it for a proper alpha channel"; they go into OBS as overlays):
+
+- **The canvas's background** while designing: a checkerboard, **any
+  colour** (a colour picker), or a picture (`--backdrop`, the editor's
+  frame). A view setting remembered per user, never part of the title.
+- **A title's own background** (`<background>`, the document's
+  `background`): none by default, so the title has a real alpha channel
+  over the video; or a colour or gradient baked in (an image with T2c's
+  image layers). Same format version: `<background>` is optional.
+- **Export a title on its own** (T2d) from the designer, and **Export
+  Title…** in the editor if it's cheap: with alpha, as a PNG sequence and
+  at least one alpha video codec (ProRes 4444 or QuickTime Animation, and
+  WebM VP9 with alpha); or flattened onto its background as H.264. Codec
+  and pixel-format names checked against the installed avformat, and the
+  alpha proved with `ffprobe` (a pix_fmt with an alpha plane).
+
+Phases: T2a (document editing and undo, the canvas with backdrops, guides,
+snapping, move/resize, save and open, the title background), T2b (layers
+list, inspector, brand kit), T2c (on-canvas typing, images, launch from the
+editor), T2d (export).
+
 Acceptance:
 
 - [ ] A lower third can be designed from a blank canvas without touching
       the XML.
 - [ ] Nothing typed into any text field triggers a shortcut.
+- [ ] The canvas background can be any colour, and the choice is
+      remembered.
+- [ ] A title with no background composites over coloured video with clean
+      anti-aliased edges (no dark fringes); one with a background covers the
+      frame.
+- [ ] A title exports as a PNG sequence and as an alpha video that `ffprobe`
+      reports with an alpha plane, and flattened as H.264.
+
+> REVIEW: VE Text, 2026-09-27: T2a as built. (1) Undo keeps whole
+> documents (`TitleHistory`), not inverse commands: a title is a few
+> kilobytes, and a drag merges into one step by key. (2) The canvas
+> renders on one worker thread, newest request wins, at the canvas's size
+> on screen; the texture goes to GTK as is (Cairo's ARGB32 is
+> `GDK_MEMORY_DEFAULT`). (3) Only modifier shortcuts are window accels;
+> Delete, arrows and Escape are the canvas's own key controller, so no
+> text field can lose a key to them. (4) A press becomes a drag after 3 px,
+> so a click never edits. (5) While designing, the canvas shows the first
+> frame of the hold; T3 adds scrubbing. (6) Each launch is its own process
+> (`G_APPLICATION_NON_UNIQUE`), one window per file.
 
 ### T3 — Animation (about 2 weeks)
 

@@ -4,6 +4,14 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.54.0-beta.1
+
+- U Stu Titles, the title designer (with the Titles drop-in; early): add
+  text and shapes, move them with snapping to the centre, safe areas and
+  other layers, resize, undo, save and open. Design over a checkerboard,
+  any colour or a picture. A title can carry its own background colour or
+  gradient, or none for a transparent overlay.
+
 ## 0.53.0-beta.1
 
 - Titles, with the Titles drop-in (not in the packages yet): `.ustitle`

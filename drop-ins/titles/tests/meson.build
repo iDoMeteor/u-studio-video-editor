@@ -46,3 +46,21 @@ titles_test_shell = executable(
   install: false,
 )
 test('titles-shell', titles_test_shell, timeout: 60)
+
+titles_test_edit = executable(
+  'test_titles_edit',
+  files('test_edit.cpp'),
+  dependencies: [titles_doctest_dep, titles_core_dep],
+  install: false,
+)
+test('titles-edit', titles_test_edit)
+
+# The app's render worker (the app's only thread), without a display.
+titles_test_worker = executable(
+  'test_titles_worker',
+  files('test_worker.cpp', '../app/render_worker.cpp'),
+  include_directories: [src_inc, titles_inc],
+  dependencies: [titles_doctest_dep, titles_render_dep, glib_dep],
+  install: false,
+)
+test('titles-worker', titles_test_worker)

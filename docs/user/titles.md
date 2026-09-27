@@ -7,9 +7,9 @@ chapter cards. They play over your video with transparency. Each title is a
 `.ustitle` file, and you use it on the timeline like any other clip.
 
 > **Early days.** Titles come with the *Titles* drop-in, which isn't in the
-> installed packages yet. For now you write `.ustitle` files by hand or get
-> them from someone who has. The title designer app, animation presets and
-> a template gallery are on the way ([roadmap](../../README.md)).
+> installed packages yet. The title designer below can place and arrange
+> layers; styling, on-canvas typing, animation presets and a template
+> gallery are on the way ([roadmap](../../README.md)).
 
 ## Putting a title on the timeline
 
@@ -19,6 +19,31 @@ chapter cards. They play over your video with transparency. Each title is a
    it was designed for.
 3. Put it on a track **above** your video. Where the title is transparent,
    the picture below shows through.
+
+## Designing a title
+
+**U Stu Titles** is the title designer (`u-studio-titles`). It opens a
+`.ustitle` file, or starts a new one.
+
+- **Add** (the **+** button) puts text, a rectangle, a rounded rectangle,
+  an ellipse or a line in the middle of the frame.
+- **Click** a layer to select it. **Drag** it to move it. It snaps to the
+  frame's centre and edges, the safe areas, the thirds and the other
+  layers; the line it snapped to shows while you drag. Hold **Alt** to move
+  freely.
+- **Drag a handle** to resize a shape, or to give text a box to fit.
+- **Arrow keys** nudge the selected layer; **Delete** removes it.
+- The dashed boxes are the **safe areas**: keep text inside the inner one
+  and it won't be cut off on any screen. Toggle them in the main menu.
+- The canvas's background is only for designing, and isn't saved in the
+  title: a checkerboard (showing where the title is transparent), a colour
+  of your choice, or a picture. Pick one in the main menu; the app
+  remembers it.
+- **Save** writes the `.ustitle` file. If the editor is using it, the
+  editor updates straight away.
+
+Styling (fonts, colours, outlines, shadows), editing text on the canvas,
+and animation are on the way.
 
 ## Any length you like
 
