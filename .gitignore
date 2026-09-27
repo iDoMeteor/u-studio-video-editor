@@ -5,3 +5,4 @@ subprojects/.wraplock
 subprojects/packagecache/
 build-flatpak/
 build-flathub/
+__pycache__/
