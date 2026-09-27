@@ -53,6 +53,8 @@ modules:
   # what the module is for and how its version is tracked.
   - modules/x264.yml
   - modules/ffmpeg.yml
+  - modules/eigen.yml
+  - modules/movit.yml
   - modules/mlt.yml
 
   # The app: the editor, u-studio-render (proxies and export run it as a

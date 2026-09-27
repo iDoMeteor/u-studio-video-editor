@@ -12,6 +12,8 @@
 #   rtaudio    fallback audio consumer
 #   gdk        pixbuf still images (loader.dict: *.png=qimage,pixbuf)
 #   resample   loader.ini's "resampler" normaliser
+#   movit      GPU (GLSL) filters and transitions for the VE GPU team; inert
+#              until the app creates a glsl.manager (see movit.yml)
 # Everything else off, including frei0r (a future drop-in, ADR-014) and
 # every Qt module (ADR-007). Option names from CMakeLists.txt at v7.40.0.
 # plus's optional deps: FFTW (only its fft/dance filters) is kept out;
@@ -45,7 +47,7 @@ config-opts:
   - -DUSE_LV2=OFF
   - -DUSE_VST2=OFF
   - -DMOD_KDENLIVE=OFF
-  - -DMOD_MOVIT=OFF
+  - -DMOD_MOVIT=ON
   - -DMOD_NDI=OFF
   - -DMOD_NORMALIZE=ON
   - -DMOD_OLDFILM=OFF
