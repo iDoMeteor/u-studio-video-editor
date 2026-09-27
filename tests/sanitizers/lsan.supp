@@ -66,5 +66,7 @@ leak:eglCreateContext
 # hands it on, so with a reused chain each one leaks (about 1.2 KB an input a
 # frame: ~10 MB a minute of GPU playback at 30 fps with five inputs). An
 # upstream bug we can't free from outside (the type is private to the
-# module); ADR-019 and docs/developer/notes/gpu.md track the patch.
+# module). The Flatpak's MLT carries the fix
+# (packaging/flatpak/patches/mlt-movit-convert-input-leak.patch); this
+# stays for distro MLT builds.
 leak:create_input

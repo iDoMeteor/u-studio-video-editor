@@ -290,7 +290,7 @@ Acceptance:
       pictures; Ctrl bypasses it (0.48.0, `app-transform-gestures`).
 - [x] A transform survives save/load, trim, split, ripple, copy and a
       frame-rate change (0.47.1).
-- [ ] 1080p30 plays in real time with three transformed tracks at Auto
+- [x] 1080p30 plays in real time with three transformed tracks at Auto
       preview scale (Full reported alongside; Full is MT4's, doc 19).
       Since 0.47.2 Auto is Half once a clip is transformed: one
       transformed track then plays every frame (30/s, the owner's webcam
@@ -300,8 +300,9 @@ Acceptance:
       (G3, 2026-09-27): three moved-and-scaled 1080p tracks at Full showed
       99.1% of frames over a 10-minute soak at 62% CPU (the CPU path: 10
       frames/s at 197%). Rotated tracks stay on the CPU (no movit service
-      rotates): 22 frames/s. Left open for the owner to judge whether the
-      rotated case must meet it too.
+      rotates): 22 frames/s, accepted by the owner as an exception
+      (2026-09-27, "i'm fine w/both", with the GPU path's linear-light
+      blending). Closed.
 
 ## M5 — Effects, keyframes, transitions (the FX track)
 

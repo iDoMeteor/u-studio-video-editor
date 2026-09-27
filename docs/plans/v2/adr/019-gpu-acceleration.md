@@ -138,8 +138,10 @@ every RGBA source whatever its tags, so soft edges, semi-transparent
 pictures and dissolve midpoints come out brighter than on the CPU, which
 blends the coded values; opaque pictures match within 2 levels (G3,
 `tests/engine/test_gpu_pipeline`). Accepted as the GPU path's look, with
-export on the preview's pipeline (point 7); put to the owner through the
-VE Strategist on 2026-09-27.
+export on the preview's pipeline (point 7). **Decided** by the owner on
+2026-09-27 (through the VE Strategist: "i'm fine w/both"), together with
+rotated tracks staying CPU islands (about 22 fps for three at 1080p Full)
+as an accepted exception to M4's real-time box.
 Effects stay CPU (frei0r, avfilter) inside the GPU graph the same way.
 A rotation-capable GPU transform would need a movit effect of our own,
 which means linking GPL movit; out of scope.
@@ -277,5 +279,8 @@ is an MLT bug found by ASan: `movit.convert` leaks an `MltInput` (about
 1.2 KB) for every input of every frame whenever it reuses a chain, about
 10 MB a minute at 30 fps with five inputs (docs/developer/notes/gpu.md).
 It can't be freed from outside the module; the fix is a small MLT patch,
-carried in the Flatpak's MLT build (G5) and sent upstream. The CPU growth
+`packaging/flatpak/patches/mlt-movit-convert-input-leak.patch` (RSS +3.63
+KB a frame → 0.00 with three inputs; LeakSanitizer clean), carried in the
+Flatpak's MLT build (G5) and drafted for upstream in
+`docs/developer/notes/mlt-upstream.md`. The CPU growth
 is VE Core's open item.

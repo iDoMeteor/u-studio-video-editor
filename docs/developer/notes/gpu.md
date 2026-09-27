@@ -176,9 +176,20 @@ compositing is the bottleneck.
   effect's uniform vectors), ~10 MB a minute of 30 fps playback with five
   inputs, most of the GPU soak's growth. It can't be freed from outside:
   the type is private to the module, and its destructor doesn't free its
-  `FlatInput`. The fix belongs in MLT: give the parked input a destructor
-  that deletes it and its input, and clear it where a chain takes it over.
-  `lsan.supp` suppresses `create_input` until then.
+  `FlatInput`. The actual cause, found while writing the patch: MLT does
+  delete the parked `MltInput` (`dispose_movit_effects()`, and the two
+  error paths in `convert_image()`), but `~MltInput()` leaves its
+  `movit::Input` to a chain that never took it. The fix
+  (`packaging/flatpak/patches/mlt-movit-convert-input-leak.patch`, 14
+  lines) deletes both there; a parked input has no texture yet, so no GL
+  context is needed. Measured: RSS +3.63 KB a frame → 0.00 (three inputs,
+  1,200 frames), and `engine-gpu-engine` under ASan with no `create_input`
+  suppression reports nothing. `lsan.supp` keeps the suppression for
+  distro MLT builds. How it was built and checked, to redo on an MLT
+  bump: copy MLT's `src/modules/movit`, compile it against the installed
+  MLT headers and movit's (the Flatpak build tree has them), and point a
+  build tree's `mlt-framework-7.pc` `moduledir` at a directory holding
+  the patched module.
 - The CPU path's own growth in the same soak (about 20 MB a minute with
   three transformed tracks) is VE Core's open item.
 
