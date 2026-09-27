@@ -180,7 +180,7 @@ thread work:
 
 - **Playlist appends were O(n²) per track.** MLT refreshes the whole
   playlist after every append. Tracks with more than 64 entries are now
-  built from nested sub-playlists of 64 (README, "Engine sync notes").
+  built from nested sub-playlists of 64 ([engine sync notes](../../developer/notes/engine-sync.md)).
 - **glibc's dynamic mmap threshold moved every 9.2 MB `mix` transition onto
   the heap** after the first rebuild, where `calloc()` zeroes it all. That
   meant 5.7 s spikes and resident memory reaching 36 GB at 5,000 clips.
@@ -238,7 +238,7 @@ longer subscribes to the live Model.
 
 **Pieces 2–4: the engine thread (0.28.0, fixes in 0.28.1).**
 `engine::Engine` owns one `std::jthread` holding EngineSync and
-PlaybackController (README, "Playback engine notes"). Measured on
+PlaybackController ([playback engine notes](../../developer/notes/playback-engine.md)). Measured on
 2026-09-24; stall-monitor numbers are from the real Wayland desktop
 (hardware GL). Under Xvfb, software painting of each 1080p frame alone
 stalls the main loop 20–60 ms, about 27 times a second, so it can't judge
@@ -307,8 +307,8 @@ the 16 ms criterion.
   before the pool goes.
 - **Found on the way:** MLT's process-wide avformat decoder cap (4) let
   producers evict each other mid-decode across threads and crashed
-  playback. It's now sized as kdenlive sizes it (README, "Thumbnail cache
-  notes").
+  playback. It's now sized as kdenlive sizes it ([media cache
+  notes](../../developer/notes/media-caches.md)).
 
 Measured in a release build: 50 clips on 8 tracks over 40 generated 1080p
 H.264 files; 8 strip frames per video clip, a waveform per audio clip and a

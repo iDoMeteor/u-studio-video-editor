@@ -707,8 +707,8 @@ Integration points: none (standalone repros only). Add one spike item:
 whether `decorateTractor()` is enough for adjustment blocks.
 
 
-Each item ends with a written finding in this doc or the README's
-implementation notes, per CLAUDE.md's empirical-knowledge rule.
+Each item ends with a written finding in this doc or the
+[implementation notes](../../developer/notes/README.md), per CLAUDE.md's empirical-knowledge rule.
 
 - Install `frei0r-plugins` on the dev machine (owner approval needed for
   `dnf`); count the services; `ldd` every plugin for Qt.

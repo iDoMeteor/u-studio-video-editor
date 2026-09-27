@@ -70,7 +70,7 @@ inline void writeBeepWav(const std::string &path, int seconds, int fps)
 }
 
 // Returns consumer.run()'s result (0 on success; check the file exists too,
-// see the README's render notes on avformat's return value).
+// see docs/developer/notes/render.md on avformat's return value).
 inline int renderSyncClip(Mlt::Profile &profile, const std::string &path, int seconds)
 {
     const int fps = framesPerSecond(profile);

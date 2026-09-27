@@ -218,8 +218,8 @@ team's practice is the rule:
   `resource="<producer>"`, `get_frame()` auto-advances, `mix` needs
   `start=1 sum=1`, XML round-trip yields a non-tractor) was confirmed with a
   standalone repro before being built on. Keep doing that, and write the
-  finding into the README's implementation-notes sections or the engine
-  comment where it applies, so the next agent doesn't rediscover it.
+  finding into `docs/developer/notes/` (the implementation notes) or the
+  engine comment where it applies, so the next agent doesn't rediscover it.
 - Only `sdl2_audio`, `rtaudio`, `null`, `avformat`, `xml`, and the core
   transitions (`composite`, `affine`, `luma`, `mix`) are assumed present
   (verified on this machine, doc 00). `frei0r` is required by the effects
@@ -229,8 +229,8 @@ team's practice is the rule:
   `composite` (`fill=1`), never chained track to track (a chain loses an
   upper clip's alpha), and realises clip transforms (ADR-018) with the
   `crop` and `mirror` filters and the plus module's `affine` filter on
-  each cut; an `affine` track compositor is too slow (README "Engine sync
-  notes"). Effects, titles and drop-in plans: `docs/plans/v2/15-*` to
+  each cut; an `affine` track compositor is too slow (`docs/developer/notes/
+  engine-sync.md`). Effects, titles and drop-in plans: `docs/plans/v2/15-*` to
   `18-*`.
 
 ---
@@ -401,11 +401,16 @@ own worktree.
 
 ## Documentation SOP
 
-- `README.md` is the entry point and must stay honest: when you land a
-  capability or remove a limitation listed under "Current capabilities" /
-  "Not yet", update it in the same change. Its implementation-notes sections
-  are where empirical MLT findings live until v2's `engine/` comments and
-  tests absorb them.
+- `README.md` is the entry point and must stay honest and short: a tl;dr,
+  install, feature bullets, roadmap bullets, links. When you land a
+  capability or remove a limitation, update its "Features" / "Not yet"
+  bullets and the matching `docs/user/` page in the same change.
+- `docs/README.md` indexes everything. Every doc must be reachable by
+  browsing from `README.md`: link a new doc from its section's index
+  (`docs/user/`, `docs/developer/`, `docs/developer/notes/`,
+  `docs/audit/`, `docs/plans/v2/`).
+- Empirical MLT/GTK/GLib findings live in `docs/developer/notes/` (one
+  file per area) until v2's `engine/` comments and tests absorb them.
 - `docs/plans/v2/` is the design record. When code makes a v2 doc wrong,
   fix the doc in the same PR. Disagree in place with a `> REVIEW:`
   blockquote (name + one sentence) rather than forking a doc. Superseding an

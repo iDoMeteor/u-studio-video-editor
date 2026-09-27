@@ -1,6 +1,6 @@
 // engine::decodeEnvelope + core::audio::align on real decoded audio: a
 // rendered file of tone bursts at irregular gaps, two spans of it placed
-// out of sync on purpose (doc: README "Sync tracks (audio)").
+// out of sync on purpose (doc: docs/user/audio.md, "Sync recordings by their sound").
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"

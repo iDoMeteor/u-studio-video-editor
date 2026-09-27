@@ -833,8 +833,8 @@ void EngineSync::rebuildAll()
         m_blackMaster->set_in_and_out(0, kBlackMasterLength - 1);
     }
     core::FrameIndex sequenceLength = std::max<core::FrameIndex>(seq.length(), 1);
-    // Mlt::Producer::cut() returns a new, caller-owned wrapper (README's
-    // "mlt++ accessors" note); set_track() takes its own reference.
+    // Mlt::Producer::cut() returns a new, caller-owned wrapper (the "mlt++
+    // accessors" note, docs/developer/notes/engine-sync.md); set_track() takes its own reference.
     std::unique_ptr<Mlt::Producer> black(
         m_blackMaster->cut(0, static_cast<int>(std::min<core::FrameIndex>(sequenceLength, kBlackMasterLength) - 1)));
     newTractor->set_track(*black, 0);
@@ -907,7 +907,7 @@ void EngineSync::rebuildAll()
             // affine filter (ADR-018). An affine compositor fits any aspect
             // itself but cost 21 ms a frame for one untransformed 1080p track
             // against composite's 5 (39 against 7 for four). Standalone
-            // repros, MLT 7.40, 2026-09-25; README "Engine sync notes".
+            // repros, MLT 7.40, 2026-09-25; docs/developer/notes/engine-sync.md.
             Mlt::Transition composite(*m_profile, "composite");
             composite.set("fill", 1);
             field->plant_transition(composite, 0, index);
