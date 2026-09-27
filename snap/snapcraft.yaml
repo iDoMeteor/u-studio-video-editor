@@ -9,6 +9,10 @@
 #
 # DRAFT: not built yet (snapcraft and LXD aren't installed on the build
 # machine), and the snap name isn't registered. See packaging.md.
+# Still to add, to match the Flatpak (ADR-019, GPU compositing): Eigen
+# (build only) and movit 1.7.2 parts before mlt, and -DMOD_MOVIT=ON
+# (packaging/flatpak/modules/{eigen,movit}.yml); FFTW and libepoxy from
+# core24's archive, Mesa from the gnome extension's gpu-2404.
 
 name: u-studio-video-editor # TODO: the registered snap name (owner question 12)
 title: U Stu Video Editor

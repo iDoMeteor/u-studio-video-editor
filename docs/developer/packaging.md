@@ -20,10 +20,12 @@ so on. `USTUDIO_DIST_DIR` changes the destination.
 Testers install the published bundle as described in
 [Installing](../user/installing.md).
 
-x264, FFmpeg and MLT are module files under `packaging/flatpak/modules/`,
-shared by the local manifest and the Flathub one. FFmpeg and MLT carry
-`x-checker-data`, so Flathub's update bot opens a PR when upstream
-releases. x264 has no release tags, so its commit is bumped by hand. An
+x264, FFmpeg, Eigen, movit and MLT are module files under
+`packaging/flatpak/modules/`, shared by the local manifest and the
+Flathub one. movit and its build-time Eigen are there for GPU compositing
+([ADR-019](../plans/v2/adr/019-gpu-acceleration.md)); FFTW, libepoxy
+and GL come from the runtime. All but x264 carry `x-checker-data`, so
+Flathub's update bot opens a PR when upstream releases. x264 has no release tags, so its commit is bumped by hand. An
 MLT or FFmpeg major bump needs the smoke test and the engine suites
 before it lands.
 
@@ -155,6 +157,11 @@ aren't installed (owner question), and the snap name isn't registered.
   plus the extension's `desktop`, `wayland`, `x11` and `opengl`.
 - x264, FFmpeg and MLT are parts, built as in the Flatpak with the same
   pinned sources and MLT modules.
+- **Not yet in the draft: movit (ADR-019).** The Snap needs Eigen (build
+  only) and movit 1.7.2 parts, and `-DMOD_MOVIT=ON`, matching the Flatpak.
+  core24's archive has `libfftw3-dev`, `libepoxy-dev` and Eigen, and the
+  gnome extension's `gpu-2404` interface supplies Mesa. The parts go in
+  when the Snap is first built, with the GL side done in VE GPU's stage G5.
 - The app bakes MLT's module directory in at build time. Snap layouts bind
   the snap's copies to `/usr/lib/x86_64-linux-gnu/mlt-7` and
   `/usr/share/mlt-7`, so FactoryPolicy's curated directory (ADR-007) works

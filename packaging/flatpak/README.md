@@ -33,19 +33,29 @@ just flatpak
 
 ## What's in it, and why
 
-x264, FFmpeg and MLT are module files under `modules/`, shared with the
+Every dependency is a module file under `modules/`, shared with the
 Flathub submission (`tools/flathub_prep.py`).
 
 | Module | Source | Why it's built here |
 |---|---|---|
 | x264 | git `b35605ac` (stable; same as Fedora 44) | H.264 export; no Flathub runtime has it |
 | FFmpeg 8.1.3 | release tarball, sha256-pinned | `--enable-gpl --enable-libx264`, dav1d, VA-API; no avdevice, no network |
+| Eigen 3.4.1 | git tag + commit | Build-time only (headers for movit); nothing ships |
+| movit 1.7.2 | release tarball, sha256-pinned | GPU compositing ([ADR-019](../../docs/plans/v2/adr/019-gpu-acceleration.md)); no runtime has it |
 | MLT 7.40.0 | release tarball, sha256-pinned | Distros such as Mint 22 ship 7.22; the engine relies on 7.40 |
-| u Studio | this repo (`dir` source) | `-Dbuildtype=release`, editor plus `u-studio-render` |
+| U Stu | this repo (`dir` source) | `-Dbuildtype=release`, editor plus `u-studio-render` |
 
 - **MLT modules.** Only the modules the app requests are built: core,
   plus (the `affine` clip transform), normalize (`volume`), avformat, xml,
-  sdl2, rtaudio, gdk (`pixbuf` stills) and resample.
+  sdl2, rtaudio, gdk (`pixbuf` stills), resample, and movit (GPU,
+  ADR-019).
+  - The movit module is inert until the app creates a `glsl.manager`.
+    Then every producer opened through `loader` gets GPU normalisers;
+    only the `loader-nogl` service stays on the CPU chain (ADR-019,
+    decisions 3 and 4).
+  - movit links FFTW, libepoxy and GL from the GNOME runtime (FFTW 3.3.11
+    is in the Platform) and the GL extension through `--device=dri`, so
+    none of those is bundled.
   - The Qt6 and glaxnimate modules are explicitly off (ADR-007), and so is
     frei0r (a future drop-in, ADR-014).
   - To recheck the list, match the service strings in `src/` against the
