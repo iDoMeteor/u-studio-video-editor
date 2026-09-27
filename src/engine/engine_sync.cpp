@@ -1,6 +1,7 @@
 #include "engine_sync.h"
 
 #include "factory_policy.h"
+#include "producer_open.h"
 
 #include "core/log.h"
 #include "core/trace.h"
@@ -364,6 +365,21 @@ void EngineSync::setUseProxies(bool use)
     rebuildAll();
 }
 
+void EngineSync::setHardwareDecode(const std::string &api)
+{
+    if (api == m_hardwareDecodeApi)
+        return;
+    m_hardwareDecodeApi = api;
+    const auto &bin = m_model.project().bin;
+    if (std::none_of(bin.begin(), bin.end(), [](const core::Asset &a) { return a.info.hasVideo; }))
+        return; // nothing plays differently
+    // Every master is reopened (as rebuildOnNewProfile()): which of them
+    // decode video depends on the variant.
+    m_masterProducers.clear();
+    m_proxiedAssets.clear();
+    rebuildAll();
+}
+
 void EngineSync::dropProxiedMasters()
 {
     for (const core::Asset &asset : m_model.project().bin) {
@@ -443,7 +459,8 @@ EngineSync::ProbedMedia EngineSync::probeMediaFile(const core::Profile &sequence
     // not contend with the live playback state open their own
     // Profile/Producer, same as renderProject()).
     std::unique_ptr<Mlt::Profile> probeProfile = makeProfileFrom(sequenceProfile);
-    Mlt::Producer producer(*probeProfile, path.c_str());
+    std::unique_ptr<Mlt::Producer> opened = openProducer(*probeProfile, path, ProducerUse::Worker);
+    Mlt::Producer &producer = *opened;
     if (!producer.is_valid())
         return {};
 
@@ -548,7 +565,12 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
         const bool sequence = asset.info.isImageSequence && resource == asset.path;
         if (sequence)
             resource = "pixbuf:" + asset.path + "?begin=" + std::to_string(asset.info.sequenceBegin);
-        auto producer = std::make_shared<Mlt::Producer>(*m_profile, knownMissing ? kMissingResource : resource.c_str());
+        // Hardware decode is per producer (ADR-019): only a video file's
+        // master whose picture plays, never a sequence, still or placeholder.
+        if (!knownMissing && !sequence && videoEnabled && asset.info.hasVideo && !asset.info.isStillImage)
+            resource = withHardwareDecode(resource, m_hardwareDecodeApi);
+        std::shared_ptr<Mlt::Producer> producer =
+            openProducer(*m_profile, knownMissing ? std::string(kMissingResource) : resource, ProducerUse::Live);
         if (sequence && !knownMissing && producer->is_valid()) {
             const int frames = static_cast<int>(std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1));
             producer->set("ttl", 1);
@@ -1256,7 +1278,7 @@ std::vector<std::string> EngineSync::verify() const
                         colon != std::string::npos && expectedResource.find('/') > colon) {
                         expectedResource = expectedResource.substr(colon + 1);
                     }
-                    std::string actualResource = entry.resource;
+                    std::string actualResource = withoutHardwareDecode(entry.resource);
                     // A generator with no argument ("tone:") has an empty
                     // resource, and a cut of it reports MLT's "<producer>"
                     // placeholder instead (seen 2026-09-24 in

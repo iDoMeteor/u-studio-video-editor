@@ -30,6 +30,27 @@ movit 1.7.1 and Mesa on an Intel Iris Xe (VE GPU, 2026-09-27).
   `~Consumer`, and with buffered stdout the crash also swallows the
   program's output.
 
+## Our context in the editor (`platform::GlContext`)
+
+- libEGL is `dlopen`ed (`libEGL.so.1`; `USTUDIO_EGL_LIBRARY` overrides it,
+  which the no-EGL test uses), so the build links nothing new.
+  `eglGetPlatformDisplayEXT`, `eglQueryDevicesEXT` and `glGetString` come
+  through `eglGetProcAddress` (libglvnd dispatches `glGetString` to the
+  current context's vendor).
+- Define `EGL_NO_X11` (and the older `MESA_EGL_NO_X11_HEADERS`) before
+  `<EGL/egl.h>`: otherwise `eglplatform.h` includes Xlib, whose `None`,
+  `Bool` and `Status` macros break ordinary C++.
+- The display is initialised once per process and never terminated; other
+  contexts may still use it, and drivers tear down badly at exit.
+- Contexts use `EGL_NO_CONFIG_KHR` and no surface; a second context shares
+  objects with the first (`eglCreateContext`'s share argument) and can be
+  current on another thread at the same time.
+- The probe (`engine::probeGpu()`, `u-studio-render --gpu-probe`) renders
+  `color:#2080c0` placed by `movit.rect` in the top-left quadrant of a
+  320×180 frame over black, and checks both areas within 3 levels. It then
+  fires `close glsl` while the context is current, and clears the global
+  `glslManager`, which returns the process to the CPU chain.
+
 ## `glsl.manager` is a process-wide, sticky switch
 
 Before a manager exists, the default loader attaches `color_transform
@@ -97,19 +118,17 @@ compositing is the bottleneck.
 
 ## Measurements
 
-Three half-size 1080p30 H.264 cuts in quadrants over black, played through
-`sdl2_audio` at `real_time=1`, `rgba` (frames shown per second). The load
-average was about 40 from other work, so the CPU row is pessimistic; the
-quiet-machine rerun goes in ADR-019's Evidence section.
-
-| Path | Full | Half |
-|---|---|---|
-| CPU: `affine` + `composite` | 10.9 | 17.2 |
-| GPU: `movit.rect` + `movit.overlay` | 29.8 | 29.8 |
+The quiet-window figures (2026-09-27) are in ADR-019's "Evidence" section.
+In brief:
+- Three half-size 1080p tracks play every frame on the GPU path at Full
+  and Half, using about half the CPU of the CPU path, which shows 20.7 and
+  25.6 frames/s.
+- Hardware decode costs frames on the CPU path but nearly halves CPU use on
+  the GPU path.
 
 Colour, BT.709-tagged limited-range source: the GPU path is within 1–2
-levels of the source. The CPU path, with or without `affine`, is off by up
-to about 20 (red 253 → 231; cyan's red 0 → 22). The offset is in MLT's CPU
-YUV→RGBA step, and VE Core has it as a possible existing bug. An
-*untagged* source differs more on both paths, because each assumes its own
-matrix.
+levels of the source. The CPU path was off by up to about 20 (red 253 →
+231) until 7c7f9fa. The cause was MLT's `colour` producer, which tagged the
+black background BT.601; `composite` kept the tag, and the RGBA conversion
+used it. An *untagged* source differs more on both paths, because each
+assumes its own matrix.

@@ -19,7 +19,7 @@ core  ──▶  engine  ──▶  app
 | `src/core/` | Project model, commands, undo stack, XML files, logging, thread pool. Pure C++23. | std, libxml2 | GTK, GLib, MLT |
 | `src/engine/` | The **only** code that touches MLT: graph building, playback, caches, render, proxies | core, `mlt++`, GLib (dispatch only) | GTK, libadwaita |
 | `src/app/` | The GTK4/libadwaita window, built in code (no `.ui` files) | core, engine headers, GTK, libadwaita, GIO | any `<mlt…>` header (checked by the build) |
-| `src/render/` | `u-studio-render`: proxies and drop-in subcommands today; the full headless renderer is milestone M6 | core, engine | GTK |
+| `src/render/` | `u-studio-render`: proxies, the GPU probe (`--gpu-probe`, [ADR-019](../plans/v2/adr/019-gpu-acceleration.md)) and drop-in subcommands today; the full headless renderer is milestone M6 | core, engine | GTK |
 | `src/platform/` | Every OS-specific call, one file per OS ([ADR-017](../plans/v2/adr/017-windows-secondary-target.md)) | std, OS headers | GTK, GLib, MLT |
 | `src/dropins/` | The drop-in registry and host API ([ADR-013](../plans/v2/adr/013-effects-and-titles-as-drop-in-modules.md), [ADR-014](../plans/v2/adr/014-drop-in-loading-and-distribution.md)) | core | — |
 | `drop-ins/titles/` | The titles drop-in ([doc 16](../plans/v2/16-titles-tool.md), [ADR-012](../plans/v2/adr/012-titles-mlt-module.md)): `core/` (the `.ustitle` model, elastic timing, fields), `render/` (Pango/Cairo renderer), `mltmodule/` (the `ustudio_title` MLT producer), `engine/` and `editor/` (its integration points), `app/` (`u-studio-titles`, the designer); see its [README](../../drop-ins/titles/README.md) | `core/`: std, libxml2, `src/core`; `render/`: Pango, Cairo, fontconfig; `mltmodule/`: MLT's C API; `engine/`: `src/engine`; `editor/`: `src/app/shell_host.h`, GIO | `core/`: GTK, GLib, MLT (checked by the build); `render/`, `mltmodule/`: GTK |
@@ -58,6 +58,8 @@ Three rules hold everything together:
 | `engine/dispatcher` | `MainThreadDispatcher`: posts closures onto the GLib main thread | [doc 19](../plans/v2/19-concurrency.md) |
 | `engine/waveform_cache`, `engine/thumbnail_cache` | Background peak and thumbnail extraction | [media cache notes](notes/media-caches.md) |
 | `engine/proxy`, `engine/audio_sync` | Proxy rendering, audio sync matching | [doc 07](../plans/v2/07-media-bin-and-assets.md) |
+| `engine/producer_open` | Opens every producer: the playback graph's (hardware decode where it's on) or a worker's (always the CPU chain, software decode) | [ADR-019](../plans/v2/adr/019-gpu-acceleration.md), [GPU notes](notes/gpu.md) |
+| `engine/gpu_probe`, `platform/gl_context` | Our own GL context (EGL, loaded at run time) and the GPU pipeline's probe | [ADR-019](../plans/v2/adr/019-gpu-acceleration.md), [GPU notes](notes/gpu.md) |
 | `app/app_window` | Header bar, preview, timeline, transport, media browser, dialogs | [app shell notes](notes/app-shell.md) |
 | `app/timeline/` | `Viewport` (zoom/scroll maths), `TimelineController` (gestures, tested without GTK), `UsTimelineView` and its GSK renderer | [doc 06](../plans/v2/06-timeline-ui.md), [ADR-008](../plans/v2/adr/008-custom-timeline-widget.md) |
 | `app/action_registry` | Every window action and its default shortcut, in one table | [Keyboard shortcuts](../user/keyboard-shortcuts.md) |
