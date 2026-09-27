@@ -12,6 +12,7 @@
 #include "platform/console.h"
 
 #include <algorithm>
+#include <cstring>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -99,6 +100,51 @@ void flattenPlaylist(Mlt::Playlist &playlist, int offset, std::vector<PlaylistEn
         out.push_back(entry);
     }
 }
+
+namespace {
+
+// Track 0's black is the A frame every track composites onto, and the
+// composited frame keeps its properties. producer_colour tags any YUV
+// image it makes BT.601 (producer_colour.c, MLT 7.40) and composite never
+// changes the tag, so the final YUV->RGB step (the preview's rgba, a
+// render's conversion) decoded every BT.709 source with the 601 matrix:
+// pure red 255 -> 233, cyan's red 0 -> 22, in preview and export alike.
+// This filter re-tags the black's YUV frames with the profile's colour
+// space (black is the same YUV in both). The alternatives measured worse:
+// the black as RGBA cost a full-frame conversion (+7 ms at 1080p); an
+// empty track 0 draws gaps white; a lavfi black took 600+ ms to seek.
+// Standalone repro, docs/developer/notes/engine-sync.md (2026-09-27).
+int retagImage(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height, int writable)
+{
+    mlt_properties properties = MLT_FRAME_PROPERTIES(frame);
+    const int colorspace = mlt_properties_get_int(properties, "ustudio.colorspace");
+    const int error = mlt_frame_get_image(frame, image, format, width, height, writable);
+    if (!error && *format != mlt_image_rgb && *format != mlt_image_rgba && *format != mlt_image_rgba64)
+        mlt_properties_set_int(properties, "colorspace", colorspace);
+    return error;
+}
+
+mlt_frame retagProcess(mlt_filter filter, mlt_frame frame)
+{
+    mlt_properties_set_int(MLT_FRAME_PROPERTIES(frame), "ustudio.colorspace",
+                           mlt_service_profile(MLT_FILTER_SERVICE(filter))->colorspace);
+    mlt_frame_push_get_image(frame, retagImage);
+    return frame;
+}
+
+void attachProfileColorspace(Mlt::Producer &producer, Mlt::Profile &profile)
+{
+    mlt_filter raw = mlt_filter_new();
+    if (!raw)
+        return;
+    raw->process = retagProcess;
+    mlt_service_set_profile(MLT_FILTER_SERVICE(raw), profile.get_profile());
+    Mlt::Filter filter(raw); // its own reference
+    mlt_filter_close(raw);
+    producer.attach(filter);
+}
+
+} // namespace
 
 std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 {
@@ -454,6 +500,12 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
             producer->set("video_index", -1);
         if (!audioEnabled)
             producer->set("audio_index", -1);
+        // A colour's YUV is BT.601 values tagged 601, and MLT composites YUV
+        // without converting between colour spaces: as RGBA, the conversion
+        // to YUV uses the profile's matrix (the re-tag note above).
+        if (const char *service = producer->get("mlt_service");
+            service && (std::strcmp(service, "color") == 0 || std::strcmp(service, "colour") == 0))
+            producer->set("mlt_image_format", "rgba");
         it = m_masterProducers.emplace(key, std::move(producer)).first;
     }
     Mlt::Producer &producer = *it->second;
@@ -856,6 +908,7 @@ void EngineSync::rebuildAll()
         m_blackMaster = std::make_unique<Mlt::Producer>(*m_profile, kBlackResource);
         m_blackMaster->set("length", kBlackMasterLength);
         m_blackMaster->set_in_and_out(0, kBlackMasterLength - 1);
+        attachProfileColorspace(*m_blackMaster, *m_profile);
     }
     core::FrameIndex sequenceLength = std::max<core::FrameIndex>(seq.length(), 1);
     // Mlt::Producer::cut() returns a new, caller-owned wrapper (the "mlt++

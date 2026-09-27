@@ -70,8 +70,10 @@ struct Timeline
     }
 };
 
-// color:red's red channel through a timeline graph, measured.
-constexpr int kFullRed = 233;
+// color:red's red channel through a timeline graph. It measured 233 until
+// 0.52.0-beta.2: a colour's YUV then went through the graph's BT.709 tag
+// mismatch (docs/developer/notes/engine-sync.md); full red is 255.
+constexpr int kFullRed = 255;
 
 bool isNear(int red, int expected)
 {

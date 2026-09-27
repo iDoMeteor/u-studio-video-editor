@@ -103,6 +103,15 @@ test_transform_exe = executable(
 )
 test('engine-transform', test_transform_exe, timeout: 180)
 
+# BT.709 sources keep their colours (the 601-tagged background).
+test_colour_exe = executable(
+  'test_colour',
+  files('test_colour.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-colour', test_colour_exe, timeout: 120)
+
 # M4 E: image sequences through pixbuf.
 test_image_sequence_exe = executable(
   'test_image_sequence',

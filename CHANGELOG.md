@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.52.0-beta.2
+
+- Colours are right: BT.709 footage (most HD video) was shown and exported
+  with slightly wrong colours (pure red came out 233 of 255, cyan picked up
+  red), because the graph's black background labelled every frame BT.601.
+
 ## 0.52.0-beta.1
 
 - Image sequences can be relinked (pick any of their images, or search a
