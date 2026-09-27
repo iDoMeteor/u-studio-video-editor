@@ -96,3 +96,24 @@ Cairo 1.18, fontconfig 2.17):
   session and `GTK_A11Y=atspi`. Pass `DISPLAY`, `GDK_BACKEND=x11` and
   `GDK_DEBUG=no-portals` into that session, so the dialog is the app's own
   and nothing opens on the real desktop.
+
+## T2d: exporting a title on its own
+
+- **Codec options through MLT's avformat consumer.** Unknown consumer
+  properties go to the codec as AVOptions, and a leading `v` is dropped when
+  the name isn't an option itself (`consumer_avformat.c`,
+  `apply_properties()`): `vprofile=4` sets `prores_ks`'s profile to 4444
+  without touching MLT's own `profile`. `ffprobe` confirms `profile=4444`.
+- **What the decoders report.** ProRes 4444 written from `yuva444p10le`
+  decodes as `yuva444p12le`. VP9 with alpha shows as `yuv420p` with the
+  stream tag `alpha_mode=1`: FFmpeg's native VP9 decoder ignores the alpha,
+  and `-c:v libvpx-vp9` decodes it. QuickTime Animation stays `argb`, PNG
+  `rgba`.
+- **No compositing, no fringe.** Feeding the producer straight to the
+  consumer (`mlt_image_format=rgba`, `an=1`, `real_time=-1`,
+  `terminate_on_pause=1`) gives the renderer's alpha exactly. A 50% bar
+  reads back at alpha 128 in its own colour, which the compositing path
+  can't do today (see "T1: the producer in the editor's graph").
+- **Cost**, 2 s of doc 16's lower third at 1080p30 on one machine: PNG
+  2.8 s, ProRes 6.3 s, QuickTime Animation 2.1 s, VP9 19.4 s (libvpx is
+  slow), H.264 3.9 s.

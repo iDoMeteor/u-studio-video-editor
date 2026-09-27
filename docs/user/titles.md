@@ -64,6 +64,24 @@ selected) restyles the whole title in the brand, keeping its layout.
 
 Animation is on the way.
 
+## Exporting a title on its own
+
+To use a title outside U Stu (in OBS, say), use **Export…** in the
+designer's main menu (**Ctrl+E**). Pick a format and a length. The hold
+stretches to the length, as it does on the timeline.
+
+| Format | Background | Good for |
+|---|---|---|
+| ProRes 4444 (`.mov`) | Transparent | OBS, and most video apps; big files, best quality |
+| WebM VP9 (`.webm`) | Transparent | OBS and browsers; small files, slower to export |
+| QuickTime Animation (`.mov`) | Transparent | Apps that don't read ProRes; lossless, big files |
+| PNG sequence (a folder) | Transparent | Any app; one picture per frame |
+| H.264 (`.mp4`) | The title's own background, or black | Anywhere a transparent video isn't needed |
+
+The title is saved first if it has changes. In OBS, add a **Media
+Source** with the exported file; the transparent areas show what's under
+it.
+
 ## From the editor
 
 **Double-click a title clip** on the timeline (or select it and press

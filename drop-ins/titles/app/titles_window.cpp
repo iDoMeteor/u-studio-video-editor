@@ -4,7 +4,10 @@
 
 #include "core/log.h"
 #include "core/media/utf8_path.h"
+#include "export.h"
+
 #include "core/brand_kit.h"
+#include "core/export_formats.h"
 #include "core/title_xml.h"
 
 #include <cairo.h>
@@ -32,6 +35,7 @@ constexpr ActionEntry kActions[] = {
     {"open", "<Control>o"},
     {"save", "<Control>s"},
     {"save-as", "<Control><Shift>s"},
+    {"export", "<Control>e"},
     {"undo", "<Control>z"},
     {"redo", "<Control><Shift>z"},
     {"add-text", "<Control>t"},
@@ -72,6 +76,14 @@ GFile *fileFromUtf8(const std::string &path)
     return file;
 }
 
+// The Export dialog's choices, for its button's handler.
+struct ExportChoice
+{
+    TitlesWindow *window;
+    AdwDialog *dialog;
+    GtkWidget *format, *seconds;
+};
+
 // The brand kit compiled into the app (data/brand.xml).
 BrandKit loadBrandKit()
 {
@@ -102,6 +114,7 @@ GtkFileFilter *titleFilter()
 TitlesWindow::TitlesWindow(GtkApplication *app, const std::string &path, const std::string &backdrop)
 {
     m_window = ADW_APPLICATION_WINDOW(adw_application_window_new(app));
+    m_cancellable = g_cancellable_new();
     gtk_window_set_default_size(GTK_WINDOW(m_window), 1440, 900);
     buildUi();
 
@@ -149,6 +162,8 @@ TitlesWindow::TitlesWindow(GtkApplication *app, const std::string &path, const s
 
 TitlesWindow::~TitlesWindow()
 {
+    g_cancellable_cancel(m_cancellable);
+    g_object_unref(m_cancellable);
     if (m_finishIdle)
         g_source_remove(m_finishIdle);
 }
@@ -195,6 +210,7 @@ void TitlesWindow::buildUi()
     GMenu *file = g_menu_new();
     g_menu_append(file, "New Title", "win.new");
     g_menu_append(file, "Save As…", "win.save-as");
+    g_menu_append(file, "Export…", "win.export");
     g_menu_append_section(menu, nullptr, G_MENU_MODEL(file));
     GMenu *view = g_menu_new();
     g_menu_append(view, "Show Safe Areas", "win.toggle-guides");
@@ -500,6 +516,105 @@ void TitlesWindow::addLayerOf(Layer layer, const std::string &label)
         m_canvas->setSelection(id);
 }
 
+void TitlesWindow::showExportDialog()
+{
+    // The render tool reads the file: an unsaved title is saved first.
+    if (m_path.empty()) {
+        toast("Save the title first, then export it");
+        chooseSavePath();
+        return;
+    }
+    if (m_history.isDirty())
+        save(m_path);
+    if (m_history.isDirty())
+        return; // the save failed; its toast says why
+
+    AdwDialog *dialog = adw_dialog_new();
+    adw_dialog_set_title(dialog, "Export Title");
+    adw_dialog_set_content_width(dialog, 420);
+    GtkWidget *page = adw_preferences_page_new();
+    GtkWidget *group = adw_preferences_group_new();
+    adw_preferences_group_set_description(ADW_PREFERENCES_GROUP(group),
+                                          "For OBS and other apps: with a transparent background (alpha), or "
+                                          "flattened onto the title's own background.");
+    GtkStringList *labels = gtk_string_list_new(nullptr);
+    for (const ExportFormat &format : exportFormats())
+        gtk_string_list_append(labels, format.label);
+    GtkWidget *format = adw_combo_row_new();
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(format), "Format");
+    adw_combo_row_set_model(ADW_COMBO_ROW(format), G_LIST_MODEL(labels));
+    g_object_unref(labels);
+    const TitleDocument &doc = m_history.document();
+    const double designed = static_cast<double>(std::max<int64_t>(1, doc.timing.length())) * doc.fpsDen / doc.fpsNum;
+    GtkWidget *seconds = adw_spin_row_new_with_range(0.1, 3600, 0.5);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(seconds), "Length (seconds)");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(seconds), "The hold stretches; intro and outro keep their timing");
+    adw_spin_row_set_digits(ADW_SPIN_ROW(seconds), 1);
+    adw_spin_row_set_value(ADW_SPIN_ROW(seconds), designed);
+    adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), format);
+    adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), seconds);
+    GtkWidget *go = gtk_button_new_with_label("Export…");
+    gtk_widget_add_css_class(go, "suggested-action");
+    gtk_widget_add_css_class(go, "pill");
+    gtk_widget_set_halign(go, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(go, 12);
+    adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), go);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), ADW_PREFERENCES_GROUP(group));
+    GtkWidget *view = adw_toolbar_view_new();
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view), adw_header_bar_new());
+    adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(view), page);
+    adw_dialog_set_child(dialog, view);
+    g_signal_connect_data(
+        go, "clicked", G_CALLBACK(onExportChosen), new ExportChoice{this, dialog, format, seconds},
+        [](gpointer data, GClosure *) { delete static_cast<ExportChoice *>(data); }, G_CONNECT_DEFAULT);
+    adw_dialog_present(dialog, GTK_WIDGET(m_window));
+}
+
+void TitlesWindow::chooseExportPath(const std::string &formatName, double seconds)
+{
+    const ExportFormat *format = exportFormat(formatName);
+    if (!format)
+        return;
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, format->extension[0] ? "Export Title" : "Export Title (a folder of PNGs)");
+    const std::filesystem::path title = core::pathFromUtf8(m_path);
+    std::string name = core::utf8String(title.stem());
+    if (format->extension[0])
+        name += std::string(".") + format->extension;
+    gtk_file_dialog_set_initial_name(dialog, name.c_str());
+    GFile *folder = fileFromUtf8(core::utf8String(title.parent_path()));
+    gtk_file_dialog_set_initial_folder(dialog, folder);
+    g_object_unref(folder);
+    struct Request
+    {
+        TitlesWindow *window;
+        std::string format;
+        double seconds;
+    };
+    gtk_file_dialog_save(
+        dialog, GTK_WINDOW(m_window), m_cancellable,
+        [](GObject *source, GAsyncResult *result, gpointer data) {
+            std::unique_ptr<Request> request(static_cast<Request *>(data));
+            GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source), result, nullptr);
+            if (!file)
+                return;
+            const std::string path = utf8Path(file);
+            g_object_unref(file);
+            TitlesWindow *window = request->window;
+            AdwToast *progress = adw_toast_new(("Exporting " + fileName(path) + "…").c_str());
+            adw_toast_set_timeout(progress, 0);
+            adw_toast_overlay_add_toast(window->m_toasts, ADW_TOAST(g_object_ref(progress)));
+            exportTitle(window->m_path, path, request->format, request->seconds, window->m_cancellable,
+                        [window, progress, path](const std::string &error) {
+                            adw_toast_dismiss(progress);
+                            g_object_unref(progress);
+                            window->toast(error.empty() ? "Exported " + fileName(path) : "Couldn't export: " + error);
+                        });
+        },
+        new Request{this, formatName, seconds});
+    g_object_unref(dialog);
+}
+
 std::string TitlesWindow::pictureSource(const std::string &path) const
 {
     // Relative when it's in (or under) the title's folder, so the two move
@@ -785,6 +900,18 @@ gboolean TitlesWindow::onFinishTextEdit(gpointer self)
     return G_SOURCE_REMOVE;
 }
 
+void TitlesWindow::onExportChosen(GtkButton *, gpointer data)
+{
+    auto *choice = static_cast<ExportChoice *>(data);
+    const guint index = adw_combo_row_get_selected(ADW_COMBO_ROW(choice->format));
+    const double seconds = adw_spin_row_get_value(ADW_SPIN_ROW(choice->seconds));
+    TitlesWindow *window = choice->window;
+    const std::vector<ExportFormat> &formats = exportFormats();
+    const std::string format = index < formats.size() ? formats[index].name : formats.front().name;
+    adw_dialog_close(choice->dialog);
+    window->chooseExportPath(format, seconds);
+}
+
 void TitlesWindow::onDestroy(GtkWidget *, gpointer self)
 {
     delete static_cast<TitlesWindow *>(self);
@@ -807,6 +934,8 @@ void TitlesWindow::onAction(GSimpleAction *action, GVariant *, gpointer self)
             window->save(window->m_path);
     } else if (name == "save-as") {
         window->chooseSavePath();
+    } else if (name == "export") {
+        window->showExportDialog();
     } else if (name == "undo") {
         if (window->m_history.undo())
             window->refresh();

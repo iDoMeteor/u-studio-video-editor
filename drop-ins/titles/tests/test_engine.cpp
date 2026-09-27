@@ -13,6 +13,7 @@
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "engine/backdrop.h"
+#include "engine/title_export.h"
 #include "engine/title_extension.h"
 #include "engine/title_frames.h"
 #include "platform/process.h"
@@ -24,6 +25,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -149,7 +151,7 @@ TEST_CASE("libmltustudio loads from the curated directory, with its metadata")
     CHECK(std::string(mlt_properties_get(meta, "type")) == "producer");
     auto *parameters = static_cast<mlt_properties>(mlt_properties_get_data(meta, "parameters", nullptr));
     REQUIRE(parameters != nullptr);
-    CHECK(mlt_properties_count(parameters) == 3);
+    CHECK(mlt_properties_count(parameters) == 5);
     // Not a title: no producer, so the clip falls back to the placeholder.
     Mlt::Profile profile;
     CHECK(titles::makeTitleProducer(profile, "/nonexistent.ustitle", 10, {}) == nullptr);
@@ -327,6 +329,56 @@ TEST_CASE("the designer's backdrop is the frame without the title, rendered off 
     CHECK(p[1] < 50);
     // The project it was given is untouched.
     CHECK(scene.model.clip(scene.clip).videoEnabled);
+}
+
+TEST_CASE("--title-export: alpha formats keep the title's alpha; H.264 is flattened")
+{
+    setUp();
+    const std::string title = writeTitle("export.ustitle", R"(<ustitle version="1" width="320" height="180" fps="25/1">
+      <timing intro="0" hold="10" outro="0"/>
+      <layer kind="shape" x="40" y="100" w="160" h="50"><fill color="#1b1230" opacity="0.5"/></layer>
+    </ustitle>)");
+    const auto readBack = [](const std::string &path, int x, int y) {
+        Mlt::Profile profile;
+        profile.set_width(320);
+        profile.set_height(180);
+        profile.set_frame_rate(25, 1);
+        Mlt::Producer producer(profile, path.c_str());
+        REQUIRE(producer.is_valid());
+        producer.seek(5);
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 320, h = 180;
+        const uint8_t *image = frame->get_image(format, w, h);
+        const uint8_t *p = image + (static_cast<size_t>(y) * 320 + static_cast<size_t>(x)) * 4;
+        return Rgba{p[0], p[1], p[2], p[3]};
+    };
+
+    std::ostringstream out;
+    const std::string mov = utf8String(scratch() / "export.mov");
+    REQUIRE(titles::runTitleExport({title, mov, "qtrle"}, out) == 0);
+    CHECK(out.str().find(R"("frames":10)") != std::string::npos);
+    CHECK_FALSE(fs::exists(mov + ".part"));
+    CHECK(readBack(mov, 20, 20).a == 0);                    // clear where the title is empty
+    CHECK(std::abs(readBack(mov, 100, 120).a - 128) <= 2);  // half-transparent bar
+    CHECK(std::abs(readBack(mov, 100, 120).r - 0x1b) <= 2); // in its own colour, not darkened
+
+    const std::string mp4 = utf8String(scratch() / "export.mp4");
+    REQUIRE(titles::runTitleExport({title, mp4, "h264", "--seconds", "0.4"}, out) == 0);
+    CHECK(readBack(mp4, 20, 20).a == 255); // flattened: opaque everywhere
+    CHECK(readBack(mp4, 20, 20).g < 20);   // on black
+
+    const std::string frames = utf8String(scratch() / "export-frames");
+    REQUIRE(titles::runTitleExport({title, frames, "png"}, out) == 0);
+    size_t count = 0;
+    for (const auto &entry : fs::directory_iterator(frames))
+        count += entry.path().extension() == ".png";
+    CHECK(count == 10);
+
+    std::ostringstream bad;
+    CHECK(titles::runTitleExport({title, mov, "gif"}, bad) == 2);
+    CHECK(bad.str().find("unknown format") != std::string::npos);
+    CHECK(titles::runTitleExport({utf8String(scratch() / "none.ustitle"), mov, "qtrle"}, bad) == 1);
 }
 
 #ifdef TITLES_RENDER_TOOL

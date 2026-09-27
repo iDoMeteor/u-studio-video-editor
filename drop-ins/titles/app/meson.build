@@ -16,19 +16,29 @@ titles_app_tokens_h = custom_target(
   output: 'tokens.h',
   command: [find_program('python3'), meson.project_source_root() / 'tools' / 'gen_tokens.py', '@INPUT@', '@OUTPUT@'],
 )
+# Export runs u-studio-render (the designer has no MLT): installed next to
+# it, else this build's (defined after drop-ins/, so named by path).
+titles_app_args = ['-DTITLES_RENDER_BUILD_PATH="' + meson.project_build_root() / 'src' / 'render' / 'u-studio-render' + '"']
+if get_option('dropin_titles') == 'module'
+  # An uninstalled render tool finds the module only through the
+  # development override (ADR-014).
+  titles_app_args += '-DTITLES_DROPIN_MODULE_DIR="' + meson.current_build_dir() / '..' + '"'
+endif
 titles_app_lib = static_library(
   'ustudio_titles_app',
-  files('canvas.cpp', 'inspector.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp', 'view_settings.cpp'),
+  files('canvas.cpp', 'export.cpp', 'inspector.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp',
+        'view_settings.cpp'),
   titles_app_tokens_h,
   include_directories: [src_inc, titles_inc],
-  dependencies: [titles_render_dep, gtk4_dep, adwaita_dep],
+  cpp_args: titles_app_args,
+  dependencies: [titles_render_dep, libustudio_platform_dep, gtk4_dep, adwaita_dep],
   install: false,
 )
 titles_app_dep = declare_dependency(
   link_with: titles_app_lib,
   sources: titles_app_tokens_h,
   include_directories: [src_inc, titles_inc],
-  dependencies: [titles_render_dep, gtk4_dep, adwaita_dep],
+  dependencies: [titles_render_dep, libustudio_platform_dep, gtk4_dep, adwaita_dep],
 )
 titles_app_exe = executable(
   'u-studio-titles',

@@ -211,6 +211,25 @@ def lower_third():
     check("brand fonts", all(f in ("Anton", "Space Grotesk") for f in fonts), str(fonts))
     check("the name in the brand gradient", layers[1].find("fill").get("gradient") == "linear")
 
+    # Export it with alpha (the default, ProRes 4444) through the dialogs.
+    press("Control_L", "e")
+    check("the Export dialog opens", press_button("Export…"))
+    time.sleep(1.5)
+    check("the export takes a name", set_entry("lower-third.mov"))
+    check("Save the export", press_button("Save"))
+    movie = os.path.join(OUT, "home", "lower-third.mov")
+    end = time.time() + 60
+    while time.time() < end and not os.path.exists(movie):
+        time.sleep(0.5)
+    time.sleep(1)
+    shot("6-exported")
+    check("the export is written", os.path.exists(movie), movie)
+    if os.path.exists(movie):
+        probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                "stream=codec_name,profile,pix_fmt", "-of", "default=nw=1", movie],
+                               capture_output=True, text=True).stdout
+        check("ProRes 4444 with an alpha plane", "profile=4444" in probe and "pix_fmt=yuva" in probe, probe.strip())
+
 if __name__ == "__main__":
     {"lower-third": lower_third}[sys.argv[1]]()
     print(f"RESULT: {len(FAILED)} failed" + (": " + ", ".join(FAILED) if FAILED else ""))
