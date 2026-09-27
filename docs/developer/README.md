@@ -13,6 +13,7 @@ before changing code.
 | [Testing](testing.md) | Test suites, what they need, the testing rules |
 | [Contributing](contributing.md) | Worktrees, landing, commit and version rules, keeping docs current |
 | [Packaging and releases](packaging.md) | The Flatpak, package checks and smoke test, Flathub and Snap preparation, drop-in builds, release notes |
+| [Titles drop-in](../../drop-ins/titles/README.md) | The titles drop-in's layout, how to build and test it, and the `.ustitle` format reference |
 | [Implementation notes](notes/README.md) | Empirical MLT, GTK and GLib findings, by area. Read before touching that area |
 
 ## Design record

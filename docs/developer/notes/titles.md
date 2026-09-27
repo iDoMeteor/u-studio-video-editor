@@ -1,4 +1,4 @@
-# Titles (T0 spikes)
+# Titles (T0 spikes and T1 renderer)
 
 [Docs home](../../README.md) › [Developer docs](../README.md) › [Implementation notes](README.md) › Titles
 
@@ -16,3 +16,33 @@ Nothing is wired into `src/`.
 | 4 | `ustudio_title` through MLT's `xml` | **Yes** for the `xml` consumer and producer: `mlt_service`, `text` and `font` survive and the reloaded producer renders. Through `u-studio-render`, it needs the module shipped as a drop-in (its module directory joins the curated one, IP4), which is T1's packaging. |
 | 5 | `FcConfigAppFontAddDir` visible to Pango | **Yes.** A font directory added with `FcConfigAppFontAddDir(nullptr, dir)` before the first layout is used by Pango's font maps: "UStuTestFnt Bold" (a renamed DejaVu Sans copy, not installed) resolved to that family. Each process adds it itself, so the editor and `u-studio-render` both call it at startup. |
 | 6 | A GApplication action invoked from a second process | **Yes.** `gapplication action com.ustudio.T0Spike open-title "'/path/x.ustitle'"` reached the running app's `open-title` action (parameter type `s`) over its session-bus name: the way a titles tool can ask the editor to open or refresh a title. No `.desktop` file or D-Bus activation is needed while the app runs. |
+
+## T1: the renderer
+
+Found while building `drop-ins/titles/render/` (2026-09-27, Pango 1.57,
+Cairo 1.18, fontconfig 2.17):
+
+- **Hinting off, or the preview isn't the export.** With Cairo's default
+  font options, glyph outlines and metrics snap to the output's pixel grid,
+  so a half-size preview lays text out differently from the full-size
+  frame. The renderer lays out in canvas pixels with
+  `CAIRO_HINT_STYLE_NONE`, `CAIRO_HINT_METRICS_OFF` and
+  `pango_context_set_round_glyph_positions(FALSE)`, then scales. A
+  960×540 render's ink box is the 1920×1080 one halved, to within 3 px
+  (`titles-render`).
+- **`FcConfigAppFontAddDir()` returns true for a directory that doesn't
+  exist**, so `addFontDirectory()` checks for the directory itself. A font
+  map made before the call doesn't see the new fonts. Each rendering
+  thread rebuilds its font map when a directory has been added since its
+  last render.
+- **Which font was really used**: `pango_context_load_font()` then
+  `pango_font_describe()` gives the family Pango picked. A missing
+  "Space Grotesk" comes back as "Noto Sans" on Fedora 44. Generic names
+  ("Sans", "monospace") never match their result and aren't warned about.
+- **Cost** (release build, one thread): doc 16's lower third with a
+  shadowed gradient name, a subtitle, an outlined bar and a radial dot
+  takes 4.3 ms at 1920×1080 and 13.9 ms at 3840×2160. A debug (`-O0`)
+  build is about four times slower, mostly in `std::vector` fills and the
+  blur's loops, so don't judge speed on one.
+- Text goes to Pango with `pango_layout_set_text()`, never as markup, so a
+  field value like `<b>` or `&` shows as typed.
