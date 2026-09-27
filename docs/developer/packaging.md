@@ -81,7 +81,7 @@ manifest (the app pinned to the tag's commit), the module files, and
 | Metainfo: screenshots at a tag or commit URL, window only, ≤ 1000×700, captions without full stops | **Open:** who makes them, and where they're hosted |
 | Metainfo: branding colours | Done: `#FC3CBA` light, `#A04BFA` dark |
 | Metainfo: OARS rating | Done: `oars-1.1`, no content |
-| Name ≤ 20 characters, not lowercase-first; summary ≤ 35 characters, no toolkit names | **Open:** "u Studio Video Editor" (21) and the GTK4/libadwaita summary both fail; owner question |
+| Name ≤ 20 characters, not lowercase-first; summary ≤ 35 characters, no toolkit names | Name decided: "U Stu Video Editor" (18; owner, 2026-09-27; VE Core renames the app). **Open:** the summary still names GTK4/libadwaita; owner question |
 | Icon: SVG or PNG ≥ 256 px, no baked shadow | Done: the owner's SVG. Flathub also warns about icons that fill the whole canvas; this one nearly does |
 | `x-checker-data` for external sources | Done for FFmpeg and MLT; x264 is manual |
 | Static permissions justified | Justification below |

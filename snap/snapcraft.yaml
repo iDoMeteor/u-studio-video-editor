@@ -11,7 +11,7 @@
 # machine), and the snap name isn't registered. See packaging.md.
 
 name: u-studio-video-editor # TODO: the registered snap name (owner question 12)
-title: u Studio Video Editor
+title: U Stu Video Editor
 summary: Multi-track video editor for livestream and promo editing
 description: |
   u Studio is a multi-track video editor for GNOME, made for livestream
