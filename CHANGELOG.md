@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.50.0-beta.3
+
+- No more crackle in the first half second after pressing play on a large
+  project: playback waits a quarter second for its first frames.
+
 ## 0.50.0-beta.2
 
 - The clip tooltip on the timeline no longer flashes: its own appearance

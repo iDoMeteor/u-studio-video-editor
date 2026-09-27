@@ -23,13 +23,14 @@
   <launchable type="desktop-id">com.ustudio.VideoEditor.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.50.0-beta.2" date="2026-09-25" type="development">
+    <release version="0.50.0-beta.3" date="2026-09-25" type="development">
       <description>
         <p>New since the previous beta:</p>
         <ul>
           <li>Media browser badges: each file shows what it is (image, audio), its resolution (in cyan when it is larger than the project) and its state (missing, proxy, proxy being made).</li>
           <li>The media browser stays quick with hundreds of files: it only redraws what changed.</li>
           <li>The clip tooltip on the timeline no longer flashes on and off.</li>
+          <li>No more crackle in the first half second after pressing play on a large project.</li>
         </ul>
         <p>Known issues:</p>
         <ul>

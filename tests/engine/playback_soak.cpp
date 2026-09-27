@@ -110,12 +110,16 @@ int main(int argc, char **argv)
                      argv[0]);
         return 2;
     }
-    int clipsArg = 0, transformed = 0;
+    int clipsArg = 0, transformed = 0, plainTracks = 0, startFrame = 0;
     PreviewScale scale = PreviewScale::Half;
     const char *scaleName = "Half";
     for (int i = 3; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--transformed" && i + 1 < argc) {
+        if (arg == "--start" && i + 1 < argc) {
+            startFrame = std::atoi(argv[++i]); // play from here, after a paused seek (the owner's start glitch)
+        } else if (arg == "--tracks" && i + 1 < argc) {
+            plainTracks = std::atoi(argv[++i]); // more untransformed tracks above V1
+        } else if (arg == "--transformed" && i + 1 < argc) {
             transformed = std::atoi(argv[++i]);
         } else if (arg == "--scale" && i + 1 < argc) {
             const std::string name = argv[++i];
@@ -133,7 +137,8 @@ int main(int argc, char **argv)
     // consumer) swallows SIGTERM/SIGINT and the soak can't be stopped.
     g_setenv("SDL_NO_SIGNAL_HANDLERS", "1", FALSE);
     const std::string media = argv[1];
-    const int minutes = std::atoi(argv[2]);
+    // Fractional minutes allowed (0.1: a 6 s start-of-playback audio check).
+    const double minutes = std::atof(argv[2]);
     FactoryPolicy policy;
 
     // Probe once at the default profile to learn the source's size and
@@ -159,7 +164,7 @@ int main(int argc, char **argv)
     EngineSync::ProbedMedia probed = sync.probeMedia(media); // length in this sequence's frames
 
     const int fps = static_cast<int>(sync.profile().fps() + 0.5);
-    const int needed = minutes * 60 * fps;
+    const int needed = static_cast<int>(minutes * 60 * fps);
     const int clips = clipsArg > 0 ? clipsArg : static_cast<int>(needed / probed.length + 1);
     Asset asset;
     asset.path = media;
@@ -170,13 +175,13 @@ int main(int argc, char **argv)
     asset.info.width = probed.width;
     asset.info.height = probed.height;
     AssetId assetId = model.addAsset(asset);
-    for (int t = 0; t <= transformed; ++t) {
+    for (int t = 0; t <= transformed + plainTracks; ++t) {
         // index 0 is the top: V1 ends up at the bottom.
         TrackId track = model.addTrack(Track::Kind::Video, 0, "V" + std::to_string(t + 1));
         for (int i = 0; i < clips; ++i) {
             ClipId clip =
                 model.insertClip(track, assetId, static_cast<FrameIndex>(i) * probed.length, 0, probed.length - 1);
-            if (t == 0)
+            if (t == 0 || t > transformed)
                 continue;
             Transform placed;
             placed.bounds = Transform::Bounds::None;
@@ -209,6 +214,10 @@ int main(int argc, char **argv)
             skipped += position - previous - 1;
     });
     controller.setTractor(sync.tractorPtr());
+    if (startFrame > 0) {
+        controller.seek(startFrame);
+        std::this_thread::sleep_for(std::chrono::seconds(1)); // at rest, as a user would be
+    }
     controller.play(1.0);
     std::printf("backend: %s\n", controller.backendName().c_str());
     std::printf("%5s %8s %8s %6s %6s %6s %5s %6s %7s %5s %5s %6s\n", "t(s)", "playhead", "expected", "shown", "deliv",
@@ -268,8 +277,8 @@ int main(int argc, char **argv)
             return G_SOURCE_CONTINUE;
         },
         &state);
-    g_timeout_add_seconds(
-        static_cast<guint>(minutes * 60),
+    g_timeout_add(
+        static_cast<guint>(minutes * 60000),
         [](gpointer data) -> gboolean {
             g_main_loop_quit(static_cast<State *>(data)->loop);
             return G_SOURCE_REMOVE;
