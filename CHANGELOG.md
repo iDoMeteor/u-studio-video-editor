@@ -4,11 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
-## 0.56.0-beta.1
+## 0.57.0-beta.1
 
 - U Stu Titles: double-click text to type on the canvas; picture (PNG)
   layers. In the editor, double-click a title clip (or Edit Title) to open
   it in U Stu Titles over the video at the playhead.
+
+## 0.56.0-beta.1
 
 - Project background colour: click the title in the header bar to pick the
   colour shown wherever no clip covers the frame, in the preview and in
