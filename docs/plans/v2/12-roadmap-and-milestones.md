@@ -329,7 +329,11 @@ Acceptance (milestone gate):
 
 Phases: T0 spikes, T1 format, renderer and `ustudio_title` producer, T2 the
 `u-studio-titles` app, T3 animation (keyframes, text animators,
-behaviours), T4 templates, fields in the editor and Bake title.
+behaviours), T4 templates, fields in the editor and Bake title, T4b
+template packages (`.zip`/`.tar.gz`) and T7 the sharing helper
+([doc 20](20-template-packages-and-sharing.md),
+[ADR-020](adr/020-template-packages-and-sharing.md); the service itself
+is a separate project, [doc 21](21-template-sharing-backend.md)).
 
 Acceptance (track gate):
 - [ ] A title designed in `u-studio-titles` renders identically in the app,

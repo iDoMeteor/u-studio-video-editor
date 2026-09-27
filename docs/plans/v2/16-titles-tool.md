@@ -356,6 +356,15 @@ Acceptance:
 - [ ] Ten lower thirds with different names come from one template file.
 - [ ] A baked title plays in stock `melt`.
 
+### T4b — Template packages, and T7 — sharing
+
+Owner request, 2026-09-27: save and open template packs as `.zip` or
+`.tar.gz`, and publish and download them through a shared catalogue.
+Planned in [doc 20](20-template-packages-and-sharing.md) and
+[ADR-020](adr/020-template-packages-and-sharing.md); the service is
+[doc 21](21-template-sharing-backend.md). T4b (local packages) follows
+T4; T7 (the `u-studio-share` helper) follows T4b.
+
 ### Later
 
 - **T5 Captions:** SRT/VTT import into title clips using a caption

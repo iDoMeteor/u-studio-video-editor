@@ -123,7 +123,9 @@ builddir/                 meson build output — gitignored, per-worktree
   (`mlt-framework-7`, `mlt++-7`), `libxml2`, and doctest for tests
   (ADR-010). `egl` for the GPU context, linked only by `src/platform/`
   (ADR-019); MLT's `movit` module (movit, FFTW) is bundled in packages and
-  loaded by MLT, never included by our code (ADR-019). `frei0r-plugins` is a
+  loaded by MLT, never included by our code (ADR-019). `libarchive` in the
+  titles drop-in only, and libsoup 3, json-glib and libsecret in the
+  `u-studio-share` helper only (ADR-020). `frei0r-plugins` is a
   dependency of the effects drop-in only,
   never of the core editor (ADR-011, ADR-014). **Anything else needs
   an ADR** and the owner's sign-off.
@@ -559,8 +561,14 @@ the C API deliberately), Boost, CMake, or any GUI framework other than GTK4.
 
 ## Security & data safety
 
-- The app makes no network requests. Keep it that way; nothing in the
-  editor phones home, checks versions, or fetches fonts.
+- The editor (and `u-studio-titles`, which ships with it) makes no
+  network requests. Keep it that way; nothing in it phones home, checks
+  versions, or fetches fonts. The only network code lives in separate
+  helper apps with their own Flatpak ids, and runs only on an explicit
+  user action: AI generation (`u-studio-generate`, ADR-015) and template
+  sharing (`u-studio-share`, ADR-020).
+- Template packages are untrusted archives: validate every entry before
+  writing anything (doc 20), and never execute anything from one.
 - Project files and imported media are **untrusted input**: they name
   arbitrary resource paths that MLT will open. Never execute, `system()`, or
   shell-interpolate anything read from a project file or media metadata.
