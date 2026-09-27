@@ -22,6 +22,11 @@
   </description>
   <launchable type="desktop-id">com.ustudio.VideoEditor.desktop</launchable>
   <content_rating type="oars-1.1"/>
+  <!-- Store banner colours, from the logo's palette (magenta, violet). -->
+  <branding>
+    <color type="primary" scheme_preference="light">#FC3CBA</color>
+    <color type="primary" scheme_preference="dark">#A04BFA</color>
+  </branding>
   <releases>
     <release version="0.50.0-beta.3" date="2026-09-25" type="development">
       <description>

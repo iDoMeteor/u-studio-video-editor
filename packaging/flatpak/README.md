@@ -14,9 +14,15 @@ just flatpak
   SDK as a `--user` install (`--install-deps-from=flathub` fetches them).
 - The first build takes about 15 minutes (FFmpeg and MLT from source).
   Later builds reuse `build-flatpak/state` and take a few minutes.
+- Between the build and the export, `tools/check_bundle_clean.py` fails
+  the build if the tree carries test projects, media, logs, user settings
+  or build-machine paths.
 - The bundle lands in `build-flatpak/` (gitignored scratch). Then
   `just dist` copies it to `~/projects/_software-dist/u-stu-video-editor/`
   with a `<name>.sha256` sidecar.
+- Before publishing, run the smoke test on the installed bundle:
+  `tools/packaging-smoke/run.sh flatpak <outdir> --cleanup`
+  ([packaging docs](../../docs/developer/packaging.md#package-checks)).
 - `just dist` never overwrites or removes anything there: a repeated name
   becomes `-2`, `-3`, and so on (owner's rule). `USTUDIO_DIST_DIR` moves the
   destination.
@@ -26,6 +32,9 @@ just flatpak
   normal terminal, or with `env -u XDG_DATA_HOME`.
 
 ## What's in it, and why
+
+x264, FFmpeg and MLT are module files under `modules/`, shared with the
+Flathub submission (`tools/flathub_prep.py`).
 
 | Module | Source | Why it's built here |
 |---|---|---|

@@ -1,0 +1,17 @@
+# x264: the H.264 encoder behind High-quality export and proxies
+# (engine_sync.cpp prefers libx264 over libopenh264). Same commit as
+# Fedora 44's x264-libs 0.165 (20250608gitb35605ac), the build the engine
+# was verified against.
+#
+# x264 publishes no release tags or tarballs, only a `stable` branch, so
+# flatpak-external-data-checker can't track it (its git checker needs tags).
+# Bump the commit by hand: `git ls-remote https://code.videolan.org/videolan/x264.git refs/heads/stable`.
+name: x264
+config-opts:
+  - --enable-shared
+  - --enable-pic
+  - --disable-cli
+sources:
+  - type: git
+    url: https://code.videolan.org/videolan/x264.git
+    commit: b35605ace3ddf7c1a5d67a2eb553f034aef41d55

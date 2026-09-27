@@ -12,7 +12,7 @@ before changing code.
 | [Architecture overview](architecture.md) | Layers, threading rules, a map of modules to design docs |
 | [Testing](testing.md) | Test suites, what they need, the testing rules |
 | [Contributing](contributing.md) | Worktrees, landing, commit and version rules, keeping docs current |
-| [Packaging and releases](packaging.md) | The Flatpak, drop-in builds, changelog and release notes |
+| [Packaging and releases](packaging.md) | The Flatpak, package checks and smoke test, Flathub and Snap preparation, drop-in builds, release notes |
 | [Implementation notes](notes/README.md) | Empirical MLT, GTK and GLib findings, by area. Read before touching that area |
 
 ## Design record

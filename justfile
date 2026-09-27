@@ -72,7 +72,14 @@ check-qt: build
 version := `sed -n "s/^  version: '\(.*\)',$/\1/p" meson.build`
 flatpak:
     flatpak-builder --user --force-clean --install-deps-from=flathub \
-        --state-dir=build-flatpak/state --repo=build-flatpak/repo \
+        --state-dir=build-flatpak/state \
+        build-flatpak/app packaging/flatpak/com.ustudio.VideoEditor.yml
+    # Nothing from a test run or this machine may ship: checked between
+    # the build and the export, so a failure leaves no bundle behind.
+    # --export-only then exports as a plain --repo build would, splitting
+    # debug info and translations into their .Debug/.Locale refs.
+    python3 tools/check_bundle_clean.py build-flatpak/app/files
+    flatpak-builder --user --export-only --state-dir=build-flatpak/state --repo=build-flatpak/repo \
         build-flatpak/app packaging/flatpak/com.ustudio.VideoEditor.yml
     flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
         build-flatpak/repo build-flatpak/u-studio-video-editor-{{version}}.flatpak com.ustudio.VideoEditor
