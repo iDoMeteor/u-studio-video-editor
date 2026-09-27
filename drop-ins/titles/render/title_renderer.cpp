@@ -1,6 +1,7 @@
 #include "title_renderer.h"
 
 #include "blur.h"
+#include "core/animation.h"
 #include "core/evaluate.h"
 #include "core/media/utf8_path.h"
 
@@ -223,15 +224,16 @@ FontDescription describe(const Font &font, double size)
     return desc;
 }
 
-void configure(PangoLayout *layout, const Layer &layer, const std::string &text, double size, bool wrap)
+void configure(PangoLayout *layout, const Layer &layer, const std::string &text, double size, double tracking,
+               bool wrap)
 {
     FontDescription desc = describe(layer.font, size);
     pango_layout_set_font_description(layout, desc.get());
     pango_layout_set_text(layout, text.c_str(), -1); // plain text: never markup, whatever a field holds
     PangoAttrList *attrs = pango_attr_list_new();
-    if (layer.font.tracking != 0.0)
-        pango_attr_list_insert(attrs, pango_attr_letter_spacing_new(
-                                          static_cast<int>(std::lround(layer.font.tracking * size * PANGO_SCALE))));
+    if (tracking != 0.0)
+        pango_attr_list_insert(
+            attrs, pango_attr_letter_spacing_new(static_cast<int>(std::lround(tracking * size * PANGO_SCALE))));
     pango_layout_set_attributes(layout, attrs);
     pango_attr_list_unref(attrs);
     if (layer.font.lineHeight != 1.0)
@@ -254,7 +256,7 @@ TextLayout layoutText(ThreadFonts &fonts, const Layer &layer, const LayerState &
     PangoLayout *layout = out.layout.get();
     const bool wrap = layer.fit == Fit::Wrap && layer.w > 0.0;
     double size = layer.font.size;
-    configure(layout, layer, text, size, wrap);
+    configure(layout, layer, text, size, state.tracking, wrap);
     checkFont(fonts, layer.font, pango_layout_get_font_description(layout), warnings);
 
     PangoRectangle logical;
@@ -272,7 +274,7 @@ TextLayout layoutText(ThreadFonts &fonts, const Layer &layer, const LayerState &
             if (ratio >= 1.0)
                 break;
             size *= attempt == 0 ? ratio : ratio * 0.98;
-            configure(layout, layer, text, size, false);
+            configure(layout, layer, text, size, state.tracking, false);
             pango_layout_get_extents(layout, nullptr, &logical);
         }
     }
@@ -308,7 +310,9 @@ void addStops(cairo_pattern_t *pattern, const Fill &fill, double alpha)
     cairo_pattern_add_color_stop_rgba(pattern, 1.0, fill.to.r, fill.to.g, fill.to.b, fill.to.a * alpha);
 }
 
-cairo_pattern_t *fillPattern(const Fill &fill, const Box &box, double alpha)
+// `shift` slides a gradient along its axis by that much of its length
+// (a shimmer), repeating it mirrored beyond its ends.
+cairo_pattern_t *fillPattern(const Fill &fill, const Box &box, double alpha, double shift = 0.0)
 {
     const double a = fill.opacity * alpha;
     switch (fill.kind) {
@@ -323,9 +327,13 @@ cairo_pattern_t *fillPattern(const Fill &fill, const Box &box, double alpha)
         // Half the box's extent along the gradient's direction, so the
         // stops sit on the box's edges at any angle.
         const double half = std::abs(box.w / 2 * dx) + std::abs(box.h / 2 * dy);
+        const double slide = shift * 2 * half;
         cairo_pattern_t *pattern =
-            cairo_pattern_create_linear(cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half);
+            cairo_pattern_create_linear(cx - dx * half + dx * slide, cy - dy * half + dy * slide,
+                                        cx + dx * half + dx * slide, cy + dy * half + dy * slide);
         addStops(pattern, fill, a);
+        if (shift != 0.0)
+            cairo_pattern_set_extend(pattern, CAIRO_EXTEND_REFLECT);
         return pattern;
     }
     case FillKind::Radial: {
@@ -376,19 +384,20 @@ void shapePath(cairo_t *cr, const Layer &layer, const Box &box)
 
 // Stroke under fill: the stroke is drawn twice as wide and the fill covers
 // its inner half, so `width` is what shows outside the shape.
-void strokeAndFill(cairo_t *cr, const Layer &layer, const Box &box)
+void strokeAndFill(cairo_t *cr, const Layer &layer, const Fill &fill, const Box &box, double shift = 0.0,
+                   double alpha = 1.0)
 {
     const bool line = layer.kind == LayerKind::Shape && layer.shape == ShapeKind::Line;
     if (layer.stroke.width > 0.0) {
         const Rgba &c = layer.stroke.color;
-        cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a * layer.stroke.opacity);
+        cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a * layer.stroke.opacity * alpha);
         cairo_set_line_width(cr, line ? layer.stroke.width : layer.stroke.width * 2);
         cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
         cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
         cairo_stroke_preserve(cr);
     }
     if (!line) {
-        if (cairo_pattern_t *pattern = fillPattern(layer.fill, box, 1.0)) {
+        if (cairo_pattern_t *pattern = fillPattern(fill, box, alpha, shift)) {
             cairo_set_source(cr, pattern);
             cairo_fill_preserve(cr);
             cairo_pattern_destroy(pattern);
@@ -414,16 +423,258 @@ Box deviceBounds(const cairo_matrix_t &matrix, const Box &box, double pad)
     return {minX - pad, minY - pad, maxX - minX + 2 * pad, maxY - minY + 2 * pad};
 }
 
+// --- Text in units (animators, the typewriter) --------------------------------
+
+// One grapheme cluster of the laid-out text: its glyphs, where they sit
+// (canvas pixels, relative to the layout's origin) and which character,
+// word and line it belongs to.
+struct Cluster
+{
+    PangoFont *font = nullptr; // the run's; owned by the layout
+    std::unique_ptr<PangoGlyphString, Deleter<PangoGlyphString, pango_glyph_string_free>> glyphs;
+    double x = 0.0, baseline = 0.0; // where the glyphs start
+    Box box;                        // logical extents
+    size_t character = 0, word = 0, line = 0;
+    bool space = false;
+};
+
+std::vector<Cluster> clustersOf(PangoLayout *layout, const std::string &text)
+{
+    std::vector<Cluster> clusters;
+    PangoLayoutIter *iter = pango_layout_get_iter(layout);
+    const PangoLayoutLine *lastLine = nullptr;
+    size_t line = 0, character = 0, word = 0;
+    bool afterSpace = true, anyWord = false;
+    do {
+        const PangoLayoutLine *current = pango_layout_iter_get_line_readonly(iter);
+        if (lastLine && current != lastLine) {
+            ++line;
+            afterSpace = true; // a new line starts a new word
+        }
+        lastLine = current;
+        PangoGlyphItem *run = pango_layout_iter_get_run_readonly(iter);
+        if (!run)
+            continue;
+        PangoRectangle runLogical;
+        pango_layout_iter_get_run_extents(iter, nullptr, &runLogical);
+        const double baseline = static_cast<double>(pango_layout_iter_get_baseline(iter)) / PANGO_SCALE;
+        const PangoGlyphString *glyphs = run->glyphs;
+        PangoGlyphItemIter cluster;
+        for (bool more = pango_glyph_item_iter_init_start(&cluster, run, text.c_str()); more;
+             more = pango_glyph_item_iter_next_cluster(&cluster)) {
+            // The cluster's glyphs, in visual order.
+            int lo = cluster.start_glyph, hi = cluster.end_glyph;
+            if (lo > hi) { // right to left: the glyphs (end, start]
+                const int first = hi + 1, last = lo + 1;
+                lo = first;
+                hi = last;
+            }
+            int before = 0;
+            for (int g = 0; g < lo; ++g)
+                before += glyphs->glyphs[g].geometry.width;
+            Cluster c;
+            c.font = run->item->analysis.font;
+            c.glyphs.reset(pango_glyph_string_new());
+            pango_glyph_string_set_size(c.glyphs.get(), hi - lo);
+            int width = 0;
+            for (int g = lo; g < hi; ++g) {
+                c.glyphs->glyphs[g - lo] = glyphs->glyphs[g];
+                c.glyphs->log_clusters[g - lo] = 0;
+                width += glyphs->glyphs[g].geometry.width;
+            }
+            c.x = static_cast<double>(runLogical.x + before) / PANGO_SCALE;
+            c.baseline = baseline;
+            c.box = {c.x, static_cast<double>(runLogical.y) / PANGO_SCALE, static_cast<double>(width) / PANGO_SCALE,
+                     static_cast<double>(runLogical.height) / PANGO_SCALE};
+            const std::string_view bytes(text.data() + cluster.start_index,
+                                         static_cast<size_t>(cluster.end_index - cluster.start_index));
+            c.space = bytes.find_first_not_of(" \t\n") == std::string_view::npos;
+            c.line = line;
+            if (!c.space) {
+                if (afterSpace && anyWord)
+                    ++word;
+                anyWord = true;
+                c.word = word;
+                c.character = character++;
+            }
+            afterSpace = c.space;
+            clusters.push_back(std::move(c));
+        }
+    } while (pango_layout_iter_next_run(iter));
+    pango_layout_iter_free(iter);
+    return clusters;
+}
+
+// The union of the boxes of the clusters that `pick` selects.
+template <typename Pick> Box unionOf(const std::vector<Cluster> &clusters, Pick pick)
+{
+    double left = INFINITY, top = INFINITY, right = -INFINITY, bottom = -INFINITY;
+    for (const Cluster &c : clusters)
+        if (!c.space && pick(c)) {
+            left = std::min(left, c.box.x);
+            top = std::min(top, c.box.y);
+            right = std::max(right, c.box.x + c.box.w);
+            bottom = std::max(bottom, c.box.y + c.box.h);
+        }
+    return left > right ? Box{} : Box{left, top, right - left, bottom - top};
+}
+
+// A unit's offsets as a transform about `pivot` (canvas pixels).
+void applyUnit(cairo_matrix_t &m, const UnitState &u, double px, double py)
+{
+    cairo_matrix_translate(&m, u.dx + px, u.dy + py);
+    cairo_matrix_rotate(&m, u.rotation * std::numbers::pi / 180.0);
+    cairo_matrix_scale(&m, u.scale, u.scale);
+    cairo_matrix_translate(&m, -px, -py);
+}
+
+// Draws text one cluster at a time: each on its line's, word's and
+// character's offsets (whichever are animated), with the typewriter's
+// cursor. `cr` has the layer's transform; `ox, oy` is the layout's origin.
+void drawTextUnits(cairo_t *cr, const Layer &layer, const Fill &fill, const Box &textBox, double shift,
+                   PangoLayout *layout, const std::string &text, double ox, double oy, const Expansion &expansion,
+                   const Timing &timing, double titleFrame)
+{
+    const std::vector<Cluster> clusters = clustersOf(layout, text);
+    size_t characters = 0, words = 0, lines = 0;
+    for (const Cluster &c : clusters) {
+        lines = std::max(lines, c.line + 1);
+        if (!c.space) {
+            characters = std::max(characters, c.character + 1);
+            words = std::max(words, c.word + 1);
+        }
+    }
+    const auto states = [&](AnimatorUnit unit, size_t count) {
+        return evaluateUnits(layer, expansion, timing, titleFrame, unit, count);
+    };
+    const std::vector<UnitState> byChar = states(AnimatorUnit::Character, characters);
+    const std::vector<UnitState> byWord = states(AnimatorUnit::Word, words);
+    const std::vector<UnitState> byLine = states(AnimatorUnit::Line, lines);
+    // Pivots: each word's and line's own centre.
+    std::vector<Box> wordBoxes(words), lineBoxes(lines);
+    for (size_t w = 0; w < words; ++w)
+        wordBoxes[w] = unionOf(clusters, [w](const Cluster &c) { return c.word == w; });
+    for (size_t l = 0; l < lines; ++l)
+        lineBoxes[l] = unionOf(clusters, [l](const Cluster &c) { return c.line == l; });
+
+    cairo_matrix_t layerMatrix;
+    cairo_get_matrix(cr, &layerMatrix);
+    cairo_surface_t *surface = cairo_get_target(cr);
+    for (const Cluster &c : clusters) {
+        if (c.space || c.glyphs->num_glyphs == 0)
+            continue;
+        const UnitState &line = byLine[c.line], &word = byWord[c.word], &character = byChar[c.character];
+        const double opacity = line.opacity * word.opacity * character.opacity;
+        if (opacity <= 0.0)
+            continue;
+        const double blur = line.blur + word.blur + character.blur;
+        // Canvas-space transform: line, then word, then character, each
+        // about its own centre.
+        cairo_matrix_t unit;
+        cairo_matrix_init_identity(&unit);
+        const Box &lb = lineBoxes[c.line], &wb = wordBoxes[c.word];
+        applyUnit(unit, line, ox + lb.x + lb.w / 2, oy + lb.y + lb.h / 2);
+        applyUnit(unit, word, ox + wb.x + wb.w / 2, oy + wb.y + wb.h / 2);
+        applyUnit(unit, character, ox + c.box.x + c.box.w / 2, oy + c.box.y + c.box.h / 2);
+        cairo_matrix_t full;
+        cairo_matrix_multiply(&full, &unit, &layerMatrix);
+
+        const auto draw = [&](cairo_t *into) {
+            cairo_set_matrix(into, &full);
+            cairo_move_to(into, ox + c.x, oy + c.baseline);
+            pango_cairo_glyph_string_path(into, c.font, c.glyphs.get());
+            strokeAndFill(into, layer, fill, textBox, shift, opacity);
+        };
+        if (blur < 0.5) {
+            draw(cr);
+            continue;
+        }
+        // Blurred: drawn alone in a small surface around it, then blurred.
+        const double sigma = blur * std::sqrt(std::abs(full.xx * full.yy - full.xy * full.yx));
+        const Box device = deviceBounds(full, {ox + c.box.x, oy + c.box.y, c.box.w, c.box.h},
+                                        std::ceil(3 * sigma) + layer.stroke.width + 2);
+        const int x0 = static_cast<int>(std::floor(device.x)), y0 = static_cast<int>(std::floor(device.y));
+        const int w = static_cast<int>(std::ceil(device.w)) + 1, h = static_cast<int>(std::ceil(device.h)) + 1;
+        if (w <= 0 || h <= 0 || w > 8192 || h > 8192)
+            continue;
+        Surface piece(cairo_surface_create_similar_image(surface, CAIRO_FORMAT_ARGB32, w, h));
+        cairo_surface_set_device_offset(piece.get(), -x0, -y0);
+        {
+            Cairo pc(cairo_create(piece.get()));
+            draw(pc.get());
+        }
+        cairo_surface_flush(piece.get());
+        blurArgb(cairo_image_surface_get_data(piece.get()), w, h, cairo_image_surface_get_stride(piece.get()), sigma);
+        cairo_surface_mark_dirty(piece.get());
+        cairo_save(cr);
+        cairo_identity_matrix(cr);
+        cairo_set_source_surface(cr, piece.get(), 0, 0);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    }
+    cairo_set_matrix(cr, &layerMatrix);
+
+    // The typewriter's cursor: after the last character shown.
+    if (auto cursor = cursorState(expansion, titleFrame, characters); cursor && cursor->visible) {
+        double x = ox, top = oy, height = layer.font.size;
+        for (const Cluster &c : clusters)
+            if (!c.space && cursor->shown > 0 && c.character == cursor->shown - 1) {
+                x = ox + c.box.x + c.box.w;
+                top = oy + c.box.y;
+                height = c.box.h;
+            }
+        if (cursor->shown == 0 && !clusters.empty()) {
+            x = ox + clusters.front().box.x;
+            top = oy + clusters.front().box.y;
+            height = clusters.front().box.h;
+        }
+        const double barWidth = std::max(2.0, layer.font.size * 0.06);
+        cairo_rectangle(cr, x + barWidth * 0.5, top + height * 0.1, barWidth, height * 0.8);
+        if (cairo_pattern_t *pattern = fillPattern(fill, textBox, 1.0, shift)) {
+            cairo_set_source(cr, pattern);
+            cairo_fill(cr);
+            cairo_pattern_destroy(pattern);
+        }
+        cairo_new_path(cr);
+    }
+}
+
 void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc, const Layer &layer,
-               const LayerState &state, const std::map<std::string, std::string> &fields, ThreadFonts &fonts,
-               std::set<std::string> &warnings)
+               const Expansion &expansion, const LayerState &state, double titleFrame,
+               const std::map<std::string, std::string> &fields, ThreadFonts &fonts, std::set<std::string> &warnings)
 {
     const double sx = static_cast<double>(width) / doc.width;
     const double sy = static_cast<double>(height) / doc.height;
+    // The layer as it is now: its fill's animated colour, and a glow when a
+    // behaviour asks for one and it has no shadow of its own.
+    Fill fill = layer.fill;
+    if (fill.kind == FillKind::Solid)
+        fill.color = state.fill;
+    // A shimmer on a solid fill sweeps a highlight: the colour, a lighter
+    // band, the colour, as a gradient the Shift loop slides.
+    const bool shimmers = std::any_of(expansion.loops.begin(), expansion.loops.end(),
+                                      [](const Loop &loop) { return loop.property == Property::Shift; });
+    if (shimmers && fill.kind == FillKind::Solid) {
+        const Rgba base = fill.color;
+        fill.kind = FillKind::Linear;
+        fill.from = fill.to = base;
+        fill.via =
+            Rgba{base.r + (1.0 - base.r) * 0.7, base.g + (1.0 - base.g) * 0.7, base.b + (1.0 - base.b) * 0.7, base.a};
+        fill.angle = 20.0;
+    }
+    Shadow shadow = layer.shadow;
+    if (!shadow.enabled && expansion.glow)
+        shadow = *expansion.glow;
+    shadow.opacity *= state.shadowOpacity;
 
     TextLayout text;
+    std::string content;
     Box box{state.x, state.y, layer.w, layer.h};
     cairo_surface_t *image = nullptr;
+    const bool units =
+        layer.kind == LayerKind::Text && (!animatedUnits(layer, expansion).empty() || expansion.cursor.has_value());
+    // Room for units to move beyond the text's own box.
+    double unitReach = 0.0;
     if (layer.kind == LayerKind::Image) {
         image = layerImage(doc, layer, warnings);
         if (!image)
@@ -431,7 +682,7 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
         box = imageBox(layer, state, image);
     }
     if (layer.kind == LayerKind::Text) {
-        const std::string content = substituteFields(layer.text, doc.fields, fields);
+        content = scrambledText(substituteFields(layer.text, doc.fields, fields), expansion, titleFrame);
         if (content.empty())
             return;
         text = layoutText(fonts, layer, state, content, warnings);
@@ -449,6 +700,20 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
         box.y = top;
         box.w = right - left;
         box.h = bottom - top;
+        if (units) {
+            // As far as any unit's offsets can carry it.
+            for (const Animator *a : [&] {
+                     std::vector<const Animator *> all;
+                     for (const Animator &x : layer.animators)
+                         all.push_back(&x);
+                     for (const Animator &x : expansion.animators)
+                         all.push_back(&x);
+                     return all;
+                 }())
+                for (const AnimatorKey &k : a->keys)
+                    unitReach = std::max(unitReach, std::abs(k.dx) + std::abs(k.dy) + 3 * k.blur +
+                                                        std::max(0.0, k.scale - 1.0) * std::hypot(box.w, box.h));
+        }
         // The fill's gradient still spans the layer's own box.
     }
 
@@ -464,13 +729,14 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
     cairo_matrix_translate(&matrix, -cx, -cy);
 
     const double deviceScale = (sx + sy) / 2 * state.scale;
-    const double strokePad = layer.stroke.width * deviceScale + 2.0; // + antialiasing
+    const double layerSigma = state.blur * deviceScale;
+    const double strokePad = (layer.stroke.width + unitReach) * deviceScale + 2.0 + std::ceil(3 * layerSigma);
     Box bounds = deviceBounds(matrix, box, strokePad);
     double shadowSigma = 0.0, shadowDx = 0.0, shadowDy = 0.0;
-    if (layer.shadow.enabled) {
-        shadowSigma = layer.shadow.blur * deviceScale;
-        shadowDx = layer.shadow.dx * sx;
-        shadowDy = layer.shadow.dy * sy;
+    if (shadow.enabled) {
+        shadowSigma = shadow.blur * deviceScale;
+        shadowDx = shadow.dx * sx;
+        shadowDy = shadow.dy * sy;
         // Room for the blur to spread inside the layer's own surface.
         const double spread = std::ceil(3 * shadowSigma);
         bounds.x -= spread;
@@ -494,12 +760,25 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
         Cairo cr(cairo_create(surface.get()));
         cairo_set_matrix(cr.get(), &matrix);
         cairo_set_antialias(cr.get(), CAIRO_ANTIALIAS_GRAY);
+        if (state.reveal < 1.0) {
+            // A wipe: the layer's own box, from its left edge (generously
+            // tall, so ink and stroke above and below aren't cut).
+            const double tall = own.h + 2 * (layer.stroke.width + layer.font.size + unitReach);
+            cairo_rectangle(cr.get(), own.x - layer.stroke.width - 1, own.y - tall / 2 + own.h / 2,
+                            (own.w + 2 * layer.stroke.width + 2) * state.reveal, tall);
+            cairo_clip(cr.get());
+        }
         if (layer.kind == LayerKind::Text) {
             pango_cairo_update_context(cr.get(), fonts.context);
             pango_layout_context_changed(text.layout.get());
-            cairo_move_to(cr.get(), text.originX, text.originY);
-            pango_cairo_layout_path(cr.get(), text.layout.get());
-            strokeAndFill(cr.get(), layer, text.box);
+            if (units) {
+                drawTextUnits(cr.get(), layer, fill, text.box, state.shift, text.layout.get(), content, text.originX,
+                              text.originY, expansion, doc.timing, titleFrame);
+            } else {
+                cairo_move_to(cr.get(), text.originX, text.originY);
+                pango_cairo_layout_path(cr.get(), text.layout.get());
+                strokeAndFill(cr.get(), layer, fill, text.box, state.shift);
+            }
         } else if (layer.kind == LayerKind::Image) {
             cairo_save(cr.get());
             cairo_translate(cr.get(), box.x, box.y);
@@ -518,14 +797,19 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
             }
         } else {
             shapePath(cr.get(), layer, box);
-            strokeAndFill(cr.get(), layer, box);
+            strokeAndFill(cr.get(), layer, fill, box, state.shift);
         }
     }
     cairo_surface_flush(surface.get());
     // From here the surface is plain pixels placed at (x0, y0).
     cairo_surface_set_device_offset(surface.get(), 0, 0);
+    if (layerSigma >= 0.5) {
+        blurArgb(cairo_image_surface_get_data(surface.get()), x1 - x0, y1 - y0,
+                 cairo_image_surface_get_stride(surface.get()), layerSigma);
+        cairo_surface_mark_dirty(surface.get());
+    }
 
-    if (layer.shadow.enabled && layer.shadow.opacity > 0.0) {
+    if (shadow.enabled && shadow.opacity > 0.0) {
         Surface alpha(cairo_image_surface_create(CAIRO_FORMAT_A8, x1 - x0, y1 - y0));
         {
             Cairo cr(cairo_create(alpha.get()));
@@ -537,8 +821,8 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
         blurAlpha(cairo_image_surface_get_data(alpha.get()), x1 - x0, y1 - y0,
                   cairo_image_surface_get_stride(alpha.get()), shadowSigma);
         cairo_surface_mark_dirty(alpha.get());
-        const Rgba &c = layer.shadow.color;
-        cairo_set_source_rgba(target, c.r, c.g, c.b, c.a * layer.shadow.opacity * state.opacity);
+        const Rgba &c = shadow.color;
+        cairo_set_source_rgba(target, c.r, c.g, c.b, std::min(1.0, c.a * shadow.opacity) * state.opacity);
         cairo_mask_surface(target, alpha.get(), x0 + shadowDx, y0 + shadowDy);
     }
     cairo_set_source_surface(target, surface.get(), x0, y0);
@@ -574,11 +858,12 @@ RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std:
         for (const Layer &layer : doc.layers) {
             if (!layer.visible)
                 continue;
-            const LayerState state = evaluateLayer(layer, doc.timing, titleFrame);
+            const Expansion expansion = expandBehaviors(layer, doc.timing);
+            const LayerState state = evaluateLayer(layer, expansion, doc.timing, titleFrame);
             if (state.opacity <= 0.0 || state.scale <= 0.0)
                 continue;
             cairo_save(cr.get());
-            drawLayer(cr.get(), width, height, doc, layer, state, fields, fonts, warnings);
+            drawLayer(cr.get(), width, height, doc, layer, expansion, state, titleFrame, fields, fonts, warnings);
             cairo_restore(cr.get());
         }
     }

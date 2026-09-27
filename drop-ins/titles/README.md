@@ -93,11 +93,14 @@ order, first at the bottom.
 | `<fill>` | `color`, or `gradient="linear"` / `"radial"` with `from`, `to`, an optional `via` (a middle stop) and `angle` for linear; `kind="none"`; `opacity` |
 | `<stroke>` | `color`, `width` (px shown outside the shape), `opacity` |
 | `<shadow>` | `dx`, `dy`, `blur` (about a Gaussian's sigma, px), `color`, `opacity` |
-| `<animate>` | `property` (`x`, `y`, `opacity`, `scale`, `rotation`), holding `<key at value easing zone>`; `zone` is `intro` (default), `hold` or `outro`, and `at` counts from that zone's start, so outro keys stay with the outro when the hold changes; `easing` is a `core::easingName()` (`linear` default) |
+| `<animate>` | `property` (`x`, `y`, `opacity`, `scale`, `rotation`, `blur`, `tracking`, `reveal` (0..1, a wipe from the left), `shift` (a gradient slid along its axis), `fill-r`/`-g`/`-b`/`-a`, `shadow-opacity`), holding `<key at value easing zone>`; `zone` is `intro` (default), `hold` or `outro`, and `at` counts from that zone's start, so outro keys stay with the outro when the hold changes; `easing` is a `core::easingName()` (`linear` default) |
+
+| `<animator>` | Text in units, each on its own clock: `unit` (`character`, `word`, `line`), `order` (`forward`, `reverse`, `centre-out`, `random` with `seed`), `stagger` (frames between units) or `spread` (frames from the first unit's start to the last's), `alternate` (every other unit mirrors `dx`), `zone` and `at` (when the first starts); `<key at easing dx dy scale rotation opacity blur>` on the unit's clock, offsets from the layer |
+| `<behavior>` | A named preset, expanded when drawn: `slot` (`in`: from the intro's start; `out`: ending at the outro's end; `loop`: through the hold), `id` (in/out: `fade`, `rise`, `drop`, `pop`, `typewriter`, `word-by-word`, `blur`, `wipe`, `scramble`, `split-lines`, `kinetic-stack`; out only: `collapse`; loop: `float`, `pulse`, `shimmer`, `wiggle`, `glow-breathe`), `duration` (a loop's period), `easing`, `seed`, `amount` (strength) |
 
 Colours are `#rgb`, `#rrggbb` or `#rrggbbaa`. A text layer with `h="0"` is
 as tall as its text; with `w="0"`, `x` is the point the alignment refers
-to. Unknown elements (T3's `<animator>`, `<behavior>`) and unknown layer
+to. Unknown elements and unknown layer
 kinds are skipped with a warning; a newer `version` is refused.
 
 **Elastic timing.** On a clip of any length the intro plays from its start

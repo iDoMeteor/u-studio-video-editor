@@ -12,7 +12,7 @@ titles_inc = include_directories('.')
 # core/: std, libxml2 and src/core only (tools/dropin_boundary_check.sh).
 titles_core = static_library(
   'ustudio_titles_core',
-  files('core/brand_kit.cpp', 'core/evaluate.cpp', 'core/export_formats.cpp', 'core/snapping.cpp', 'core/title_document.cpp', 'core/title_edit.cpp', 'core/title_xml.cpp'),
+  files('core/animation.cpp', 'core/brand_kit.cpp', 'core/evaluate.cpp', 'core/export_formats.cpp', 'core/snapping.cpp', 'core/title_document.cpp', 'core/title_edit.cpp', 'core/title_xml.cpp'),
   include_directories: titles_inc,
   dependencies: [libustudio_core_dep],
   pic: true,

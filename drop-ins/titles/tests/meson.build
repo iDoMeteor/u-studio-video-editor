@@ -33,7 +33,7 @@ titles_test_engine = executable(
         '../engine/title_frames.cpp'),
   cpp_args: titles_engine_args,
   include_directories: [src_inc, titles_inc],
-  dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, glib_dep],
+  dependencies: [titles_doctest_dep, titles_render_dep, libustudio_engine_dep, libustudio_platform_dep, glib_dep],
   install: false,
 )
 test('titles-engine', titles_test_engine, depends: titles_mlt_module, timeout: 180)
@@ -78,3 +78,12 @@ if appstreamcli.found()
   test('titles-metainfo', appstreamcli,
        args: ['validate', '--no-net', meson.current_source_dir() / '..' / 'data' / 'com.ustudio.Titles.metainfo.xml'])
 endif
+
+# T3: animators, behaviours, loops, the scramble, the cursor, detaching.
+titles_test_animation = executable(
+  'test_titles_animation',
+  files('test_animation.cpp'),
+  dependencies: [titles_doctest_dep, titles_core_dep],
+  install: false,
+)
+test('titles-animation', titles_test_animation)

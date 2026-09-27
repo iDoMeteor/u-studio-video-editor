@@ -376,11 +376,11 @@ Acceptance:
       and letters into the inspector's text and the canvas text box).
 - [x] The canvas background can be any colour, and the choice is
       remembered.
-- [ ] A title with no background composites over coloured video with clean
+- [x] A title with no background composites over coloured video with clean
       anti-aliased edges (no dark fringes); one with a background covers the
-      frame. Blocked on the engine: any source with alpha fringes dark at
-      its edges today, PNG stills included (reported to VE Core; the test
-      is `titles-engine`'s may_fail case).
+      frame. Fixed in the engine by VE Core (9b3ddd2: composite's 4:2:2
+      blend gave each pixel of a pair its own alpha); `titles-engine`'s
+      fringe case now must pass.
 - [x] A title exports as a PNG sequence and as an alpha video that `ffprobe`
       reports with an alpha plane, and flattened as H.264 (2026-09-27:
       ProRes 4444 `yuva444p12le`, QuickTime Animation `argb`, VP9
@@ -448,9 +448,22 @@ behaviour thumbnails.
 
 Acceptance:
 
-- [ ] Every shipped behaviour renders identically in the titles app, the
-      editor and export.
-- [ ] Evaluator unit tests cover every easing and every animator order.
+- [x] Every shipped behaviour renders identically in the titles app, the
+      editor and export (T3a, 2026-09-27: one renderer; `titles-engine`
+      checks the producer's frames equal `renderTitle`'s byte for byte;
+      `titles-render` renders every behaviour in every slot).
+- [x] Evaluator unit tests cover every easing and every animator order
+      (`titles-animation`).
+
+> REVIEW: VE Text, 2026-09-27: T3a as built (core and renderer; the
+> designer's animation strip is T3b). Behaviours are stored as
+> `<behavior slot id duration easing seed amount>` and expanded when drawn
+> into offsets, animators and loops (`core/animation.h`); Detach to
+> keyframes converts in and out behaviours, while loops, the scramble and
+> the typewriter's cursor stay behaviours. Animatable properties grew:
+> blur, tracking, reveal (the wipe), shift (the shimmer), fill colour per
+> channel, shadow opacity. Animators take a `spread` as well as a stagger,
+> so a typewriter fits its duration whatever the text's length.
 
 ### T4 — Templates and editor workflow (about 1–2 weeks)
 

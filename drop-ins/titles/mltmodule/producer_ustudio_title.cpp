@@ -22,6 +22,7 @@
 // source position), so frame 0 is the clip's first frame when the clip
 // starts at in = 0.
 
+#include "core/animation.h"
 #include "core/evaluate.h"
 #include "core/title_xml.h"
 #include "render/title_renderer.h"
@@ -52,6 +53,11 @@ struct Title
 
     // The last frame drawn and what it depended on: consecutive frames of
     // a hold with nothing animating are the same picture.
+    // Whether frames differ in more than the layers' states (text in
+    // animated units, a scramble, a typewriter's cursor): then the moment
+    // itself is part of the cache key.
+    bool textAnimates = false;
+    double lastTime = -1.0;
     std::vector<LayerState> lastStates;
     std::map<std::string, std::string> lastFields;
     int lastWidth = 0, lastHeight = 0;
@@ -116,7 +122,7 @@ int getImage(mlt_frame frame, uint8_t **buffer, mlt_image_format *format, int *w
     if (!cached) {
         std::lock_guard lock(title.mutex);
         if (title.lastWidth == *width && title.lastHeight == *height && title.lastStates == states &&
-            title.lastFields == fields) {
+            title.lastFields == fields && (!title.textAnimates || title.lastTime == time)) {
             std::memcpy(image, title.lastImage.data(), title.lastImage.size());
             cached = true;
         }
@@ -138,6 +144,7 @@ int getImage(mlt_frame frame, uint8_t **buffer, mlt_image_format *format, int *w
         logOnce(producer, title, result.warnings);
         std::lock_guard lock(title.mutex);
         title.lastStates = std::move(states);
+        title.lastTime = time;
         title.lastFields = fields;
         title.lastWidth = *width;
         title.lastHeight = *height;
@@ -209,6 +216,11 @@ void *titleInit(mlt_profile profile, mlt_service_type, const char *, const void 
     }
     auto *title = new Title;
     title->doc = std::move(read->document);
+    for (const Layer &layer : title->doc.layers) {
+        const Expansion expansion = expandBehaviors(layer, title->doc.timing);
+        if (!layer.animators.empty() || !expansion.animators.empty() || expansion.cursor || expansion.scramble)
+            title->textAnimates = true;
+    }
     producer->child = title;
     producer->get_frame = getFrame;
     producer->close = closeProducer;

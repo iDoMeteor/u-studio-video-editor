@@ -29,6 +29,21 @@ void boxPass(uint8_t *line, int count, int step, int radius, std::vector<uint8_t
 }
 } // namespace
 
+void blurArgb(uint8_t *data, int width, int height, int stride, double sigma)
+{
+    if (sigma < 0.5 || width <= 0 || height <= 0)
+        return;
+    const int radius = static_cast<int>(std::lround(sigma));
+    std::vector<uint8_t> scratch;
+    for (int pass = 0; pass < 3; ++pass)
+        for (int channel = 0; channel < 4; ++channel) {
+            for (int y = 0; y < height; ++y)
+                boxPass(data + static_cast<ptrdiff_t>(y) * stride + channel, width, 4, radius, scratch);
+            for (int x = 0; x < width; ++x)
+                boxPass(data + static_cast<ptrdiff_t>(x) * 4 + channel, height, stride, radius, scratch);
+        }
+}
+
 void blurAlpha(uint8_t *data, int width, int height, int stride, double sigma)
 {
     if (sigma < 0.5 || width <= 0 || height <= 0)

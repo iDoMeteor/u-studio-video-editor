@@ -117,3 +117,34 @@ Cairo 1.18, fontconfig 2.17):
 - **Cost**, 2 s of doc 16's lower third at 1080p30 on one machine: PNG
   2.8 s, ProRes 6.3 s, QuickTime Animation 2.1 s, VP9 19.4 s (libvpx is
   slow), H.264 3.9 s.
+
+## T3a: animation
+
+- **Behaviours are offsets.** Their expansion (`core/animation.cpp`) adds
+  to the layer's own values (x, y, rotation, blur, tracking, shift) or
+  multiplies them (opacity, scale, reveal, shadow opacity), so "Rise" works
+  on a layer that also has its own keyframes. Detach to keyframes samples
+  own + offset at each key position, which is exact for the shipped
+  behaviours (`titles-animation` compares every frame).
+- **MLT's back easings overshoot hard**: `back_out` from 1.8x to 1x dips to
+  0.7x mid-way, and `back_in` swells about 37% before it shrinks.
+  `easedValue` reproduces MLT exactly, so the catalogue defaults Kinetic
+  stack to `cubic_out` and Collapse to `cubic_in`. Pop (0.5x to 1x) keeps
+  `back_out`: its overshoot to 1.19x reads as a pop.
+- **Seeded order and noise are platform-proof**: splitmix64 and
+  Fisher-Yates in our code, not `std::shuffle`/`<random>` distributions,
+  whose algorithms differ between standard libraries.
+- **Units from Pango clusters.** `pango_glyph_item_iter` over each run
+  gives each grapheme cluster's glyphs; a unit is drawn with
+  `pango_cairo_glyph_string_path` under its line, word and character
+  transforms composed about their own centres. With nothing animated in
+  units, text still draws as one layout: existing titles are
+  byte-for-byte what they were. A blurred unit is drawn and blurred in a
+  small surface around just that unit.
+- **The producer's frame cache** keys on layer states. Units, the
+  scramble and the typewriter's cursor change the picture with the states
+  unchanged, so for such titles the moment is part of the key (found by
+  `titles-engine`'s byte-for-byte producer-against-renderer case).
+- **Shimmer on a solid fill** turns it into a colour/highlight/colour
+  gradient for the Shift loop to slide; on white the highlight is
+  invisible, which is expected.

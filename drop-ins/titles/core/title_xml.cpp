@@ -7,6 +7,7 @@
 #include <libxml/tree.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <cmath>
@@ -208,6 +209,85 @@ void readAnimation(const xmlNode *node, Layer &layer, std::string &error, std::s
     layer.animation.push_back(std::move(track));
 }
 
+template <typename Enum, size_t N>
+bool readChoice(const xmlNode *node, const char *name, const std::array<const char *, N> &names, Enum &out, Attrs &a)
+{
+    auto text = attr(node, name);
+    if (!text)
+        return true;
+    for (size_t i = 0; i < N; ++i)
+        if (*text == names[i]) {
+            out = static_cast<Enum>(i);
+            return true;
+        }
+    a.fail(name, *text);
+    return false;
+}
+
+constexpr std::array<const char *, 3> kUnits = {"character", "word", "line"};
+constexpr std::array<const char *, 4> kOrders = {"forward", "reverse", "centre-out", "random"};
+constexpr std::array<const char *, 3> kZones = {"intro", "hold", "outro"};
+constexpr std::array<const char *, 3> kSlots = {"in", "out", "loop"};
+
+void readAnimator(const xmlNode *node, Layer &layer, std::string &error)
+{
+    Animator animator;
+    Attrs a(node, error);
+    readChoice(node, "unit", kUnits, animator.unit, a);
+    readChoice(node, "order", kOrders, animator.order, a);
+    readChoice(node, "zone", kZones, animator.zone, a);
+    a.integer<uint32_t>("seed", animator.seed, 0, 0xffffffffu);
+    a.number("stagger", animator.stagger, 0.0, 1000.0);
+    a.number("spread", animator.spread, 0.0, 100000.0);
+    a.flag("alternate", animator.alternate);
+    a.integer<core::FrameIndex>("at", animator.at, 0, kMaxZoneFrames);
+    for (const xmlNode *child = node->children; child; child = child->next) {
+        if (!is(child, "key"))
+            continue;
+        if (animator.keys.size() >= kMaxKeys) {
+            error = "too many keys in one <animator>";
+            return;
+        }
+        AnimatorKey key;
+        Attrs k(child, error);
+        k.integer<core::FrameIndex>("at", key.at, 0, kMaxZoneFrames);
+        k.number("dx", key.dx, -kMaxCoordinate, kMaxCoordinate);
+        k.number("dy", key.dy, -kMaxCoordinate, kMaxCoordinate);
+        k.number("scale", key.scale, 0.0, 100.0);
+        k.number("rotation", key.rotation, -36000.0, 36000.0);
+        k.number("opacity", key.opacity, 0.0, 1.0);
+        k.number("blur", key.blur, 0.0, 500.0);
+        if (auto easing = attr(child, "easing")) {
+            if (auto parsed = core::easingFromName(*easing))
+                key.easing = *parsed;
+            else
+                k.fail("easing", *easing);
+        }
+        animator.keys.push_back(key);
+    }
+    std::stable_sort(animator.keys.begin(), animator.keys.end(),
+                     [](const AnimatorKey &x, const AnimatorKey &y) { return x.at < y.at; });
+    layer.animators.push_back(std::move(animator));
+}
+
+void readBehavior(const xmlNode *node, Layer &layer, std::string &error)
+{
+    Behavior behavior;
+    Attrs a(node, error);
+    readChoice(node, "slot", kSlots, behavior.slot, a);
+    behavior.id = attr(node, "id").value_or("");
+    a.integer<core::FrameIndex>("duration", behavior.duration, 1, kMaxZoneFrames);
+    a.integer<uint32_t>("seed", behavior.seed, 0, 0xffffffffu);
+    a.number("amount", behavior.amount, 0.0, 100.0);
+    if (auto easing = attr(node, "easing")) {
+        if (auto parsed = core::easingFromName(*easing))
+            behavior.easing = *parsed;
+        else
+            a.fail("easing", *easing);
+    }
+    layer.behaviors.push_back(std::move(behavior));
+}
+
 std::optional<Layer> readLayer(const xmlNode *node, std::string &error, std::set<std::string> &warnings)
 {
     Layer layer;
@@ -234,6 +314,7 @@ std::optional<Layer> readLayer(const xmlNode *node, std::string &error, std::set
     a.number("opacity", layer.opacity, 0.0, 1.0);
     a.number("scale", layer.scale, 0.0, 100.0);
     a.number("rotation", layer.rotation, -36000.0, 36000.0);
+    a.number("blur", layer.blur, 0.0, 500.0);
     a.number("radius", layer.radius, 0.0, kMaxCoordinate);
     if (auto align = attr(node, "align")) {
         if (*align == "left")
@@ -299,8 +380,11 @@ std::optional<Layer> readLayer(const xmlNode *node, std::string &error, std::set
             s.number("opacity", layer.shadow.opacity, 0.0, 1.0);
         } else if (is(child, "animate")) {
             readAnimation(child, layer, error, warnings);
+        } else if (is(child, "animator")) {
+            readAnimator(child, layer, error);
+        } else if (is(child, "behavior")) {
+            readBehavior(child, layer, error);
         } else {
-            // <animator>, <behavior>: T3.
             warnings.insert(std::string("<") + reinterpret_cast<const char *>(child->name) + "> isn't supported yet");
         }
     }
@@ -527,6 +611,8 @@ std::string writeTitle(const TitleDocument &title)
             setAttr(node, "scale", num(layer.scale));
         if (layer.rotation != defaults.rotation)
             setAttr(node, "rotation", num(layer.rotation));
+        if (layer.blur != 0.0)
+            setAttr(node, "blur", num(layer.blur));
         if (layer.kind == LayerKind::Text) {
             setAttr(node, "align", kAligns[static_cast<size_t>(layer.align)]);
             setAttr(node, "fit", kFits[static_cast<size_t>(layer.fit)]);
@@ -559,6 +645,52 @@ std::string writeTitle(const TitleDocument &title)
             setAttr(shadow, "blur", num(layer.shadow.blur));
             setAttr(shadow, "color", formatColor(layer.shadow.color));
             setAttr(shadow, "opacity", num(layer.shadow.opacity));
+        }
+        for (const Behavior &behavior : layer.behaviors) {
+            xmlNode *b = xmlNewChild(node, nullptr, BAD_CAST "behavior", nullptr);
+            setAttr(b, "slot", kSlots[static_cast<size_t>(behavior.slot)]);
+            setAttr(b, "id", behavior.id);
+            setAttr(b, "duration", std::to_string(behavior.duration));
+            setAttr(b, "easing", core::easingName(behavior.easing));
+            if (behavior.seed != 1)
+                setAttr(b, "seed", std::to_string(behavior.seed));
+            if (behavior.amount != 1.0)
+                setAttr(b, "amount", num(behavior.amount));
+        }
+        for (const Animator &animator : layer.animators) {
+            xmlNode *a = xmlNewChild(node, nullptr, BAD_CAST "animator", nullptr);
+            setAttr(a, "unit", kUnits[static_cast<size_t>(animator.unit)]);
+            setAttr(a, "order", kOrders[static_cast<size_t>(animator.order)]);
+            setAttr(a, "stagger", num(animator.stagger));
+            if (animator.spread > 0.0)
+                setAttr(a, "spread", num(animator.spread));
+            if (animator.seed != 1)
+                setAttr(a, "seed", std::to_string(animator.seed));
+            if (animator.alternate)
+                setAttr(a, "alternate", "1");
+            if (animator.zone != Zone::Intro)
+                setAttr(a, "zone", kZones[static_cast<size_t>(animator.zone)]);
+            if (animator.at != 0)
+                setAttr(a, "at", std::to_string(animator.at));
+            const AnimatorKey identity;
+            for (const AnimatorKey &key : animator.keys) {
+                xmlNode *k = xmlNewChild(a, nullptr, BAD_CAST "key", nullptr);
+                setAttr(k, "at", std::to_string(key.at));
+                if (key.dx != identity.dx)
+                    setAttr(k, "dx", num(key.dx));
+                if (key.dy != identity.dy)
+                    setAttr(k, "dy", num(key.dy));
+                if (key.scale != identity.scale)
+                    setAttr(k, "scale", num(key.scale));
+                if (key.rotation != identity.rotation)
+                    setAttr(k, "rotation", num(key.rotation));
+                if (key.opacity != identity.opacity)
+                    setAttr(k, "opacity", num(key.opacity));
+                if (key.blur != identity.blur)
+                    setAttr(k, "blur", num(key.blur));
+                if (key.easing != core::Easing::Linear)
+                    setAttr(k, "easing", core::easingName(key.easing));
+            }
         }
         for (const PropertyTrack &track : layer.animation) {
             xmlNode *animate = xmlNewChild(node, nullptr, BAD_CAST "animate", nullptr);
