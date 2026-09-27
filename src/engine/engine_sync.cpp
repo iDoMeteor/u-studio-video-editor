@@ -143,6 +143,69 @@ void attachProfileColorspace(Mlt::Producer &producer, Mlt::Profile &profile)
     producer.attach(filter);
 }
 
+// composite blends in 4:2:2 YUV, each pixel's Y and its one chroma byte (U
+// on even pixels, V on odd) with that pixel's own alpha. Where the two
+// pixels of a pair have different alphas, U and V are mixed by different
+// amounts, so an anti-aliased edge gets a false colour: white text at
+// alpha 5 over red came out (60,63,5), not (255,5,5), and an opaque pixel
+// beside it could turn magenta (transition_composite.c's
+// composite_line_yuv, MLT 7.40; standalone repro 2026-09-27). This hook
+// makes the pixels of such a pair agree before composite sees them: both
+// take the pair's mean alpha and alpha-weighted mean colour, so the result
+// is exactly the two-pixel average of a correct blend (half the alpha's
+// horizontal detail, as 4:2:2 has for colour). Pairs of equal alpha, and
+// so every opaque area, keep their own pixels. It asks for RGBA, which the
+// sources it goes on (stills, titles, transformed cuts) make natively;
+// mlt_frame_get_image() converts the result to what composite asked for.
+// The affine transition blends RGBA correctly but cost 150 ms a 1080p frame
+// against composite's 25 (same repro).
+int pairAlphaImage(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height,
+                   int writable)
+{
+    // Without the loader's normalisers (a producer made straight from the
+    // factory) nothing converts RGBA back to what composite asked for, and
+    // it would read RGBA as YUV: leave such a frame alone.
+    if (*format != mlt_image_rgba && !frame->convert_image)
+        return mlt_frame_get_image(frame, image, format, width, height, writable);
+    *format = mlt_image_rgba;
+    const int error = mlt_frame_get_image(frame, image, format, width, height, 1);
+    if (error || *format != mlt_image_rgba || !*image)
+        return error;
+    const size_t w = static_cast<size_t>(*width), h = static_cast<size_t>(*height);
+    for (size_t y = 0; y < h; ++y) {
+        uint8_t *p = *image + y * w * 4;
+        for (size_t x = 0; x + 1 < w; x += 2, p += 8) {
+            const int a0 = p[3], a1 = p[7];
+            if (a0 == a1)
+                continue;
+            const int sum = a0 + a1;
+            for (int c = 0; c < 3; ++c)
+                p[c] = p[4 + c] = static_cast<uint8_t>((p[c] * a0 + p[4 + c] * a1 + sum / 2) / sum);
+            p[3] = p[7] = static_cast<uint8_t>((sum + 1) / 2);
+        }
+    }
+    return 0;
+}
+
+mlt_frame pairAlphaProcess(mlt_filter, mlt_frame frame)
+{
+    mlt_frame_push_get_image(frame, pairAlphaImage);
+    return frame;
+}
+
+// On a video track's cut or dissolve segment that may carry alpha; outermost,
+// so after the cut's effects and transform.
+void attachAlphaPairing(Mlt::Producer &producer)
+{
+    mlt_filter raw = mlt_filter_new();
+    if (!raw)
+        return;
+    raw->process = pairAlphaProcess;
+    Mlt::Filter filter(raw); // its own reference
+    mlt_filter_close(raw);
+    producer.attach(filter);
+}
+
 } // namespace
 
 std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
@@ -638,10 +701,20 @@ bool EngineSync::compositorFits(const core::Clip &clip, bool inDissolve) const
     return m_reads == FrameReads::ProfileSize && !inDissolve && core::compositorFits(clip.transform.get());
 }
 
-void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve)
+bool EngineSync::carriesAlpha(const core::Clip &clip, bool transformed) const
+{
+    if (transformed || m_extensionProducers.count(clip.id.value))
+        return true;
+    if (!m_model.hasAsset(clip.asset))
+        return false;
+    const core::MediaInfo &info = m_model.asset(clip.asset).info;
+    return info.isStillImage || info.isImageSequence;
+}
+
+bool EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve)
 {
     if (!m_model.hasAsset(clip.asset))
-        return;
+        return false;
     const core::MediaInfo &info = m_model.asset(clip.asset).info;
     // Empty when the track compositor places the picture by itself.
     const std::vector<core::NativeFilter> natives =
@@ -684,6 +757,7 @@ void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool
         filters.push_back(std::move(filter));
     }
     kept.cuts.push_back(std::move(filters));
+    return !natives.empty();
 }
 
 bool EngineSync::applyTransformsInPlace(const core::Project &next)
@@ -742,7 +816,7 @@ void EngineSync::decorateCut(Mlt::Producer &cut, const core::Clip &clip, core::F
         extension->decorateCut(cut, CutContext{m_model, clip, in - clip.in, out - in + 1, *m_profile});
 }
 
-std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackSegment &segment)
+std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackSegment &segment, bool video)
 {
     const core::Transition &t = m_model.transition(segment.transition);
     const core::Clip &clipA = m_model.clip(segment.a);
@@ -752,19 +826,23 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     std::unique_ptr<Mlt::Producer> tailA(
         masterA.cut(static_cast<int>(clipA.out - t.length + 1), static_cast<int>(clipA.out)));
     decorateCut(*tailA, clipA, clipA.out - t.length + 1, clipA.out);
-    applyTransform(*tailA, clipA, true);
+    const bool alphaA = carriesAlpha(clipA, applyTransform(*tailA, clipA, true));
 
     Mlt::Producer &masterB = producerForClip(clipB);
     std::unique_ptr<Mlt::Producer> headB(
         masterB.cut(static_cast<int>(clipB.in), static_cast<int>(clipB.in + t.length - 1)));
     decorateCut(*headB, clipB, clipB.in, clipB.in + t.length - 1);
-    applyTransform(*headB, clipB, true);
-
+    const bool alphaB = carriesAlpha(clipB, applyTransform(*headB, clipB, true));
+    // The dissolve mixes in YUV too; the pairing goes on its output.
+    const bool pairAlpha = video && (alphaA || alphaB);
     // IP3: a drop-in's recipe (wipes, motion; FX3) builds the whole segment.
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         if (std::unique_ptr<Mlt::Tractor> made =
-                extension->makeTransitionSegment(m_model, t, *tailA, *headB, *m_profile))
+                extension->makeTransitionSegment(m_model, t, *tailA, *headB, *m_profile)) {
+            if (pairAlpha)
+                attachAlphaPairing(*made);
             return made;
+        }
 
     auto sub = std::make_unique<Mlt::Tractor>(*m_profile);
 
@@ -813,6 +891,8 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     field->plant_transition(mix, 0, 1);
 
     sub->refresh();
+    if (pairAlpha)
+        attachAlphaPairing(*sub);
     return sub;
 }
 
@@ -828,6 +908,7 @@ size_t EngineSync::playlistChunkSize()
 
 void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playlist &playlist)
 {
+    const bool video = modelTrack.kind == core::Track::Kind::Video;
     playlist.clear();
     const std::vector<TrackSegment> segments = core::planTrackSegments(m_model, modelTrack);
 
@@ -883,10 +964,12 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
             Mlt::Producer &master = producerForClip(clip);
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
             decorateCut(*cut, clip, seg.in, seg.out);
-            applyTransform(*cut, clip);
+            const bool transformed = applyTransform(*cut, clip);
+            if (video && carriesAlpha(clip, transformed))
+                attachAlphaPairing(*cut);
             target().append(*cut);
         } else {
-            target().append(*buildTransitionSubTractor(seg));
+            target().append(*buildTransitionSubTractor(seg, video));
         }
         added();
 
