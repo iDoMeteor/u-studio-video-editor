@@ -102,6 +102,9 @@ class Model
     // The asset's proxy file ("" none; M4 C). Like a probe result, not an
     // edit: not a command, not undone, saved with the project.
     void setAssetProxy(AssetId, std::string proxyPath);
+    // An image sequence's first file number (M4 E): a relink may find it
+    // renumbered.
+    void setAssetSequenceBegin(AssetId, int begin);
     // Project::settings[key] ("" removes it); the project's own
     // preferences, saved with it (the proxy prompt's answer). Not a command.
     void setProjectSetting(const std::string &key, const std::string &value);

@@ -25,6 +25,10 @@ struct ProxyRequest
     // time) fit it exactly.
     core::Rational fps{30, 1};
     int threadBudget = 0; // core::splitRenderThreads(); 0: MLT's defaults
+    // An image sequence (M4 E): `source` is its %0Nd pattern, numbered from
+    // sequenceBegin for sequenceCount files. Count 0: a media file.
+    int sequenceBegin = 0;
+    int sequenceCount = 0;
 };
 
 // Renders the proxy: the source alone, H.264 at draft quality with a

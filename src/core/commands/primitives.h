@@ -104,7 +104,10 @@ class SetClipTransform : public Command
 class RelinkAsset : public Command
 {
   public:
-    RelinkAsset(AssetId asset, std::string path, std::string fingerprint);
+    // `sequenceBegin`: an image sequence's first file number, when the
+    // relinked copy is numbered from elsewhere.
+    RelinkAsset(AssetId asset, std::string path, std::string fingerprint,
+                std::optional<int> sequenceBegin = std::nullopt);
     std::string label() const override
     {
         return "Relink media";
@@ -117,6 +120,8 @@ class RelinkAsset : public Command
     std::string m_path, m_fingerprint;
     std::string m_oldPath, m_oldFingerprint;
     Asset::Status m_oldStatus = Asset::Status::Ready;
+    std::optional<int> m_sequenceBegin;
+    int m_oldSequenceBegin = 0;
 };
 
 class RemoveAsset : public Command

@@ -28,6 +28,16 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.52.0-beta.1" date="2026-09-27" type="development">
+      <description>
+        <p>New in this beta:</p>
+        <ul>
+          <li>A moved image sequence can be relinked: pick any of its images, or search a folder. It may be numbered from somewhere else now.</li>
+          <li>Image sequences get proxies, like video.</li>
+          <li>Open Log Folder now opens the folder the first time too, with this session's log selected.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.51.0-beta.2" date="2026-09-27" type="development">
       <description>
         <p>New in this beta:</p>

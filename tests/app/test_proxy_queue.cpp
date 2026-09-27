@@ -98,6 +98,21 @@ TEST_CASE("ProxyQueue: runs the tool with the job's settings and reports progres
     CHECK_FALSE(h.queue.progressOf(core::AssetId{1}));
 }
 
+TEST_CASE("ProxyQueue: an image sequence's job passes its first number and file count")
+{
+    Harness h;
+    ProxyQueue::Job sequence = job(2);
+    sequence.source = "/renders/frame_%04d.png";
+    sequence.sequenceBegin = 1;
+    sequence.sequenceCount = 240;
+    h.queue.add(sequence);
+    REQUIRE(h.launcher->started.size() == 1);
+    const std::vector<std::string> &argv = h.launcher->started[0].argv;
+    REQUIRE(argv.size() >= 2);
+    CHECK(argv[argv.size() - 2] == "--sequence");
+    CHECK(argv.back() == "1:240");
+}
+
 TEST_CASE("ProxyQueue: one at a time, in order, no duplicates; failures carry the tool's message")
 {
     Harness h;

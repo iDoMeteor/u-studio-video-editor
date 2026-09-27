@@ -99,8 +99,8 @@ bool SetClipTransform::mergeWith(const Command &next)
     return true;
 }
 
-RelinkAsset::RelinkAsset(AssetId asset, std::string path, std::string fingerprint)
-    : m_asset(asset), m_path(std::move(path)), m_fingerprint(std::move(fingerprint))
+RelinkAsset::RelinkAsset(AssetId asset, std::string path, std::string fingerprint, std::optional<int> sequenceBegin)
+    : m_asset(asset), m_path(std::move(path)), m_fingerprint(std::move(fingerprint)), m_sequenceBegin(sequenceBegin)
 {}
 
 bool RelinkAsset::apply(Model &model)
@@ -111,12 +111,17 @@ bool RelinkAsset::apply(Model &model)
     m_oldPath = asset.path;
     m_oldFingerprint = asset.fileFingerprint;
     m_oldStatus = asset.status;
+    m_oldSequenceBegin = asset.info.sequenceBegin;
     model.setAssetSource(m_asset, m_path, m_fingerprint, Asset::Status::Ready);
+    if (m_sequenceBegin)
+        model.setAssetSequenceBegin(m_asset, *m_sequenceBegin);
     return true;
 }
 
 void RelinkAsset::revert(Model &model)
 {
+    if (m_sequenceBegin)
+        model.setAssetSequenceBegin(m_asset, m_oldSequenceBegin);
     model.setAssetSource(m_asset, m_oldPath, m_oldFingerprint, m_oldStatus);
 }
 

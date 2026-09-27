@@ -338,6 +338,19 @@ void Model::setAssetSource(AssetId id, std::string path, std::string fingerprint
     notify(AssetChanged{id});
 }
 
+void Model::setAssetSequenceBegin(AssetId id, int begin)
+{
+    auto it = std::find_if(m_project.bin.begin(), m_project.bin.end(), [id](const Asset &a) { return a.id == id; });
+    if (it == m_project.bin.end()) {
+        preconditionFailed("Model::setAssetSequenceBegin: unknown AssetId");
+        return;
+    }
+    if (it->info.sequenceBegin == begin)
+        return;
+    it->info.sequenceBegin = begin;
+    notify(AssetChanged{id});
+}
+
 void Model::setAssetProxy(AssetId id, std::string proxyPath)
 {
     auto &bin = m_project.bin;

@@ -35,7 +35,8 @@ This doc supersedes most of [doc 08](08-effects-and-compositing.md):
 5. The UX is built around seeing results before committing to them and
    manipulating values directly on the preview.
 
-Non-goals for this plan: GPU effects (`movit`), a node graph, writing new
+Non-goals for this plan: GPU *effects* (`movit` filters as user effects;
+GPU compositing and transforms are ADR-019's), a node graph, writing new
 image-processing effects, per-effect speed/time remapping (a clip property,
 doc 08), and titles (doc 16).
 
@@ -55,7 +56,7 @@ scratchpad listing `Mlt::Repository` services):
 | LV2 | **not built** | no LV2 service or metadata in this MLT build |
 | OpenFX 1.5 | host present, tagged *experimental* | searches `OFX_PLUGIN_PATH`, `/usr/OFX/Plugins`, `/usr/local/OFX/Plugins`; no plugins installed |
 | frei0r | **module present, 0 plugins** | `frei0r-plugins` is not installed; module searches `FREI0R_PATH`, then `/usr/lib64/frei0r-1` and others |
-| movit (GPU) | 17 filters, 3 transitions | needs a GL context on the consumer thread; out of scope |
+| movit (GPU) | 17 filters, 3 transitions | needs a GL context on the consumer thread; we supply our own (EGL), ADR-019 |
 | Transitions | `affine`, `composite`, `luma`, `matte`, `mix`, `movit.*` | no frei0r mixers until frei0r is installed |
 | Luma wipe images | **none** | `/usr/share/mlt-7/lumas` does not exist on this install |
 
@@ -87,7 +88,7 @@ explicitly:
 | **LADSPA** | Supported; plugin packs optional | Host is present. Real value comes from LSP, Calf, x42 or SWH packs; offer, don't require. |
 | **VST2 (LinuxVST)** | Supported, hidden behind a preference | Host present; licensing of individual plugins varies. |
 | **OpenFX** | Phase FX5, behind an *experimental* preference | MLT 7.40 ships a host (tagged experimental). Natron's `openfx-misc` set would add a large, mature collection, but packaging and host stability are unproven. Health scan mandatory. |
-| **movit** | Rejected for now | GPU context on the consumer thread conflicts with doc 05; ADR-006 already excluded it. |
+| **movit** | Compositing and transforms: ADR-019. As user effects: not planned | The consumer-thread objection is answered: our own EGL context, made current from `consumer-thread-started`, works under PlaybackController's consumer (ADR-019). Effects stay CPU inside the GPU graph. |
 | **Qt modules** (`qtblend`, `qtext`, `kdenlivetitle`, `glaxnimate`) | Rejected | ADR-007. |
 | G'MIC | Rejected | Its video host is Qt (`gmic-qt`) and MLT has no G'MIC module. |
 | LV2 | Not possible with this MLT build | No LV2 service compiled in. Revisit if Fedora or our Flatpak MLT enables it. |

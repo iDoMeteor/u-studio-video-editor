@@ -4,7 +4,7 @@
 
 One page each. Status is one of Proposed / Accepted / Superseded by ADR-nnn.
 All were **Proposed** as of 2026-09-12 pending team review; each file
-carries its own current status (ADR-011 to ADR-018 are Accepted).
+carries its own current status (ADR-011 to ADR-019 are Accepted).
 
 | ADR | Decision |
 |-----|----------|
@@ -26,3 +26,4 @@ carries its own current status (ADR-011 to ADR-018 are Accepted).
 | [016](016-concurrency-model.md) | The main thread does UI and commands only; an engine thread, a worker pool and child processes do the rest, on immutable model snapshots |
 | [017](017-windows-secondary-target.md) | Windows 10/11 is a secondary launch target; OS-specific code lives behind `src/platform/`, new code stays portable, existing Linux-only sites migrate when touched |
 | [018](018-clip-transform-is-core.md) | Clip transform (move, scale, rotate, crop, flip; OBS-like bounds) is core model, engine and shell; the effects drop-in may add keyframing on top |
+| [019](019-gpu-acceleration.md) | GPU acceleration: movit compositing on our own EGL context and per-producer hardware decode, behind a setting that probes and falls back to the CPU path |

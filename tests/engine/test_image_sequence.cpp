@@ -8,6 +8,7 @@
 #include "core/media/utf8_path.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
+#include "engine/proxy.h"
 #include "platform/process.h"
 
 #include <filesystem>
@@ -97,6 +98,24 @@ TEST_CASE("image sequence: one image per frame, its counted length, missing when
         CHECK(sync.tractor().get_length() == 10);
         CHECK_FALSE(blueAt(sync, 2)); // frame_0003: red
         CHECK(blueAt(sync, 7));       // frame_0008: blue
+    }
+    // A proxy of it (M4 E): the render tool's --sequence path.
+    {
+        ProxyRequest request;
+        request.source = sequence->pattern;
+        request.output = utf8String(dir / "proxy.mp4");
+        request.height = 90;
+        request.fps = {30, 1};
+        request.sequenceBegin = sequence->begin;
+        request.sequenceCount = sequence->count;
+        std::string error;
+        REQUIRE(renderProxy(request, error));
+        Mlt::Profile tiny("atsc_1080p_30");
+        tiny.set_width(320);
+        tiny.set_height(180);
+        Mlt::Producer proxy(tiny, request.output.c_str());
+        REQUIRE(proxy.is_valid());
+        CHECK(proxy.get_length() == 10);
     }
     CHECK(markMissingMedia(model).empty());
     fs::remove(dir / "frame_0001.png"); // its first file stands for it

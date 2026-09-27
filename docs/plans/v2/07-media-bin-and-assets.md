@@ -42,7 +42,7 @@ Image sequences (`%04d.png`) and stills: still images get a default length
 of 5 s (setting), `isStillImage=true`, and the `pixbuf` producer with
 `ttl`/`length` set by `EngineSync`.
 
-> REVIEW: VE Core, 2026-09-27: built in 0.51.0-beta.1 as the owner chose, a separate Import Image Sequence… command (pattern + `begin` + counted length; `isBoundless()` no longer includes sequences; missing and fingerprint checks use the first file; no relink or proxies for sequences yet). The spike notes follow.
+> REVIEW: VE Core, 2026-09-27: built in 0.51.0-beta.1 as the owner chose, a separate Import Image Sequence… command (pattern + `begin` + counted length; `isBoundless()` no longer includes sequences; missing and fingerprint checks use the first file; relink and proxies followed in 0.52.0-beta.1: relink finds the run around any picked image, or its first file by name in a folder search, and may renumber it; `u-studio-render --proxy <pattern> <out> --sequence BEGIN:COUNT` proxies it). The spike notes follow.
 >
 > REVIEW: VE Core, 2026-09-25 (M4 E spike, parked): image sequences are
 > fiddlier than they look, so they wait for a decision. Standalone repro

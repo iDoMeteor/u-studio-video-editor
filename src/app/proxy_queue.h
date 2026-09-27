@@ -28,6 +28,7 @@ class ProxyQueue
         std::string source, output;
         int height = 540; // 0: source size
         core::Rational fps{30, 1};
+        int sequenceBegin = 0, sequenceCount = 0; // an image sequence: source is its pattern
     };
 
     // A running child: cancel() asks it to stop (it then exits, and
