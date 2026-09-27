@@ -87,6 +87,16 @@ Cairo 1.18, fontconfig 2.17):
   moves. The frame cache keys on the substituted text of the layers with
   dynamic fields, so a `{{clip_time}}` title redraws once a second, not
   every frame.
+- **Baking.** Bake Title runs `exportTitle()` (the `--title-export` code)
+  on a titles job thread at the sequence's rate, for source frames
+  0..out with the clip's fields and `timeline_start`, then probes the file
+  with `EngineSync::probeMediaFile()` and swaps it in with `AddAsset` +
+  `SetClipAsset` in one command. The export polls `consumer.is_stopped()`
+  so the app's shutdown (`jobsCancelled()`) can stop it. Outside a
+  `GraphBuildScope`, `ProducerUse::Graph` is the CPU chain, so a bake
+  never gets movit's normalisers. Stock `melt-7` spawned from a VS Code
+  snap terminal fails on the snap's `libpthread`; the test runs it with a
+  plain environment.
 - **Boundless assets grow.** `InsertClip` extends a boundless asset's
   `lengthInSequenceFrames` to its furthest clip, after which it's no longer
   boundless and a longer trim is refused. Stills avoid this with

@@ -19,6 +19,12 @@ test('titles-render', titles_test_render, timeout: 120)
 # --title-frames (defined after drop-ins/, so named by path; `meson test`
 # builds everything first).
 titles_engine_args = ['-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"']
+# Stock melt, for "a baked title plays in stock melt" (doc 16 T4); skipped
+# without it.
+titles_melt = find_program('melt-7', 'melt', required: false)
+if titles_melt.found()
+  titles_engine_args += '-DTITLES_MELT="' + titles_melt.full_path() + '"'
+endif
 if get_option('render_tool')
   titles_engine_args += '-DTITLES_RENDER_TOOL="' + meson.project_build_root() / 'src' / 'render' / 'u-studio-render' + '"'
   if get_option('dropin_titles') == 'module'
@@ -33,7 +39,8 @@ titles_test_engine = executable(
         '../engine/title_frames.cpp'),
   cpp_args: titles_engine_args,
   include_directories: [src_inc, titles_inc],
-  dependencies: [titles_doctest_dep, titles_render_dep, libustudio_engine_dep, libustudio_platform_dep, glib_dep],
+  dependencies: [titles_doctest_dep, titles_render_dep, libustudio_engine_dep, libustudio_platform_dep, glib_dep,
+                 titles_cairo_dep],
   install: false,
 )
 test('titles-engine', titles_test_engine, depends: titles_mlt_module, timeout: 180)
@@ -41,13 +48,15 @@ test('titles-engine', titles_test_engine, depends: titles_mlt_module, timeout: 1
 # IP5: import and the file watch, with a fake ShellHost.
 titles_test_shell = executable(
   'test_titles_shell',
-  files('test_shell.cpp', '../editor/title_shell.cpp', '../editor/title_launch.cpp', '../editor/title_page.cpp', '../engine/backdrop.cpp'),
-  cpp_args: ['-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"'],
+  files('test_shell.cpp', '../editor/jobs.cpp', '../editor/title_bake.cpp', '../editor/title_shell.cpp', '../editor/title_launch.cpp', '../editor/title_page.cpp', '../engine/backdrop.cpp',
+        '../engine/title_export.cpp', '../engine/title_extension.cpp'),
+  cpp_args: ['-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"',
+             '-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"'],
   include_directories: [src_inc, titles_inc],
   dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, gtk4_dep],
   install: false,
 )
-test('titles-shell', titles_test_shell, timeout: 60)
+test('titles-shell', titles_test_shell, depends: titles_mlt_module, timeout: 120)
 
 titles_test_edit = executable(
   'test_titles_edit',

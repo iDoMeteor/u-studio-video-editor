@@ -149,6 +149,18 @@ only that clip, and the preview updates as you type. A box left at the
 title's own text (its default) follows the title if you change it later.
 **Ctrl+Z** undoes each box's edit in one step.
 
+**Bake** turns a title clip into an ordinary video file, for sharing the
+project with programs that can't play titles (stock `melt`, other editors).
+Select the clip and click **Bake…** on the Title page. The clip is rendered
+with its own fields and transparency to a ProRes 4444 file next to the
+title (`Lower Third (baked).mov`), and the clip then plays that file. It
+keeps its place, length, effects and position on screen. **Ctrl+Z** brings
+the live title back. A baked clip is a picture of the title as it was:
+changing the title file, its fields or the date doesn't change it (bake
+again for that). For now, a baked title placed over video without moving or
+scaling it can show a thin dark edge that the live title doesn't; a fix is
+coming.
+
 ## Any length you like
 
 Every title has three parts: an **intro** (it animates in), a **hold** (it
@@ -183,4 +195,11 @@ file.
   this version can't draw yet, such as text animators, which arrive with the
   animation tools. The rest of the title still plays.
 - **Rendering a project with titles in another program.** Other programs
-  (including stock `melt`) can't play `.ustitle` files. Render from U Stu.
+  (including stock `melt`) can't play `.ustitle` files. Render from U Stu,
+  or **Bake** the title clips first.
+- **"Couldn't bake …".** The message says why: usually the folder next to
+  the title can't be written to. Move the title somewhere you can write to
+  and try again.
+- **"… the clip changed meanwhile, so it's in the bin only."** The clip was
+  edited while it was baking, so it wasn't swapped. The baked file is in the
+  media browser; bake again to swap it in.

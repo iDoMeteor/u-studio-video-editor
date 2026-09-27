@@ -28,6 +28,7 @@ class TitlePage
                        {"titles.page-field", "Titles", "Title field",
                         "This clip's text for the field; the title's default when left as it is", nullptr, nullptr}});
         host.setTooltip(m_edit, "titles.page-edit");
+        host.setTooltip(m_bake, "titles.bake");
         host.addInspectorPage({"titles.title", "Title", "insert-text-symbolic", m_root});
         host.selectionChanged().connect([this] { refresh(); });
         host.projectChanged().connect([this] { refresh(); });
@@ -65,6 +66,9 @@ class TitlePage
         m_edit = gtk_button_new_with_label("Edit Title…");
         gtk_actionable_set_action_name(GTK_ACTIONABLE(m_edit), "win.titles-edit");
         gtk_box_append(GTK_BOX(header), m_edit);
+        m_bake = gtk_button_new_with_label("Bake…");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(m_bake), "win.titles-bake");
+        gtk_box_append(GTK_BOX(header), m_bake);
         gtk_box_append(GTK_BOX(m_content), header);
 
         m_fieldsLabel = gtk_label_new("Fields");
@@ -181,7 +185,7 @@ class TitlePage
 
     app::ShellHost *m_host = nullptr;
     GtkWidget *m_root = nullptr, *m_empty = nullptr, *m_content = nullptr, *m_name = nullptr, *m_edit = nullptr,
-              *m_fieldsLabel = nullptr, *m_fields = nullptr, *m_noFields = nullptr;
+              *m_bake = nullptr, *m_fieldsLabel = nullptr, *m_fields = nullptr, *m_noFields = nullptr;
     std::optional<core::ClipId> m_clip;
     std::vector<Row> m_rows;
     std::string m_cachedPath, m_cachedFingerprint;

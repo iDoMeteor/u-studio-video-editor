@@ -505,7 +505,10 @@ Acceptance:
       (Per-clip field values from the Title inspector page, 0.62.0;
       tests `titles-engine` "field values are the clip's own" and
       `titles-shell` "the Title page edits the selected clip's fields".)
-- [ ] A baked title plays in stock `melt`.
+- [x] A baked title plays in stock `melt`. (Bake Title, 0.63.0; test
+      `titles-engine` "a bake: ... stock melt plays it with its alpha".
+      Over video, a baked file needs VE Core's `MediaInfo::hasAlpha`
+      pairing to avoid the 4:2:2 fringe; until then it's a known limit.)
 - [ ] A user template survives an app restart and appears in New Title.
 - [ ] Editing a built-in leaves it unchanged and adds a copy to My
       Templates.
