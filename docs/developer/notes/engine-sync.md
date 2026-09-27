@@ -214,6 +214,34 @@ from a standalone repro (MLT 7.40, 2026-09-25):
   colour needs `mlt_service=color` and a bare `0xRRGGBBAA` resource: a
   `resource` of `color:…` loads as black whatever the colour, so the old
   `color:black` background was right by accident (2026-09-27 repro).
+- **`composite` fringes every anti-aliased alpha edge.** It blends 4:2:2
+  YUV, each pixel's Y and its one chroma byte (U on even pixels, V on odd)
+  with that pixel's own alpha, so where a pair's alphas differ U and V mix
+  by different amounts: white text at alpha 5 over red came out (60,63,5)
+  instead of (255,5,5), and an opaque neighbour could turn magenta. On cuts
+  that may carry alpha (stills, image sequences, drop-in producers such as
+  titles, transformed cuts, and dissolves of those) EngineSync attaches an
+  in-process hook, `attachAlphaPairing()`: it takes the frame as RGBA and
+  gives both pixels of an unequal pair the mean alpha and the alpha-weighted
+  mean colour. The result is exactly the two-pixel average of a correct
+  blend: half the alpha's horizontal detail, as 4:2:2 already has for
+  colour; equal pairs (every opaque area) are untouched. Measured over red:
+  darkest edge red 57 → 254, mean deficit 100 → 0 in the preview. An H.264
+  export still darkens sharp red edges a little by itself (4:2:0 shares a
+  colour between four pixels): mean deficit 59 → 33 for a PNG, 31 → 14 for
+  a title. The `affine` transition blends RGBA correctly but cost 150 ms a
+  1080p frame against `composite`'s 25, and melt can't run the hook, so a
+  saved project played in melt keeps the fringe (2,000 edge pixels differ
+  in `tests/engine/test_transform`). For VE GPU's movit path: movit's
+  overlay blends RGBA with straight or premultiplied alpha as told, so it
+  needs none of this; keep the source's alpha straight through to it.
+  Frames with no converter (a producer not made through `loader`) are left
+  alone, since returning RGBA there would be read as YUV (2026-09-27 repro).
+- **A still with its video turned off kept showing**: `pixbuf` ignores
+  `video_index=-1`. A cut whose clip has its video off gets a filter that
+  marks each frame `test_image`, as a playlist blank's frames are, and a
+  transition skips such a B frame (`mlt_transition.c`), so the track below
+  shows and the audio still plays.
 - **A producer made straight from the factory, not through `loader`, gets
   no normalisers**, and composite then read its RGBA as YUV: a transparent
   frame showed as green (0,136,0). Drop-in producers go through `loader`

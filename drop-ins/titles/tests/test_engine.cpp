@@ -22,6 +22,7 @@
 #include <glib.h>
 #include <mlt++/Mlt.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -254,12 +255,11 @@ TEST_CASE("a missing or broken title file doesn't stop the rest playing")
     }
 }
 
-// may_fail: the engine's compositing darkens every half-transparent edge
-// today, for any source with alpha: a PNG still of this same picture gives
-// the same pixels (red 60 where it should stay near 255; the producer's
-// own output there is white at alpha 5, correct). Reported to VE Core
-// (2026-09-27); drop may_fail once compositing is fixed.
-TEST_CASE("anti-aliased edges over coloured video have no dark fringe" * doctest::may_fail())
+// composite's 4:2:2 blend gave every half-transparent edge a dark,
+// coloured fringe (red 60 where it should stay near 255); EngineSync now
+// pairs the alpha of such sources first (engine_sync.cpp,
+// attachAlphaPairing(); tests/engine/test_colour covers a PNG still).
+TEST_CASE("anti-aliased edges over coloured video have no dark fringe")
 {
     // White text over red: both have red at 255, so every edge pixel must
     // keep red near 255. A premultiplied value taken as straight (or the
@@ -284,6 +284,33 @@ TEST_CASE("anti-aliased edges over coloured video have no dark fringe" * doctest
         }
     CHECK(edges > 500); // there are anti-aliased edges to judge
     CHECK(darkest >= 250);
+
+    // And in an export. H.264's 4:2:0 shares one colour between four
+    // pixels, which darkens a sharp red edge by itself, so this judges the
+    // mean: 14 with the pairing, 31 without (2026-09-27).
+    const fs::path rendered = scratch() / "fringe.mp4";
+    std::string error;
+    REQUIRE(engine::renderProject(scene.model, utf8String(rendered), error));
+    Mlt::Profile profile("atsc_1080p_30");
+    Mlt::Producer decoded(profile, utf8String(rendered).c_str());
+    REQUIRE(decoded.is_valid());
+    decoded.seek(30);
+    std::unique_ptr<Mlt::Frame> frame(decoded.get_frame());
+    mlt_image_format format = mlt_image_rgba;
+    int w = 1920, h = 1080;
+    const uint8_t *exported = frame->get_image(format, w, h);
+    int exportedEdges = 0;
+    double deficit = 0;
+    for (int y = 280; y < 560; ++y)
+        for (int x = 180; x < 1400; ++x) {
+            const uint8_t *p = exported + (static_cast<size_t>(y) * 1920 + static_cast<size_t>(x)) * 4;
+            if (p[1] > 10 && p[1] < 245) {
+                ++exportedEdges;
+                deficit += 255 - p[0];
+            }
+        }
+    CHECK(exportedEdges > 500);
+    CHECK(deficit / std::max(exportedEdges, 1) <= 22.0);
 }
 
 TEST_CASE("the designer's backdrop is the frame without the title, rendered off the main thread")

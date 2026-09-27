@@ -310,7 +310,12 @@ class EngineSync
     // applyTransform()), built from the current profile.
     std::unique_ptr<Mlt::Producer> m_transformBackground;
     static constexpr const char *kMixedShape = "mixed"; // cuts of different shapes: never updated in place
-    void applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve = false);
+    // True when it attached filters (the picture then has transparent edges).
+    bool applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve = false);
+    // Whether a clip's picture may have partial alpha: stills, image
+    // sequences, drop-in producers (titles), transformed cuts. Those get
+    // attachAlphaPairing() (engine_sync.cpp) before the track compositor.
+    bool carriesAlpha(const core::Clip &clip, bool transformed) const;
     bool applyTransformsInPlace(const core::Project &next);
     // Output pixels per project pixel, and the playing file's pixels per
     // source pixel (a proxy is smaller).
@@ -351,7 +356,7 @@ class EngineSync
     // real clip's tail always has, the same construction corrupted the
     // last couple of overlap frames into flat garbage colour until in/out
     // were set explicitly. See the .cpp for the fuller finding.
-    std::unique_ptr<Mlt::Tractor> buildTransitionSubTractor(const TrackSegment &segment);
+    std::unique_ptr<Mlt::Tractor> buildTransitionSubTractor(const TrackSegment &segment, bool video);
 };
 
 // Renders `model` to outputPath as H.264 (High, yuv420p, matching the
