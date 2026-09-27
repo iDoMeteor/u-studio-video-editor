@@ -5,9 +5,16 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
-## 0.60.1-beta.1
+## 0.61.1-beta.1
 
 - Exporting with GPU acceleration on no longer closes the editor.
+
+## 0.61.0-beta.1
+
+- Titles can show live text: `{{timecode}}`, `{{clip_time}}`,
+  `{{countdown:mm:ss}}` and `{{date}}` update as the video plays.
+- Fixed: a title clip that didn't start at the beginning of the timeline
+  played its intro and outro at the wrong moments.
 
 ## 0.60.0-beta.1
 

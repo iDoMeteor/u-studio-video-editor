@@ -11,7 +11,7 @@ platform_gl_source = (cpp.has_header('EGL/egl.h') and cpp.has_header('EGL/eglext
 
 libustudio_platform = static_library(
   'ustudio_platform',
-  files('process_linux.cpp', 'console_linux.cpp', 'gpu_linux.cpp', platform_gl_source),
+  files('process_linux.cpp', 'console_linux.cpp', 'clock_linux.cpp', 'gpu_linux.cpp', platform_gl_source),
   include_directories: src_inc,
   install: false,
 )

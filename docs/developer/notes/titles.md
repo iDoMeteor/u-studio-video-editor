@@ -70,6 +70,23 @@ Cairo 1.18, fontconfig 2.17):
   module `libustudio-dropin-titles.so` is the opposite: it resolves core
   and engine against the program, which links those libraries whole when
   any drop-in is a module.
+- **Time a frame by `mlt_frame_original_position()`.** `get_image` runs
+  after the frame has left the producer, and a playlist has by then set the
+  frame's position to its own, the sequence frame. So
+  `mlt_frame_get_position()` in `get_image` is where the clip sits, not how
+  far into it. The first position set on a frame is kept as
+  `original_position`, and that's the producer's own. Until 0.61 the
+  producer used the other one, and a title clip anywhere but the start of
+  the timeline played its intro and outro at the wrong frames (MLT 7.40).
+  Repro: `titles-engine`, "a title clip later in the sequence animates
+  from its own start".
+- **Dynamic fields and the cache.** `{{timecode}}` needs the clip's place
+  in the sequence, which the producer can't see. The engine extension sets
+  `timeline_start` (the clip's position minus its in point), and EngineSync
+  rebuilds clip producers with the graph, so it stays current when a clip
+  moves. The frame cache keys on the substituted text of the layers with
+  dynamic fields, so a `{{clip_time}}` title redraws once a second, not
+  every frame.
 - **Boundless assets grow.** `InsertClip` extends a boundless asset's
   `lengthInSequenceFrames` to its furthest clip, after which it's no longer
   boundless and a longer trim is refused. Stills avoid this with

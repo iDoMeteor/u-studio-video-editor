@@ -15,6 +15,8 @@
 //   background      "#rrggbb": a title with no background of its own is
 //                   drawn on this colour (a flattened export, with no
 //                   compositing)
+//   timeline_start  where the title's frame 0 falls in the sequence, for
+//                   {{timecode}} (0 when unset: the title's own time)
 //
 // Frames are straight RGBA (mlt_image_rgba) with the title's alpha, at the
 // size the consumer asks for, drawn by the same function the titles app
@@ -25,12 +27,14 @@
 #include "core/animation.h"
 #include "core/evaluate.h"
 #include "core/title_xml.h"
+#include "platform/clock.h"
 #include "render/title_renderer.h"
 
 #include <framework/mlt.h>
 
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <map>
 #include <mutex>
@@ -57,6 +61,11 @@ struct Title
     // animated units, a scramble, a typewriter's cursor): then the moment
     // itself is part of the cache key.
     bool textAnimates = false;
+    // The text layers with dynamic fields ({{timecode}}, ...): what they
+    // say now is part of the key, so {{clip_time}} redraws once a second
+    // and {{date}} once a day.
+    std::vector<size_t> dynamicLayers;
+    std::vector<std::string> lastDynamicText;
     double lastTime = -1.0;
     std::vector<LayerState> lastStates;
     std::map<std::string, std::string> lastFields;
@@ -104,9 +113,20 @@ int getImage(mlt_frame frame, uint8_t **buffer, mlt_image_format *format, int *w
     *format = mlt_image_rgba;
 
     const double length = mlt_properties_get_int(properties, "length");
-    const double at = static_cast<double>(mlt_frame_get_position(frame));
+    // The position this producer gave the frame (getFrame()): a playlist
+    // later sets the frame's position to its own, the sequence frame, so
+    // mlt_frame_get_position() here is where the clip is, not how far in.
+    const double at = static_cast<double>(mlt_frame_original_position(frame));
     const double time = titleFrame(title.doc, length, at, mlt_profile_fps(profile));
     const std::map<std::string, std::string> fields = fieldValues(properties);
+    FieldClock clock;
+    clock.clipFrame = at;
+    clock.timelineFrame = mlt_properties_get_double(properties, "timeline_start") + at;
+    clock.fps = mlt_profile_fps(profile);
+    clock.localTime = ustudio::platform::localTime(std::time(nullptr));
+    std::vector<std::string> dynamicText;
+    for (size_t index : title.dynamicLayers)
+        dynamicText.push_back(substituteFields(title.doc.layers[index].text, title.doc.fields, fields, clock));
     std::vector<LayerState> states;
     states.reserve(title.doc.layers.size());
     for (const Layer &layer : title.doc.layers)
@@ -122,7 +142,8 @@ int getImage(mlt_frame frame, uint8_t **buffer, mlt_image_format *format, int *w
     if (!cached) {
         std::lock_guard lock(title.mutex);
         if (title.lastWidth == *width && title.lastHeight == *height && title.lastStates == states &&
-            title.lastFields == fields && (!title.textAnimates || title.lastTime == time)) {
+            title.lastFields == fields && title.lastDynamicText == dynamicText &&
+            (!title.textAnimates || title.lastTime == time)) {
             std::memcpy(image, title.lastImage.data(), title.lastImage.size());
             cached = true;
         }
@@ -139,13 +160,14 @@ int getImage(mlt_frame frame, uint8_t **buffer, mlt_image_format *format, int *w
                 doc = &flattened;
             }
         }
-        const RenderResult result = renderTitle(*doc, time, fields, *width, *height);
+        const RenderResult result = renderTitle(*doc, time, fields, *width, *height, &clock);
         toStraightRgba(result.frame, image);
         logOnce(producer, title, result.warnings);
         std::lock_guard lock(title.mutex);
         title.lastStates = std::move(states);
         title.lastTime = time;
         title.lastFields = fields;
+        title.lastDynamicText = std::move(dynamicText);
         title.lastWidth = *width;
         title.lastHeight = *height;
         title.lastImage.assign(image, image + static_cast<size_t>(*width) * static_cast<size_t>(*height) * 4);
@@ -216,6 +238,9 @@ void *titleInit(mlt_profile profile, mlt_service_type, const char *, const void 
     }
     auto *title = new Title;
     title->doc = std::move(read->document);
+    for (size_t i = 0; i < title->doc.layers.size(); ++i)
+        if (title->doc.layers[i].kind == LayerKind::Text && hasDynamicFields(title->doc.layers[i].text))
+            title->dynamicLayers.push_back(i);
     for (const Layer &layer : title->doc.layers) {
         const Expansion expansion = expandBehaviors(layer, title->doc.timing);
         if (!layer.animators.empty() || !expansion.animators.empty() || expansion.cursor || expansion.scramble)

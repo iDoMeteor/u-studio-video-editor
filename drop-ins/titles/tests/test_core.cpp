@@ -208,3 +208,41 @@ TEST_CASE("fields: clip values, then defaults; unknown names stay visible")
     CHECK(substituteFields("{{name", doc.fields, {}) == "{{name");
     CHECK(substituteFields("a {{name}}}", doc.fields, {{"name", "{{role}}"}}) == "a {{role}}}");
 }
+
+TEST_CASE("dynamic fields read the clock")
+{
+    const TitleDocument doc = lowerThird();
+    FieldClock clock;
+    clock.fps = 25;
+    clock.timelineFrame = 25 * 3725 + 7; // 1:02:05 and 7 frames
+    clock.clipFrame = 25 * 90 + 24;      // 90 s and a bit
+    clock.localTime.tm_year = 126;       // 2026-09-27
+    clock.localTime.tm_mon = 8;
+    clock.localTime.tm_mday = 27;
+    CHECK(substituteFields("{{timecode}}", doc.fields, {}, clock) == "01:02:05:07");
+    CHECK(substituteFields("{{clip_time}}", doc.fields, {}, clock) == "01:30");
+    CHECK(substituteFields("{{date}}", doc.fields, {}, clock) == "2026-09-27");
+    CHECK(substituteFields("{{date:%d.%m.}}", doc.fields, {}, clock) == "27.09.");
+    // Counting down from five minutes: 90 s in, 3:30 left, in the shape it
+    // was written in.
+    CHECK(substituteFields("{{countdown:05:00}}", doc.fields, {}, clock) == "03:30");
+    CHECK(substituteFields("{{countdown:300}}", doc.fields, {}, clock) == "210");
+    CHECK(substituteFields("{{countdown:1:00:00}}", doc.fields, {}, clock) == "00:58:30");
+    CHECK(substituteFields("{{countdown:01:00}}", doc.fields, {}, clock) == "00:00"); // stays at zero
+    CHECK(substituteFields("{{countdown:ab}}", doc.fields, {}, clock) == "{{countdown:ab}}");
+    CHECK(substituteFields("{{countdown:1:2:3:4}}", doc.fields, {}, clock) == "{{countdown:1:2:3:4}}");
+    // Over an hour, clip time grows an hours part; 29.97 counts at 30.
+    clock.clipFrame = 25 * 3661;
+    CHECK(substituteFields("{{clip_time}}", doc.fields, {}, clock) == "1:01:01");
+    clock.fps = 30000.0 / 1001.0;
+    clock.timelineFrame = 30 * 61 + 2;
+    CHECK(substituteFields("{{timecode}}", doc.fields, {}, clock) == "00:01:01:02");
+    // Dynamic names are reserved: a clip value can't hide one.
+    CHECK(substituteFields("{{timecode}}", doc.fields, {{"timecode", "x"}}, clock) == "00:01:01:02");
+
+    CHECK(hasDynamicFields("Live {{timecode}}"));
+    CHECK(hasDynamicFields("{{countdown:10:00}}"));
+    CHECK(hasDynamicFields("{{date:%A}}"));
+    CHECK_FALSE(hasDynamicFields("{{name}} {{countdown:x}}"));
+    CHECK_FALSE(hasDynamicFields("{{timecode"));
+}

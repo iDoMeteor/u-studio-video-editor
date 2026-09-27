@@ -113,7 +113,7 @@ Only a GPU graph's producers (`GpuGraph`) use the default `loader`; a
 worker's (thumbnails, waveforms, probes, `audio_sync`) and a CPU graph's
 use the `loader-nogl` service, so a CPU graph stays CPU while a GPU session
 lives elsewhere in the process (an export on a pool thread while the
-preview plays on the GPU crashed in 0.60.0-beta.1, fixed in 0.60.1-beta.1).
+preview plays on the GPU crashed in 0.60.0-beta.1, fixed in 0.61.1-beta.1).
 A drop-in's producer (`EngineExtension::makeProducer()`) uses `Graph`, which
 follows the graph being built on that thread. EngineSync's video masters
 get `\?hwaccel=<api>` when hardware decode is on. The suffix is an

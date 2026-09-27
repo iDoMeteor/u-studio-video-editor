@@ -4,6 +4,7 @@
 #include "core/animation.h"
 #include "core/evaluate.h"
 #include "core/media/utf8_path.h"
+#include "platform/clock.h"
 
 #include <cairo.h>
 #include <fontconfig/fontconfig.h>
@@ -641,7 +642,8 @@ void drawTextUnits(cairo_t *cr, const Layer &layer, const Fill &fill, const Box 
 
 void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc, const Layer &layer,
                const Expansion &expansion, const LayerState &state, double titleFrame,
-               const std::map<std::string, std::string> &fields, ThreadFonts &fonts, std::set<std::string> &warnings)
+               const std::map<std::string, std::string> &fields, const FieldClock &clock, ThreadFonts &fonts,
+               std::set<std::string> &warnings)
 {
     const double sx = static_cast<double>(width) / doc.width;
     const double sy = static_cast<double>(height) / doc.height;
@@ -682,7 +684,7 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
         box = imageBox(layer, state, image);
     }
     if (layer.kind == LayerKind::Text) {
-        content = scrambledText(substituteFields(layer.text, doc.fields, fields), expansion, titleFrame);
+        content = scrambledText(substituteFields(layer.text, doc.fields, fields, clock), expansion, titleFrame);
         if (content.empty())
             return;
         text = layoutText(fonts, layer, state, content, warnings);
@@ -831,8 +833,17 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
 
 } // namespace
 
+FieldClock designerClock(const TitleDocument &doc, double titleFrame)
+{
+    FieldClock clock;
+    clock.clipFrame = clock.timelineFrame = titleFrame;
+    clock.fps = doc.fpsDen > 0 ? static_cast<double>(doc.fpsNum) / doc.fpsDen : 30.0;
+    clock.localTime = platform::localTime(std::time(nullptr));
+    return clock;
+}
+
 RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std::map<std::string, std::string> &fields,
-                         int width, int height)
+                         int width, int height, const FieldClock *clock)
 {
     RenderResult result;
     if (width <= 0 || height <= 0)
@@ -842,6 +853,7 @@ RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std:
     result.frame.pixels.assign(static_cast<size_t>(width) * static_cast<size_t>(height), 0u);
     Surface surface(cairo_image_surface_create_for_data(reinterpret_cast<unsigned char *>(result.frame.pixels.data()),
                                                         CAIRO_FORMAT_ARGB32, width, height, width * 4));
+    const FieldClock at = clock ? *clock : designerClock(doc, titleFrame);
     ThreadFonts &fonts = threadFonts();
     fonts.get();
     std::set<std::string> warnings;
@@ -863,7 +875,7 @@ RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std:
             if (state.opacity <= 0.0 || state.scale <= 0.0)
                 continue;
             cairo_save(cr.get());
-            drawLayer(cr.get(), width, height, doc, layer, expansion, state, titleFrame, fields, fonts, warnings);
+            drawLayer(cr.get(), width, height, doc, layer, expansion, state, titleFrame, fields, at, fonts, warnings);
             cairo_restore(cr.get());
         }
     }
@@ -873,8 +885,9 @@ RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std:
 }
 
 std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleFrame,
-                                         const std::map<std::string, std::string> &fields)
+                                         const std::map<std::string, std::string> &fields, const FieldClock *clock)
 {
+    const FieldClock at = clock ? *clock : designerClock(doc, titleFrame);
     ThreadFonts &fonts = threadFonts();
     fonts.get();
     std::set<std::string> warnings;
@@ -890,7 +903,7 @@ std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleF
             geometry.box = {box.x, box.y, box.w, box.h};
         }
         if (layer.kind == LayerKind::Text) {
-            std::string content = substituteFields(layer.text, doc.fields, fields);
+            std::string content = substituteFields(layer.text, doc.fields, fields, at);
             if (content.empty())
                 content = " "; // an empty text layer still has a line's height to grab
             const TextLayout text = layoutText(fonts, layer, state, content, warnings);
