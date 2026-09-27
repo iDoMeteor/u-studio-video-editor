@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>com.ustudio.VideoEditor</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>GPL-3.0-or-later</project_license>
+  <project_license>MIT</project_license>
   <name>u Studio Video Editor</name>
   <summary>Non-linear video editor built on GTK4, libadwaita and MLT</summary>
   <url type="homepage">https://djunicorntears.com</url>

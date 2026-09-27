@@ -153,4 +153,6 @@ uses the same MLT engine. It's built in C++23 with meson. It's developed on
 Fedora for 1080p/4K livestream and promo editing for the Unicorn Tears
 brand.
 
-Licence: GPL-3.0-or-later.
+Licence: [MIT](LICENSE). The Flatpak and other binary packages also bundle
+third-party components under their own licences (FFmpeg built with x264 is
+GPL), whose texts ship inside the package.
