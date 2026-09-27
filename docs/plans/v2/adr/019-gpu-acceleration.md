@@ -166,8 +166,14 @@ which means linking GPL movit; out of scope.
 
 **7. Preview and export use the same pipeline.** An export takes the
 pipeline the preview is using when it starts, with its own context on its
-own render thread (in process today; in `u-studio-render` once MT5 moves
-export out, ADR-009). A test renders a generated project through both
+own render thread. In process (G4, `renderProject()`): a live session
+(`GpuSession::current()`) is shared by reference, the export's context is
+created in its share group and made current on the avformat consumer's one
+render thread (`real_time=-1` on the GPU), and the preview switching back
+to the CPU mid-export leaves the session alive until the export ends. When
+MT5 moves export into `u-studio-render` (ADR-009), the child has no session
+of its own: the editor passes it the choice (a `--gpu` flag) and it starts
+one. A test renders a generated project through both
 paths and requires them to match within 2 levels per channel, the
 GPU-vs-source difference measured (the CPU colour offset is fixed,
 7c7f9fa). Hardware *encode* (VAAPI `h264_vaapi`/`hevc_vaapi`
@@ -195,7 +201,7 @@ this ADR.
 | G1 | Hardware decode in the engine: `openProducer()` with Live/Worker, `EngineSync::setHardwareDecode()` and the `\?hwaccel=` projection, `platform::hardwareDecodeApi()`; nothing turns it on yet (export takes it with the pipeline choice in G4) | Live masters decode on VAAPI when asked, workers stay software (test); a failed device falls back; docs |
 | G2 | `platform::GlContext` (Linux EGL), `engine::probeGpu()`, `u-studio-render --gpu-probe` | Probe passes here and fails cleanly without EGL (test); no graph or UI change yet |
 | G3 | GPU graph in EngineSync behind the flag; context on the consumer's render thread; runtime fallback; the probe run from the editor with its cached result; the crash sentinel; Settings › Performance's two switches, hardware decode following the GPU pipeline | M4's box: three transformed 1080p tracks at Full play every frame; 10-minute soak holds; ASan+TSan full suites; preview matches CPU within tolerance |
-| G4 | Export on the GPU path; preview/export equality test; `u-studio-render` after MT5 | Render of a generated project matches the preview path within tolerance |
+| G4 | Export on the GPU path; preview/export equality test; `u-studio-render` after MT5 | Render of a generated project matches the preview path within tolerance. Met in process (2026-09-27): 50% green over red, preview 137,137,50, export 137,138,51 (the CPU: 112,113,49); a title over video on the GPU has no dark fringe (darkest red 250+) and differs from the CPU's by 1.0 on average. `u-studio-render` waits for MT5 |
 | G5 | Flatpak (with VE Installers): GL extension, `--device=dri`, movit/FFTW modules; smoke test in the sandbox | Probe passes in the Flatpak on the owner's machine |
 
 ## Consequences
@@ -249,6 +255,12 @@ each):
 
 The GPU path wants `rgba` out, which is what PlaybackController asks for;
 `yuv422` adds a CPU conversion.
+
+**G4, a title's anti-aliased edges in an H.264 export** (white over red,
+mean red deficit at edge pixels): the CPU export 14 (VE Core's alpha
+pairing), the GPU export 26, and a CPU export without the pairing 31. The
+pairing trick has no GPU counterpart yet; 4:2:0's shared chroma darkens
+sharp red edges by itself.
 
 **G3, the real engine on the GPU pipeline** (`playback_soak --transformed 3
 --scale full`, 1080p30 H.264, `vmstat` mean idle 76.6%, 2026-09-27):

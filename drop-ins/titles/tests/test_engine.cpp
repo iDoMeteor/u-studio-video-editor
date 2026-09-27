@@ -13,6 +13,7 @@
 #include "core/xml/writer.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
+#include "engine/gpu_session.h"
 #include "engine/backdrop.h"
 #include "engine/title_export.h"
 #include "engine/title_extension.h"
@@ -532,3 +533,84 @@ TEST_CASE("u-studio-render plays the title with identical frames (T1 acceptance)
     g_free(out);
 }
 #endif
+
+// ADR-019 (VE GPU): the same title on the GPU pipeline. movit takes the
+// producer's straight RGBA as is and blends in linear light, so the
+// anti-aliased edges are no darker than on the CPU (white over red keeps
+// red at 255 whichever way it's blended), the colours are the same, and an
+// export while the preview is on the GPU keeps that. Skips without GL.
+TEST_CASE("a title over video on the GPU pipeline: no fringe, same colours, in the preview and an export")
+{
+    setUp();
+    Scene scene(writeTitle("fringe-gpu.ustitle", R"(<ustitle version="1" width="1920" height="1080" fps="30/1">
+      <timing intro="0" hold="60" outro="0"/>
+      <layer kind="text" x="200" y="300" rotation="7"><text>Fringe Test</text><font family="Sans" size="160"/>
+        <fill color="#ffffff"/></layer>
+    </ustitle>)"),
+                60);
+    std::vector<uint8_t> cpu;
+    {
+        engine::EngineSync sync(scene.model);
+        cpu = frameAt(sync, 30);
+    }
+    std::string error;
+    std::shared_ptr<engine::GpuSession> session = engine::GpuSession::acquire(error);
+    if (!session) {
+        MESSAGE("no GPU pipeline here (" << error << ")");
+        return;
+    }
+    REQUIRE(session->renderThreadStarted()); // this thread renders
+    std::vector<uint8_t> gpu;
+    {
+        engine::EngineSync sync(scene.model);
+        sync.setPipeline(engine::EngineSync::Pipeline::Gpu, {});
+        gpu = frameAt(sync, 30);
+    }
+    session->renderThreadStopped();
+    int edges = 0, darkest = 255;
+    double difference = 0;
+    for (int y = 280; y < 560; ++y)
+        for (int x = 180; x < 1400; ++x) {
+            const Rgba g = pixel(gpu, x, y), c = pixel(cpu, x, y);
+            difference += std::abs(g.r - c.r) + std::abs(g.g - c.g) + std::abs(g.b - c.b);
+            if (g.g > 10 && g.g < 245) {
+                ++edges;
+                darkest = std::min(darkest, g.r);
+            }
+        }
+    difference /= 280.0 * 1220 * 3;
+    MESSAGE("title region, mean difference GPU vs CPU: " << difference);
+    CHECK(edges > 500);
+    CHECK(darkest >= 250);
+    CHECK(difference <= 3.0); // the same text in the same place (1.0 measured); only edges blend differently
+    const Rgba background = pixel(gpu, 1800, 1000), cpuBackground = pixel(cpu, 1800, 1000);
+    CHECK(std::abs(background.r - cpuBackground.r) <= 2);
+    CHECK(std::abs(background.g - cpuBackground.g) <= 2);
+    CHECK(std::abs(background.b - cpuBackground.b) <= 2);
+
+    // An export with the preview's session live renders on the GPU too.
+    const fs::path rendered = scratch() / "fringe-gpu.mp4";
+    REQUIRE(engine::renderProject(scene.model, utf8String(rendered), error));
+    session.reset();
+    Mlt::Profile profile("atsc_1080p_30");
+    Mlt::Producer decoded(profile, "loader-nogl", utf8String(rendered).c_str());
+    REQUIRE(decoded.is_valid());
+    decoded.seek(30);
+    std::unique_ptr<Mlt::Frame> frame(decoded.get_frame());
+    mlt_image_format format = mlt_image_rgba;
+    int w = 1920, h = 1080;
+    const uint8_t *exported = frame->get_image(format, w, h);
+    int exportedEdges = 0;
+    double deficit = 0;
+    for (int y = 280; y < 560; ++y)
+        for (int x = 180; x < 1400; ++x) {
+            const uint8_t *p = exported + (static_cast<size_t>(y) * 1920 + static_cast<size_t>(x)) * 4;
+            if (p[1] > 10 && p[1] < 245) {
+                ++exportedEdges;
+                deficit += 255 - p[0];
+            }
+        }
+    CHECK(exportedEdges > 500);
+    MESSAGE("GPU export, mean red deficit at edges: " << deficit / std::max(exportedEdges, 1));
+    CHECK(deficit / std::max(exportedEdges, 1) <= 31.0); // 4:2:0 alone (the CPU export pairs alpha: 14)
+}

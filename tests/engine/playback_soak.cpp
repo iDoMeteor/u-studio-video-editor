@@ -173,7 +173,7 @@ int main(int argc, char **argv)
     Model model = Model::createEmpty(profile);
     // Declared before the graph so it outlives it: the graph's producers
     // were opened under its glsl.manager (engine.cpp drops them first too).
-    std::unique_ptr<GpuSession> gpuSession;
+    std::shared_ptr<GpuSession> gpuSession;
     EngineSync sync(model, scale);
     EngineSync::ProbedMedia probed = sync.probeMedia(media); // length in this sequence's frames
 
@@ -210,7 +210,7 @@ int main(int argc, char **argv)
     sync.setProject(model.snapshot());
     if (gpu) {
         std::string error;
-        gpuSession = GpuSession::start(error);
+        gpuSession = GpuSession::acquire(error);
         if (!gpuSession) {
             std::fprintf(stderr, "no GPU pipeline: %s\n", error.c_str());
             return 1;

@@ -18,6 +18,7 @@
 #include "engine/gpu_session.h"
 #include "platform/process.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -201,7 +202,7 @@ bool renderBoth(const Model &model, int position, Image &cpu, Image &gpu)
         cpu = frameAt(sync, position);
     }
     std::string error;
-    std::unique_ptr<GpuSession> session = GpuSession::start(error);
+    std::shared_ptr<GpuSession> session = GpuSession::acquire(error);
     if (!session) {
         MESSAGE("no GPU pipeline here (" << error << "); nothing to compare");
         return false;
@@ -352,7 +353,7 @@ TEST_CASE("GPU pipeline: switching back to the CPU reopens everything on the CPU
     EngineSync sync(scene.model, PreviewScale::Full, EngineSync::FrameReads::ProfileSize);
     {
         std::string error;
-        std::unique_ptr<GpuSession> session = GpuSession::start(error);
+        std::shared_ptr<GpuSession> session = GpuSession::acquire(error);
         if (!session) {
             MESSAGE("no GPU pipeline here (" << error << ")");
             return;
@@ -368,42 +369,70 @@ TEST_CASE("GPU pipeline: switching back to the CPU reopens everything on the CPU
     fs::remove_all(scratch());
 }
 
-TEST_CASE("GPU pipeline: an export on another thread while the preview's session is live")
+// The file an export wrote, frame `position`, read back at 1080p.
+Image exportedFrame(const fs::path &file, int position)
 {
-    sharedFactoryPolicy();
-    Scene scene(utf8String(generate("blue.mp4", 1920, 1080, "color:#2040c0")), 1920, 1080);
-    scene.model.setClipTransform(scene.clip, placed(480, 270, 960, 540));
-    Image cpu;
-    {
-        EngineSync sync(scene.model, PreviewScale::Full, EngineSync::FrameReads::ProfileSize);
-        cpu = frameAt(sync, 5);
-    }
-    std::string error;
-    std::unique_ptr<GpuSession> session = GpuSession::start(error);
-    if (!session) {
-        MESSAGE("no GPU pipeline here (" << error << ")");
-        return;
-    }
-    // As the app: the session's context belongs to the preview, and the
-    // export runs on a pool thread with none current.
-    const fs::path out = scratch() / "export-while-gpu.mp4";
-    bool ok = false;
-    std::thread worker([&] { ok = renderProject(scene.model, utf8String(out), error); });
-    worker.join();
-    INFO(error);
-    REQUIRE(ok);
-    session.reset();
     Model check = Model::createEmpty();
     TrackId track = check.addTrack(Track::Kind::Video, 0, "V1");
     Asset rendered;
-    rendered.path = utf8String(out);
+    rendered.path = utf8String(file);
     rendered.info.hasVideo = true;
     rendered.info.width = 1920;
     rendered.info.height = 1080;
     rendered.info.lengthInSequenceFrames = 60;
     check.insertClip(track, check.addAsset(rendered), 0, 0, 59);
     EngineSync sync(check, PreviewScale::Full, EngineSync::FrameReads::ProfileSize);
-    const Image exported = frameAt(sync, 5);
-    INFO("inside cpu " << pixel(cpu, 480, 270) << " export " << pixel(exported, 480, 270));
-    CHECK(compare(cpu, exported).mean <= 3.0); // through H.264
+    return frameAt(sync, position);
+}
+
+// G4 (ADR-019 point 7): with the preview on the GPU, an export on a pool
+// thread (as the app's) takes its pipeline and looks like the preview,
+// soft edges included (a half-transparent picture, where the CPU and GPU
+// differ), within what H.264 changes.
+TEST_CASE("GPU pipeline: an export while the preview is on the GPU matches the preview")
+{
+    sharedFactoryPolicy();
+    Scene scene("color:0x20c04080", 1920, 1080); // 50% green over red
+    scene.model.setClipTransform(scene.clip, placed(960, 540, 960, 540));
+    Image cpu, preview;
+    if (!renderBoth(scene.model, 5, cpu, preview))
+        return;
+    std::string error;
+    std::shared_ptr<GpuSession> session = GpuSession::acquire(error); // the preview's
+    REQUIRE(session);
+    const fs::path out = scratch() / "export-gpu.mp4";
+    bool ok = false;
+    std::thread worker([&] { ok = renderProject(scene.model, utf8String(out), error); });
+    worker.join();
+    INFO(error);
+    REQUIRE(ok);
+    session.reset();
+    const Image exported = exportedFrame(out, 5);
+    INFO("blend preview " << pixel(preview, 960, 540) << " export " << pixel(exported, 960, 540) << " cpu "
+                          << pixel(cpu, 960, 540));
+    for (size_t c = 0; c < 3; ++c)
+        CHECK(std::abs(at(exported, 960, 540)[c] - at(preview, 960, 540)[c]) <= 3);
+    CHECK(compare(preview, exported).mean <= 2.0);
+}
+
+TEST_CASE("GPU pipeline: the preview leaving the GPU mid-export doesn't stop the export")
+{
+    sharedFactoryPolicy();
+    Scene scene(utf8String(generate("blue.mp4", 1920, 1080, "color:#2040c0")), 1920, 1080);
+    scene.model.setClipTransform(scene.clip, placed(480, 270, 960, 540));
+    std::string error;
+    std::shared_ptr<GpuSession> session = GpuSession::acquire(error);
+    if (!session) {
+        MESSAGE("no GPU pipeline here (" << error << ")");
+        return;
+    }
+    const fs::path out = scratch() / "export-dropped.mp4";
+    bool ok = false;
+    std::thread worker([&] { ok = renderProject(scene.model, utf8String(out), error); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    session.reset(); // the preview's reference: the export keeps the session alive
+    worker.join();
+    INFO(error);
+    CHECK(ok);
+    CHECK_FALSE(GpuSession::current()); // gone with the export
 }

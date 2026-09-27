@@ -32,17 +32,18 @@ Good to know:
   either way.
 - **Rotated clips** are still drawn on the processor, so they don't get
   faster.
-- **Exports use the processor for now**, so a soft edge or dissolve can
-  look a touch darker in the export than in the preview. Exports will use
-  the graphics card too in a coming version.
+- **Exports look like the preview.** An export started while the preview
+  uses the graphics card renders on it too, soft edges and dissolves
+  included; one started with GPU acceleration off uses the processor.
+  Turning it off in the middle of an export doesn't affect that export.
 - If the graphics card stops working mid-session, playback carries on on
   the processor and U Stu tells you. If U Stu ever closes unexpectedly
   while using the graphics card, it turns GPU acceleration off and says so
   the next time it starts; you can turn it back on here.
 
 **Hardware video decoding** (on by default) decodes your video files on
-the graphics card while GPU acceleration is on, which halves the
-processor's work again. Without GPU acceleration it isn't used: it would
+the graphics card while GPU acceleration is on, in the preview and in
+exports, which halves the processor's work again. Without GPU acceleration it isn't used: it would
 cost frames.
 
 ## Help (`?` button)
