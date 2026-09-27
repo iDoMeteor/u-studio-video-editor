@@ -127,6 +127,7 @@ class AppWindow : public ShellHost
     void addTimelineOverlay(timeline::TimelineOverlayProvider *provider) override;
     void redrawTimeline() override;
     void addImportHandler(ImportHandler handler) override;
+    void assetChangedOnDisk(core::AssetId asset) override;
 
     GtkWidget *widget() const
     {
@@ -729,7 +730,7 @@ class AppWindow : public ShellHost
     static gboolean mediaBrowserFileDropTrampoline(GtkDropTarget *target, const GValue *value, double x, double y,
                                                    gpointer userData);
     static void mediaBrowserRowActivatedTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
-                                                    gpointer userData);
+                                                   gpointer userData);
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void renderButtonRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
@@ -906,8 +907,8 @@ class AppWindow : public ShellHost
     // is one widget a right-click gesture and a drag source attach to, and
     // lays out its cells at fixed widths so columns align across rows.
     GtkWidget *m_mediaBrowserPanel = nullptr;
-    GtkWidget *m_mediaBrowserList = nullptr; // a GtkListView (M4 D)
-    GtkStringList *m_mediaIds = nullptr;     // its items: asset ids, in bin order
+    GtkWidget *m_mediaBrowserList = nullptr;                   // a GtkListView (M4 D)
+    GtkStringList *m_mediaIds = nullptr;                       // its items: asset ids, in bin order
     std::vector<std::pair<uint64_t, std::string>> m_mediaRows; // each row's id and what it shows
     std::set<uint64_t> m_mediaAwaitingThumbnail;
     std::unordered_map<uint64_t, GtkWidget *> m_mediaBoundThumbs; // bound rows' pictures, by asset
@@ -1097,8 +1098,8 @@ class AppWindow : public ShellHost
     GtkPopover *m_inlineNameEditPopover = nullptr;
     GtkEntry *m_inlineNameEditEntry = nullptr;
     InlineEditKind m_inlineEditKind = InlineEditKind::None;
-    int m_inlineEditTrackRow = -1;      // valid when m_inlineEditKind == Track
-    core::ClipId m_inlineEditClipId;    // valid when m_inlineEditKind == Clip
+    int m_inlineEditTrackRow = -1;   // valid when m_inlineEditKind == Track
+    core::ClipId m_inlineEditClipId; // valid when m_inlineEditKind == Clip
     // Set by Escape (onInlineNameEditKeyPressed) just before popping the
     // popover down, so the "closed" signal that follows knows to discard
     // the entry's text instead of committing it.

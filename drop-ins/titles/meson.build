@@ -39,28 +39,49 @@ titles_render_dep = declare_dependency(
   dependencies: [titles_core_dep, titles_pangocairo_dep, titles_cairo_dep, titles_fontconfig_dep],
 )
 
-titles_register_args = ['-DUSTUDIO_VERSION="' + meson.project_version() + '"']
+subdir('mltmodule')
+
+# Where the editor and u-studio-render find libmltustudio.so (IP4): the
+# installed copy, or this build's when running from the build directory.
+titles_register_args = [
+  '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
+  '-DTITLES_MLT_INSTALL_DIR="' + titles_mlt_install_dir + '"',
+  '-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"',
+]
+# The editor's side: the engine extension (IP3), the render tool's
+# --title-frames (IP6) and the shell's import and file watch (IP5).
+titles_dropin_sources = files('register.cpp', 'editor/title_shell.cpp', 'engine/title_extension.cpp',
+                              'engine/title_frames.cpp')
 if get_option('dropin_titles') == 'module'
+  # A module resolves core, engine and drop-in host symbols against the
+  # program (built with export_dynamic and those libraries linked whole,
+  # src/app and src/render), so it takes their headers only: a second copy
+  # of core's globals (the log) inside the module would be a different one.
   shared_module(
     'ustudio-dropin-titles',
-    files('register.cpp'),
+    titles_dropin_sources,
     cpp_args: titles_register_args + ['-DTITLES_DROPIN_MODULE'],
     gnu_symbol_visibility: 'hidden',
+    link_with: titles_core,
     include_directories: [src_inc, titles_inc],
-    dependencies: [titles_render_dep, mltpp_dep, mlt_dep],
+    dependencies: [
+      libustudio_engine_dep.partial_dependency(compile_args: true, includes: true),
+      libustudio_dropins_dep.partial_dependency(compile_args: true, includes: true),
+      mltpp_dep, mlt_dep, gtk4_dep, libxml2_dep,
+    ],
     install: true,
     install_dir: dropin_install_dir,
   )
 else
   titles_builtin = static_library(
     'ustudio_dropin_titles',
-    files('register.cpp'),
+    titles_dropin_sources,
     cpp_args: titles_register_args,
     include_directories: [src_inc, titles_inc],
-    dependencies: [titles_render_dep, mltpp_dep, mlt_dep],
+    dependencies: [titles_core_dep, libustudio_engine_dep, libustudio_dropins_dep, gtk4_dep],
     install: false,
   )
-  dropin_titles_dep = declare_dependency(link_with: titles_builtin, dependencies: [titles_render_dep])
+  dropin_titles_dep = declare_dependency(link_with: titles_builtin, dependencies: [titles_core_dep, gtk4_dep])
 endif
 
 # The drop-in's own tests. tests/meson.build runs after drop-ins/, so look

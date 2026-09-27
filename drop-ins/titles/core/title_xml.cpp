@@ -7,6 +7,7 @@
 #include <libxml/tree.h>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <filesystem>
@@ -344,6 +345,17 @@ void writeFill(xmlNode *layerNode, const Fill &fill)
 }
 
 } // namespace
+
+bool isTitleFile(std::string_view path)
+{
+    constexpr std::string_view kExtension = ".ustitle";
+    if (path.size() < kExtension.size())
+        return false;
+    const std::string_view tail = path.substr(path.size() - kExtension.size());
+    return std::equal(tail.begin(), tail.end(), kExtension.begin(), [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) == static_cast<unsigned char>(b);
+    });
+}
 
 std::expected<ReadResult, std::string> parseTitle(std::string_view xml)
 {

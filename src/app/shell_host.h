@@ -117,6 +117,11 @@ class ShellHost
 
     // Import: files by extension (ImportHandler).
     virtual void addImportHandler(ImportHandler handler) = 0;
+    // A file an asset plays changed on disk (a drop-in watching its own
+    // files: titles' .ustitle). The asset's fingerprint is updated and the
+    // engine rebuilds what plays it, as when missing media is found again.
+    // Not an edit: no undo step, and the project isn't marked changed.
+    virtual void assetChangedOnDisk(core::AssetId asset) = 0;
 };
 
 } // namespace ustudio::app

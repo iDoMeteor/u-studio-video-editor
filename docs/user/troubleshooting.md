@@ -61,7 +61,10 @@ a normal terminal, or run `env -u XDG_DATA_HOME flatpak install …`.
 
 These are planned; see the [roadmap](../../README.md#roadmap).
 
-- No effects, colour correction or titles yet. They're coming as drop-ins.
+- No effects or colour correction yet. They're coming as a drop-in.
+- Titles are early (the Titles drop-in, not yet in the packages): `.ustitle`
+  files play and follow edits to the file, but there's no title designer,
+  and a moved title can't be relinked yet ([Titles](titles.md)).
 - Renders are MP4 (H.264 + AAC) only.
 - Markers can't be named, and the loop region isn't drawn on the timeline.
 - Keyboard shortcuts can't be changed.
