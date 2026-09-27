@@ -773,6 +773,13 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_box_append(GTK_BOX(hoverBox), GTK_WIDGET(m_hoverText));
     gtk_popover_set_child(m_hoverPreview, hoverBox);
     gtk_widget_set_parent(GTK_WIDGET(m_hoverPreview), GTK_WIDGET(m_timeline));
+    // Gone with the timeline when the window closes, before shutdown's
+    // hideHoverPreview() runs: that read a dangling pointer (a
+    // Gtk-CRITICAL, gtk_widget_get_visible, at every quit).
+    g_signal_connect(m_hoverPreview, "destroy", G_CALLBACK(+[](GtkWidget *, gpointer self) {
+                         static_cast<AppWindow *>(self)->m_hoverPreview = nullptr;
+                     }),
+                     this);
 
     // One popover, three possible actions — onTimelineRightClicked decides
     // which single one is relevant (clip under the cursor -> Delete Clip;
@@ -1399,7 +1406,7 @@ void AppWindow::onTimelineHover(double x, double y)
     // Showing the popover makes the compositor send a motion (and a
     // leave) at the same spot; treating that as a move hid it and re-armed
     // it, over and over (the tooltip flashed). Only a real move re-arms.
-    const bool pending = m_hoverTimerId != 0 || gtk_widget_get_visible(GTK_WIDGET(m_hoverPreview));
+    const bool pending = m_hoverTimerId != 0 || (m_hoverPreview && gtk_widget_get_visible(GTK_WIDGET(m_hoverPreview)));
     if (pending && std::abs(x - m_hover.x) < 3 && std::abs(y - m_hover.y) < 3)
         return;
     // Moving re-arms the delay; the tooltip only shows once the pointer rests.
@@ -1528,7 +1535,10 @@ void AppWindow::onProjectFrameRateClicked()
                 self->showStatus("The project is already " + core::formatFps(fps) + " fps.");
         },
         ctx);
-    g_object_unref(labels);
+    // No unref of `labels`: gtk_drop_down_new() took it (transfer full).
+    // Dropping it here too freed the model under the dialog's dropdown,
+    // and the dialog's delayed dispose crashed in g_list_model_get_n_items
+    // (the demo tour's frame-rate change then undo, 0.50.0-beta.4).
 }
 
 void AppWindow::setDefaultFolder(const std::string &key, const std::string &folder, AdwActionRow *row)

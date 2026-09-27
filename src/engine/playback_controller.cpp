@@ -4,6 +4,7 @@
 #include "core/trace.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace ustudio::engine {
 
@@ -228,6 +229,17 @@ void PlaybackController::play(double speed)
     // sets the speed before the refresh, and purges on speed changes.
     m_tractor->set_speed(speed);
     if (m_consumer) {
+        // Pre-roll a quarter second before the first frame plays. After a
+        // paused seek every master decodes from its new spot, and with
+        // prefill 1 sdl2_audio played one frame's audio and then starved:
+        // a 9 ms gap on a one-track project, 9-52 ms gaps through the first
+        // half second on a heavy one (the owner's crackle, 0.50.0-beta.3;
+        // measured through SDL's disk driver, docs/developer/notes/
+        // playback.md). MLT waits for this pre-roll only while the speed is
+        // non-zero (mlt_consumer_rt_frame: size 1 at speed 0), so pause()
+        // puts it back to 1 and P3's paused hang can't come back.
+        const int preroll = std::clamp(static_cast<int>(std::lround(fps() * 0.25)), 4, 24);
+        m_consumer->set("prefill", preroll);
         m_consumer->purge();
         m_consumer->set("refresh", 0);
     }
@@ -264,6 +276,7 @@ void PlaybackController::pause()
         // to the consumer's position before purging for the same reason;
         // doc 05's pause() spec had left that step out.
         m_tractor->seek(displayed);
+        m_consumer->set("prefill", 1);
         m_consumer->purge();
         m_consumer->set("refresh", 1);
     }

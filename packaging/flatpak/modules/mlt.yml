@@ -1,0 +1,75 @@
+# MLT 7.40.0. Module choice is every service the app requests (service
+# strings in src/ matched against the modules' .yml identifiers at
+# v7.40.0), plus the loader's normalisers (src/modules/core/loader.ini):
+#   core       colour, blank, tone, luma, mix, composite, crop, mirror,
+#              null consumer, loader
+#   plus       affine filter and transition (clip transform, ADR-018)
+#   normalize  volume (clip gain, fades)
+#   avformat   media decode, avformat consumer (export, proxies),
+#              swscale/swresample normalisers, avfilter.*
+#   xml        project XML round-trip
+#   sdl2       sdl2_audio playback consumer
+#   rtaudio    fallback audio consumer
+#   gdk        pixbuf still images (loader.dict: *.png=qimage,pixbuf)
+#   resample   loader.ini's "resampler" normaliser
+# Everything else off, including frei0r (a future drop-in, ADR-014) and
+# every Qt module (ADR-007). Option names from CMakeLists.txt at v7.40.0.
+# plus's optional deps: FFTW (only its fft/dance filters) is kept out;
+# libebur128 isn't in the SDK, so plus uses its bundled copy.
+#
+# x-checker reports new MLT releases, but the engine relies on 7.40
+# behaviour (docs/developer/notes/): a bump needs the smoke test and the
+# engine suites before it lands, never an automatic merge.
+name: mlt
+buildsystem: cmake-ninja
+config-opts:
+  - -DCMAKE_BUILD_TYPE=Release
+  - -DGPL=ON
+  - -DGPL3=ON
+  - -DBUILD_TESTING=OFF
+  - -DBUILD_TESTS_WITH_QT6=OFF
+  - -DBUILD_DOCS=OFF
+  - -DCLANG_FORMAT=OFF
+  - -DMOD_AVFORMAT=ON
+  - -DUSE_AVDEVICE=OFF
+  - -DMOD_XML=ON
+  - -DMOD_SDL2=ON
+  - -DMOD_RTAUDIO=ON
+  - -DMOD_GDK=ON
+  - -DMOD_RESAMPLE=ON
+  - -DMOD_QT6=OFF
+  - -DMOD_GLAXNIMATE_QT6=OFF
+  - -DMOD_DECKLINK=OFF
+  - -DMOD_FREI0R=OFF
+  - -DMOD_JACKRACK=OFF
+  - -DUSE_LV2=OFF
+  - -DUSE_VST2=OFF
+  - -DMOD_KDENLIVE=OFF
+  - -DMOD_MOVIT=OFF
+  - -DMOD_NDI=OFF
+  - -DMOD_NORMALIZE=ON
+  - -DMOD_OLDFILM=OFF
+  - -DMOD_OPENCV=OFF
+  - -DMOD_OPENFX=OFF
+  - -DMOD_PLUS=ON
+  - -DCMAKE_DISABLE_FIND_PACKAGE_FFTW3=ON
+  - -DMOD_PLUSGPL=OFF
+  - -DMOD_RUBBERBAND=OFF
+  - -DMOD_RNNOISE=OFF
+  - -DMOD_SDL1=OFF
+  - -DMOD_SOX=OFF
+  - -DMOD_SPATIALAUDIO=OFF
+  - -DMOD_VIDSTAB=OFF
+  - -DMOD_VORBIS=OFF
+  - -DMOD_XINE=OFF
+cleanup:
+  - /bin
+sources:
+  - type: archive
+    url: https://github.com/mltframework/mlt/releases/download/v7.40.0/mlt-7.40.0.tar.gz
+    sha256: f11c30e21670f62a3dfc56a31306ac02f3feea00908a2821a4a0bf3e989d3d6a
+    x-checker-data:
+      type: json
+      url: https://api.github.com/repos/mltframework/mlt/releases/latest
+      version-query: .tag_name | sub("^v"; "")
+      url-query: .assets[] | select(.name | test("^mlt-[0-9.]+\\.tar\\.gz$")) | .browser_download_url

@@ -4,3 +4,4 @@ logs/
 subprojects/.wraplock
 subprojects/packagecache/
 build-flatpak/
+build-flathub/

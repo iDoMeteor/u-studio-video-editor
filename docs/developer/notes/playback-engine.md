@@ -24,6 +24,18 @@ that consumer then hung the main thread in the sdl2 consumer's join
 (post-M3 audit P3; 2/64 stress runs before, 0/256 after). The read-ahead
 still fills to `buffer` behind playback.
 
+**…but `play()` pre-rolls a quarter second, and `pause()` puts it back to
+1 (0.50.0-beta.3).** With prefill 1, playback after a paused seek played one
+frame's audio and then starved while every master decoded from its new spot:
+the crackle at the start of playback. Measured through SDL's disk driver
+(`SDL_AUDIODRIVER=disk`, a 440 Hz tone, `playback_soak --start 15000
+--tracks N`): one track had a 9 ms gap 30 ms in; seven tracks had 9–52 ms
+gaps through the first half second. Starting from frame 0 on fresh decoders
+was clean. With a pre-roll of 8 frames the gaps were gone, at 80 ms more
+start latency on one track and about 340 ms on seven. MLT waits for the
+pre-roll only while the speed is non-zero (`mlt_consumer_rt_frame()` uses
+size 1 at speed 0), so P3's paused hang stays out of reach.
+
 **Preview scale works by shrinking the playback profile.** Setting the
 consumer's `scale` property had no effect on what MLT renders (4K60 at
 "Half" still delivered 3840×2160 frames and showed only 20–23 of 60 frames
