@@ -36,21 +36,15 @@ Standalone repros (VE GPU, 2026-09-27, MLT 7.40, Mesa, Iris Xe) established:
   thread is enough; no thread override (`consumer-thread-create`) is
   needed. This answers doc 15's objection ("GPU context on the consumer
   thread conflicts with doc 05").
-- **Throughput** (three half-size cuts in quadrants over black, 1080p30
-  generated H.264, frames shown per second; measured under a load average
-  of about 40 from other work, so the CPU figures are low):
-
-  | Path | Full | Half |
-  |---|---|---|
-  | CPU (`affine` + `composite`) | 10.9 | 17.2 |
-  | GPU (`movit.rect` + `movit.overlay`) | 29.8 (every frame) | 29.8 (every frame) |
-
-  Quiet-machine figures: see "Evidence" below.
+- **Throughput.** Three half-size transformed tracks play every frame on
+  the GPU path at Full and Half, with half the CPU; the CPU path doesn't
+  (figures under "Evidence").
 - **Colour.** On a BT.709-tagged source the GPU path matches the source
-  within 1–2 levels. The CPU path is off by up to about 20 (red 253 → 231,
-  cyan's red 0 → 22) with or without `affine`, so the offset is in MLT's
-  CPU YUV→RGBA step, not in anything this ADR adds (routed to VE Core as a
-  possible existing bug). Geometry is identical.
+  within 1–2 levels. The CPU path was off by up to about 20 (red 253 →
+  231). The cause was the black background: MLT's colour producer tagged
+  it BT.601 and `composite` kept the tag. VE Core fixed that in 7c7f9fa by
+  re-tagging the background with the profile's colourspace. Geometry is
+  identical.
 - **No movit service rotates.** `movit.rect` places and scales only. A CPU
   `affine` filter on a cut inside the GPU graph works (MLT uploads and
   downloads around it) and renders the same rotated picture as the CPU
@@ -72,9 +66,10 @@ Standalone repros (VE GPU, 2026-09-27, MLT 7.40, Mesa, Iris Xe) established:
   `hwaccel` property after construction does nothing; the codec is
   already open. `MLT_AVFORMAT_HWACCEL` would switch every producer in the
   process, workers included. MLT falls back to software decode when the
-  device fails. On this machine VAAPI saves CPU (user time 92 → 73 s over
-  90 s at Half) but doesn't raise frames/s: decode was never the
-  bottleneck.
+  device fails. **On the CPU path hardware decode doesn't pay:** it saves
+  16–22% CPU but loses 5–10% of frames, because every decoded frame is
+  downloaded from the GPU to be composited. On the GPU path it nearly
+  halves CPU use at full frame rate (see "Evidence").
 - **Risk:** kdenlive ships with movit hard-disabled ("Disable movit until
   it's stable"). We use a narrow set of services (`rect`, `overlay`,
   `mirror`, `flip`, `luma`, `mix`, and the loader's normalisers `crop`,
@@ -86,20 +81,25 @@ Standalone repros (VE GPU, 2026-09-27, MLT 7.40, Mesa, Iris Xe) established:
 lifetime, with the CPU path always available.** Settings › Performance
 gains **GPU acceleration** (Automatic / Off; Automatic is the default and
 means "on where the probe passes") and **Hardware video decoding**
-(Automatic / Off). The CPU path stays the reference and the fallback; no
+(Automatic / Off; Automatic means "on while the GPU pipeline is": the
+measurements show it costs frames on the CPU path; VE Strategist,
+2026-09-27). Both land in G2. The CPU path stays the reference and the fallback; no
 feature may exist only on the GPU path.
 
 **2. The GL context is ours, created behind `src/platform/`** (ADR-017):
 `platform::GlContext` (create in a share group, make current on the
 calling thread, release, destroy; std-only interface). Linux: EGL,
-surfaceless Mesa platform first, then a GBM device on the first render
-node. Windows (with the port): WGL on a hidden window. The engine makes it
+surfaceless Mesa platform first, then the first EGL device
+(`EGL_EXT_platform_device`, how NVIDIA's driver offers the same). Windows
+(with the port): WGL on a hidden window. The engine makes it
 current from `consumer-thread-started` and releases it from
 `consumer-thread-stopped`; every GL-using thread (preview render thread,
-export render thread) gets its own context in one share group. Linking
-EGL (`dependency('egl')`, libglvnd, already in every GTK install) is
-approved by this ADR; our code never includes movit or GL headers other
-than EGL/WGL in `src/platform/`.
+export render thread) gets its own context in one share group. libEGL is
+loaded at run time (`dlopen`, in `src/platform/`), so nothing new is
+linked, and a machine without it simply has no GPU path. Only EGL's
+headers are needed to build, and without them the platform layer builds
+a stub that reports "built without EGL". Our code never includes movit
+or GL headers; the platform layer includes only EGL's.
 
 **3. The movit module stays in the curated directory always; the switch
 is whether a `glsl.manager` exists.** None is created unless the setting
@@ -108,7 +108,8 @@ fallback) clears the global `glslManager`, drops EngineSync's master
 producers and rebuilds, so every producer is reopened on the CPU chain.
 
 **4. One engine helper opens every producer:**
-`engine::openProducer(profile, resource, Chain::Live | Chain::Worker)`.
+`engine::openProducer(profile, resource, ProducerUse::Live | ProducerUse::Worker)`
+(`src/engine/producer_open.h`).
 `Worker` (thumbnails, waveforms, probes, `audio_sync`, anything off the
 live graph) always uses the `loader-nogl` service and never hardware
 decode. `Live` (EngineSync's masters and the export graph) uses `loader`
@@ -153,9 +154,9 @@ which means linking GPL movit; out of scope.
 pipeline the preview is using when it starts, with its own context on its
 own render thread (in process today; in `u-studio-render` once MT5 moves
 export out, ADR-009). A test renders a generated project through both
-paths and requires them to match within a stated tolerance; until VE Core
-settles the CPU colour offset, that tolerance records the known offset
-rather than hiding it. Hardware *encode* (VAAPI `h264_vaapi`/`hevc_vaapi`
+paths and requires them to match within 2 levels per channel, the
+GPU-vs-source difference measured (the CPU colour offset is fixed,
+7c7f9fa). Hardware *encode* (VAAPI `h264_vaapi`/`hevc_vaapi`
 through the avformat consumer) belongs to M6's encoder detection, not
 this ADR.
 
@@ -177,9 +178,9 @@ this ADR.
 
 | Stage | Scope | Done when |
 |---|---|---|
-| G1 | Hardware decode: `openProducer()` with Live/Worker, the `\?hwaccel=` projection, the setting | Live graph decodes on VAAPI, workers stay software (test); a failed device falls back; docs |
-| G2 | `platform::GlContext` (Linux EGL), `--gpu-probe`, cached result, sentinel, GPU setting shown with probe result | Probe passes here and fails cleanly with no GPU (`LIBGL_ALWAYS_SOFTWARE`/no render node); no graph change yet |
-| G3 | GPU graph in EngineSync behind the flag; context on the consumer's render thread; runtime fallback | M4's box: three transformed 1080p tracks at Full play every frame; 10-minute soak holds; ASan+TSan full suites; preview matches CPU within tolerance |
+| G1 | Hardware decode in the engine: `openProducer()` with Live/Worker, `EngineSync::setHardwareDecode()` and the `\?hwaccel=` projection, `platform::hardwareDecodeApi()`; nothing turns it on yet (export takes it with the pipeline choice in G4) | Live masters decode on VAAPI when asked, workers stay software (test); a failed device falls back; docs |
+| G2 | `platform::GlContext` (Linux EGL), `engine::probeGpu()`, `u-studio-render --gpu-probe` | Probe passes here and fails cleanly without EGL (test); no graph or UI change yet |
+| G3 | GPU graph in EngineSync behind the flag; context on the consumer's render thread; runtime fallback; the probe run from the editor with its cached result; the crash sentinel; Settings › Performance's two switches, hardware decode following the GPU pipeline | M4's box: three transformed 1080p tracks at Full play every frame; 10-minute soak holds; ASan+TSan full suites; preview matches CPU within tolerance |
 | G4 | Export on the GPU path; preview/export equality test; `u-studio-render` after MT5 | Render of a generated project matches the preview path within tolerance |
 | G5 | Flatpak (with VE Installers): GL extension, `--device=dri`, movit/FFTW modules; smoke test in the sandbox | Probe passes in the Flatpak on the owner's machine |
 
@@ -200,7 +201,37 @@ this ADR.
 
 ## Evidence
 
-Repros live in the VE GPU scratchpad, and their findings go into
-`docs/developer/notes/gpu.md` with each stage. Quiet-machine figures
-(load < 4) are to be recorded here from the 2026-09-27 measurement
-window.
+Findings and repro details: `docs/developer/notes/gpu.md`. Figures from
+the quiet window of 2026-09-27 (other teams held; `vmstat` mean idle
+73.8% over 147 samples; generated 1080p30 media; Iris Xe, Mesa, MLT 7.40).
+
+**The real engine, CPU path** (`playback_soak --transformed 3`: V1 plus
+three transformed tracks; 60 s each). Frames shown per second, and the
+process's CPU (100% = one core):
+
+| Source | Scale | Software decode | VAAPI decode |
+|---|---|---|---|
+| H.264 | Half | 21.8 fps, 179% | 20.6 fps, 150% |
+| H.264 | Full | 13.6 fps, 219% | 12.3 fps, 185% |
+| HEVC | Half | 22.1 fps, 191% | 20.4 fps, 148% |
+| HEVC | Full | 13.0 fps, 229% | 11.9 fps, 184% |
+
+**GPU against CPU under the real consumer** (a standalone graph: black plus
+half-size cuts in quadrants; `sdl2_audio`, `real_time=1`, `rgba`; 20 s
+each):
+
+| Tracks | Scale | CPU path | GPU path | GPU path + VAAPI |
+|---|---|---|---|---|
+| 3 | Full | 20.7 fps, 127% | 29.9 fps, 61% | 29.9 fps, 36% |
+| 3 | Half | 25.6 fps, 102% | 29.9 fps, 53% | 29.9 fps, 31% |
+| 1 | Full | 30.1 fps, 93% | 30.1 fps, 31% | |
+
+**One frame pulled at a time** (MT4's method, ms per 1080p frame):
+
+| Tracks | CPU, rgba | CPU, yuv422 | GPU, rgba | GPU, yuv422 |
+|---|---|---|---|---|
+| 1 | 32.1 | 25.8 | 10.1 | 16.0 |
+| 3 | 95.6 | 85.7 | 19.9 | 23.4 |
+
+The GPU path wants `rgba` out, which is what PlaybackController asks for;
+`yuv422` adds a CPU conversion.

@@ -55,6 +55,8 @@ class Engine
     void setPreviewScale(PreviewScale scale);
     // EngineSync::setUseProxies().
     void setUseProxies(bool use);
+    // EngineSync::setHardwareDecode(): "" is software decode.
+    void setHardwareDecode(std::string api);
 
     // Main thread, once per displayed frame.
     void setFrameCallback(FrameCallback callback);

@@ -1,6 +1,7 @@
 #include "thumbnail_cache.h"
 
 #include "core/log.h"
+#include "engine/producer_open.h"
 
 #include <mlt++/Mlt.h>
 
@@ -209,7 +210,7 @@ void ThumbnailCache::runBatch(const std::string &batchKey, std::stop_token stop)
             // before opening, so the producer's positions use it.
             if (job.frame >= 0 && job.fpsNum > 0 && job.fpsDen > 0)
                 openProfile->set_frame_rate(job.fpsNum, job.fpsDen);
-            openProducer = std::make_unique<Mlt::Producer>(*openProfile, job.resource.c_str());
+            openProducer = engine::openProducer(*openProfile, job.resource, ProducerUse::Worker);
             if (openProducer->is_valid()) {
                 std::unique_ptr<Mlt::Frame> primeFrame(openProducer->get_frame());
                 int metaWidth = openProducer->get_int("meta.media.width");

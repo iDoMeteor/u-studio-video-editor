@@ -44,3 +44,18 @@ leak:_p11_kit_init
 # tests (dropin-shell): the EGL driver's own state, allocated once per
 # process when the display opens and never freed by GTK.
 leak:gdk_display_init_egl
+
+# movit's glsl.manager (ADR-019): GlslManager holds a reference of its own
+# through its mlt++ base, so after every caller's reference and the global
+# one are gone it is still never freed (MLT's filter_glsl_manager.cpp).
+# One per manager created: the probe, and each time GPU is switched on.
+# `just asan` preloads the module so these frames symbolize.
+leak:filter_glsl_manager_init
+
+# Our own EGL display (platform::GlContext, ADR-019): initialised once per
+# process and never terminated by design, so the driver's screen, configs
+# and option tables stay, as with GDK's display above; the first context on
+# a screen also adds per-screen state below it. A GlContext we leak still
+# reports: our wrapper is allocated outside these calls.
+leak:eglInitialize
+leak:eglCreateContext

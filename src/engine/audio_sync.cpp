@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "core/trace.h"
+#include "engine/producer_open.h"
 
 #include <mlt++/Mlt.h>
 
@@ -23,7 +24,8 @@ std::optional<core::audio::Envelope> decodeEnvelope(const AudioSpan &span, core:
     // follow its profile, so any other rate would decode the wrong range.
     Mlt::Profile profile;
     profile.set_frame_rate(fps.num, fps.den);
-    Mlt::Producer producer(profile, span.resource.c_str());
+    std::unique_ptr<Mlt::Producer> opened = openProducer(profile, span.resource, ProducerUse::Worker);
+    Mlt::Producer &producer = *opened;
     if (!producer.is_valid()) {
         Log::warn("[sync] could not open " + span.resource);
         return std::nullopt;

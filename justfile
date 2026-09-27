@@ -34,10 +34,13 @@ fmt:
 #   suppression can match. verify_asan_link_order=0 allows the preload.
 #   These libraries don't define malloc, so ASan's interception still works.
 asan_ffmpeg := "/lib64/libavutil.so.60 /lib64/libavcodec.so.62 /lib64/libavformat.so.62 /lib64/libswscale.so.9 /lib64/libswresample.so.6 /lib64/libx264.so.165"
+# The same for MLT's movit module (ADR-019), so its glsl.manager, which MLT
+# never frees (docs/developer/notes/gpu.md), can be suppressed by name.
+asan_movit := "/usr/lib64/mlt-7/libmltmovit.so"
 asan *tests:
     [ -d builddir-asan ] || meson setup builddir-asan -Db_sanitize=address,undefined -Db_lundef=false -Dtests=enabled
     meson compile -C builddir-asan
-    LD_PRELOAD="{{asan_ffmpeg}}" \
+    LD_PRELOAD="{{asan_ffmpeg}} {{asan_movit}}" \
     ASAN_OPTIONS=detect_leaks=1:fast_unwind_on_malloc=0:verify_asan_link_order=0:detect_stack_use_after_return=1:halt_on_error=1 \
     UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
     LSAN_OPTIONS=suppressions={{justfile_directory()}}/tests/sanitizers/lsan.supp \

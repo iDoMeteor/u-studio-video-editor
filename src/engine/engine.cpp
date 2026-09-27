@@ -289,6 +289,11 @@ void Engine::setUseProxies(bool use)
     send([use](Thread &t) { t.sync->setUseProxies(use); });
 }
 
+void Engine::setHardwareDecode(std::string api)
+{
+    send([api = std::move(api)](Thread &t) { t.sync->setHardwareDecode(api); });
+}
+
 void Engine::setPreviewScale(PreviewScale scale)
 {
     send([scale](Thread &t) { t.sync->setPreviewScale(scale); });

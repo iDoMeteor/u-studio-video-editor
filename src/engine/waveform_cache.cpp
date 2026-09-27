@@ -1,6 +1,7 @@
 #include "waveform_cache.h"
 
 #include "core/log.h"
+#include "engine/producer_open.h"
 
 #include <mlt++/Mlt.h>
 
@@ -115,7 +116,8 @@ std::vector<float> WaveformCache::compute(const Job &job)
         // rate here would seek every job to the wrong wall-clock position.
         Mlt::Profile profile;
         profile.set_frame_rate(job.fps.num, job.fps.den);
-        Mlt::Producer producer(profile, job.resource.c_str());
+        std::unique_ptr<Mlt::Producer> opened = openProducer(profile, job.resource, ProducerUse::Worker);
+        Mlt::Producer &producer = *opened;
         if (producer.is_valid()) {
             producer.seek(job.in);
             int frameCount = std::max(job.out - job.in + 1, 0);

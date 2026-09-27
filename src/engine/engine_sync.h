@@ -136,6 +136,11 @@ class EngineSync
     {
         return m_useProxies;
     }
+    // ADR-019 G1: decode video files with this hardware API ("vaapi"; ""
+    // is software), per master producer, so worker producers stay on
+    // software decode. MLT falls back to software when the device fails.
+    // Rebuilds when it changes anything.
+    void setHardwareDecode(const std::string &api);
     PreviewScale previewScale() const
     {
         return m_previewScale;
@@ -297,6 +302,7 @@ class EngineSync
     // there is the intended fallback, not a sync bug.
     std::unordered_set<uint64_t> m_unavailableAssets;
     bool m_useProxies = false;
+    std::string m_hardwareDecodeApi;
     // ADR-018: each clip's transform filters, per cut (the exclusive cut
     // and any dissolve tail or head), kept so a transform-only snapshot
     // updates them in place (applyTransformsInPlace()); per build.
