@@ -272,6 +272,11 @@ class Model
     bool hasLook(LookId) const;
 
     void setClipSourceParams(ClipId, std::vector<Param> params);
+    // What the clip plays: another asset and its source params, keeping the
+    // clip's place, range, effects and transform (SetClipAsset: a title
+    // baked to a file). ClipSourceChanged. The range must fit the asset
+    // (the caller's check; SetClipAsset makes it).
+    void setClipSource(ClipId, AssetId asset, std::vector<Param> params);
     // ADR-018: where the clip's picture sits (SetClipTransform).
     void setClipTransform(ClipId, Transform transform);
     void setTransitionRecipe(TransitionId, std::string recipe, std::vector<Param> params);
