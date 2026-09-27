@@ -288,6 +288,12 @@ Integration points: none.
 
 Acceptance: each item has a recorded finding and a kept repro.
 
+> REVIEW: VE Core, 2026-09-27: T0 spikes run, all yes; findings in
+> [the titles notes](../../developer/notes/titles.md). A 4K two-layer lower
+> third costs 12.7 ms a frame on a worker thread with its own font map, no
+> leak over 10,000 frames. The render-CLI half of the `xml` item waits for
+> T1's drop-in packaging.
+
 ### T1 — Format, renderer, producer (about 2 weeks)
 
 Integration points: IP1, IP2, IP3 `makeProducer()`, IP4, IP5 import
