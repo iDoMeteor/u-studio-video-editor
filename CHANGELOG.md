@@ -4,6 +4,13 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.52.0-beta.3
+
+- Clips of another shape than the project (4:3, phone video) play much
+  faster at their default Fit.
+- Exporting at another size (e.g. 720p from a 1080p project) places moved,
+  scaled and fitted pictures correctly; they used to run off to the right.
+
 ## 0.52.0-beta.2
 
 - Colours are right: BT.709 footage (most HD video) was shown and exported

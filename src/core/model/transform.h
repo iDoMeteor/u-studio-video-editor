@@ -39,6 +39,14 @@ Transform explicitTransform(const Transform &t, int sourceWidth, int sourceHeigh
 // fill=1) scales such a picture to the frame by itself.
 bool isIdentity(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile);
 
+// True when the track compositor (composite, fill=1, centred) places `t`'s
+// picture by itself whatever its aspect: a plain Fit, uncropped, unflipped,
+// unrotated. EngineSync and the writer then skip transformFilters() for a
+// clip's own cuts (the affine filter costs a frame-sized canvas, 16-18 ms at
+// 1080p), but not for a dissolve's cuts: luma mixes both at one size, so a
+// picture of another aspect there must arrive already frame-sized.
+bool compositorFits(const Transform &t);
+
 // True when a clip of the active sequence has a transform other than the
 // default Fit: the engine then plays Auto preview scale at Half (each
 // transformed 1080p track costs 16-22 ms a frame at Full; doc 19, MT4). A

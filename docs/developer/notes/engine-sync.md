@@ -191,9 +191,22 @@ from a standalone repro (MLT 7.40, 2026-09-25):
   it with `mlt_properties_get_int()`), so a picture smaller than the
   project drew at its own size in the top-left corner. With `fill=1` a
   picture of the frame's aspect fills it, but another aspect (4:3, 1344×768)
-  sits at the left, and `halign`/`valign` with `fill` offset by the unscaled
-  size. So a clip of another aspect gets the affine filter below even when
-  its transform is the default Fit (`core::isIdentity()`).
+  sits at the left. `halign=centre valign=middle` centre it, but only for a
+  frame read at the profile's own size: at any other, `composite`'s
+  `get_image` aligns `item.w` (profile pixels) against the B image's width
+  (requested pixels) and shifts every picture right, a frame-sized one too
+  (2026-09-27; an upstream candidate). So the playback graph and every
+  export centre and skip the affine filter for a plain Fit
+  (`core::compositorFits()`, `EngineSync::FrameReads::ProfileSize`): 20 ms
+  a frame against 63 for a 1344×768 clip in 1080p (decode included), the
+  edges within a pixel. An export at another size is built on a profile of
+  that size (`EngineSync::OutputSize`) rather than scaled by the consumer.
+  That also fixed the affine filter's `rect`, which is in profile pixels:
+  a 720p export of a 1080p project drew a placed or fitted picture to the
+  right edge. Other `EngineSync`s (tests, `AnySize`) and the saved XML keep
+  the left-aligned compositor and fit with affine, since melt may render a
+  file at any size. A dissolve's cuts keep affine too: `luma` mixes both
+  at one size, so a picture of another aspect must arrive frame-sized.
 - **The `affine` transition is too slow to be the track compositor.** It
   fits and centres any aspect by itself, but cost 21 ms a frame for one
   untransformed 1080p track (39 ms for four) against `composite`'s 5 (7).
