@@ -29,9 +29,14 @@ original files.
 ## Install
 
 ```sh
+# Prepare Flatpak for dependencies
 flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+# Download our Flatpak file (will be in Flatpak repos soon!)
 wget https://software.unicornviz.com/u-studio-video-editor-latest.flatpak
+# Install the package
 flatpak install --user ./u-studio-video-editor-latest.flatpak
+# Launch from your app launcher & pin to dash!
+# Or, from command line:
 flatpak run com.ustudio.VideoEditor
 ```
 
