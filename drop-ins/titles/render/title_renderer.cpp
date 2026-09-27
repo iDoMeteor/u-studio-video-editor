@@ -469,6 +469,14 @@ RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std:
     std::set<std::string> warnings;
     {
         Cairo cr(cairo_create(surface.get()));
+        if (cairo_pattern_t *background = fillPattern(
+                doc.background, {0.0, 0.0, static_cast<double>(doc.width), static_cast<double>(doc.height)}, 1.0)) {
+            cairo_scale(cr.get(), static_cast<double>(width) / doc.width, static_cast<double>(height) / doc.height);
+            cairo_set_source(cr.get(), background);
+            cairo_paint(cr.get());
+            cairo_pattern_destroy(background);
+            cairo_identity_matrix(cr.get());
+        }
         for (const Layer &layer : doc.layers) {
             if (!layer.visible)
                 continue;
@@ -483,6 +491,30 @@ RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std:
     cairo_surface_flush(surface.get());
     result.warnings.assign(warnings.begin(), warnings.end());
     return result;
+}
+
+std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleFrame,
+                                         const std::map<std::string, std::string> &fields)
+{
+    ThreadFonts &fonts = threadFonts();
+    fonts.get();
+    std::set<std::string> warnings;
+    std::vector<LayerGeometry> out;
+    out.reserve(doc.layers.size());
+    for (const Layer &layer : doc.layers) {
+        const LayerState state = evaluateLayer(layer, doc.timing, titleFrame);
+        LayerGeometry geometry{
+            layer.id, {state.x, state.y, layer.w, layer.h}, state.rotation, state.scale, layer.visible};
+        if (layer.kind == LayerKind::Text) {
+            std::string content = substituteFields(layer.text, doc.fields, fields);
+            if (content.empty())
+                content = " "; // an empty text layer still has a line's height to grab
+            const TextLayout text = layoutText(fonts, layer, state, content, warnings);
+            geometry.box = {text.box.x, text.box.y, text.box.w, text.box.h};
+        }
+        out.push_back(std::move(geometry));
+    }
+    return out;
 }
 
 void toStraightRgba(const RenderedFrame &frame, uint8_t *out)

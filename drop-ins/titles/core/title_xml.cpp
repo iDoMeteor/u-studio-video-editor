@@ -321,9 +321,9 @@ const char *zoneName(Zone zone)
     return "intro";
 }
 
-void writeFill(xmlNode *layerNode, const Fill &fill)
+void writeFill(xmlNode *parent, const Fill &fill, const char *element = "fill")
 {
-    xmlNode *node = xmlNewChild(layerNode, nullptr, BAD_CAST "fill", nullptr);
+    xmlNode *node = xmlNewChild(parent, nullptr, BAD_CAST element, nullptr);
     switch (fill.kind) {
     case FillKind::None:
         setAttr(node, "kind", "none");
@@ -410,6 +410,8 @@ std::expected<ReadResult, std::string> parseTitle(std::string_view xml)
             t.integer<int64_t>("outro", title.timing.outro, 0, kMaxZoneFrames);
             if (auto mode = attr(child, "hold-mode"); mode && *mode != "elastic")
                 warnings.insert("hold-mode \"" + *mode + "\" isn't supported; the hold is elastic");
+        } else if (is(child, "background")) {
+            readFill(child, title.background, error);
         } else if (is(child, "field")) {
             Field field{attr(child, "name").value_or(""), attr(child, "label").value_or(""),
                         attr(child, "default").value_or("")};
@@ -472,6 +474,9 @@ std::string writeTitle(const TitleDocument &title)
     setAttr(timing, "hold", std::to_string(title.timing.hold));
     setAttr(timing, "outro", std::to_string(title.timing.outro));
     setAttr(timing, "hold-mode", "elastic");
+
+    if (title.background.kind != FillKind::None)
+        writeFill(root, title.background, "background");
 
     for (const Field &field : title.fields) {
         xmlNode *node = xmlNewChild(root, nullptr, BAD_CAST "field", nullptr);

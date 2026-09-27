@@ -78,3 +78,21 @@ Cairo 1.18, fontconfig 2.17):
   reports a write-then-rename save as several events. A 150 ms settle timer
   turns them into one reload, and the fingerprint (size and mtime in ns)
   decides whether anything changed.
+
+## T2a: the designer app
+
+- **Cairo's `ARGB32` is `GDK_MEMORY_DEFAULT`** (premultiplied, native
+  endian), so the renderer's buffer becomes a `GdkMemoryTexture` without
+  conversion.
+- **`GtkFileDialog` starts in the process's working directory** when it's
+  given no folder. A test run launched from a checkout saved into it
+  (2026-09-27), so the Save dialog now starts in the title's own folder, or
+  in Videos, or home.
+- **Driving dialogs on Xvfb.** With no window manager, XTest key events go to
+  the window that already has X focus (the main window), not to a new
+  dialog, and clicking the dialog doesn't move focus. Set entry text over
+  AT-SPI (`Atspi.EditableText.set_text_contents`) and press buttons through
+  their actions, with the AT-SPI bus started inside the private D-Bus
+  session and `GTK_A11Y=atspi`. Pass `DISPLAY`, `GDK_BACKEND=x11` and
+  `GDK_DEBUG=no-portals` into that session, so the dialog is the app's own
+  and nothing opens on the real desktop.

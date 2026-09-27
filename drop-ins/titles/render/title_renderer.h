@@ -14,6 +14,7 @@
 // full-size frame scaled down, and two renders of the same frame are
 // byte-identical.
 
+#include "core/snapping.h"
 #include "core/title_document.h"
 
 #include <cstdint>
@@ -43,6 +44,20 @@ struct RenderResult
 // `fields` are the clip's values for the title's {{fields}}.
 RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std::map<std::string, std::string> &fields,
                          int width, int height);
+
+// Where each layer is at `titleFrame`, in canvas pixels, in stacking order
+// (bottom first): its own box (a text layer's is its text's, or its w/h
+// box), and the rotation and scale drawn about the box's centre. For the
+// titles app's selection handles, hit testing and snapping.
+struct LayerGeometry
+{
+    std::string id;
+    Rect box;
+    double rotation = 0.0, scale = 1.0;
+    bool visible = true;
+};
+std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleFrame,
+                                         const std::map<std::string, std::string> &fields);
 
 // MLT's rgba: straight (not premultiplied) R, G, B, A bytes. `out` must hold
 // width * height * 4 bytes.
