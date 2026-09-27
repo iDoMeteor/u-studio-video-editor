@@ -239,3 +239,15 @@ gdk-pixbuf can't load images. `verify()` accepts the `?begin=` suffix on a
 sequence's resource. A still's size is now read at probe by decoding one
 frame (`meta.media.width`/`height` appear on the first `get_image`).
 Standalone repro, MLT 7.40, and `tests/engine/test_image_sequence`.
+
+**No cheaper CPU path for moving or scaling a picture (MT4, 2026-09-27).**
+Standalone benchmarks at 1080p30 (MLT 7.40, `-O2`, ms per frame pulled as
+yuv422): one cut composited onto black costs 4.0; with the `affine`
+transform filter 20–23, the same whether the picture is half size or a
+quarter, rotated 5° or not, so the cost is the full-frame canvas (its
+RGBA conversions and pass), not the picture. `transition.b_scaled=1`
+saved nothing reliable. Placing the picture with `composite` geometry
+instead cost more: 35 with the geometry on the track's own compositor
+(two tracks), 40 in a per-cut tractor over a transparent canvas (alpha
+kept). So the `affine` filter stays; the remaining lever is GPU
+compositing (an ADR of its own).
