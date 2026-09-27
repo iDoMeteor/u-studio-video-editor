@@ -35,6 +35,8 @@ either accepted or amended it; see "How to use this set" below.
 | 17 | [Drop-in catalogue and distribution](17-drop-in-catalogue-and-distribution.md) | are building an optional drop-in (audio polish, keying, stabilise, captions, …) or packaging core plus opt-in drop-ins. |
 | 18 | [AI generation](18-ai-generation.md) | are working on the AI image and video generation drop-in or its networked helper. |
 | 19 | [Concurrency](19-concurrency.md) | are moving work off the main thread, touching the engine thread, the worker pool, snapshots or export parallelism. |
+| 20 | [Template packages and sharing](20-template-packages-and-sharing.md) | are working on template packs (`.zip`/`.tar.gz`), their validation, or the `u-studio-share` helper. |
+| 21 | [Template sharing back end](21-template-sharing-backend.md) | are building or reviewing the AWS serverless catalogue that packs are published to and downloaded from. |
 | — | [ADRs](adr/) | want the short rationale behind each load-bearing decision. |
 
 ## How to use this set
