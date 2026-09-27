@@ -7,6 +7,7 @@
 #include "doctest.h"
 
 #include "core/media/fingerprint.h"
+#include "render/title_renderer.h"
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
 #include "core/xml/writer.h"
@@ -302,6 +303,40 @@ TEST_CASE("the designer's backdrop is the frame without the title, rendered off 
     CHECK(p[1] < 50);
     // The project it was given is untouched.
     CHECK(scene.model.clip(scene.clip).videoEnabled);
+}
+
+TEST_CASE("animated frames from the producer are the renderer's own, byte for byte")
+{
+    // What the designer draws (renderTitle) is what the editor and export
+    // get from ustudio_title: every behaviour, at every moment tried.
+    setUp();
+    const std::string path =
+        writeTitle("behaviours.ustitle", R"(<ustitle version="1" width="640" height="360" fps="30/1">
+      <timing intro="30" hold="60" outro="30"/>
+      <layer kind="text" x="60" y="120" w="520"><text>Hello brave world</text><font family="Sans" size="48"/>
+        <fill color="#ffffff"/>
+        <behavior slot="in" id="kinetic-stack" duration="24"/><behavior slot="loop" id="wiggle" duration="10"/>
+        <behavior slot="out" id="typewriter" duration="20"/></layer>
+    </ustitle>)");
+    Mlt::Profile profile;
+    profile.set_width(640);
+    profile.set_height(360);
+    profile.set_frame_rate(30, 1);
+    auto producer = titles::makeTitleProducer(profile, path, 120, {});
+    REQUIRE(producer);
+    auto doc = titles::readTitle(path);
+    for (int f : {3, 12, 40, 61, 100, 115}) {
+        CAPTURE(f);
+        producer->seek(f);
+        std::unique_ptr<Mlt::Frame> frame(producer->get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 640, h = 360;
+        const uint8_t *image = frame->get_image(format, w, h);
+        const titles::RenderResult reference = titles::renderTitle(doc->document, f, {}, 640, 360);
+        std::vector<uint8_t> straight(640 * 360 * 4);
+        titles::toStraightRgba(reference.frame, straight.data());
+        CHECK(std::equal(straight.begin(), straight.end(), image));
+    }
 }
 
 TEST_CASE("--title-export: alpha formats keep the title's alpha; H.264 is flattened")

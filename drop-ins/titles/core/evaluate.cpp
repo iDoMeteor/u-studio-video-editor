@@ -1,5 +1,7 @@
 #include "evaluate.h"
 
+#include "animation.h"
+
 #include "core/model/animation.h"
 
 #include <algorithm>
@@ -48,41 +50,110 @@ double keyPosition(const Timing &timing, const TitleKey &key)
     return at;
 }
 
+double &stateSlot(LayerState &state, Property property)
+{
+    switch (property) {
+    case Property::X:
+        return state.x;
+    case Property::Y:
+        return state.y;
+    case Property::Opacity:
+        return state.opacity;
+    case Property::Scale:
+        return state.scale;
+    case Property::Rotation:
+        return state.rotation;
+    case Property::Blur:
+        return state.blur;
+    case Property::Tracking:
+        return state.tracking;
+    case Property::Reveal:
+        return state.reveal;
+    case Property::Shift:
+        return state.shift;
+    case Property::FillR:
+        return state.fill.r;
+    case Property::FillG:
+        return state.fill.g;
+    case Property::FillB:
+        return state.fill.b;
+    case Property::FillA:
+        return state.fill.a;
+    case Property::ShadowOpacity:
+        return state.shadowOpacity;
+    }
+    return state.opacity;
+}
+
+double stateValue(LayerState state, Property property)
+{
+    return stateSlot(state, property);
+}
+
+namespace {
+
+// A track's keys at their places in the title, on core's keyframe model.
+std::vector<core::Keyframe> absoluteKeys(const PropertyTrack &track, const Timing &timing)
+{
+    std::vector<core::Keyframe> keys;
+    keys.reserve(track.keys.size());
+    for (const TitleKey &key : track.keys) {
+        core::Keyframe k = key.key;
+        k.at = static_cast<core::FrameIndex>(keyPosition(timing, key));
+        keys.push_back(k);
+    }
+    return keys;
+}
+
+} // namespace
+
 LayerState evaluateLayer(const Layer &layer, const Timing &timing, double titleFrame)
 {
-    LayerState state{layer.x, layer.y, layer.opacity, layer.scale, layer.rotation};
-    for (const PropertyTrack &track : layer.animation) {
+    return evaluateLayer(layer, expandBehaviors(layer, timing), timing, titleFrame);
+}
+
+LayerState evaluateLayer(const Layer &layer, const Expansion &expansion, const Timing &timing, double titleFrame)
+{
+    LayerState state;
+    state.x = layer.x;
+    state.y = layer.y;
+    state.opacity = layer.opacity;
+    state.scale = layer.scale;
+    state.rotation = layer.rotation;
+    state.blur = layer.blur;
+    state.tracking = layer.font.tracking;
+    state.fill = layer.fill.color;
+    // The layer's own keyframes: values.
+    for (const PropertyTrack &track : layer.animation)
+        if (!track.keys.empty())
+            stateSlot(state, track.property) = core::easedValue(absoluteKeys(track, timing), titleFrame);
+    // Its behaviours: offsets.
+    for (const PropertyTrack &track : expansion.offsets) {
         if (track.keys.empty())
             continue;
-        // core::Keyframe positions are whole frames; zones are too, so the
-        // absolute positions are exact.
-        std::vector<core::Keyframe> keys;
-        keys.reserve(track.keys.size());
-        for (const TitleKey &key : track.keys) {
-            core::Keyframe k = key.key;
-            k.at = static_cast<core::FrameIndex>(keyPosition(timing, key));
-            keys.push_back(k);
-        }
-        const double value = core::easedValue(keys, titleFrame);
-        switch (track.property) {
-        case Property::X:
-            state.x = value;
-            break;
-        case Property::Y:
-            state.y = value;
-            break;
-        case Property::Opacity:
-            state.opacity = value;
-            break;
-        case Property::Scale:
-            state.scale = value;
-            break;
-        case Property::Rotation:
-            state.rotation = value;
-            break;
+        const double offset = core::easedValue(absoluteKeys(track, timing), titleFrame);
+        double &value = stateSlot(state, track.property);
+        value = multiplicative(track.property) ? value * offset : value + offset;
+    }
+    // Its loops, through the hold, ramped in and out at its edges.
+    const double weight = expansion.loops.empty() ? 0.0 : loopWeight(timing, titleFrame);
+    if (weight > 0.0) {
+        for (const Loop &loop : expansion.loops) {
+            const double wave =
+                loop.centre + loop.amplitude * loopWave(loop, titleFrame - static_cast<double>(timing.intro));
+            double &value = stateSlot(state, loop.property);
+            if (multiplicative(loop.property))
+                value *= 1.0 + (wave - 1.0) * weight;
+            else
+                value += wave * weight;
         }
     }
     state.opacity = std::clamp(state.opacity, 0.0, 1.0);
+    state.reveal = std::clamp(state.reveal, 0.0, 1.0);
+    state.shadowOpacity = std::max(0.0, state.shadowOpacity);
+    state.blur = std::max(0.0, state.blur);
+    for (double *channel : {&state.fill.r, &state.fill.g, &state.fill.b, &state.fill.a})
+        *channel = std::clamp(*channel, 0.0, 1.0);
     return state;
 }
 

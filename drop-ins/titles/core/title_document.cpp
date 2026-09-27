@@ -18,8 +18,10 @@ int hexDigit(char c)
     return -1;
 }
 
-constexpr std::array<const char *, 5> kPropertyNames = {"x", "y", "opacity", "scale", "rotation"};
-static_assert(static_cast<size_t>(Property::Rotation) + 1 == kPropertyNames.size());
+constexpr std::array<const char *, 14> kPropertyNames = {"x",      "y",        "opacity", "scale",         "rotation",
+                                                         "blur",   "tracking", "reveal",  "shift",         "fill-r",
+                                                         "fill-g", "fill-b",   "fill-a",  "shadow-opacity"};
+static_assert(static_cast<size_t>(Property::ShadowOpacity) + 1 == kPropertyNames.size());
 } // namespace
 
 std::optional<Rgba> parseColor(std::string_view text)

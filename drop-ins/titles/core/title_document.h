@@ -135,7 +135,7 @@ struct TitleKey
     bool operator==(const TitleKey &) const = default;
 };
 
-// The properties a keyframe track may animate, T1's set.
+// The properties a keyframe track may animate.
 enum class Property
 {
     X,
@@ -143,6 +143,15 @@ enum class Property
     Opacity,
     Scale,
     Rotation, // degrees, clockwise, about the box's centre
+    Blur,     // the whole layer blurred, about a Gaussian's sigma in canvas pixels
+    Tracking, // a text layer's letter spacing, in em
+    Reveal,   // how much of the box shows, 0..1 from its left edge (a wipe)
+    Shift,    // a gradient fill slid along its axis, -1..1 of its length (a shimmer)
+    FillR,    // a solid fill's colour, one channel each, 0..1
+    FillG,
+    FillB,
+    FillA,
+    ShadowOpacity, // multiplies the shadow's opacity (a glow's breathing)
 };
 const char *propertyName(Property property);
 std::optional<Property> propertyFromName(std::string_view name);
@@ -153,6 +162,72 @@ struct PropertyTrack
     std::vector<TitleKey> keys; // sorted by their position in the title
 
     bool operator==(const PropertyTrack &) const = default;
+};
+
+// Text animators (doc 16, "Animation model"): the text split into units,
+// each on its own clock, offset by a small keyframed curve.
+enum class AnimatorUnit
+{
+    Character,
+    Word,
+    Line,
+};
+
+enum class AnimatorOrder
+{
+    Forward,
+    Reverse,
+    CentreOut, // the middle unit first, outwards
+    Random,    // a shuffle fixed by the animator's seed
+};
+
+// One point of an animator's curve, on a unit's own clock. Offsets add to
+// the layer (dx, dy, rotation, blur) or multiply it (scale, opacity).
+struct AnimatorKey
+{
+    core::FrameIndex at = 0;
+    core::Easing easing = core::Easing::Linear;
+    double dx = 0.0, dy = 0.0, scale = 1.0, rotation = 0.0, opacity = 1.0, blur = 0.0;
+
+    bool operator==(const AnimatorKey &) const = default;
+};
+
+struct Animator
+{
+    AnimatorUnit unit = AnimatorUnit::Character;
+    AnimatorOrder order = AnimatorOrder::Forward;
+    uint32_t seed = 1;
+    double stagger = 1.0;   // frames between one unit's start and the next's
+    double spread = 0.0;    // > 0: frames from the first unit's start to the last's (stagger follows the count)
+    bool alternate = false; // every other unit mirrors dx (split lines)
+    // When the first unit starts.
+    Zone zone = Zone::Intro;
+    core::FrameIndex at = 0;
+    std::vector<AnimatorKey> keys; // sorted by at
+
+    bool operator==(const Animator &) const = default;
+};
+
+// A behaviour (doc 16): a named preset kept as data and expanded when the
+// title is drawn (core/animation.h), so its timing follows the zones; "Detach
+// to keyframes" turns one into plain keyframes and animators.
+enum class BehaviorSlot
+{
+    In,   // starts at the intro's start
+    Out,  // ends at the outro's end
+    Loop, // repeats through the hold
+};
+
+struct Behavior
+{
+    BehaviorSlot slot = BehaviorSlot::In;
+    std::string id;                 // "fade", "rise", "typewriter", "float" ... (behaviorIds())
+    core::FrameIndex duration = 12; // In, Out: how long; Loop: its period
+    core::Easing easing = core::Easing::CubicOut;
+    uint32_t seed = 1;   // scramble, wiggle, random orders
+    double amount = 1.0; // how strong: distance, size or depth as a factor
+
+    bool operator==(const Behavior &) const = default;
 };
 
 struct Layer
@@ -181,7 +256,10 @@ struct Layer
     Fill fill;
     Stroke stroke;
     Shadow shadow;
+    double blur = 0.0; // the whole layer, like Property::Blur's base
     std::vector<PropertyTrack> animation;
+    std::vector<Animator> animators; // text layers
+    std::vector<Behavior> behaviors;
 
     bool operator==(const Layer &) const = default;
 };

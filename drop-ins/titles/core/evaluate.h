@@ -24,14 +24,24 @@ double titleFrame(const TitleDocument &doc, double clipLength, double clipFrame,
 // A key's position in the title's own timeline (its zone's start + at).
 double keyPosition(const Timing &timing, const TitleKey &key);
 
-// A layer's animated properties at `titleFrame`.
+// A layer's animated properties at `titleFrame`: its own values and
+// keyframes, then its behaviours' offsets and loops (core/animation.h).
 struct LayerState
 {
     double x = 0.0, y = 0.0, opacity = 1.0, scale = 1.0, rotation = 0.0;
+    double blur = 0.0, tracking = 0.0, reveal = 1.0, shift = 0.0, shadowOpacity = 1.0;
+    Rgba fill; // a solid fill's colour
 
     bool operator==(const LayerState &) const = default;
 };
+struct Expansion;
 LayerState evaluateLayer(const Layer &layer, const Timing &timing, double titleFrame);
+// With the layer's behaviours already expanded (expandBehaviors()).
+LayerState evaluateLayer(const Layer &layer, const Expansion &expansion, const Timing &timing, double titleFrame);
+
+// One property's value in a state (Property::FillR is fill.r, ...).
+double &stateSlot(LayerState &state, Property property);
+double stateValue(LayerState state, Property property);
 
 // `text` with each {{name}} replaced by `values[name]`, or the field's
 // default when the clip sets none. Unknown names stay as written, so a typo

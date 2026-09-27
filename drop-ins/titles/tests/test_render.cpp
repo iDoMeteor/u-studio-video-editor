@@ -379,3 +379,99 @@ TEST_CASE("image layers: a PNG at its own size, scaled keeping its aspect, and m
     CHECK(missing.warnings[0] == "the picture logo.png isn't there");
     std::filesystem::remove_all(dir);
 }
+
+#include "core/animation.h"
+
+namespace {
+TitleDocument animated(const char *id, BehaviorSlot slot)
+{
+    TitleDocument doc = parse(R"(<ustitle version="1" width="640" height="360" fps="30/1">
+      <timing intro="30" hold="60" outro="30"/>
+      <layer id="t" kind="text" x="60" y="120" w="520"><text>Hello brave world
+second line</text><font family="Sans" weight="700" size="48"/><fill color="#9d4eff"/></layer>
+    </ustitle>)");
+    const BehaviorInfo *info = behaviorInfo(id);
+    REQUIRE(info);
+    doc.layers[0].behaviors.push_back({slot, id, info->duration, info->easing, 5, 1.0});
+    return doc;
+}
+
+long inkSum(const Straight &image)
+{
+    long sum = 0;
+    for (size_t i = 3; i < image.bytes.size(); i += 4)
+        sum += image.bytes[i];
+    return sum;
+}
+} // namespace
+
+TEST_CASE("every behaviour renders in every slot it fits, and changes the picture over its window")
+{
+    for (const BehaviorInfo &info : behaviorCatalogue()) {
+        for (BehaviorSlot slot : {BehaviorSlot::In, BehaviorSlot::Out, BehaviorSlot::Loop}) {
+            if (!((slot == BehaviorSlot::In && info.in) || (slot == BehaviorSlot::Out && info.out) ||
+                  (slot == BehaviorSlot::Loop && info.loop)))
+                continue;
+            CAPTURE(info.id);
+            CAPTURE(static_cast<int>(slot));
+            const TitleDocument doc = animated(info.id, slot);
+            const double a = slot == BehaviorSlot::In ? 4 : slot == BehaviorSlot::Out ? 116 : 45;
+            const double b = slot == BehaviorSlot::In ? 60 : slot == BehaviorSlot::Out ? 60 : 62;
+            const RenderResult first = renderTitle(doc, a, {}, 640, 360);
+            const RenderResult second = renderTitle(doc, b, {}, 640, 360);
+            CHECK(first.warnings.empty());
+            const bool changes = first.frame.pixels != second.frame.pixels;
+            CHECK(changes);
+            // Rendering is still exact: the same frame twice is byte-identical.
+            const bool repeatable = renderTitle(doc, a, {}, 640, 360).frame.pixels == first.frame.pixels;
+            CHECK(repeatable);
+        }
+    }
+}
+
+TEST_CASE("text drawn in units, at rest, looks like the text drawn whole")
+{
+    TitleDocument plain = parse(R"(<ustitle version="1" width="640" height="200">
+      <layer kind="text" x="40" y="60"><text>Units at rest</text><font family="Sans" size="56"/>
+        <fill gradient="linear" from="#ff2bd6" to="#19e3ff"/><stroke color="#000000" width="2"/></layer>
+    </ustitle>)");
+    TitleDocument units = plain;
+    Animator identity;
+    identity.keys = {{0, ustudio::core::Easing::Linear, 0, 0, 1, 0, 1, 0}};
+    units.layers[0].animators = {identity};
+    const Straight a = render(plain, 0, 640, 200), b = render(units, 0, 640, 200);
+    CHECK(a.inkBounds() == b.inkBounds());
+    long difference = 0;
+    for (size_t i = 0; i < a.bytes.size(); ++i)
+        difference += std::abs(int(a.bytes[i]) - int(b.bytes[i]));
+    // Glyph by glyph against the whole layout: the same outlines, give or
+    // take antialiasing where a stroke meets its neighbour.
+    CHECK(static_cast<double>(difference) / static_cast<double>(a.bytes.size()) < 0.5);
+}
+
+TEST_CASE("the typewriter types: ink grows, and its cursor shows")
+{
+    const TitleDocument doc = animated("typewriter", BehaviorSlot::In);
+    const long early = inkSum(render(doc, 5)), later = inkSum(render(doc, 20)), done = inkSum(render(doc, 45));
+    CHECK(early > 0); // the cursor, and the first letters
+    CHECK(early < later);
+    CHECK(later < done);
+}
+
+TEST_CASE("a wipe reveals from the left edge")
+{
+    const TitleDocument doc = animated("wipe", BehaviorSlot::In);
+    const auto half = render(doc, 7.5).inkBounds();
+    const auto full = render(doc, 40).inkBounds();
+    CHECK(half[0] == full[0]);      // same left edge
+    CHECK(half[2] < full[2] - 100); // the right part not yet shown
+}
+
+TEST_CASE("glow breathe gives a layer with no shadow a glow in its own colour")
+{
+    const TitleDocument plain = animated("float", BehaviorSlot::Loop);
+    const TitleDocument glowing = animated("glow-breathe", BehaviorSlot::Loop);
+    const Straight a = render(plain, 50), b = render(glowing, 50);
+    // Just outside the text's own ink, the glow shows.
+    CHECK(static_cast<double>(inkSum(b)) > static_cast<double>(inkSum(a)) * 1.2);
+}

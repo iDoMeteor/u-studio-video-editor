@@ -50,7 +50,7 @@ TitleDocument lowerThird()
 
 } // namespace
 
-TEST_CASE("the doc 16 example reads, with a warning for what T1 doesn't do")
+TEST_CASE("the doc 16 example reads")
 {
     auto result = parseTitle(kLowerThird);
     REQUIRE(result.has_value());
@@ -77,8 +77,9 @@ TEST_CASE("the doc 16 example reads, with a warning for what T1 doesn't do")
     CHECK(name.fill.kind == FillKind::Linear);
     CHECK(name.stroke.color.a == doctest::Approx(0xcc / 255.0));
     CHECK(name.shadow.enabled);
-    REQUIRE(result->warnings.size() == 1);
-    CHECK(result->warnings[0] == "<animator> isn't supported yet");
+    CHECK(result->warnings.empty());
+    REQUIRE(name.animators.size() == 1);
+    CHECK(name.animators[0].unit == AnimatorUnit::Character);
 }
 
 TEST_CASE("write then read gives the same document")

@@ -13,4 +13,8 @@ namespace ustudio::titles {
 // nearest whole number to `sigma`; sigma below 0.5 does nothing.
 void blurAlpha(uint8_t *data, int width, int height, int stride, double sigma);
 
+// The same for Cairo's ARGB32 (premultiplied, 4 bytes a pixel): every
+// channel blurred alike, so colour and coverage stay consistent.
+void blurArgb(uint8_t *data, int width, int height, int stride, double sigma);
+
 } // namespace ustudio::titles
