@@ -1,6 +1,8 @@
 #!/bin/sh
 # run.sh's steps, inside the private D-Bus session.
 set -u
+# Activated services (portals) run in run.sh's private runtime dir.
+dbus-update-activation-environment XDG_RUNTIME_DIR="$SMOKE_RUNTIME" GIO_USE_VFS=local
 Xvfb "$DISPLAY" -screen 0 1600x1000x24 -nolisten tcp >"$SMOKE_OUT/xvfb.log" 2>&1 &
 XVFB=$!
 sleep 1
