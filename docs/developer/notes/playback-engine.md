@@ -113,7 +113,13 @@ consumer stops before `Factory::close()`.
   against the old one when the swap happened. Paying for a device
   close/reopen on every edit is the actual cost of the safe version;
   see `tests/engine/test_playback_controller.cpp`'s regression test for
-  the exact scenario.
+  the exact scenario. Even the stop/restart path has a residual race:
+  once in a full ASan suite run (2026-09-27; 0 of 10 isolated repeats)
+  that test hit a SEGV in libmlt's `on_consumer_frame_show` →
+  `mlt_frame_get_position` on the `sdl2_audio` consumer thread right
+  after a restart. The frame the event hands over is already freed.
+  That is a candidate for the MLT upstream list, not something our code
+  can fix.
 - **Exactly one `AppWindow` (and therefore one `PlaybackController`) for
   the whole process, enforced, not just assumed.** `G_APPLICATION_DEFAULT_
   FLAGS` makes this app single-instance, so GApplication redelivers the

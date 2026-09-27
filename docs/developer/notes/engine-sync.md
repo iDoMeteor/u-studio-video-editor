@@ -251,3 +251,25 @@ instead cost more: 35 with the geometry on the track's own compositor
 (two tracks), 40 in a per-cut tractor over a transparent canvas (alpha
 kept). So the `affine` filter stays; the remaining lever is GPU
 compositing (an ADR of its own).
+
+**MLT composites YUV without converting between colour spaces, and a
+colour producer's YUV is BT.601 (fixed 0.52.0-beta.2, 2026-09-27).**
+`producer_colour` tags every YUV image it makes BT.601 (and limited range),
+and `composite` keeps its A frame's tag and never converts the B frame;
+`avcolour_space` only converts when the pixel *format* changes. Track 0 is
+our black `color:` background, so every composited frame was tagged 601
+and the final YUV→RGB step (the preview's rgba, a render's yuv420p)
+decoded every BT.709 source with the 601 matrix: pure red 255 → 233,
+cyan's red 0 → 22, in preview and export alike (found by VE GPU against
+movit). Fix: the black master carries an in-process filter
+(`mlt_filter_new()`, a `get_image` hook) that re-tags its YUV with the
+profile's colour space (black is the same YUV in both, so it's free);
+`color:` sources are opened with `mlt_image_format=rgba`, so their
+conversion to YUV uses the profile's matrix; the saved project writes the
+same `mlt_image_format=rgba` on its black and colour producers, so `melt`
+gets identical pixels. Measured alternatives: the black as RGBA in the
+editor (+7 ms a frame at 1080p), an empty track 0 (gaps draw white), a
+lavfi black (600+ ms per far seek). A source in another colour space than
+the profile (an SD 601 file in an HD project) is still composited
+unconverted, as in MLT generally. `tests/engine/test_colour` (generated
+709 bars, preview and a render).

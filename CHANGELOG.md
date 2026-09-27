@@ -11,6 +11,12 @@ docs-only changes are not listed (CLAUDE.md).
   fit any clip length (only the hold stretches), and update in the editor
   within a second when the file is saved.
 
+## 0.52.0-beta.2
+
+- Colours are right: BT.709 footage (most HD video) was shown and exported
+  with slightly wrong colours (pure red came out 233 of 255, cyan picked up
+  red), because the graph's black background labelled every frame BT.601.
+
 ## 0.52.0-beta.1
 
 - Image sequences can be relinked (pick any of their images, or search a
