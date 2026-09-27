@@ -55,6 +55,9 @@ numbered too and shouldn't turn into a clip by themselves.
 - To change the project's rate, click the title in the header bar. Every
   cut, dissolve, marker and keyframe keeps its time, and the change is one
   undo step.
+- The same dialog sets the project's **background**: the colour shown
+  wherever no clip covers the frame (black by default), in the preview
+  and in renders. It is saved with the project and is one undo step.
 
 ## The media browser
 

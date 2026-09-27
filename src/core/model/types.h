@@ -369,6 +369,10 @@ struct Sequence
     std::vector<Marker> markers;
     std::vector<Effect> effects; // master effects on the output
     std::vector<AdjustmentBlock> adjustmentBlocks;
+    // The colour under every track, where nothing covers the frame:
+    // 0xRRGGBB, opaque (a transparent export is the titles side's).
+    uint32_t background = kDefaultBackground;
+    static constexpr uint32_t kDefaultBackground = 0x000000;
 
     FrameIndex length() const
     {
@@ -380,6 +384,13 @@ struct Sequence
 
     bool operator==(const Sequence &) const = default;
 };
+
+// A background as MLT's colour producer reads it ("0xRRGGBBAA", opaque),
+// and as saved and shown ("#rrggbb").
+std::string backgroundResource(uint32_t rgb);
+std::string backgroundHex(uint32_t rgb);
+// "#rrggbb" back to 0xRRGGBB; nullopt for anything else (untrusted input).
+std::optional<uint32_t> parseBackgroundHex(const std::string &text);
 
 struct Project
 {

@@ -346,6 +346,22 @@ void SetSequenceProfile::revert(Model &model)
     model.setSequenceProfile(m_oldProfile);
 }
 
+SetSequenceBackground::SetSequenceBackground(uint32_t rgb) : m_rgb(rgb & 0xffffff) {}
+
+bool SetSequenceBackground::apply(Model &model)
+{
+    if (model.sequence().background == m_rgb)
+        return false;
+    m_oldRgb = model.sequence().background;
+    model.setSequenceBackground(m_rgb);
+    return true;
+}
+
+void SetSequenceBackground::revert(Model &model)
+{
+    model.setSequenceBackground(m_oldRgb);
+}
+
 ChangeSequenceFrameRate::ChangeSequenceFrameRate(Rational fps) : m_fps(fps) {}
 
 bool ChangeSequenceFrameRate::apply(Model &model)

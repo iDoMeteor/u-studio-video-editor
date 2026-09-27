@@ -329,6 +329,9 @@ std::expected<Model, std::string> loadProject(const std::string &path)
     seq.id = SequenceId{toU64(prop(tractor, "ustudio:sequence_id", "1"))};
     seq.name = prop(tractor, "ustudio:sequence_name");
     seq.markers = parseMarkersJson(prop(tractor, "ustudio:markers", "[]"));
+    // Absent before 0.54 (black); anything unreadable is black too.
+    seq.background =
+        parseBackgroundHex(prop(tractor, "ustudio:background", "#000000")).value_or(Sequence::kDefaultBackground);
 
     if (xmlNodePtr profileNode = firstChildNamed(mlt, "profile")) {
         seq.profile.width = static_cast<int>(toI64(attr(profileNode, "width")));

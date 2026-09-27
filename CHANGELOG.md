@@ -10,6 +10,10 @@ docs-only changes are not listed (CLAUDE.md).
   layers. In the editor, double-click a title clip (or Edit Title) to open
   it in U Stu Titles over the video at the playhead.
 
+- Project background colour: click the title in the header bar to pick the
+  colour shown wherever no clip covers the frame, in the preview and in
+  renders (black by default). Saved with the project; one undo step.
+
 ## 0.55.0-beta.1
 
 - U Stu Titles: a layers list (show, hide, lock, restack by dragging) and

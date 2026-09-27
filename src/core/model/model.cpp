@@ -4,11 +4,44 @@
 #include "core/log.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <tuple>
 #include <unordered_map>
 #include <cassert>
 
 namespace ustudio::core {
+
+std::string backgroundResource(uint32_t rgb)
+{
+    char text[16];
+    std::snprintf(text, sizeof text, "0x%06xff", static_cast<unsigned>(rgb & 0xffffff));
+    return text;
+}
+
+std::string backgroundHex(uint32_t rgb)
+{
+    char text[8];
+    std::snprintf(text, sizeof text, "#%06x", static_cast<unsigned>(rgb & 0xffffff));
+    return text;
+}
+
+std::optional<uint32_t> parseBackgroundHex(const std::string &text)
+{
+    if (text.size() != 7 || text[0] != '#')
+        return std::nullopt;
+    uint32_t rgb = 0;
+    for (size_t i = 1; i < 7; ++i) {
+        const char c = text[i];
+        const int digit = c >= '0' && c <= '9'   ? c - '0'
+                          : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                          : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                                 : -1;
+        if (digit < 0)
+            return std::nullopt;
+        rgb = rgb << 4 | static_cast<uint32_t>(digit);
+    }
+    return rgb;
+}
 
 namespace {
 // A caller broke one of Model's preconditions (commands validate first, in
@@ -434,6 +467,12 @@ void Model::setSequenceProfile(const Profile &profile)
 {
     activeSequence().profile = profile;
     notify(SequenceProfileChanged{});
+}
+
+void Model::setSequenceBackground(uint32_t rgb)
+{
+    activeSequence().background = rgb & 0xffffff;
+    notify(SequenceBackgroundChanged{});
 }
 
 void Model::replaceSequenceAndBin(Sequence sequence, std::vector<Asset> bin)

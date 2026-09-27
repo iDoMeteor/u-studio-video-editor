@@ -1500,15 +1500,36 @@ void AppWindow::onProjectFrameRateClicked()
     GtkWidget *dropdown = gtk_drop_down_new(G_LIST_MODEL(labels), nullptr);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(dropdown), selected);
 
+    // The background: the colour wherever no clip covers the frame.
+    const uint32_t background = m_model.sequence().background;
+    GdkRGBA rgba{static_cast<float>(background >> 16 & 0xff) / 255.0f,
+                 static_cast<float>(background >> 8 & 0xff) / 255.0f, static_cast<float>(background & 0xff) / 255.0f,
+                 1.0f};
+    GtkColorDialog *colorDialog = gtk_color_dialog_new();
+    gtk_color_dialog_set_with_alpha(colorDialog, FALSE);
+    gtk_color_dialog_set_title(colorDialog, "Background colour");
+    GtkWidget *colorButton = gtk_color_dialog_button_new(colorDialog); // takes colorDialog
+    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(colorButton), &rgba);
+    gtk_widget_set_tooltip_text(colorButton, "The colour wherever no clip covers the frame, in preview and export");
+    GtkWidget *colorLabel = gtk_label_new("Background");
+    gtk_widget_set_hexpand(colorLabel, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(colorLabel), 0.0f);
+    GtkWidget *colorRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_box_append(GTK_BOX(colorRow), colorLabel);
+    gtk_box_append(GTK_BOX(colorRow), colorButton);
+    GtkWidget *extra = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_box_append(GTK_BOX(extra), dropdown);
+    gtk_box_append(GTK_BOX(extra), colorRow);
+
     AdwDialog *dialog = adw_alert_dialog_new(
-        "Project frame rate",
+        "Project frame rate and background",
         ("Now " + core::formatFps(current) +
          " fps. Changing it keeps every clip, dissolve, fade and marker at its time: positions move to the "
-         "nearest frame at the new rate. You can undo it.")
+         "nearest frame at the new rate. You can undo either change.")
             .c_str());
-    adw_alert_dialog_set_extra_child(ADW_ALERT_DIALOG(dialog), dropdown);
+    adw_alert_dialog_set_extra_child(ADW_ALERT_DIALOG(dialog), extra);
     adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel");
-    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "change", "Change");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "change", "Apply");
     adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "change", ADW_RESPONSE_SUGGESTED);
     adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
 
@@ -1517,23 +1538,39 @@ void AppWindow::onProjectFrameRateClicked()
         AppWindow *self;
         std::vector<core::Rational> rates;
         GtkDropDown *dropdown;
+        GtkColorDialogButton *colorButton;
     };
-    auto *ctx = new Context{this, std::move(rates), GTK_DROP_DOWN(g_object_ref(dropdown))};
+    auto *ctx = new Context{this, std::move(rates), GTK_DROP_DOWN(g_object_ref(dropdown)),
+                            GTK_COLOR_DIALOG_BUTTON(g_object_ref(colorButton))};
     adw_alert_dialog_choose(
         ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
         [](GObject *source, GAsyncResult *result, gpointer userData) {
             std::unique_ptr<Context> owned(static_cast<Context *>(userData));
             const std::string response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
             const guint index = gtk_drop_down_get_selected(owned->dropdown);
+            const GdkRGBA *picked = gtk_color_dialog_button_get_rgba(owned->colorButton);
+            auto channel = [](float value) {
+                return static_cast<uint32_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+            };
+            const uint32_t colour = channel(picked->red) << 16 | channel(picked->green) << 8 | channel(picked->blue);
             g_object_unref(owned->dropdown);
-            if (response != "change" || index >= owned->rates.size())
+            g_object_unref(owned->colorButton);
+            if (response != "change")
                 return;
             AppWindow *self = owned->self;
-            const core::Rational fps = owned->rates[index];
-            if (self->m_undoStack.execute(std::make_unique<core::ChangeSequenceFrameRate>(fps)))
-                self->showStatus("The project is now " + core::formatFps(fps) + " fps.");
-            else
-                self->showStatus("The project is already " + core::formatFps(fps) + " fps.");
+            std::string status;
+            // Each change is its own undo step.
+            if (self->m_undoStack.execute(std::make_unique<core::SetSequenceBackground>(colour)))
+                status = "The background is now " + core::backgroundHex(colour) + ". ";
+            if (index < owned->rates.size()) {
+                const core::Rational fps = owned->rates[index];
+                if (self->m_undoStack.execute(std::make_unique<core::ChangeSequenceFrameRate>(fps)))
+                    status += "The project is now " + core::formatFps(fps) + " fps.";
+                else if (status.empty())
+                    status = "Nothing changed: the project is already " + core::formatFps(fps) + " fps.";
+            }
+            if (!status.empty())
+                self->showStatus(status);
         },
         ctx);
     // No unref of `labels`: gtk_drop_down_new() took it (transfer full).

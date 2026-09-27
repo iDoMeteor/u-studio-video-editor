@@ -73,7 +73,7 @@ const std::vector<ActionSpec> &actionSpecs()
         // --- Project ---
         {"save",         "Save",              "Project", {"<Control>s"},             &AppWindow::saveActionActivated},
         {"save-as",       "Save As…",          "Project", {"<Control><Shift>s"},      &AppWindow::saveAsActivated},
-        {"project-frame-rate", "Project Frame Rate…", "Project", {},                   &AppWindow::projectFrameRateActivated},
+        {"project-frame-rate", "Project Frame Rate and Background…", "Project", {},   &AppWindow::projectFrameRateActivated},
         {"open-project",  "Open Project…",     "Project", {"<Control>o"},             &AppWindow::openProjectActionActivated},
         {"new-project",   "New Project",       "Project", {"<Control>n"},             &AppWindow::newProjectActionActivated},
         {"import",        "Import…",           "Project", {"<Control>i"},             &AppWindow::importActionActivated},

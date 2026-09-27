@@ -272,6 +272,24 @@ class SetSequenceProfile : public Command
     Profile m_oldProfile;
 };
 
+// The colour under every track (Sequence::background). Refuses the colour
+// it already has.
+class SetSequenceBackground : public Command
+{
+  public:
+    explicit SetSequenceBackground(uint32_t rgb);
+    std::string label() const override
+    {
+        return "Set background colour";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    uint32_t m_rgb;
+    uint32_t m_oldRgb = Sequence::kDefaultBackground;
+};
+
 // The sequence's frame rate, with everything already on it moved to the
 // same times at the new rate (core::retime(): clips, dissolves, fades,
 // keyframes, markers, asset lengths). Refuses the rate it already has, and

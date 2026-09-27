@@ -279,6 +279,7 @@ class EngineSync
     std::shared_ptr<Mlt::Tractor> m_tractor;
     PreviewScale m_previewScale = PreviewScale::Full;
     FrameReads m_reads = FrameReads::AnySize;
+    uint32_t m_blackMasterColour = core::Sequence::kDefaultBackground; // the background m_blackMaster shows
     OutputSize m_outputSize{0, 0};
     bool compositorFits(const core::Clip &clip, bool inDissolve) const;
     double m_previewFactor = 1.0;

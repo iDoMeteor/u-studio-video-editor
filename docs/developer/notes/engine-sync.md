@@ -207,6 +207,17 @@ from a standalone repro (MLT 7.40, 2026-09-25):
   the left-aligned compositor and fit with affine, since melt may render a
   file at any size. A dissolve's cuts keep affine too: `luma` mixes both
   at one size, so a picture of another aspect must arrive frame-sized.
+- **The background (track 0) is the sequence's colour** (`Sequence::
+  background`). Black and greys stay YUV with the profile-colourspace
+  re-tag (a grey is the same YUV in BT.601 and 709); any other colour is
+  RGBA (`mlt_image_format`), as the writer saves it for melt. In MLT XML a
+  colour needs `mlt_service=color` and a bare `0xRRGGBBAA` resource: a
+  `resource` of `color:…` loads as black whatever the colour, so the old
+  `color:black` background was right by accident (2026-09-27 repro).
+- **A producer made straight from the factory, not through `loader`, gets
+  no normalisers**, and composite then read its RGBA as YUV: a transparent
+  frame showed as green (0,136,0). Drop-in producers go through `loader`
+  (`"ustudio_title:<path>"`). VE Text's finding from titles T1.
 - **The `affine` transition is too slow to be the track compositor.** It
   fits and centres any aspect by itself, but cost 21 ms a frame for one
   untransformed 1080p track (39 ms for four) against `composite`'s 5 (7).
