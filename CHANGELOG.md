@@ -5,6 +5,12 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.59.1-beta.1
+
+- Single-key shortcuts (Space, J/K/L, X, Delete, letters) no longer fire
+  while you type in any text box in the editor window, such as a field in
+  Settings; a click on the timeline or preview gives them back.
+
 ## 0.59.0-beta.1
 
 - U Stu Titles animates: an animation strip with the intro, hold and outro

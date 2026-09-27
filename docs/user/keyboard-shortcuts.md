@@ -5,6 +5,10 @@
 The app's own list is always current: **Help › Keyboard Shortcuts**. This
 page matches `src/app/action_registry.cpp` as of 0.50.0-beta.2.
 
+While you type in a text box (a clip or track name, a field in Settings or
+the inspector), keys without `Ctrl` type into the box instead: Space types
+a space, it doesn't play. Click the timeline or the preview to use them again.
+
 ## Playback
 
 | Key | Action |
