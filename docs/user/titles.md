@@ -62,6 +62,22 @@ gradient), timing and canvas size.
 colours, gradients and fonts, one click each. **Apply Brand** (with nothing
 selected) restyles the whole title in the brand, keeping its layout.
 
+## Live text: clocks, countdowns and dates
+
+Type one of these into a text layer and it changes as the video plays:
+
+| Type | Shows |
+|---|---|
+| `{{timecode}}` | Where the frame is in the whole video, as hours:minutes:seconds:frames |
+| `{{clip_time}}` | How long the title has been up, as minutes:seconds |
+| `{{countdown:05:00}}` | Counts down from five minutes and stops at zero. Write the start as `ss`, `mm:ss` or `hh:mm:ss`, and it counts in the same shape |
+| `{{date}}` | Today's date, as 2026-09-27 |
+| `{{date:%d %B %Y}}` | Today's date in your own format (`%d` day, `%m` month number, `%B` month name, `%Y` year, `%A` weekday) |
+
+In U Stu Titles, the title is its own clip, so `{{timecode}}` and
+`{{clip_time}}` count from the start of the title. The date is the day the
+video is played or exported.
+
 ## Animating a title
 
 Under the canvas is the **animation strip**: the title's **Intro**, **Hold**

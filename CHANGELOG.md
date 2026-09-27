@@ -5,6 +5,13 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.60.0-beta.1
+
+- Titles can show live text: `{{timecode}}`, `{{clip_time}}`,
+  `{{countdown:mm:ss}}` and `{{date}}` update as the video plays.
+- Fixed: a title clip that didn't start at the beginning of the timeline
+  played its intro and outro at the wrong moments.
+
 ## 0.59.1-beta.1
 
 - Single-key shortcuts (Space, J/K/L, X, Delete, letters) no longer fire

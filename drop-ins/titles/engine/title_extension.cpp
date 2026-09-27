@@ -34,6 +34,10 @@ class TitleExtension : public engine::EngineExtension
         // media (masterProducerFor()), which ustudio_title honours.
         if (producer && !clip.videoEnabled)
             producer->set("video_index", -1);
+        // Source frame 0's place in the sequence, for {{timecode}}. Clip
+        // producers are rebuilt with the graph, so a moved clip gets a new one.
+        if (producer)
+            producer->set("timeline_start", static_cast<double>(clip.position - clip.in));
         return producer;
     }
 };

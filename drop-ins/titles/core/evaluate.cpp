@@ -5,6 +5,9 @@
 #include "core/model/animation.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <optional>
 
 namespace ustudio::titles {
 
@@ -157,8 +160,99 @@ LayerState evaluateLayer(const Layer &layer, const Expansion &expansion, const T
     return state;
 }
 
+namespace {
+
+// Two digits, or more when the value needs them (a 100-minute countdown).
+std::string twoDigits(long long value)
+{
+    char buffer[24];
+    std::snprintf(buffer, sizeof buffer, "%02lld", value);
+    return buffer;
+}
+
+// Whole seconds as MM:SS, or H:MM:SS from an hour.
+std::string clockTime(long long seconds)
+{
+    if (seconds >= 3600)
+        return std::to_string(seconds / 3600) + ":" + twoDigits(seconds / 60 % 60) + ":" + twoDigits(seconds % 60);
+    return twoDigits(seconds / 60) + ":" + twoDigits(seconds % 60);
+}
+
+long long wholeSeconds(double frames, double fps)
+{
+    return fps > 0.0 ? static_cast<long long>(std::floor(std::max(0.0, frames) / fps)) : 0;
+}
+
+// Non-drop-frame at the nominal rate (30 for 29.97), as MLT's own
+// timecode strings are.
+std::string timecode(double frame, double fps)
+{
+    const long long rate = std::max(1LL, std::llround(fps));
+    const auto frames = static_cast<long long>(std::floor(std::max(0.0, frame)));
+    const long long seconds = frames / rate;
+    return twoDigits(seconds / 3600) + ":" + twoDigits(seconds / 60 % 60) + ":" + twoDigits(seconds % 60) + ":" +
+           twoDigits(frames % rate);
+}
+
+// "mm:ss" (or "ss", "hh:mm:ss") as seconds and its number of parts; none
+// when it isn't one.
+std::optional<std::pair<long long, int>> countdownSpan(const std::string &spec)
+{
+    long long total = 0;
+    int parts = 0;
+    size_t pos = 0;
+    while (true) {
+        const size_t colon = spec.find(':', pos);
+        const std::string part = spec.substr(pos, colon == std::string::npos ? std::string::npos : colon - pos);
+        if (part.empty() || part.size() > 6 ||
+            !std::all_of(part.begin(), part.end(), [](char c) { return c >= '0' && c <= '9'; }))
+            return std::nullopt;
+        total = total * 60 + std::stoll(part);
+        if (++parts > 3)
+            return std::nullopt;
+        if (colon == std::string::npos)
+            break;
+        pos = colon + 1;
+    }
+    return std::pair{total, parts};
+}
+
+std::string countdown(long long remaining, int parts)
+{
+    if (parts == 1)
+        return twoDigits(remaining);
+    if (parts == 2)
+        return twoDigits(remaining / 60) + ":" + twoDigits(remaining % 60);
+    return twoDigits(remaining / 3600) + ":" + twoDigits(remaining / 60 % 60) + ":" + twoDigits(remaining % 60);
+}
+
+// A dynamic field's text, or none when `name` isn't one.
+std::optional<std::string> dynamicField(const std::string &name, const FieldClock &clock)
+{
+    if (name == "timecode")
+        return timecode(clock.timelineFrame, clock.fps);
+    if (name == "clip_time")
+        return clockTime(wholeSeconds(clock.clipFrame, clock.fps));
+    if (name.starts_with("countdown:")) {
+        const auto span = countdownSpan(name.substr(10));
+        if (!span)
+            return std::nullopt;
+        const long long remaining = std::max(0LL, span->first - wholeSeconds(clock.clipFrame, clock.fps));
+        return countdown(remaining, span->second);
+    }
+    if (name == "date" || name.starts_with("date:")) {
+        const std::string format = name.size() > 5 ? name.substr(5) : "%Y-%m-%d";
+        char buffer[256];
+        const size_t written = std::strftime(buffer, sizeof buffer, format.c_str(), &clock.localTime);
+        return std::string(buffer, written);
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
 std::string substituteFields(const std::string &text, const std::vector<Field> &fields,
-                             const std::map<std::string, std::string> &values)
+                             const std::map<std::string, std::string> &values, const FieldClock &clock)
 {
     std::string out;
     size_t pos = 0;
@@ -171,7 +265,9 @@ std::string substituteFields(const std::string &text, const std::vector<Field> &
             break;
         out.append(text, pos, open - pos);
         const std::string name = text.substr(open + 2, close - open - 2);
-        if (auto value = values.find(name); value != values.end()) {
+        if (auto dynamic = dynamicField(name, clock)) {
+            out += *dynamic;
+        } else if (auto value = values.find(name); value != values.end()) {
             out += value->second;
         } else if (auto field =
                        std::find_if(fields.begin(), fields.end(), [&](const Field &f) { return f.name == name; });
@@ -184,6 +280,20 @@ std::string substituteFields(const std::string &text, const std::vector<Field> &
     }
     out.append(text, pos, std::string::npos);
     return out;
+}
+
+bool hasDynamicFields(const std::string &text)
+{
+    size_t pos = 0;
+    while ((pos = text.find("{{", pos)) != std::string::npos) {
+        const size_t close = text.find("}}", pos + 2);
+        if (close == std::string::npos)
+            return false;
+        if (dynamicField(text.substr(pos + 2, close - pos - 2), FieldClock{}))
+            return true;
+        pos = close + 2;
+    }
+    return false;
 }
 
 } // namespace ustudio::titles

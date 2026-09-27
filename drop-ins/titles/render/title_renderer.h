@@ -15,6 +15,7 @@
 // byte-identical.
 
 #include "core/snapping.h"
+#include "core/evaluate.h"
 #include "core/title_document.h"
 
 #include <cstdint>
@@ -40,10 +41,15 @@ struct RenderResult
     std::vector<std::string> warnings;
 };
 
+// What the dynamic fields read in the titles app, where the title is its
+// own clip at the start of its own timeline: `titleFrame`, and now.
+FieldClock designerClock(const TitleDocument &doc, double titleFrame);
+
 // `titleFrame` in the title's own timeline (titleFrame() in core/evaluate.h);
-// `fields` are the clip's values for the title's {{fields}}.
+// `fields` are the clip's values for the title's {{fields}}; `clock` is
+// what its dynamic fields read (designerClock() when null).
 RenderResult renderTitle(const TitleDocument &doc, double titleFrame, const std::map<std::string, std::string> &fields,
-                         int width, int height);
+                         int width, int height, const FieldClock *clock = nullptr);
 
 // Where each layer is at `titleFrame`, in canvas pixels, in stacking order
 // (bottom first): its own box (a text layer's is its text's, or its w/h
@@ -58,7 +64,8 @@ struct LayerGeometry
     bool locked = false;
 };
 std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleFrame,
-                                         const std::map<std::string, std::string> &fields);
+                                         const std::map<std::string, std::string> &fields,
+                                         const FieldClock *clock = nullptr);
 
 // MLT's rgba: straight (not premultiplied) R, G, B, A bytes. `out` must hold
 // width * height * 4 bytes.

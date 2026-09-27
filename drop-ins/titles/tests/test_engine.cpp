@@ -216,6 +216,83 @@ TEST_CASE("field values are the clip's own")
     CHECK(hashAt(d, 40) != hashAt(a, 40)); // "Jay Doe", the default
 }
 
+TEST_CASE("dynamic fields: the producer draws what the renderer does, and redraws only when the text changes")
+{
+    setUp();
+    const std::string path = writeTitle("dynamic.ustitle", R"(<ustitle version="1" width="640" height="360" fps="30/1">
+      <timing intro="0" hold="120" outro="0"/>
+      <layer kind="text" x="40" y="120" w="560"><text>{{timecode}} {{clip_time}} {{countdown:00:03}}</text>
+        <font family="Sans" size="40"/><fill color="#ffffff"/></layer>
+    </ustitle>)");
+    Mlt::Profile profile;
+    profile.set_width(640);
+    profile.set_height(360);
+    profile.set_frame_rate(30, 1);
+    auto producer = titles::makeTitleProducer(profile, path, 120, {});
+    REQUIRE(producer);
+    producer->set("timeline_start", 30.0 * 3600); // the clip starts an hour in
+    auto doc = titles::readTitle(path);
+    REQUIRE(doc);
+    for (int f : {0, 29, 30, 95}) {
+        CAPTURE(f);
+        producer->seek(f);
+        std::unique_ptr<Mlt::Frame> frame(producer->get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 640, h = 360;
+        const uint8_t *image = frame->get_image(format, w, h);
+        titles::FieldClock clock;
+        clock.clipFrame = f;
+        clock.timelineFrame = 30.0 * 3600 + f;
+        clock.fps = 30;
+        const titles::RenderResult reference = titles::renderTitle(doc->document, f, {}, 640, 360, &clock);
+        std::vector<uint8_t> straight(640 * 360 * 4);
+        titles::toStraightRgba(reference.frame, straight.data());
+        CHECK(std::equal(straight.begin(), straight.end(), image));
+    }
+}
+
+TEST_CASE("a title clip later in the sequence animates from its own start")
+{
+    // A playlist sets a frame's position to the sequence frame after the
+    // producer made it; the producer must time the title by its own.
+    setUp();
+    const std::string path = writeTitle("later.ustitle");
+    Scene early(path, 93), late(path, 93);
+    late.model.removeClip(late.clip);
+    late.clip = late.model.insertClip(late.upper, late.title, 90, 0, 92);
+    engine::EngineSync a(early.model), b(late.model);
+    for (int f : {0, 9, 40, 85}) {
+        CAPTURE(f);
+        CHECK(hashAt(a, f) == hashAt(b, 90 + f));
+    }
+}
+
+TEST_CASE("{{timecode}} follows the clip's place in the sequence; {{clip_time}} doesn't")
+{
+    setUp();
+    const auto sceneAt = [](const std::string &titlePath, FrameIndex position) {
+        auto scene = std::make_unique<Scene>(titlePath, 93);
+        scene->model.removeClip(scene->clip);
+        scene->clip = scene->model.insertClip(scene->upper, scene->title, position, 0, 92);
+        return scene;
+    };
+    const char *timecode = R"(<ustitle version="1" width="1920" height="1080" fps="30/1">
+      <timing intro="0" hold="93" outro="0"/>
+      <layer kind="text" x="100" y="800" w="900"><text>{{timecode}}</text><font family="Sans" size="64"/>
+        <fill color="#ffffff"/></layer></ustitle>)";
+    const std::string tcPath = writeTitle("timecode.ustitle", timecode);
+    std::string clipTime = timecode;
+    clipTime.replace(clipTime.find("{{timecode}}"), 12, "{{clip_time}}");
+    const std::string ctPath = writeTitle("clip-time.ustitle", clipTime.c_str());
+
+    auto tcEarly = sceneAt(tcPath, 0), tcLate = sceneAt(tcPath, 90);
+    auto ctEarly = sceneAt(ctPath, 0), ctLate = sceneAt(ctPath, 90);
+    engine::EngineSync a(tcEarly->model), b(tcLate->model), c(ctEarly->model), d(ctLate->model);
+    // The same frame of each clip: 10 frames in.
+    CHECK(hashAt(a, 10) != hashAt(b, 100));
+    CHECK(hashAt(c, 10) == hashAt(d, 100));
+}
+
 TEST_CASE("a changed file shows once the asset's fingerprint changes")
 {
     setUp();

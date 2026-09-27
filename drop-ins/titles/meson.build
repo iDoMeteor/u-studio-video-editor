@@ -29,14 +29,16 @@ titles_render = static_library(
   'ustudio_titlerender',
   files('render/blur.cpp', 'render/title_renderer.cpp'),
   include_directories: titles_inc,
-  dependencies: [titles_core_dep, titles_pangocairo_dep, titles_cairo_dep, titles_fontconfig_dep],
+  dependencies: [titles_core_dep, libustudio_platform_dep, titles_pangocairo_dep, titles_cairo_dep,
+                 titles_fontconfig_dep],
   pic: true,
   install: false,
 )
 titles_render_dep = declare_dependency(
   link_with: titles_render,
   include_directories: titles_inc,
-  dependencies: [titles_core_dep, titles_pangocairo_dep, titles_cairo_dep, titles_fontconfig_dep],
+  dependencies: [titles_core_dep, libustudio_platform_dep, titles_pangocairo_dep, titles_cairo_dep,
+                 titles_fontconfig_dep],
 )
 
 subdir('mltmodule')

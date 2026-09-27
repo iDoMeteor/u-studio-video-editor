@@ -6,6 +6,7 @@
 
 #include "title_document.h"
 
+#include <ctime>
 #include <map>
 #include <string>
 
@@ -43,10 +44,28 @@ LayerState evaluateLayer(const Layer &layer, const Expansion &expansion, const T
 double &stateSlot(LayerState &state, Property property);
 double stateValue(LayerState state, Property property);
 
+// What the dynamic fields read (doc 16), for the frame being drawn.
+struct FieldClock
+{
+    double clipFrame = 0.0;     // frames since the clip's first frame
+    double timelineFrame = 0.0; // that frame's place in the sequence
+    double fps = 30.0;
+    std::tm localTime{}; // when it's drawn
+};
+
 // `text` with each {{name}} replaced by `values[name]`, or the field's
 // default when the clip sets none. Unknown names stay as written, so a typo
-// shows on screen instead of vanishing.
+// shows on screen instead of vanishing. The dynamic fields come first,
+// from `clock`:
+//   {{timecode}}          the sequence timecode, HH:MM:SS:FF
+//   {{clip_time}}         time since the clip started, MM:SS (H:MM:SS)
+//   {{countdown:mm:ss}}   counts down from mm:ss (or ss, or hh:mm:ss) to
+//                         zero and stays there, in the same shape
+//   {{date}}, {{date:%d %B %Y}}   today, strftime's format (%Y-%m-%d)
 std::string substituteFields(const std::string &text, const std::vector<Field> &fields,
-                             const std::map<std::string, std::string> &values);
+                             const std::map<std::string, std::string> &values, const FieldClock &clock = {});
+
+// Whether `text` has a dynamic field, so what it says depends on the clock.
+bool hasDynamicFields(const std::string &text);
 
 } // namespace ustudio::titles
