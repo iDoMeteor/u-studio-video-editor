@@ -11,7 +11,7 @@ name, for example `meson test -C builddir engine-sync`.
 
 | Folder | Meson names | Needs |
 |---|---|---|
-| `tests/core/` | `core`, `core-thread-pool`, `core-model-release` | Nothing but the compiler: pure C++ |
+| `tests/core/` | `core`, `core-undo-fuzz`, `core-thread-pool`, `core-model-release` | Nothing but the compiler: pure C++ |
 | `tests/engine/` | `engine-*` (sync, playback controller, render, A/V sync, XML playback, caches, proxies, transform, mixed rates, …) | MLT, but no display and no media files |
 | `tests/app/` | `app-*` (timeline controller and renderer, viewport, queues, settings, autosave, UI hints, …) | GTK for some; most test logic that was kept out of widgets |
 | `tests/dropins/` | `dropins`, `dropin-*` | The drop-in build options (`just dropins-builtin`, `just dropins-module`) |
@@ -51,7 +51,9 @@ Notes on driving GTK dialogs there are in
 
 ## Notable tests
 
-- **Undo property test** (`core`): 10,000 random commands, undo them all,
+- **Undo property test** (`core-undo-fuzz`, the same binary filtered to
+  this one test: about 43 s alone, so it has its own 180 s timeout and
+  `core` keeps 30 s): 10,000 random commands, undo them all,
   and the model must equal the start.
 - **`EngineSync::verify()`** (`engine-sync`): after each of the first 500
   commands of that same stream, and each undo, the MLT graph must match
