@@ -724,6 +724,44 @@ Acceptance:
       reopening shows no banner. (`titles-core`; the designer on a
       private Xvfb with a stale title: banner, Update, Ctrl+S, reopen.)
 
+#### T5.2 — Caption colour and top placement (planned 2026-09-28)
+
+The cheap subset of a subtitle file's own styling (Strategist: "if
+cheap"): colour by the names every player knows, and top or bottom.
+
+- **Colour.** WebVTT's eight default colour classes, `<c.white>`,
+  `<c.lime>`, `<c.cyan>`, `<c.red>`, `<c.yellow>`, `<c.magenta>`,
+  `<c.blue>` and `<c.black>` (other classes on the same `<c>` are
+  ignored), and SRT's `<font color="…">` when it names one of them or
+  gives its exact hex (`#ffff00`). Kept in the caption's words as
+  `<c.yellow>…</c>`, a fourth basic tag: a `tags="basic"` layer draws
+  the run in that colour (the fill is clipped to the run's glyphs and
+  painted solid over the layer's own fill; the stroke and shadow stay
+  the layer's). Any other colour is dropped with its words kept, as now.
+  Export writes `<c.yellow>` in `.vtt` and `<font color="yellow">` in
+  `.srt`.
+- **Top or bottom.** A VTT cue with `line:` as a percentage under 50,
+  or as a line number 0 or more (counted from the top), and an SRT cue
+  starting `{\an7}`, `{\an8}` or `{\an9}`, goes at the top: its clip
+  gets the field `placement=top` and plays a second caption title made
+  from **Caption, top** (`<file name> captions (top).ustitle`), made
+  only when a cue needs it. Everything else stays at the bottom.
+  Horizontal position, size and alignment settings stay ignored. Export
+  writes `line:0` (`.vtt`) or `{\an8}` (`.srt`) for a clip with
+  `placement=top`.
+
+Acceptance:
+
+- [ ] Each named colour, in `.vtt` and `.srt`, imports to the same
+      `<c.name>` run and exports back; other colours and classes are
+      dropped, words kept.
+- [ ] The renderer draws a `<c.yellow>` run yellow and the rest in the
+      layer's fill; a scrambled or animated-unit layer ignores colour
+      runs as it does the others.
+- [ ] Top cues go on the top caption title with `placement=top`; a file
+      without any makes no second title; export then import keeps them
+      at the top in both formats.
+
 ### Later
 
 - **T6 Lottie:** import Lottie animations as layers via `rlottie` (not
