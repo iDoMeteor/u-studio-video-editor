@@ -425,29 +425,45 @@ importCaptions(app::ShellHost &host, const std::string &path, const std::string 
     if (!parsed)
         return std::unexpected(parsed.error());
 
-    // The caption title: a copy of the caption template, beside the project.
+    // The caption title: a copy of the caption template, beside the project;
+    // and one from the top template when a cue sits at the top (T5.2).
     const auto templates = listTemplates(builtInTemplatesDir(), true);
-    auto chosen =
-        std::find_if(templates.begin(), templates.end(), [&](const TemplateInfo &t) { return t.id == templateId; });
-    if (chosen == templates.end())
-        return std::unexpected("the caption template “" + templateId + "” isn't installed");
     const fs::path folder = core::pathFromUtf8(newTitlePath(host.projectFolder())).parent_path();
     const std::string stem = core::utf8String(file.stem());
-    fs::path titlePath = folder / core::pathFromUtf8(stem + " captions.ustitle");
-    for (int n = 2; fs::exists(titlePath, ec); ++n)
-        titlePath = folder / core::pathFromUtf8(stem + " captions " + std::to_string(n) + ".ustitle");
-    fs::create_directories(folder, ec);
-    auto made = newTitleFromTemplate(*chosen, core::utf8String(titlePath));
-    if (!made)
-        return std::unexpected(made.error());
-    auto doc = readTitle(core::utf8String(titlePath));
-    if (!doc)
-        return std::unexpected(doc.error());
+    const auto makeTitle =
+        [&](const std::string &id,
+            const std::string &suffix) -> std::expected<std::pair<fs::path, core::Asset>, std::string> {
+        auto chosen =
+            std::find_if(templates.begin(), templates.end(), [&](const TemplateInfo &t) { return t.id == id; });
+        if (chosen == templates.end())
+            return std::unexpected("the caption template “" + id + "” isn't installed");
+        fs::path titlePath = folder / core::pathFromUtf8(stem + " captions" + suffix + ".ustitle");
+        for (int n = 2; fs::exists(titlePath, ec); ++n)
+            titlePath = folder / core::pathFromUtf8(stem + " captions" + suffix + " " + std::to_string(n) + ".ustitle");
+        fs::create_directories(folder, ec);
+        auto made = newTitleFromTemplate(*chosen, core::utf8String(titlePath));
+        if (!made)
+            return std::unexpected(made.error());
+        auto doc = readTitle(core::utf8String(titlePath));
+        if (!doc)
+            return std::unexpected(doc.error());
+        return std::pair{titlePath, titleAsset(core::utf8String(titlePath), doc->document)};
+    };
+    auto title = makeTitle(templateId, "");
+    if (!title)
+        return std::unexpected(title.error());
+    const fs::path titlePath = title->first;
+    std::optional<core::Asset> topAsset;
+    if (std::any_of(parsed->cues.begin(), parsed->cues.end(), [](const captions::Cue &c) { return c.top; })) {
+        auto top = makeTitle("caption-top", " (top)");
+        if (!top)
+            return std::unexpected(top.error());
+        topAsset = top->second;
+    }
 
     const auto placed = captions::place(parsed->cues, host.model().sequence().profile.fps);
     const std::string name = core::utf8String(file.filename());
-    if (!host.execute(std::make_unique<captions::ImportCaptions>(titleAsset(core::utf8String(titlePath), doc->document),
-                                                                 placed, name)))
+    if (!host.execute(std::make_unique<captions::ImportCaptions>(title->second, placed, name, topAsset)))
         return std::unexpected("couldn't add the captions to the timeline");
     std::string status = "Imported " + std::to_string(parsed->cues.size()) + " captions from " + name +
                          "; restyle them all by editing " + core::utf8String(titlePath.filename()) + ".";

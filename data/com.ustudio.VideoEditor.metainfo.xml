@@ -28,6 +28,24 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.73.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.72.0-beta.1: caption colours and top placement. Subtitle files that colour words white, lime, cyan, red, yellow, magenta, blue or black keep those colours, and captions the file puts at the top of the picture show there, in a top caption style. Both are written back out when you export captions.</p>
+        <p>Try a subtitle file from a video site that uses coloured speakers or top captions. Known limit: other colours, left/right positions and sizes from the file are still ignored.</p>
+      </description>
+    </release>
+    <release version="0.72.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.71.1-beta.1: update from template. A title made from a template now remembers it; when you open the title in U Stu Titles after its template has changed, a bar offers Update, which takes the new design and keeps your field text. Ctrl+Z takes it back.</p>
+        <p>Try making a title from one of your templates, editing the template, then reopening the title. Known limit: titles made before this version aren't offered updates.</p>
+      </description>
+    </release>
+    <release version="0.71.1-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.71.0-beta.1: GPU acceleration now starts off in this download, while a crash it can cause is being fixed. If you want it, turn it on in Settings › Performance › Hardware; your choice stays through updates.</p>
+        <p>Try playback and export with it off as usual. Known issue: with GPU acceleration on, the editor can still close unexpectedly when you pause or seek around a dissolve; turning it off avoids that.</p>
+      </description>
+    </release>
     <release version="0.71.0-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.70.0-beta.1: caption export. Select a caption and click Export Captions… on the Title page; name the file .srt or .vtt. Every caption goes in, in time order, with your fixes to the words, bold, italic, underline and speakers.</p>

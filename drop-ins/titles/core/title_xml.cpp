@@ -489,6 +489,10 @@ std::expected<ReadResult, std::string> parseTitle(std::string_view xml)
         title.name = *name;
     if (auto category = attr(root, "category"))
         title.category = *category;
+    if (auto ref = attr(root, "template"))
+        title.templateRef = *ref;
+    if (auto revision = attr(root, "template-revision"))
+        title.templateRevision = *revision;
     if (auto fps = attr(root, "fps")) {
         const size_t slash = fps->find('/');
         Attrs dummy(root, error);
@@ -576,6 +580,10 @@ std::string writeTitle(const TitleDocument &title)
         setAttr(root, "name", title.name);
     if (!title.category.empty())
         setAttr(root, "category", title.category);
+    if (!title.templateRef.empty()) {
+        setAttr(root, "template", title.templateRef);
+        setAttr(root, "template-revision", title.templateRevision);
+    }
     setAttr(root, "width", std::to_string(title.width));
     setAttr(root, "height", std::to_string(title.height));
     setAttr(root, "fps", std::to_string(title.fpsNum) + "/" + std::to_string(title.fpsDen));

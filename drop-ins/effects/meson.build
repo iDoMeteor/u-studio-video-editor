@@ -8,7 +8,7 @@ effects_inc = include_directories('.')
 # core/: std and src/core only (tools/dropin_boundary_check.sh).
 effects_core = static_library(
   'ustudio_effects_core',
-  files('core/commands.cpp', 'core/descriptor.cpp', 'core/health.cpp', 'core/json.cpp', 'core/keyframes.cpp'),
+  files('core/commands.cpp', 'core/descriptor.cpp', 'core/health.cpp', 'core/json.cpp', 'core/keyframes.cpp', 'core/looks.cpp'),
   include_directories: effects_inc,
   dependencies: [libustudio_core_dep],
   pic: true,
@@ -23,6 +23,7 @@ effects_core_dep = declare_dependency(
 # Curated overlays (and, from FX3, transition recipes and luma maps).
 effects_data_install_dir = get_option('datadir') / 'u-studio' / 'drop-ins' / 'effects'
 install_subdir('data/overlays', install_dir: effects_data_install_dir)
+install_subdir('data/looks', install_dir: effects_data_install_dir)
 effects_args = [
   '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
   '-DEFFECTS_DATA_INSTALL_DIR="' + get_option('prefix') / effects_data_install_dir + '"',
@@ -34,7 +35,8 @@ effects_engine_sources = files('engine/effects_extension.cpp', 'engine/frame_ren
                                'engine/probe.cpp', 'engine/registry.cpp')
 # app/: GTK for the Rack, GIO for the scan's children; no MLT
 # (tools/dropin_boundary_check.sh).
-effects_app_sources = files('app/browser.cpp', 'app/catalog.cpp', 'app/health_scan.cpp', 'app/rack.cpp')
+effects_app_sources = files('app/browser.cpp', 'app/catalog.cpp', 'app/compare.cpp', 'app/health_scan.cpp',
+                              'app/rack.cpp')
 effects_dropin_sources = files('register.cpp') + effects_engine_sources + effects_app_sources
 
 if get_option('dropin_effects') == 'module'

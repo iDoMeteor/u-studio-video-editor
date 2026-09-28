@@ -18,6 +18,7 @@
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "engine/frame_renderer.h"
+#include "core/looks.h"
 #include "engine/plugins.h"
 #include "engine/probe.h"
 #include "engine/registry.h"
@@ -29,6 +30,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 
 using namespace ustudio;
@@ -573,4 +575,29 @@ TEST_CASE("FrameRenderer: results on the main loop, cached, stale generations dr
     bool afterStop = false;
     renderer.request(greyRequest({brightness(0.9)}), 1, 9, [&](const RenderedFrame &) { afterStop = true; });
     CHECK(!afterStop);
+}
+
+TEST_CASE("Brand looks: every one ships with services this install has, and changes the picture")
+{
+    setUp();
+    std::ifstream in(effectsDataDir() / "looks" / "brand.json");
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::optional<Json> json = parseJson(text);
+    REQUIRE(json);
+    const std::vector<Look> looks = looksFromJson(*json);
+    REQUIRE(looks.size() >= 5);
+    const RenderedFrame plain = FrameRenderer::renderNow(greyRequest({}));
+    for (const Look &look : looks) {
+        INFO(look.name);
+        Mlt::Profile profile("atsc_1080p_30");
+        for (const Effect &effect : look.effects) {
+            Mlt::Filter filter(profile, effect.service.c_str());
+            CHECK_MESSAGE(filter.is_valid(), effect.service);
+        }
+        // Each changes a flat grey frame somewhere: a colour shift, a
+        // vignette's corners, grain.
+        const RenderedFrame frame = FrameRenderer::renderNow(greyRequest(effectsOf(look)));
+        REQUIRE(!frame.rgba.empty());
+        CHECK(frame.rgba != plain.rgba);
+    }
 }

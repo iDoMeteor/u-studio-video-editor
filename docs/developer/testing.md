@@ -84,8 +84,15 @@ AT-SPI on a private Xvfb display, with its own D-Bus session and AT-SPI bus.
 It imports a generated clip, opens the Effects page of the inspector, opens
 the Browser with **E**, searches "glow", auditions Glow on the preview once
 the scan has passed it, adds it with Enter, undoes and redoes it, pins Blur with **P** and changes it 60 frames on, and checks the
-saved project each time. `value.py`, `entry.py` and `tile.py` set a spin
-button, an entry by name and a Browser tile over AT-SPI (the main window
+saved project each time. Then it saves the stack as a Look, imports a
+second clip, applies the brand Look Neon Night to both, changes a value on
+both at once, drags a brand Look onto the picture, turns compare on, and
+holds **\\**. It also checks an audition leaves the live graph's rebuild
+count unchanged. The window is
+resized to the screen first (`fitwin.py`), so the inspector docks.
+`value.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
+spin button, set an entry by name, select a Browser tile, find a widget's
+centre, drag slowly enough for XDND, and hold a key, over AT-SPI (the main window
 reports no focus without a window manager). The build needs `-Ddropin_effects`.
 It reuses `tools/packaging-smoke/drive.py` for each step; screenshots and
 logs land in `<outdir>`. Activated services get their own runtime directory,

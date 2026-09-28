@@ -44,6 +44,9 @@ for _ in $(seq 1 60); do
         2>/dev/null && break
     sleep 0.5
 done
+# The whole screen, as the editor opens maximised on a desktop: wide
+# enough for the inspector to dock beside the picture.
+python3 "$SMOKE_DRIVE/fitwin.py" >/dev/null 2>&1
 sleep 2
 
 # A clip on the timeline, selected; the Rack open.
@@ -65,9 +68,12 @@ shot 2-browser
 # Featured effects are checked first; Glow is one. Wait for its result.
 for _ in $(seq 1 60); do grep -q '"frei0r.glow"' "$OUT/home/cache/ustudio/effect-health.json" 2>/dev/null && break; sleep 1; done
 sleep 1
+REBUILDS=$(grep -c "rebuildAll took" "$OUT/app.log")
 python3 "$SMOKE_HERE/tile.py" 0 2>>"$OUT/helpers.err"; sleep 3
 shot 2b-audition
+check "audition didn't rebuild the live graph" [ "$(grep -c "rebuildAll took" "$OUT/app.log")" = "$REBUILDS" ]
 check "audition rendered off the live graph" grep -q "auditioning frei0r.glow on the preview" "$OUT/app.log"
+shot 2c-looks-ranked-after
 d press "Search effects"; sleep 0.5; d enter; sleep 2
 d press "Effects" exact; sleep 1
 shot 3-glow-added
@@ -92,6 +98,57 @@ d act save; sleep 2
 check "saved animated: two keys" grep -q '<property name="0">0=0.5;60=1</property>' "$OUT/smoke.ustudio"
 d act seek-home; sleep 1
 shot 6-back-at-start
+
+# Save the stack as a look (it's in the project), then a second clip: both
+# selected, a brand look from the Browser goes on both, and a value
+# changed in the Rack changes on both.
+d act effects-save-look; sleep 1
+e "Look name" "Smoke Look"; sleep 0.5
+d enter; sleep 1
+d act save; sleep 2
+check "look saved in the project" grep -q "Smoke Look" "$OUT/smoke.ustudio"
+d act import; sleep 1.5; d loc "$M/clip.mp4"; d enter; sleep 4
+d act select-all; sleep 1
+d act effects-browser; sleep 1
+e "Search effects" "neon night"; sleep 2
+d press "Search effects"; sleep 0.3; d enter; sleep 2
+d press "Effects" exact; sleep 1.5
+shot 7-two-clips-look
+d act save; sleep 2
+check "brand look on both clips" [ "$(grep -c '<property name="mlt_service">frei0r.softglow</property>' "$OUT/smoke.ustudio")" -ge 2 ]
+v 0 0.123; sleep 1.5
+d act save; sleep 2
+shot 8-two-clips-edited
+check "one change, both clips" [ "$(grep -c '>0.123<' "$OUT/smoke.ustudio")" -ge 2 ]
+
+# One drag: a Browser tile onto the picture adds it to the clip under the
+# playhead. The window sits at the screen's top left on Xvfb (no window
+# manager), so these are its coordinates: the first tile, then the
+# picture's middle.
+d act effects-browser; sleep 1
+e "Search effects" "film grain"; sleep 3
+shot 9-before-drag
+# The second "Film Grain" tile is the brand Look (an effect ranks first).
+TILE=$(python3 "$SMOKE_HERE/where.py" "Film Grain" 1 2>>"$OUT/helpers.err")
+PICTURE=$(python3 "$SMOKE_HERE/where.py" "Effects drop zone" 2>>"$OUT/helpers.err" || echo "600 300")
+echo "tile at $TILE, picture at $PICTURE" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+python3 "$SMOKE_HERE/drag.py" $TILE $PICTURE 2>>"$OUT/helpers.err"; sleep 2
+shot 10-after-drag
+d act save; sleep 2
+check "a brand look dragged onto the picture" grep -q '<property name="mlt_service">frei0r.filmgrain</property>' "$OUT/smoke.ustudio"
+
+# Compare: before (no clip effects) left of the divider, after right; and
+# \ held shows the whole picture without them.
+d act select-all; sleep 0.5
+d act effects-compare; sleep 3
+shot 11-compare
+check "compare shows the before frame" grep -q "comparing: the before frame shown" "$OUT/app.log"
+d act effects-compare; sleep 1
+# Focus out of the Browser's search first: in a text field \ is typing.
+d click 900 900; sleep 1
+python3 "$SMOKE_HERE/hold.py" 51 3 "$OUT/12-held-backslash.png" 2>>"$OUT/helpers.err"
+check "held \\ shows the picture without effects" grep -q "held \\\\: the picture without effects" "$OUT/app.log"
 
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null

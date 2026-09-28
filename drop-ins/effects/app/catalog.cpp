@@ -1,6 +1,9 @@
 #include "app/catalog.h"
 
+#include "core/looks.h"
 #include "engine/effects_extension.h"
+
+#include <charconv>
 
 namespace ustudio::effects {
 
@@ -47,6 +50,56 @@ bool Catalog::usable(const std::string &service) const
     if (d && !d->unstable.empty())
         return false;
     return !m_health.quarantined(service) && !isQuarantined(service);
+}
+
+namespace {
+
+const core::Look *lookFor(const Catalog &catalog, const core::Model &model, const std::string &item)
+{
+    static constexpr std::string_view kBrand = "look:brand:", kProject = "look:project:";
+    auto number = [](std::string_view text) -> std::optional<uint64_t> {
+        uint64_t value = 0;
+        auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+        return ec == std::errc() && end == text.data() + text.size() ? std::optional(value) : std::nullopt;
+    };
+    if (item.starts_with(kBrand)) {
+        const std::optional<uint64_t> index = number(std::string_view(item).substr(kBrand.size()));
+        return index && *index < catalog.brandLooks().size() ? &catalog.brandLooks()[*index] : nullptr;
+    }
+    if (item.starts_with(kProject)) {
+        const std::optional<uint64_t> id = number(std::string_view(item).substr(kProject.size()));
+        for (const core::Look &look : model.project().looks)
+            if (id && look.id.value == *id)
+                return &look;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+std::vector<core::Effect> Catalog::effectsFor(const core::Model &model, const std::string &item) const
+{
+    if (const core::Look *look = lookFor(*this, model, item))
+        return effectsOf(*look);
+    if (const EffectDescriptor *d = find(item))
+        return {makeEffect(*d)};
+    return {};
+}
+
+std::string Catalog::nameOf(const core::Model &model, const std::string &item) const
+{
+    if (const core::Look *look = lookFor(*this, model, item))
+        return look->name;
+    const EffectDescriptor *d = find(item);
+    return d ? d->name : item;
+}
+
+std::vector<std::string> Catalog::servicesOf(const core::Model &model, const std::string &item) const
+{
+    std::vector<std::string> services;
+    for (const core::Effect &effect : effectsFor(model, item))
+        services.push_back(effect.service);
+    return services;
 }
 
 } // namespace ustudio::effects

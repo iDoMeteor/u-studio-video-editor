@@ -10,6 +10,7 @@
 #include <gtk/gtk.h>
 
 #include <algorithm>
+#include <string_view>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -73,7 +74,8 @@ struct Control
 {
     Rack *rack;
     core::EffectId effect;
-    std::string param; // empty: the mix
+    std::vector<core::EffectId> twins; // the same effect on the other selected clips
+    std::string param;                 // empty: the mix
     ParamKind kind = ParamKind::Scalar;
     std::optional<DisplayMap> display;
     GtkWidget *widget = nullptr;         // spin, switch, colour button, drop-down, entry
@@ -94,6 +96,7 @@ struct CardAction
 {
     Rack *rack;
     core::EffectId effect;
+    std::vector<core::EffectId> twins;
     int move; // -1 up, +1 down, 0 remove
 };
 
@@ -127,16 +130,24 @@ class Rack
              "How the value moves from this keyframe to the next: steady, smooth, easing in or out, bouncing, "
              "or holding still until the next",
              nullptr, nullptr},
+            {"effects.rack-menu", "Effects", "Effects menu", "Copy, paste, and save as a look", nullptr, nullptr},
             {"effects.card-cost", "Effects", "Cost",
              "How much work the effect is for each frame, measured when it was checked", nullptr, nullptr},
         });
         // P pins (doc 15, "Keyboard summary"); E belongs to the Browser.
         static const std::vector<app::ActionSpec> actions = {
             {"effects-pin", "Pin the value at the playhead", "Effects", {"p"}, &onPinActionTrampoline},
+            {"effects-copy", "Copy effects", "Effects", {"<Ctrl><Shift>c"}, &onCopyTrampoline},
+            {"effects-paste", "Paste effects…", "Effects", {"<Ctrl><Shift>v"}, &onPasteTrampoline},
+            {"effects-paste-append", "Paste effects after these", "Effects", {}, &onPasteAppendTrampoline},
+            {"effects-paste-replace", "Paste effects instead of these", "Effects", {}, &onPasteReplaceTrampoline},
+            {"effects-save-look", "Save effects as a look…", "Effects", {}, &onSaveLookTrampoline},
         };
         m_host.addActions(actions, this);
         m_host.setTooltip(m_scope, "effects.rack-scope");
         m_host.setTooltip(m_add, "effects.rack-add");
+        m_host.setTooltip(m_menu, "effects.rack-menu");
+        m_host.setTooltip(m_compare, "effects.compare");
         m_host.addInspectorPage({"effects.rack", "Effects", "applications-graphics-symbolic", m_root});
         m_host.selectionChanged().connect([this] { refresh(); });
         m_host.projectChanged().connect([this] { refresh(); });
@@ -177,6 +188,19 @@ class Rack
         const core::Model &model = m_host.model();
         if (!model.hasEffect(control.effect))
             return;
+        if (!control.twins.empty()) {
+            // Several clips: the same value on each, one undo step a gesture.
+            std::vector<core::EffectId> all = control.twins;
+            all.insert(all.begin(), control.effect);
+            if (control.param.empty()) {
+                m_host.execute(setMixOnAll(model, all, numberOf(control), control.gesture));
+                return;
+            }
+            core::Param param = currentParam(model.effect(control.effect), control.param, control.kind);
+            param.value = readControl(control);
+            m_host.execute(setParamOnAll(all, param, control.gesture));
+            return;
+        }
         if (control.animatable)
             m_lastControl = std::make_pair(control.effect, control.param);
         // Animated: the change is the key at the playhead (set, or added).
@@ -339,7 +363,15 @@ class Rack
         if (!found)
             return;
         if (action.move == 0) {
-            m_host.execute(std::make_unique<RemoveEffect>(action.effect));
+            if (action.twins.empty()) {
+                m_host.execute(std::make_unique<RemoveEffect>(action.effect));
+                return;
+            }
+            std::vector<std::unique_ptr<core::Command>> removes;
+            removes.push_back(std::make_unique<RemoveEffect>(action.effect));
+            for (core::EffectId twin : action.twins)
+                removes.push_back(std::make_unique<RemoveEffect>(twin));
+            m_host.execute(std::make_unique<core::CompositeCommand>("Remove effect", std::move(removes)));
             return;
         }
         const size_t size = model.effects(found->first).size();
@@ -353,7 +385,106 @@ class Rack
     {
         if (m_updating)
             return;
-        m_host.execute(std::make_unique<SetEffectEnabled>(effect, enabled));
+        std::vector<core::EffectId> twins = twinsOf(effect).value_or(std::vector<core::EffectId>{});
+        if (twins.empty()) {
+            m_host.execute(std::make_unique<SetEffectEnabled>(effect, enabled));
+            return;
+        }
+        std::vector<std::unique_ptr<core::Command>> commands;
+        twins.insert(twins.begin(), effect);
+        for (core::EffectId id : twins)
+            if (m_host.model().hasEffect(id) && m_host.model().effect(id).enabled != enabled)
+                commands.push_back(std::make_unique<SetEffectEnabled>(id, enabled));
+        m_host.execute(
+            std::make_unique<core::CompositeCommand>(enabled ? "Enable effect" : "Bypass effect", std::move(commands)));
+    }
+
+    // --- Copy, paste, looks, drops ------------------------------------------
+
+    // Where a paste or a drop goes: every selected clip in clip scope, else
+    // the Rack's target.
+    std::vector<core::Model::EffectTarget> pasteTargets() const
+    {
+        std::vector<core::Model::EffectTarget> targets;
+        if (static_cast<Scope>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_scope))) == Scope::Clip)
+            for (core::ClipId id : selectedClips())
+                targets.push_back(core::Model::EffectTarget::clip(id));
+        if (targets.empty())
+            if (std::optional<core::Model::EffectTarget> target = currentTarget())
+                targets.push_back(*target);
+        return targets;
+    }
+
+    // This drop-in's effects on the Rack's target (the first clip of several).
+    std::vector<core::Effect> ownEffects() const
+    {
+        std::vector<core::Effect> effects;
+        std::optional<core::Model::EffectTarget> target = currentTarget();
+        if (target && m_host.model().hasEffectTarget(*target))
+            for (const core::Effect &e : m_host.model().effects(*target))
+                if (e.owner == kOwner)
+                    effects.push_back(e);
+        return effects;
+    }
+
+    void onCopy()
+    {
+        m_catalog.clipboard = ownEffects();
+        m_host.showStatus(m_catalog.clipboard.empty()
+                              ? "No effects here to copy"
+                              : "Copied " + std::to_string(m_catalog.clipboard.size()) + " effects");
+    }
+
+    void paste(PasteMode mode)
+    {
+        gtk_popover_popdown(GTK_POPOVER(m_pastePopover));
+        if (m_catalog.clipboard.empty()) {
+            m_host.showStatus("Copy some effects first (Ctrl+Shift+C)");
+            return;
+        }
+        m_host.execute(pasteEffects(m_host.model(), pasteTargets(), m_catalog.clipboard, mode,
+                                    mode == PasteMode::Append ? "Paste effects" : "Replace effects"));
+    }
+
+    void onPaste()
+    {
+        gtk_popover_popup(GTK_POPOVER(m_pastePopover));
+    }
+
+    void onSaveLook()
+    {
+        if (ownEffects().empty()) {
+            m_host.showStatus("Add some effects first, then save them as a look");
+            return;
+        }
+        const std::string name = "Look " + std::to_string(m_host.model().project().looks.size() + 1);
+        gtk_editable_set_text(GTK_EDITABLE(m_lookName), name.c_str());
+        gtk_popover_popup(GTK_POPOVER(m_lookPopover));
+        gtk_widget_grab_focus(m_lookName);
+    }
+
+    void onLookSave()
+    {
+        const std::string name = gtk_editable_get_text(GTK_EDITABLE(m_lookName));
+        gtk_popover_popdown(GTK_POPOVER(m_lookPopover));
+        if (name.empty())
+            return;
+        if (m_host.execute(std::make_unique<SaveLook>(core::Look{{}, name, ownEffects()})))
+            m_host.showStatus("Saved look " + name + ": it's in the Add page's Looks");
+    }
+
+    // A Browser tile dropped on the Rack.
+    bool onDrop(const std::string &payload)
+    {
+        static constexpr std::string_view kPrefix = "ustudio-effects:";
+        if (!payload.starts_with(kPrefix))
+            return false;
+        const std::string item = payload.substr(kPrefix.size());
+        const std::vector<core::Effect> effects = m_catalog.effectsFor(m_host.model(), item);
+        if (effects.empty())
+            return false;
+        return m_host.execute(pasteEffects(m_host.model(), pasteTargets(), effects, PasteMode::Append,
+                                           "Add " + m_catalog.nameOf(m_host.model(), item)));
     }
 
     void onSearchChanged()
@@ -392,6 +523,60 @@ class Rack
   private:
     // --- Target ------------------------------------------------------------
 
+    std::vector<core::ClipId> selectedClips() const
+    {
+        std::vector<core::ClipId> clips;
+        for (core::ClipId id : m_host.currentSelection().clips)
+            if (m_host.model().hasClip(id))
+                clips.push_back(id);
+        return clips;
+    }
+
+    // With several clips selected (clip scope), the same effect on the other
+    // clips: the same-numbered occurrence of its service among each clip's
+    // own effects (the first softglow pairs with the first softglow), so a
+    // look applied to clips that already differ still lines up. Empty with
+    // one clip; nullopt when another clip lacks it (it isn't shared, so the
+    // Rack doesn't show it).
+    std::optional<std::vector<core::EffectId>> twinsOf(core::EffectId effect) const
+    {
+        const core::Model &model = m_host.model();
+        const std::vector<core::ClipId> clips = selectedClips();
+        if (clips.size() < 2 || static_cast<Scope>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_scope))) != Scope::Clip ||
+            !model.hasEffect(effect))
+            return std::vector<core::EffectId>{};
+        const std::string &service = model.effect(effect).service;
+        // Which occurrence of the service it is in the first clip.
+        std::optional<size_t> occurrence;
+        size_t seen = 0;
+        for (const core::Effect &e : model.clip(clips.front()).effects)
+            if (e.owner == kOwner && e.service == service) {
+                if (e.id == effect)
+                    occurrence = seen;
+                ++seen;
+            }
+        if (!occurrence)
+            return std::nullopt;
+        std::vector<core::EffectId> twins;
+        for (size_t c = 1; c < clips.size(); ++c) {
+            size_t n = 0;
+            std::optional<core::EffectId> twin;
+            for (const core::Effect &e : model.clip(clips[c]).effects)
+                if (e.owner == kOwner && e.service == service && n++ == *occurrence)
+                    twin = e.id;
+            if (!twin)
+                return std::nullopt;
+            twins.push_back(*twin);
+        }
+        return twins;
+    }
+
+    bool multiple() const
+    {
+        return selectedClips().size() > 1 &&
+               static_cast<Scope>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_scope))) == Scope::Clip;
+    }
+
     std::optional<core::Model::EffectTarget> currentTarget() const
     {
         const core::Model &model = m_host.model();
@@ -419,6 +604,8 @@ class Rack
         const core::Model &model = m_host.model();
         switch (target.kind) {
         case core::Model::EffectTarget::Kind::Clip:
+            if (multiple())
+                return std::to_string(selectedClips().size()) + " clips: the effects they share";
             return "Clip: " + model.clip(core::ClipId{target.id}).name;
         case core::Model::EffectTarget::Kind::Track:
             return "Track: " + model.track(core::TrackId{target.id}).name;
@@ -581,13 +768,64 @@ class Rack
         g_signal_connect(m_addPopover, "show", G_CALLBACK(&onAddShownTrampoline), this);
         gtk_menu_button_set_popover(GTK_MENU_BUTTON(m_add), m_addPopover);
         gtk_box_append(GTK_BOX(header), m_add);
+
+        // Copy, paste, save as a look: the window's actions, so the menu
+        // and the shortcuts are one thing.
+        GMenu *menu = g_menu_new();
+        g_menu_append(menu, "Copy effects", "win.effects-copy");
+        g_menu_append(menu, "Paste after these", "win.effects-paste-append");
+        g_menu_append(menu, "Paste instead of these", "win.effects-paste-replace");
+        g_menu_append(menu, "Save as a look…", "win.effects-save-look");
+        m_menu = gtk_menu_button_new();
+        gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(m_menu), "view-more-symbolic");
+        gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(m_menu), G_MENU_MODEL(menu));
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_menu), GTK_ACCESSIBLE_PROPERTY_LABEL, "Effects menu", -1);
+        g_object_unref(menu);
+        gtk_box_append(GTK_BOX(header), m_menu);
+        // Before and after over the picture (app/compare.h).
+        GtkWidget *compare = gtk_button_new_from_icon_name("view-dual-symbolic");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(compare), "win.effects-compare");
+        gtk_accessible_update_property(GTK_ACCESSIBLE(compare), GTK_ACCESSIBLE_PROPERTY_LABEL, "Compare", -1);
+        m_compare = compare;
+        gtk_box_append(GTK_BOX(header), compare);
         gtk_box_append(GTK_BOX(box), header);
 
+        m_titleRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
         m_title = gtk_label_new("");
         gtk_label_set_xalign(GTK_LABEL(m_title), 0.0f);
         gtk_label_set_ellipsize(GTK_LABEL(m_title), PANGO_ELLIPSIZE_MIDDLE);
+        gtk_widget_set_hexpand(m_title, TRUE);
         gtk_widget_add_css_class(m_title, "heading");
-        gtk_box_append(GTK_BOX(box), m_title);
+        gtk_box_append(GTK_BOX(m_titleRow), m_title);
+        gtk_box_append(GTK_BOX(box), m_titleRow);
+
+        // Ctrl+Shift+V: after or instead of the effects here (doc 15,
+        // "Applying effects"). Parented to the title row, unparented when
+        // the page goes.
+        m_pastePopover = gtk_popover_new();
+        GtkWidget *pasteBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        GtkWidget *append = gtk_button_new_with_label("Paste after these");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(append), "win.effects-paste-append");
+        gtk_box_append(GTK_BOX(pasteBox), append);
+        GtkWidget *replace = gtk_button_new_with_label("Paste instead of these");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(replace), "win.effects-paste-replace");
+        gtk_box_append(GTK_BOX(pasteBox), replace);
+        gtk_popover_set_child(GTK_POPOVER(m_pastePopover), pasteBox);
+        gtk_widget_set_parent(m_pastePopover, m_titleRow);
+
+        m_lookPopover = gtk_popover_new();
+        GtkWidget *lookBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        m_lookName = gtk_entry_new();
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_lookName), GTK_ACCESSIBLE_PROPERTY_LABEL, "Look name", -1);
+        g_signal_connect(m_lookName, "activate", G_CALLBACK(&onLookSaveTrampoline), this);
+        gtk_box_append(GTK_BOX(lookBox), m_lookName);
+        GtkWidget *save = gtk_button_new_with_label("Save");
+        gtk_accessible_update_property(GTK_ACCESSIBLE(save), GTK_ACCESSIBLE_PROPERTY_LABEL, "Save look", -1);
+        gtk_widget_add_css_class(save, "suggested-action");
+        g_signal_connect(save, "clicked", G_CALLBACK(&onLookSaveButtonTrampoline), this);
+        gtk_box_append(GTK_BOX(lookBox), save);
+        gtk_popover_set_child(GTK_POPOVER(m_lookPopover), lookBox);
+        gtk_widget_set_parent(m_lookPopover, m_titleRow);
 
         m_empty = gtk_label_new("No effects yet. Add one to change how this looks or sounds.");
         gtk_label_set_wrap(GTK_LABEL(m_empty), TRUE);
@@ -601,6 +839,21 @@ class Rack
         m_root = gtk_scrolled_window_new();
         gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(m_root), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
         gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(m_root), box);
+        // A Browser tile dropped here goes on the Rack's clips.
+        GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_STRING, GDK_ACTION_COPY);
+        g_signal_connect(drop, "drop", G_CALLBACK(&onDropTrampoline), this);
+        gtk_widget_add_controller(m_root, GTK_EVENT_CONTROLLER(drop));
+        g_signal_connect(m_root, "destroy", G_CALLBACK(&onDestroyTrampoline), this);
+    }
+
+    // Popovers parented by hand are unparented by hand.
+    void onDestroy()
+    {
+        for (GtkWidget **popover : {&m_pastePopover, &m_lookPopover})
+            if (*popover) {
+                gtk_widget_unparent(*popover);
+                *popover = nullptr;
+            }
     }
 
     void fillAddList()
@@ -668,6 +921,13 @@ class Rack
     std::string structureOf(const core::Model::EffectTarget &target) const
     {
         std::string key = std::to_string(static_cast<int>(target.kind)) + ":" + std::to_string(target.id);
+        // Several clips: what they share is part of what the cards show.
+        if (multiple())
+            for (core::ClipId clip : selectedClips()) {
+                key += "/" + std::to_string(clip.value);
+                for (const core::Effect &e : m_host.model().clip(clip).effects)
+                    key += "." + e.service + (e.enabled ? "+" : "-");
+            }
         for (const core::Effect &e : m_host.model().effects(target)) {
             key += "|" + std::to_string(e.id.value) + e.service + (e.enabled ? "+" : "-") +
                    (e.mix.keyframes.empty() ? "" : "k");
@@ -712,27 +972,44 @@ class Rack
             gtk_box_remove(GTK_BOX(m_cards), child);
         m_controls.clear();
         m_actions.clear();
-        const std::vector<core::Effect> &effects = m_host.model().effects(target);
-        gtk_widget_set_visible(m_empty, effects.empty());
+        // Several clips: only this drop-in's effects they all share, each
+        // with its twins on the other clips.
+        std::vector<std::pair<const core::Effect *, std::vector<core::EffectId>>> shown;
+        for (const core::Effect &effect : m_host.model().effects(target)) {
+            if (!multiple()) {
+                shown.emplace_back(&effect, std::vector<core::EffectId>{});
+                continue;
+            }
+            if (effect.owner != kOwner)
+                continue;
+            if (std::optional<std::vector<core::EffectId>> twins = twinsOf(effect.id))
+                shown.emplace_back(&effect, std::move(*twins));
+        }
+        gtk_widget_set_visible(m_empty, shown.empty());
+        gtk_label_set_text(GTK_LABEL(m_empty), multiple()
+                                                   ? "These clips share no effects. Add one to add it to all of them."
+                                                   : "No effects yet. Add one to change how this looks or sounds.");
         m_updating = true;
-        for (size_t i = 0; i < effects.size(); ++i)
-            gtk_box_append(GTK_BOX(m_cards), buildCard(effects[i], i, effects.size()));
+        for (size_t i = 0; i < shown.size(); ++i)
+            gtk_box_append(GTK_BOX(m_cards), buildCard(*shown[i].first, shown[i].second, i, shown.size()));
         m_updating = false;
         updateValues(); // animated values at the playhead, key states
     }
 
-    GtkWidget *iconButton(const char *icon, const char *hint, core::EffectId effect, int move, bool sensitive)
+    GtkWidget *iconButton(const char *icon, const char *hint, core::EffectId effect,
+                          const std::vector<core::EffectId> &twins, int move, bool sensitive)
     {
         GtkWidget *button = gtk_button_new_from_icon_name(icon);
         gtk_widget_add_css_class(button, "flat");
         gtk_widget_set_sensitive(button, sensitive);
         m_host.setTooltip(button, hint);
-        m_actions.push_back(std::make_unique<CardAction>(CardAction{this, effect, move}));
+        m_actions.push_back(std::make_unique<CardAction>(CardAction{this, effect, twins, move}));
         g_signal_connect(button, "clicked", G_CALLBACK(&onCardActionTrampoline), m_actions.back().get());
         return button;
     }
 
-    GtkWidget *buildCard(const core::Effect &effect, size_t index, size_t count)
+    GtkWidget *buildCard(const core::Effect &effect, const std::vector<core::EffectId> &twins, size_t index,
+                         size_t count)
     {
         const EffectDescriptor *descriptor = m_catalog.find(effect.service);
         const bool ours = effect.owner == kOwner;
@@ -777,10 +1054,15 @@ class Rack
             m_host.setTooltip(cost, "effects.card-cost");
             gtk_box_append(GTK_BOX(header), cost);
         }
-        gtk_box_append(GTK_BOX(header), iconButton("go-up-symbolic", "effects.card-up", effect.id, -1, index > 0));
+        // Reordering several clips' stacks at once isn't offered (their other
+        // effects may differ); one clip's is.
+        const bool single = twins.empty();
         gtk_box_append(GTK_BOX(header),
-                       iconButton("go-down-symbolic", "effects.card-down", effect.id, +1, index + 1 < count));
-        gtk_box_append(GTK_BOX(header), iconButton("user-trash-symbolic", "effects.card-remove", effect.id, 0, true));
+                       iconButton("go-up-symbolic", "effects.card-up", effect.id, twins, -1, single && index > 0));
+        gtk_box_append(GTK_BOX(header), iconButton("go-down-symbolic", "effects.card-down", effect.id, twins, +1,
+                                                   single && index + 1 < count));
+        gtk_box_append(GTK_BOX(header),
+                       iconButton("user-trash-symbolic", "effects.card-remove", effect.id, twins, 0, true));
         gtk_box_append(GTK_BOX(inner), header);
 
         // Why it may not play (the extension skips these; doc 15, "Gating").
@@ -818,11 +1100,17 @@ class Rack
             gtk_widget_set_hexpand(scale, TRUE);
             m_host.setTooltip(scale, "effects.card-mix");
             control->widget = scale;
-            control->animatable = true;
+            control->twins = twins;
+            // Keyframes are one clip's (they count from its start).
+            control->animatable = twins.empty();
             g_signal_connect(control->adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
             addRow(grid, row, "Mix", scale);
-            addKeyControls(grid, row, *control);
-            row += 2;
+            if (control->animatable) {
+                addKeyControls(grid, row, *control);
+                row += 2;
+            } else {
+                ++row;
+            }
             m_controls.push_back(std::move(control));
         }
         if (descriptor)
@@ -833,6 +1121,9 @@ class Rack
                 GtkWidget *widget = buildControl(effect.id, p, current);
                 if (!widget)
                     continue;
+                m_controls.back()->twins = twins;
+                if (!twins.empty())
+                    m_controls.back()->animatable = false;
                 addRow(grid, row, p.title, widget, p.description);
                 if (m_controls.back()->animatable) {
                     addKeyControls(grid, row, *m_controls.back());
@@ -918,7 +1209,12 @@ class Rack
         GtkWidget *widget = nullptr;
         switch (p.kind) {
         case ParamKind::Scalar: {
-            double lo = p.minimum.value_or(0.0), hi = p.maximum.value_or(std::max(1.0, lo + 1.0));
+            // Without a maximum in the metadata (lift_gamma_gain's gains),
+            // room for twice the default and twice what it's set to, so a
+            // look's 1.08 isn't clamped to 1.
+            double lo = p.minimum.value_or(0.0);
+            double hi = p.maximum.value_or(
+                std::max({1.0, lo + 1.0, 2.0 * asNumber(p.defaultValue), 2.0 * asNumber(current.value)}));
             if (p.display) {
                 lo = p.display->toMin;
                 hi = p.display->toMax;
@@ -1035,6 +1331,43 @@ class Rack
     {
         static_cast<Rack *>(self)->onSearchActivate();
     }
+    static void onCopyTrampoline(GSimpleAction *, GVariant *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onCopy();
+    }
+    static void onPasteTrampoline(GSimpleAction *, GVariant *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onPaste();
+    }
+    static void onPasteAppendTrampoline(GSimpleAction *, GVariant *, gpointer self)
+    {
+        static_cast<Rack *>(self)->paste(PasteMode::Append);
+    }
+    static void onPasteReplaceTrampoline(GSimpleAction *, GVariant *, gpointer self)
+    {
+        static_cast<Rack *>(self)->paste(PasteMode::Replace);
+    }
+    static void onSaveLookTrampoline(GSimpleAction *, GVariant *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onSaveLook();
+    }
+    static void onLookSaveTrampoline(GtkEntry *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onLookSave();
+    }
+    static void onLookSaveButtonTrampoline(GtkButton *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onLookSave();
+    }
+    static gboolean onDropTrampoline(GtkDropTarget *, const GValue *value, double, double, gpointer self)
+    {
+        const char *payload = G_VALUE_HOLDS_STRING(value) ? g_value_get_string(value) : nullptr;
+        return payload && static_cast<Rack *>(self)->onDrop(payload);
+    }
+    static void onDestroyTrampoline(GtkWidget *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onDestroy();
+    }
     static void onPinActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
     {
         static_cast<Rack *>(self)->onPinAction();
@@ -1106,7 +1439,8 @@ class Rack
     Catalog &m_catalog;
     GtkWidget *m_root = nullptr, *m_scope = nullptr, *m_add = nullptr, *m_addPopover = nullptr;
     GtkWidget *m_search = nullptr, *m_addList = nullptr, *m_title = nullptr, *m_empty = nullptr;
-    GtkWidget *m_cards = nullptr;
+    GtkWidget *m_cards = nullptr, *m_menu = nullptr, *m_titleRow = nullptr, *m_pastePopover = nullptr;
+    GtkWidget *m_lookPopover = nullptr, *m_lookName = nullptr, *m_compare = nullptr;
     std::vector<std::unique_ptr<Control>> m_controls;
     std::vector<std::unique_ptr<CardAction>> m_actions;
     std::string m_structure;

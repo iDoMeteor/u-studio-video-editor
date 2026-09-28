@@ -13,8 +13,13 @@ a dependency of this drop-in only, never of the editor) and
 
 Status: FX1 (engine and model) is done; FX2 (the Rack, the Browser,
 keyframes in the inspector) is in progress: the Rack, keyframes in it (pins, previous/next, feels; **P** pins the value
-last changed) and the Browser (**E**: tiles of the frame through each effect,
-audition on the preview, Enter or a click adds) are in. Effects in a project play in the
+last changed) the Browser (**E**: tiles of the frame through each effect,
+audition on the preview, Enter, a click or a drag onto the picture adds),
+several clips at once, copy and paste (**Ctrl+Shift+C**, **Ctrl+Shift+V**)
+Looks (brand Looks ship in `data/looks/brand.json`; save your own from
+the Rack's menu), and compare (hold **\\** for the picture without the
+clip's effects; the Rack's Compare button for a before/after split you
+drag) are in. Effects in a project play in the
 preview, export and stock `melt`; every effect MLT offers is described,
 health-checked in its own process and quarantined if it crashes or hangs.
 There's no UI yet: the Rack and Browser are FX2, and the build option stays
@@ -28,6 +33,7 @@ There's no UI yet: the Rack and Browser are FX2, and the build option stays
 | `engine/` | `EffectRegistry` (every MLT filter, from `Mlt::Repository` metadata), frei0r discovery and curation (IP4), `EffectsExtension` (IP3), `u-studio-render --probe-effect` and `--effects-registry` (IP6), and `FrameRenderer` (a clip's frame through a stack, on a thread of its own with throwaway producers: the Browser's tiles and audition, never the live graph) | `src/engine`, mlt++, GLib |
 | `app/` | The Effect Rack and the Browser (inspector pages, IP5), the catalog they read (registry and health), and the editor's background health scan (the registry and one probe child per effect, featured first) | GTK, GIO, `engine/` headers without MLT; never MLT (checked by the build) |
 | `data/overlays/` | Curated names, categories, featured flags, defaults MLT doesn't give, hidden plumbing, known-unstable plugins, one JSON file per family | — |
+| `data/looks/` | Brand Looks (`brand.json`): stacks of filters with settings, no LUT files (a LUT library is FX5's) | — |
 | `register.cpp` | The drop-in's describe function and its integration points | the drop-in host API |
 | `tests/` | `effects-core`, `effects-engine`, `effects-scan`; `frei0r/broken_plugin.cpp` builds two frei0r plugins broken on purpose (one crashes, one hangs) | doctest |
 
@@ -113,3 +119,17 @@ passed run here, since this is the editor's process: the rest show
 "checking…". The audition is a picture over the preview (the preview
 overlay host), so the live graph is never rebuilt. The renderer stops when
 the window goes, before MLT's factory closes.
+
+## Several clips, paste and Looks
+
+- With several clips selected, the Rack shows the effects they share: the
+  same service's first, second, ... occurrence among each clip's own
+  effects, so a Look applied to clips that already differ lines up. A
+  change applies to all of them as one undo step; reordering and keyframes
+  are one clip's at a time.
+- Paste puts the copied stack after, or instead of, this drop-in's
+  effects on every selected clip (other drop-ins' effects stay).
+- A Look is a stack; applying one adds it after the clip's own effects.
+  A Browser tile carries an effect or a Look (`Catalog::effectsFor()`),
+  applied with Enter or a click, or dragged onto the picture (the topmost
+  clip at the playhead) or onto the Rack.

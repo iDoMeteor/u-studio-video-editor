@@ -8,11 +8,14 @@
 // adds the convenience wrappers its keyframe UI needs.
 
 #include "core/commands/command.h"
+#include "core/commands/composite_command.h"
 #include "core/model/model.h"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace ustudio::effects {
 
@@ -139,6 +142,63 @@ class SetMix : public core::Command
     core::EffectId m_id;
     core::KeyframedValue m_mix, m_old;
     uint64_t m_gesture;
+};
+
+// Pastes `effects` onto every target as one undo step (doc 15, "Applying
+// effects": copy and paste a stack, and applying a Look). Replace first
+// removes the target's own effects (this drop-in's; others' are kept).
+enum class PasteMode
+{
+    Append,
+    Replace,
+};
+std::unique_ptr<core::Command> pasteEffects(const core::Model &model, const std::vector<Target> &targets,
+                                            const std::vector<core::Effect> &effects, PasteMode mode,
+                                            std::string label);
+
+// One parameter set on several effects (the Rack with several clips
+// selected): one undo step; a drag with the same nonzero `gesture` merges.
+std::unique_ptr<core::Command> setParamOnAll(const std::vector<core::EffectId> &effects, const core::Param &param,
+                                             uint64_t gesture);
+std::unique_ptr<core::Command> setMixOnAll(const core::Model &model, const std::vector<core::EffectId> &effects,
+                                           double mix, uint64_t gesture);
+
+// Saves a look in the project (its effects get fresh ids).
+class SaveLook : public core::Command
+{
+  public:
+    explicit SaveLook(core::Look look) : m_look(std::move(look)) {}
+    std::string label() const override
+    {
+        return "Save look " + m_look.name;
+    }
+    bool apply(core::Model &model) override;
+    void revert(core::Model &model) override;
+    core::LookId lookId() const
+    {
+        return m_id;
+    }
+
+  private:
+    core::Look m_look;
+    core::LookId m_id;
+};
+
+class DeleteLook : public core::Command
+{
+  public:
+    explicit DeleteLook(core::LookId id) : m_id(id) {}
+    std::string label() const override
+    {
+        return "Delete look";
+    }
+    bool apply(core::Model &model) override;
+    void revert(core::Model &model) override;
+
+  private:
+    core::LookId m_id;
+    core::Look m_removed;
+    size_t m_index = 0;
 };
 
 } // namespace ustudio::effects

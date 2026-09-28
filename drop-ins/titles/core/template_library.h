@@ -13,6 +13,7 @@
 #include "title_document.h"
 
 #include <expected>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,39 @@ std::expected<TitleDocument, std::string> templateDocument(const TemplateInfo &i
 // fields, without the template's name, and its pictures copied beside the
 // title ("<title name> images/"). Never overwrites a file.
 std::expected<void, std::string> newTitleFromTemplate(const TemplateInfo &info, const std::string &destination);
+
+// --- Update from template (T4.3) ----------------------------------------------
+
+// Where a template is, as a title records it: "builtin:<id>", "user:<id>",
+// or "pack:<pack folder>/<id>" for a template in <library>/packs/.
+std::string templateRef(const TemplateInfo &info);
+
+// A template's design, as a 64-bit FNV-1a hex digest of its file as
+// writeTitle() writes it without its name, category or own reference:
+// renaming a template doesn't change it.
+std::string templateRevision(const TitleDocument &doc);
+
+// The template `ref` names, if it's still there. `ref` is from a title file,
+// so untrusted: each part must be a plain name (letters, digits, '-', '_',
+// '.', not starting with '.'), else nothing.
+std::optional<TemplateInfo> resolveTemplate(const std::string &ref, const std::string &builtInDir,
+                                            const std::string &library);
+
+// The template `title` was made from, when its design has changed since.
+std::optional<TemplateInfo> changedTemplate(const TitleDocument &title, const std::string &builtInDir,
+                                            const std::string &library);
+
+struct TemplateUpdate
+{
+    TitleDocument document;
+    std::vector<std::string> droppedFields; // the title's fields the template no longer has
+};
+
+// `title` brought up to `info`'s current design: the template's document
+// (as templateDocument() makes it for `titlePath`) with the title's field
+// text kept for every field of the same name.
+std::expected<TemplateUpdate, std::string> updateFromTemplate(const TitleDocument &title, const TemplateInfo &info,
+                                                              const std::string &titlePath);
 
 // A folder name from `name`: lowercase letters, digits and dashes.
 std::string templateSlug(const std::string &name);

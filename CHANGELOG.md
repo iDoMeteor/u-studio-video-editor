@@ -5,6 +5,21 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.73.0-beta.1
+
+- Captions: the eight standard caption colours and top placement come in
+  from .vtt and .srt files and go back out on export.
+
+## 0.72.0-beta.1
+
+- Titles: a title remembers its template, and U Stu Titles offers to
+  update it when the template changes, keeping the title's field text.
+
+## 0.71.1-beta.1
+
+- The Flatpak starts with GPU acceleration off; switch it on in Settings ›
+  Performance › Hardware, and it stays on through updates.
+
 ## 0.71.0-beta.1
 
 - Captions: Export Captions… writes the project's captions to an .srt or
