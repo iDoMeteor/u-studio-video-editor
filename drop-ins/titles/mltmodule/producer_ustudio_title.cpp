@@ -58,8 +58,8 @@ struct Title
     // The last frame drawn and what it depended on: consecutive frames of
     // a hold with nothing animating are the same picture.
     // Whether frames differ in more than the layers' states (text in
-    // animated units, a scramble, a typewriter's cursor): then the moment
-    // itself is part of the cache key.
+    // animated units, a scramble, a typewriter's cursor, an animated
+    // layer's own frames): then the moment itself is part of the cache key.
     bool textAnimates = false;
     // The text layers with dynamic fields ({{timecode}}, ...): what they
     // say now is part of the key, so {{clip_time}} redraws once a second
@@ -243,7 +243,8 @@ void *titleInit(mlt_profile profile, mlt_service_type, const char *, const void 
             title->dynamicLayers.push_back(i);
     for (const Layer &layer : title->doc.layers) {
         const Expansion expansion = expandBehaviors(layer, title->doc.timing);
-        if (!layer.animators.empty() || !expansion.animators.empty() || expansion.cursor || expansion.scramble)
+        if (!layer.animators.empty() || !expansion.animators.empty() || expansion.cursor || expansion.scramble ||
+            layer.kind == LayerKind::Lottie)
             title->textAnimates = true;
     }
     producer->child = title;

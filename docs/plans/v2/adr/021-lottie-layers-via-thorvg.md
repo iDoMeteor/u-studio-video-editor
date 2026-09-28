@@ -102,7 +102,10 @@ the libraries' sources):
    Loading and drawing both take the lock. Loaded animations are cached
    (at most 8 per thread, keyed by path, file fingerprint and render
    size), so a cached frame costs one draw under the lock, not a parse.
-   Revisit when a ThorVG release
+   The lock belongs to the titles render library, so each process has
+   one copy that draws animations: the editor and the render tool through
+   the MLT module, the designer its own (the editor's side of the drop-in
+   doesn't link it). Revisit when a ThorVG release
    documents thread safety and the repro passes without the lock.
 7. **Size and colour.** The layer has a box like an image layer, and
    the animation keeps its own aspect inside it, centred. ThorVG's

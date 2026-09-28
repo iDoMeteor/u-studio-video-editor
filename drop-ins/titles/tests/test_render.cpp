@@ -6,14 +6,18 @@
 #include "doctest.h"
 
 #include "core/evaluate.h"
+#include "core/media/utf8_path.h"
 #include "core/template_library.h"
 #include "core/title_xml.h"
 #include "render/blur.h"
 #include "render/title_renderer.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <set>
 #include <thread>
 #include <vector>
@@ -606,3 +610,138 @@ TEST_CASE("tags=\"basic\": <b>, <i>, <u> and <c.name> style the text and leave i
     REQUIRE(again.has_value());
     CHECK(again->document.layers[0].basicTags);
 }
+
+#ifdef TITLES_HAVE_THORVG
+
+namespace {
+
+// A 200 x 100, 30 fps, 30-frame animation: a red 100 x 100 square keyframed
+// from x = 50 (frame 0) to x = 150 (frame 30), so at frame f it covers
+// x = 10f/3 .. 10f/3 + 99.
+constexpr const char *kSquare =
+    R"({"v":"5.7.0","fr":30,"ip":0,"op":30,"w":200,"h":100,"assets":[],"layers":[{"ty":4,"ind":1,"ip":0,"op":30,"st":0,
+      "ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"s":{"a":0,"k":[100,100]},"a":{"a":0,"k":[0,0]},
+            "p":{"a":1,"k":[{"t":0,"s":[50,50],"i":{"x":1,"y":1},"o":{"x":0,"y":0}},{"t":30,"s":[150,50]}]}},
+      "shapes":[{"ty":"rc","p":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"r":{"a":0,"k":0}},
+                {"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]})";
+
+// A title 400 x 100 at 30 fps with one animated layer filling it, the
+// animation file written beside it.
+TitleDocument animatedTitle(const std::filesystem::path &folder, const std::string &json = kSquare)
+{
+    std::filesystem::create_directories(folder);
+    {
+        std::ofstream(folder / "square.json") << json;
+    }
+    TitleDocument doc;
+    doc.width = 400;
+    doc.height = 100;
+    doc.fpsNum = 30;
+    doc.fpsDen = 1;
+    doc.baseDirectory = ustudio::core::utf8String(folder);
+    Layer layer;
+    layer.id = "a";
+    layer.kind = LayerKind::Lottie;
+    layer.src = "square.json";
+    layer.w = 400;
+    layer.h = 100;
+    doc.layers.push_back(layer);
+    return doc;
+}
+
+// The red run's columns on the middle row: first and last, or -1.
+std::pair<int, int> redColumns(const RenderedFrame &frame)
+{
+    int first = -1, last = -1;
+    for (int x = 0; x < frame.width; ++x) {
+        const uint32_t px = frame.pixels[static_cast<size_t>(frame.height / 2 * frame.width + x)];
+        if ((px >> 24) > 200 && ((px >> 16) & 0xFF) > 200 && ((px >> 8) & 0xFF) < 60) {
+            if (first < 0)
+                first = x;
+            last = x;
+        }
+    }
+    return {first, last};
+}
+
+std::filesystem::path animationFolder(const char *name)
+{
+    return std::filesystem::temp_directory_path() /
+           ("ustudio-anim-" + std::string(name) + "-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+}
+
+} // namespace
+
+TEST_CASE("an animated layer: its frame, kept to its aspect in the box, moving with the title (T6)")
+{
+    const auto folder = animationFolder("draw");
+    TitleDocument doc = animatedTitle(folder);
+    // The 200 x 100 animation in a 400 x 100 box: 200 wide, centred at
+    // x = 100. The square's left edge at frame f: 100 + 10f/3.
+    for (int f : {0, 6, 15, 27}) {
+        CAPTURE(f);
+        const auto result = renderTitle(doc, f, {}, 400, 100);
+        CHECK(result.warnings.empty());
+        const auto [first, last] = redColumns(result.frame);
+        CHECK(std::abs(first - (100 + 10 * f / 3)) <= 1);
+        CHECK(std::abs(last - (199 + 10 * f / 3)) <= 1);
+    }
+    // Half the output size: the same picture, half as wide.
+    const auto half = renderTitle(doc, 15, {}, 200, 50);
+    CHECK(std::abs(redColumns(half.frame).first - 75) <= 1);
+    // Speed 2 at title frame 15 is animation frame 30: looped to 0, or held at 29.
+    doc.layers[0].speed = 2.0;
+    CHECK(std::abs(redColumns(renderTitle(doc, 15, {}, 400, 100).frame).first - 100) <= 1);
+    doc.layers[0].loop = false;
+    CHECK(std::abs(redColumns(renderTitle(doc, 15, {}, 400, 100).frame).first - (100 + 290 / 3)) <= 1);
+    // Its geometry is the layer's box, for picking on the canvas.
+    const auto geometry = measureLayers(doc, 0, {});
+    REQUIRE(geometry.size() == 1);
+    CHECK(geometry[0].box.w == 400);
+    CHECK(geometry[0].box.h == 100);
+    std::filesystem::remove_all(folder);
+}
+
+TEST_CASE("an animated layer draws the same bytes on four threads at once (T6, ADR-021 decision 6)")
+{
+    const auto folder = animationFolder("threads");
+    const TitleDocument doc = animatedTitle(folder);
+    std::vector<std::vector<uint32_t>> reference;
+    for (int f = 0; f < 30; ++f)
+        reference.push_back(renderTitle(doc, f, {}, 400, 100).frame.pixels);
+    std::atomic<int> mismatches{0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 4; ++t)
+        threads.emplace_back([&, t] {
+            for (int round = 0; round < 5; ++round)
+                for (int f = 0; f < 30; ++f) {
+                    const int frame = (f + t * 7) % 30;
+                    if (renderTitle(doc, frame, {}, 400, 100).frame.pixels != reference[static_cast<size_t>(frame)])
+                        ++mismatches;
+                }
+        });
+    for (std::thread &thread : threads)
+        thread.join();
+    CHECK(mismatches == 0);
+    std::filesystem::remove_all(folder);
+}
+
+TEST_CASE("an animated layer that fails the check, or isn't there, draws nothing and says why (T6)")
+{
+    const auto folder = animationFolder("refused");
+    std::string scripted = kSquare;
+    scripted.insert(scripted.find(R"("p":{"a":1)") + 10, R"(,"x":"$bm_rt = [0, 0];")");
+    TitleDocument doc = animatedTitle(folder, scripted);
+    auto result = renderTitle(doc, 5, {}, 400, 100);
+    REQUIRE(result.warnings.size() == 1);
+    CHECK(result.warnings.begin()->find("expressions") != std::string::npos);
+    CHECK(std::all_of(result.frame.pixels.begin(), result.frame.pixels.end(), [](uint32_t px) { return px == 0; }));
+    doc.layers[0].src = "gone.json";
+    result = renderTitle(doc, 5, {}, 400, 100);
+    REQUIRE(result.warnings.size() == 1);
+    CHECK(result.warnings.begin()->find("isn't there") != std::string::npos);
+    std::filesystem::remove_all(folder);
+}
+
+#endif

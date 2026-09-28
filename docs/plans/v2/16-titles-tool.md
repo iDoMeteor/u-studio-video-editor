@@ -784,8 +784,10 @@ packs, packaging). Built in slices, each landed on its own:
    `.ustitle` format 2 read and written (written only with a Lottie
    layer); `lottie::frameAt()`, the frame maths. Until slice 3 the
    renderer draws an animated layer as nothing, with a warning.
-3. **Render.** titlerender draws the layer through ThorVG with the
-   per-thread cache, composited like an image layer. Meson: ThorVG is an
+3. **Render** (landed 2026-09-28). titlerender draws the layer through
+   ThorVG (`render/lottie_layer.cpp`, the only ThorVG caller) with the
+   per-thread cache and the process-wide lock, composited like an image
+   layer; the MLT producer keys its frame cache on time for it. Meson: ThorVG is an
    optional dependency of the titles render library (`dependency('thorvg-1',
    required: false)`), with `TITLES_HAVE_THORVG`. Without it the layer
    draws nothing and warns.
@@ -816,9 +818,10 @@ Acceptance:
 - [x] `lottie::frameAt()` matches the formula at 23.976, 25, 29.97, 30
       and 59.94 fps title rates, speeds 0.5, 1 and 2, looping and once.
       (`titles-lottie`.)
-- [ ] The editor's producer and the designer's renderer give
+- [x] The editor's producer and the designer's renderer give
       byte-identical frames for a title with a Lottie layer, at several
-      frames and on two threads.
+      frames and on two threads. (`titles-engine` at six frames;
+      `titles-render` on four threads at once.)
 - [x] A title without Lottie is still written as format 1; one with it
       as format 2, and it round-trips. (`titles-lottie`.)
 - [ ] Add Lottie…, Loop/Once, Speed and Fit work in the designer; the
