@@ -128,3 +128,16 @@ titles_test_animation = executable(
   install: false,
 )
 test('titles-animation', titles_test_animation)
+
+# T7: the sharing client against tools/share_mock.py (doc 21's API, local).
+if titles_share_enabled
+  titles_test_share = executable(
+    'test_titles_share',
+    files('test_share.cpp'),
+    cpp_args: ['-DTITLES_SHARE_MOCK="' + meson.project_source_root() / 'tools' / 'share_mock.py' + '"',
+               '-DTITLES_MAKE_TEST_PACK="' + meson.project_source_root() / 'tools' / 'make_test_pack.py' + '"'],
+    dependencies: [titles_doctest_dep, titles_share_dep],
+    install: false,
+  )
+  test('titles-share', titles_test_share, timeout: 120)
+endif

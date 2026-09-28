@@ -62,6 +62,27 @@ titles_package_dep = declare_dependency(
   dependencies: [titles_core_dep, glib_dep, libxml2_dep, titles_archive_dep],
 )
 
+# share/ (ADR-020, T7): u-studio-share, the only code with network access,
+# in a program of its own (never linked into the editor or u-studio-titles).
+titles_soup_dep = dependency('libsoup-3.0', required: false)
+titles_json_dep = dependency('json-glib-1.0', required: false)
+titles_secret_dep = dependency('libsecret-1', required: false)
+titles_share_enabled = titles_soup_dep.found() and titles_json_dep.found() and titles_archive_dep.found()
+if titles_share_enabled
+  titles_share = static_library(
+    'ustudio_titles_share',
+    files('share/client.cpp'),
+    include_directories: [src_inc, titles_inc],
+    dependencies: [titles_package_dep, titles_soup_dep, titles_json_dep],
+    install: false,
+  )
+  titles_share_dep = declare_dependency(
+    link_with: titles_share,
+    include_directories: [src_inc, titles_inc],
+    dependencies: [titles_package_dep, titles_soup_dep, titles_json_dep],
+  )
+endif
+
 subdir('mltmodule')
 subdir('app')
 
