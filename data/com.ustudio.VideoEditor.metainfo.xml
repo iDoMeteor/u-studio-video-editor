@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.73.1-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.73.0-beta.1: a crash is fixed. With GPU acceleration on, the editor could close when you paused, sought or played around a dissolve, especially while the computer was busy. GPU acceleration still starts off in this download; turn it on in Settings › Performance › Hardware to try it.</p>
+        <p>Try GPU acceleration on with dissolves, pausing and seeking around them, at Full and Half preview scale.</p>
+      </description>
+    </release>
     <release version="0.73.0-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.72.0-beta.1: caption colours and top placement. Subtitle files that colour words white, lime, cyan, red, yellow, magenta, blue or black keep those colours, and captions the file puts at the top of the picture show there, in a top caption style. Both are written back out when you export captions.</p>

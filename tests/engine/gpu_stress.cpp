@@ -205,8 +205,7 @@ int main(int argc, char **argv)
                 model.removeTransition(t.id);
             if (dissolves)
                 for (int i = 0; i + 1 < 6; ++i)
-                    model.addTransition(v1, v1Clips[static_cast<size_t>(i)], v1Clips[static_cast<size_t>(i + 1)], 8,
-                                        8);
+                    model.addTransition(v1, v1Clips[static_cast<size_t>(i)], v1Clips[static_cast<size_t>(i + 1)], 8, 8);
             engine.publish(model.snapshot());
         }
         // Dwell as a user does: a few frames to a couple of seconds.

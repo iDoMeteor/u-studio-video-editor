@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.73.1-beta.1
+
+- With GPU acceleration on, pausing, seeking or playing around dissolves
+  no longer closes the editor when a frame runs late.
+
 ## 0.73.0-beta.1
 
 - Captions: the eight standard caption colours and top placement come in

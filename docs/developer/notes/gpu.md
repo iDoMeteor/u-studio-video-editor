@@ -231,6 +231,37 @@ between neighbouring clips so a dissolve's two sides differ
 the tour's four-track graph frame by frame at Full and Half. The cost is up
 to two decoders per asset per track instead of one per asset.
 
+## Frames rendered on the consumer's own thread (0.71.x crash)
+
+I had assumed the consumer's render thread renders every frame, so only it
+needed a GL context. It doesn't. MLT's real-time consumer passes a frame its
+render thread skipped for lateness on unrendered, and after too many drops
+it marks one `rendered` for the consumer thread to render itself
+(`mlt_consumer.c`, "forcing next frame"). Our `consumer-frame-show` handler
+(`PlaybackController::handleFrameShow()`) then calls `get_image()`, which
+runs the whole movit graph on sdl2's consumer thread. With no context
+current there, every framebuffer is incomplete, and movit asserts in
+`create_fbo` or `EffectChain::render`. It happens only when a frame is
+late, so it was intermittent and got likelier under load: while
+recording, while other sessions used the GPU, and around rebuilds.
+`engine-gpu-engine` hit it one run in two to four.
+
+Fix: the session has a second context in the same share group, which
+`handleFrameShow()` makes current around `get_image()` on the GPU pipeline
+(`PlaybackController::setFrameShowHooks()`, `GpuSession::frameShowEnter()`).
+The render thread and the consumer thread can now both render; MLT's movit
+serialises a chain per service (`lock_service`), and movit's resource pool
+is thread-safe.
+- Evidence: `engine-gpu-engine` failed 1 of 2 before the fix and passes
+  20 of 20 after (`--repeat 20`). `gpu_stress` (random play, pause, seek,
+  scale, proxies and dissolve edits through Engine) aborted within about
+  30 s on seeds 1 and 2 before, and runs 3 minutes clean on each after;
+  meson runs it for 45 s (`engine-gpu-stress`).
+- On the CPU pipeline, rendering there is what MLT intends and needs no
+  thread-bound state.
+- Exports are unaffected: at `real_time=-1` the consumer waits for the
+  render thread to render each frame.
+
 ## Exports (G4)
 
 - `renderProject()` checks `GpuSession::current()` once, at the start: with
