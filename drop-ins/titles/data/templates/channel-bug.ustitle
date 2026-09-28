@@ -2,10 +2,10 @@
 <ustitle version="1" name="Channel bug" category="Bugs and badges" width="1920" height="1080" fps="30/1">
   <timing intro="18" hold="300" outro="15"/>
   <field name="channel" label="Channel" default="UNICORN TEARS"/>
-  <layer id="channel" kind="text" x="1380" y="60" w="440" fit="shrink" align="right">
+  <layer id="channel" kind="text" x="1260" y="60" w="560" fit="shrink" align="right">
     <text>{{channel}}</text>
-    <font family="Anton" size="44" tracking="0.06"/>
-    <fill color="#ffffff" opacity="0.85"/>
+    <font family="Anton" weight="700" size="56" tracking="0.06"/>
+    <fill color="#ffffff" opacity="0.9"/>
     <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/><behavior slot="loop" id="glow-breathe"/>
   </layer>

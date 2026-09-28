@@ -117,10 +117,29 @@ void AppWindow::addActions(const std::vector<ActionSpec> &specs, gpointer target
         GSimpleAction *simple = g_simple_action_new(action.spec.name, nullptr);
         g_signal_connect(simple, "activate", G_CALLBACK(action.spec.activated), action.target);
         g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(simple));
-        g_object_unref(simple);
         if (app)
             setAccelsForAction(app, action.spec.name, action.spec.accels);
+        // A shortcut with no Ctrl, Alt or Super would type in a text field.
+        for (const char *accel : action.spec.accels) {
+            guint key = 0;
+            GdkModifierType mods{};
+            if (gtk_accelerator_parse(accel, &key, &mods) &&
+                !(mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK))) {
+                m_typingKeyActions.push_back(action.spec.name);
+                // Registered while a text field has focus: off until it leaves.
+                g_simple_action_set_enabled(simple, m_transportActionsEnabled);
+                break;
+            }
+        }
+        g_object_unref(simple);
     }
+}
+
+void AppWindow::addHeaderButton(GtkWidget *button)
+{
+    // Shell extensions run after buildUi(); before it, this is a misuse.
+    g_return_if_fail(m_appHeaderGroup && m_settingsButton);
+    gtk_box_insert_child_after(GTK_BOX(m_appHeaderGroup), button, gtk_widget_get_prev_sibling(m_settingsButton));
 }
 
 void AppWindow::addHints(const std::vector<HintSpec> &hints)
@@ -187,6 +206,17 @@ bool AppWindow::overlayClaimsPress(double x, double y, int nPress)
         }
     }
     return false;
+}
+
+std::string AppWindow::projectFolder() const
+{
+    std::error_code ec;
+    if (!m_currentProjectPath.empty())
+        return core::utf8String(core::pathFromUtf8(m_currentProjectPath).parent_path());
+    const std::string folder = m_settings->defaultProjectFolder();
+    if (!folder.empty() && std::filesystem::is_directory(core::pathFromUtf8(folder), ec))
+        return folder;
+    return {};
 }
 
 void AppWindow::assetChangedOnDisk(core::AssetId id)

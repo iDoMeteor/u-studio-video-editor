@@ -2,7 +2,7 @@
 
 [Docs home](../README.md) › [User guide](README.md) › Settings and Help
 
-## Settings (gear button)
+## Settings (tools button)
 
 | Tab | Settings |
 |---|---|

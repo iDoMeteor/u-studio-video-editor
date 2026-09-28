@@ -241,6 +241,13 @@ logos. The designer exports through `u-studio-render`, found next to it.
 Tests `titles-desktop-file` and `titles-metainfo` validate the drafts when
 `desktop-file-validate` and `appstreamcli` are installed.
 
+The built-in templates install to `$datadir/u-studio/titles/templates/`
+(29 `.ustitle` files, no pictures). The designer finds them at
+`<its bindir>/../share/u-studio/titles/templates`, so a package that
+installs the designer under another prefix (the Flatpak extension) must
+install them under the same prefix. Users' own templates live in
+`$XDG_DATA_HOME/ustudio/titles/templates/`.
+
 ### Drop-ins as Flatpak extensions
 
 The app declares the extension point `com.ustudio.VideoEditor.DropIn`
@@ -288,12 +295,38 @@ The titles extension is
   `just dist` copies it with a `.sha256`. Modules must match the app release
   exactly, so the app and its extensions ship as a pair.
 
+### Publishing
+
+`just publish <bundle>` uploads a bundle to the public download bucket,
+`s3://ut-software-dist/` (default AWS profile; `USTUDIO_PUBLISH_BUCKET`
+overrides), which `https://software.unicornviz.com/` serves through
+CloudFront:
+
+- under its versioned name and its `-latest` name
+  (`u-studio-video-editor-latest.flatpak`,
+  `u-studio-video-editor-dropin-titles-latest.flatpak`), each with a
+  `.sha256` that names that file, so `sha256sum -c` works on either;
+- as `application/vnd.flatpak`, so a browser download opens in the
+  software centre; the `-latest` files with `Cache-Control: max-age=300`;
+- public through the bucket policy: the bucket enforces owner ownership,
+  so ACLs are disabled and none is set;
+- a versioned object already there with other contents is never replaced.
+
+Publish the app and its extensions together, after the smoke test and
+`just dist`. The CDN's firewall answers command-line downloaders (curl,
+wget) with 403, so check a published URL with a browser User-Agent:
+`curl -sI -A 'Mozilla/5.0' <url>`.
+
 ## Releases
 
 - Everyday version bumps go in [`CHANGELOG.md`](../../CHANGELOG.md).
 - A releasable build (a tagged beta or release) also gets a `<release>`
   entry in `data/com.ustudio.VideoEditor.metainfo.xml`, written for
-  testers: what's new, what to try, known issues. A release meant for
+  testers: what's new, what to try, known issues. Every packaged build is
+  releasable, so `just flatpak`, `just flatpak-titles` and
+  `tools/flathub_prep.py` first run `tools/check_release_notes.py`, which
+  fails when `meson.build`'s version has no entry. Without one, Flatpak
+  and Help › Release notes show the newest entry's version instead. A release meant for
   Flathub needs `type="stable"` (the default), not `development`.
 - The first stable release, `2.0.0`, is milestone M7
   ([roadmap](../plans/v2/12-roadmap-and-milestones.md)).

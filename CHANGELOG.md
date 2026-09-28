@@ -5,6 +5,22 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.67.1-beta.1
+
+- The editor opens maximised, and the Render button is a little narrower
+  ("Render 42%" while it runs), so the header's project title has room.
+
+## 0.67.0-beta.1
+
+- The header's Help button is a plain question mark, and with the Titles
+  add-on a T button (between Render and Settings) opens U Stu Titles.
+
+## 0.66.0-beta.1
+
+- Title templates: New Title (Shift+T) puts a title at the playhead and
+  opens U Stu Titles with a gallery of 29 built-in designs; save your own
+  as templates, and rename, duplicate or delete them in My Templates.
+
 ## 0.65.1-beta.1
 
 - Titles come as a Flatpak add-on, installed next to the app: import

@@ -4,21 +4,21 @@
   <background color="#07060d"/>
   <field name="handle" label="Handle" default="unicorntears"/>
   <field name="platform" label="Where" default="Everywhere"/>
-  <layer id="follow" kind="text" x="360" y="360" w="1200" fit="shrink" align="center">
+  <layer id="follow" kind="text" x="360" y="320" w="1200" fit="shrink" align="center">
     <text>FOLLOW</text>
-    <font family="Space Grotesk" weight="700" size="56" tracking="0.3"/>
-    <fill color="#c9bdda"/>
+    <font family="Space Grotesk" weight="700" size="60" tracking="0.3"/>
+    <fill color="#ffeffb"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="handle" kind="text" x="160" y="440" w="1600" fit="shrink" align="center">
+  <layer id="handle" kind="text" x="160" y="410" w="1600" fit="shrink" align="center">
     <text>@{{handle}}</text>
-    <font family="Anton" size="140"/>
+    <font family="Anton" weight="700" size="150"/>
     <fill gradient="linear" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0"/>
     <behavior slot="in" id="typewriter"/><behavior slot="out" id="fade"/>
   </layer>
   <layer id="platform" kind="text" x="360" y="640" w="1200" fit="shrink" align="center">
     <text>{{platform}}</text>
-    <font family="Space Grotesk" size="44"/>
+    <font family="Space Grotesk" size="56"/>
     <fill color="#ffffff"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>

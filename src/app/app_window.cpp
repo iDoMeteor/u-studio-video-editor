@@ -431,6 +431,10 @@ void AppWindow::buildUi(GtkApplication *app)
 {
     m_window = ADW_APPLICATION_WINDOW(adw_application_window_new(app));
     gtk_window_set_default_size(GTK_WINDOW(m_window), 1100, 700);
+    // Maximised by default (owner, 2026-09-28): the editor wants the room.
+    // 1100x700 is the size it unmaximises to. No window state is saved
+    // yet; when it is, a saved state wins over this.
+    gtk_window_maximize(GTK_WINDOW(m_window));
 
     GtkWidget *toolbarView = adw_toolbar_view_new();
     m_toolbarView = ADW_TOOLBAR_VIEW(toolbarView);
@@ -554,7 +558,9 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_overlay_set_child(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderProgress));
     m_renderLabel = GTK_LABEL(gtk_label_new("Render…"));
     gtk_widget_add_css_class(GTK_WIDGET(m_renderLabel), "render-label");
-    gtk_label_set_width_chars(m_renderLabel, 13); // "Rendering 100%": the header doesn't reflow as it counts
+    // "Open Render" and "Render 100%" fit, so the header doesn't reflow as
+    // it counts; kept narrow for the header's room (owner, 2026-09-28).
+    gtk_label_set_width_chars(m_renderLabel, 11);
     gtk_overlay_add_overlay(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderLabel));
     gtk_overlay_set_measure_overlay(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderLabel), TRUE);
     m_renderBadge = GTK_LABEL(gtk_label_new(""));
@@ -575,12 +581,17 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(renderButton, "destroy", G_CALLBACK(&AppWindow::unparentPopoverTrampoline), m_renderMenu);
 
     GtkWidget *appGroup = headerGroup();
+    m_appHeaderGroup = appGroup;
     GtkWidget *settingsButton = gtk_button_new_from_icon_name("preferences-system-symbolic");
+    m_settingsButton = settingsButton;
     setTooltip(settingsButton, "header.settings");
     g_signal_connect(settingsButton, "clicked", G_CALLBACK(&AppWindow::settingsClickedTrampoline), this);
     gtk_box_append(GTK_BOX(appGroup), settingsButton);
 
-    GtkWidget *helpButton = gtk_button_new_from_icon_name("system-help-symbolic");
+    // Our own plain "?" (data/icons/symbolic): Adwaita's help icons are a
+    // lifebuoy or a "?" in a speech bubble, unlike the header's other
+    // single-glyph icons (owner, 2026-09-28).
+    GtkWidget *helpButton = gtk_button_new_from_icon_name("ustudio-help-symbolic");
     setTooltip(helpButton, "header.help");
     g_signal_connect(helpButton, "clicked", G_CALLBACK(&AppWindow::helpClickedTrampoline), this);
     gtk_box_append(GTK_BOX(appGroup), helpButton);
@@ -1724,6 +1735,9 @@ void AppWindow::applyTransportActionsEnabled()
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
         g_simple_action_set_enabled(G_SIMPLE_ACTION(action), enabled);
     }
+    for (const std::string &name : m_typingKeyActions)
+        if (GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name.c_str()))
+            g_simple_action_set_enabled(G_SIMPLE_ACTION(action), enabled);
 }
 
 namespace {
@@ -2796,7 +2810,7 @@ void AppWindow::onRenderStarted(const RenderJob &job)
 {
     m_lastRenderedPath.clear();
     gtk_progress_bar_set_fraction(m_renderProgress, 0.0);
-    gtk_label_set_text(m_renderLabel, "Rendering 0%");
+    gtk_label_set_text(m_renderLabel, "Render 0%");
     updateRenderButton();
     showStatus("Rendering “" + job.profile.name + "” to " + job.outputPath +
                " … (this can take a while — the window will stay responsive)");
@@ -2807,7 +2821,7 @@ void AppWindow::onRenderProgress(double fraction)
     fraction = std::clamp(fraction, 0.0, 1.0);
     const std::string percent = std::to_string(static_cast<int>(fraction * 100.0)) + "%";
     gtk_progress_bar_set_fraction(m_renderProgress, fraction);
-    gtk_label_set_text(m_renderLabel, ("Rendering " + percent).c_str());
+    gtk_label_set_text(m_renderLabel, ("Render " + percent).c_str());
     showStatus("Rendering… " + percent);
 }
 

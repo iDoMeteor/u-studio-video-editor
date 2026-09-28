@@ -10,6 +10,7 @@
 #include "title_bake.h"
 #include "title_launch.h"
 #include "title_page.h"
+#include "titles-editor-resources.h"
 
 #include <gio/gio.h>
 
@@ -141,16 +142,18 @@ class TitleWatcher
     }
 };
 
-void launch(app::ShellHost &host, const std::string &path, const std::string &name, GdkTexture *backdrop)
+void launch(app::ShellHost &host, const std::string &path, const std::string &name, GdkTexture *backdrop, bool gallery)
 {
-    const std::string error = launchTitlesApp(path, backdrop);
-    host.showStatus(error.empty() ? "Editing " + name + " in U Stu Titles: save it there to update it here."
+    const std::string error = launchTitlesApp(path, backdrop, gallery);
+    host.showStatus(error.empty() ? (gallery ? "Pick a template for " + name + " in U Stu Titles, then save it."
+                                             : "Editing " + name + " in U Stu Titles: save it there to update it here.")
                                   : "Couldn't open U Stu Titles: " + error);
 }
 
 // Opens a title clip in U Stu Titles, over the editor's frame at the
-// playhead (within the clip) without the title itself.
-void editTitleClip(app::ShellHost &host, core::ClipId id)
+// playhead (within the clip) without the title itself; with its template
+// gallery when `gallery` (New Title).
+void editTitleClip(app::ShellHost &host, core::ClipId id, bool gallery = false)
 {
     const core::Model &model = host.model();
     if (!model.hasClip(id))
@@ -161,16 +164,16 @@ void editTitleClip(app::ShellHost &host, core::ClipId id)
     const core::Asset &asset = model.asset(clip.asset);
     const std::string path = asset.path, name = asset.displayName;
     if (titlesLauncherIsForTesting()) {
-        launch(host, path, name, nullptr);
+        launch(host, path, name, nullptr, gallery);
         return;
     }
     const core::FrameIndex frame = std::clamp(host.currentFrame(), clip.position, clip.end() - 1);
     std::shared_ptr<const core::Project> project = model.snapshot();
     host.showStatus("Opening " + name + " in U Stu Titles…");
     app::ShellHost *hostPtr = &host; // the window lives for the process
-    startJob([project, id, frame, path, name, hostPtr] {
+    startJob([project, id, frame, path, name, hostPtr, gallery] {
         auto backdrop = std::make_shared<Backdrop>(renderBackdrop(project, id, frame));
-        postToMain([backdrop, path, name, hostPtr] {
+        postToMain([backdrop, path, name, hostPtr, gallery] {
             GdkTexture *texture = nullptr;
             if (!backdrop->rgba.empty()) {
                 GBytes *bytes = g_bytes_new(backdrop->rgba.data(), backdrop->rgba.size());
@@ -178,7 +181,7 @@ void editTitleClip(app::ShellHost &host, core::ClipId id)
                                                  static_cast<gsize>(backdrop->width) * 4);
                 g_bytes_unref(bytes);
             }
-            launch(*hostPtr, path, name, texture);
+            launch(*hostPtr, path, name, texture, gallery);
             if (texture)
                 g_object_unref(texture);
         });
@@ -200,6 +203,39 @@ void onEditTitle(GSimpleAction *, GVariant *, gpointer target)
         }
     }
     host.showStatus("Select a title clip to edit it.");
+}
+
+// New Title (the action, Shift+T).
+void onNewTitle(GSimpleAction *, GVariant *, gpointer target)
+{
+    auto &host = *static_cast<app::ShellHost *>(target);
+    auto made = newTitle(host);
+    if (!made) {
+        host.showStatus("Couldn't make a new title: " + made.error());
+        return;
+    }
+    editTitleClip(host, *made, true);
+}
+
+// The header's "T" (Open U Stu Titles): a selected title clip's title,
+// else the designer's gallery on a new, untitled title. The timeline
+// doesn't change; New Title (Shift+T) is the way to add one.
+void onOpenTitles(GSimpleAction *, GVariant *, gpointer target)
+{
+    auto &host = *static_cast<app::ShellHost *>(target);
+    const core::Model &model = host.model();
+    for (core::ClipId id : host.currentSelection().clips) {
+        if (!model.hasClip(id))
+            continue;
+        const core::Clip &clip = model.clip(id);
+        if (model.hasAsset(clip.asset) && isTitleFile(model.asset(clip.asset).path)) {
+            editTitleClip(host, id);
+            return;
+        }
+    }
+    const std::string error = launchTitlesApp({}, nullptr, true);
+    host.showStatus(error.empty() ? "U Stu Titles is open with its templates."
+                                  : "Couldn't open U Stu Titles: " + error);
 }
 
 // Bake Title (the action): the first selected title clip.
@@ -314,20 +350,92 @@ std::expected<std::optional<core::FrameIndex>, std::string> importTitle(app::She
     return track ? std::optional<core::FrameIndex>(at + length) : std::nullopt;
 }
 
+std::string newTitlePath(const std::string &projectFolder)
+{
+    namespace fs = std::filesystem;
+    fs::path folder;
+    if (!projectFolder.empty()) {
+        folder = core::pathFromUtf8(projectFolder) / "Titles";
+    } else {
+        const char *videos = g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS);
+        folder = core::pathFromUtf8(videos ? videos : g_get_home_dir()) / "U Stu Titles";
+    }
+    std::error_code ec;
+    for (int n = 1;; ++n) {
+        const fs::path candidate = folder / core::pathFromUtf8("Title " + std::to_string(n) + ".ustitle");
+        if (!fs::exists(candidate, ec))
+            return core::utf8String(candidate);
+    }
+}
+
+std::expected<core::ClipId, std::string> newTitle(app::ShellHost &host)
+{
+    const core::Model &model = host.model();
+    // The active track when it's a video one, else the first video track.
+    std::optional<core::TrackId> track = host.currentSelection().track;
+    if (track && (!model.hasTrack(*track) || model.track(*track).kind != core::Track::Kind::Video))
+        track.reset();
+    if (!track)
+        for (const core::Track &candidate : model.sequence().tracks)
+            if (candidate.kind == core::Track::Kind::Video) {
+                track = candidate.id;
+                break;
+            }
+    if (!track)
+        return std::unexpected("the project has no video track");
+
+    // A blank title the size and rate of the sequence, five seconds long:
+    // the template picked in the designer fills it.
+    const core::Profile &profile = model.sequence().profile;
+    TitleDocument doc;
+    doc.width = profile.width;
+    doc.height = profile.height;
+    doc.fpsNum = static_cast<int>(profile.fps.num);
+    doc.fpsDen = static_cast<int>(profile.fps.den);
+    const auto fiveSeconds = std::max<int64_t>(
+        3, std::llround(5.0 * static_cast<double>(profile.fps.num) / static_cast<double>(profile.fps.den)));
+    doc.timing = {0, fiveSeconds, 0};
+    const std::string path = newTitlePath(host.projectFolder());
+    std::error_code ec;
+    std::filesystem::create_directories(core::pathFromUtf8(path).parent_path(), ec);
+    if (ec)
+        return std::unexpected("can't make " + core::utf8String(core::pathFromUtf8(path).parent_path()) + " (" +
+                               ec.message() + ")");
+    if (const std::string error = saveTitle(doc, path); !error.empty())
+        return std::unexpected(error);
+    const core::FrameIndex at = host.currentFrame();
+    auto imported = importTitle(host, path, track, at);
+    if (!imported)
+        return std::unexpected(imported.error());
+    for (core::ClipId id : host.model().track(*track).clips)
+        if (host.model().clip(id).position == at && host.model().hasAsset(host.model().clip(id).asset) &&
+            host.model().asset(host.model().clip(id).asset).path == path)
+            return id;
+    return std::unexpected("the new title isn't on the track");
+}
+
 void extendShell(app::ShellHost &host)
 {
     host.addImportHandler({{"ustitle"}, "Titles", [&host](const std::string &path, auto track, auto position) {
                                return importTitle(host, path, track, position);
                            }});
-    host.addActions({{"titles-edit", "Edit Title", "Titles", {"<Control><Shift>t"}, &onEditTitle},
-                     {"titles-bake", "Bake Title", "Titles", {}, &onBakeTitle}},
+    host.addActions({{"titles-new", "New Title", "Titles", {"<Shift>t"}, &onNewTitle},
+                     {"titles-edit", "Edit Title", "Titles", {"<Control><Shift>t"}, &onEditTitle},
+                     {"titles-bake", "Bake Title", "Titles", {}, &onBakeTitle},
+                     {"titles-open", "Open U Stu Titles", "Titles", {}, &onOpenTitles}},
                     &host);
-    host.addHints({{"titles.edit", "Titles", "Edit title", "Open the selected title clip in U Stu Titles",
-                    "titles-edit", "Double-click a title clip"},
-                   {"titles.bake", "Titles", "Bake title",
-                    "Render the clip to a video file with transparency, for tools without U Stu's titles; undo "
-                    "brings the live title back",
-                    "titles-bake", nullptr}});
+    host.addHints(
+        {{"titles.open", "Header bar", "Open U Stu Titles, the title designer",
+          "With a title clip selected, it opens that title; otherwise the template gallery", "titles-open", nullptr},
+         {"titles.new", "Titles", "New title",
+          "A new title at the playhead on the active track, opened in U Stu Titles to pick a template", "titles-new",
+          nullptr},
+         {"titles.edit", "Titles", "Edit title", "Open the selected title clip in U Stu Titles", "titles-edit",
+          "Double-click a title clip"},
+         {"titles.bake", "Titles", "Bake title",
+          "Render the clip to a video file with transparency, for tools without U Stu's titles; undo "
+          "brings the live title back",
+          "titles-bake", nullptr}});
     // For the process, as the host requires; bound to this window.
     static TitleClipClicks clicks;
     clicks.bind(host);
@@ -337,6 +445,21 @@ void extendShell(app::ShellHost &host)
     watcher.sync();
     host.projectChanged().connect([] { watcher.sync(); });
     addTitlePage(host);
+
+    // The header's "T", between Render… and Settings: only with this
+    // drop-in, so without it there's no button and no gap. Its icon is in
+    // the drop-in's own resources (editor/titles-editor.gresource.xml).
+    // Referencing the generated getter links the resource in (a static
+    // library's unreferenced objects are dropped), and with it the
+    // constructor that registers it.
+    g_resource_unref(g_resource_ref(ustudio_titles_editor_get_resource()));
+    if (GdkDisplay *display = gdk_display_get_default())
+        gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(display), "/com/ustudio/Titles/editor/icons");
+    GtkWidget *button = gtk_button_new_from_icon_name("ustudio-titles-symbolic");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(button), "win.titles-open");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(button), GTK_ACCESSIBLE_PROPERTY_LABEL, "Open U Stu Titles", -1);
+    host.setTooltip(button, "titles.open");
+    host.addHeaderButton(button);
 }
 
 } // namespace ustudio::titles

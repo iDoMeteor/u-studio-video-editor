@@ -77,6 +77,7 @@ check-qt: build
 # runtime.
 version := `sed -n "s/^  version: '\(.*\)',$/\1/p" meson.build`
 flatpak:
+    python3 tools/check_release_notes.py
     flatpak-builder --user --force-clean --install-deps-from=flathub \
         --state-dir=build-flatpak/state \
         build-flatpak/app packaging/flatpak/com.ustudio.VideoEditor.yml
@@ -98,9 +99,11 @@ flatpak:
 # builds against the app, so the app bundle from `just flatpak` (this same
 # version) must be installed in the installation flatpak-builder uses: set
 # FLATPAK_USER_DIR to build against a scratch installation instead of your
-# own. It installs nothing: `just flatpak` has already installed the SDK,
-# and --install-deps-from would try to update the app from its origin.
+# own. It installs nothing (--install-deps-from would try to update the app
+# from its origin; `just flatpak` has already installed the SDK).
+# The titles extension bundle, built against the installed app.
 flatpak-titles:
+    python3 tools/check_release_notes.py
     flatpak-builder --user --force-clean --state-dir=build-flatpak/state \
         build-flatpak/titles packaging/flatpak/com.ustudio.VideoEditor.DropIn.Titles.yml
     python3 tools/check_bundle_clean.py build-flatpak/titles/files
@@ -131,6 +134,40 @@ dist artifact:
     (cd "{{dist_dir}}" && sha256sum "$(basename "$dest")" > "$(basename "$dest").sha256")
     echo "dist: $dest"
     cat "$dest.sha256"
+
+# Publishes a packaged artifact to the public download bucket (owner,
+# 2026-09-28): s3://ut-software-dist/ under its versioned name and its
+# -latest name (the version replaced by "latest"), each with a .sha256
+# naming that file. Uses the default AWS profile. The bucket policy makes
+# every object public (ACLs are disabled), so no ACL is set. A versioned
+# object that already exists with other contents is never replaced;
+# -latest is, with a short Cache-Control so the CDN picks it up.
+publish_bucket := env_var_or_default("USTUDIO_PUBLISH_BUCKET", "ut-software-dist")
+publish artifact:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src="{{artifact}}"; name=$(basename "$src")
+    case "$name" in *"{{version}}"*) ;; *) echo "publish: $name doesn't carry version {{version}}" >&2; exit 1 ;; esac
+    latest="${name/{{version}}/latest}"
+    case "$name" in *.flatpak) type=application/vnd.flatpak ;; *) type=application/octet-stream ;; esac
+    sum=$(sha256sum "$src" | cut -d' ' -f1)
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    printf '%s  %s\n' "$sum" "$name" > "$tmp/$name.sha256"
+    printf '%s  %s\n' "$sum" "$latest" > "$tmp/$latest.sha256"
+    if aws s3api head-object --bucket "{{publish_bucket}}" --key "$name" >/dev/null 2>&1; then
+        aws s3 cp --quiet "s3://{{publish_bucket}}/$name.sha256" "$tmp/existing.sha256" 2>/dev/null || true
+        if ! grep -q "^$sum " "$tmp/existing.sha256" 2>/dev/null; then
+            echo "publish: s3://{{publish_bucket}}/$name exists with other contents; not replacing it" >&2; exit 1
+        fi
+        echo "publish: $name is already there (same sha256)"
+    else
+        aws s3 cp --only-show-errors --content-type "$type" "$src" "s3://{{publish_bucket}}/$name"
+        aws s3 cp --only-show-errors --content-type text/plain "$tmp/$name.sha256" "s3://{{publish_bucket}}/$name.sha256"
+    fi
+    aws s3 cp --only-show-errors --content-type "$type" --cache-control max-age=300 "$src" "s3://{{publish_bucket}}/$latest"
+    aws s3 cp --only-show-errors --content-type text/plain --cache-control max-age=300 "$tmp/$latest.sha256" \
+        "s3://{{publish_bucket}}/$latest.sha256"
+    echo "published: $name, $latest (+ .sha256), sha256 $sum"
 
 # Drop-in configurations (ADR-013/014, doc 15 "Gating"): the full suite with
 # every drop-in built in, or every one as a loadable module (each in its own

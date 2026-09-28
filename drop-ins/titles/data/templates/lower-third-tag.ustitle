@@ -4,30 +4,30 @@
   <field name="tag" label="Tag" default="GUEST"/>
   <field name="name" label="Name" default="Jay Doe"/>
   <field name="role" label="Role" default="Streamer"/>
-  <layer id="tag-bg" kind="shape" shape="rounded-rect" x="160" y="770" w="150" h="44" radius="8">
+  <layer id="tag-bg" kind="shape" shape="rounded-rect" x="160" y="730" w="190" h="56" radius="10">
     <fill color="#ff2bd6"/>
     <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="tag" kind="text" x="170" y="776" w="130" fit="shrink" align="center">
+  <layer id="tag" kind="text" x="170" y="737" w="170" fit="shrink" align="center">
     <text>{{tag}}</text>
-    <font family="Space Grotesk" weight="700" size="26" tracking="0.08"/>
+    <font family="Space Grotesk" weight="700" size="32" tracking="0.08"/>
     <fill color="#07060d"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="bar" kind="shape" shape="rounded-rect" x="160" y="822" w="700" h="150" radius="14">
+  <layer id="bar" kind="shape" shape="rounded-rect" x="160" y="796" w="760" h="176" radius="16">
     <fill color="#1b1230" opacity="0.9"/>
     <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="name" kind="text" x="196" y="840" w="640" fit="shrink">
+  <layer id="name" kind="text" x="200" y="810" w="690" fit="shrink">
     <text>{{name}}</text>
-    <font family="Space Grotesk" weight="700" size="58"/>
+    <font family="Space Grotesk" weight="700" size="70"/>
     <fill color="#ffffff"/>
     <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="role" kind="text" x="196" y="912" w="640" fit="shrink">
+  <layer id="role" kind="text" x="200" y="898" w="690" fit="shrink">
     <text>{{role}}</text>
-    <font family="Space Grotesk" size="34"/>
-    <fill color="#c9bdda"/>
+    <font family="Space Grotesk" size="46"/>
+    <fill color="#ffeffb"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>
 </ustitle>

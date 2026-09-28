@@ -57,7 +57,14 @@ titles_register_args = [
 ]
 # The editor's side: the engine extension (IP3), the render tool's
 # --title-frames (IP6) and the shell's import and file watch (IP5).
-titles_dropin_sources = files('register.cpp', 'editor/jobs.cpp', 'editor/title_bake.cpp', 'editor/title_launch.cpp', 'editor/title_page.cpp', 'editor/title_shell.cpp',
+# The drop-in's own resources in the editor (its header button's icon).
+titles_editor_resources = titles_gnome.compile_resources(
+  'titles-editor-resources',
+  'editor/titles-editor.gresource.xml',
+  source_dir: 'data',
+  c_name: 'ustudio_titles_editor',
+)
+titles_dropin_sources = [titles_editor_resources] + files('register.cpp', 'editor/jobs.cpp', 'editor/title_bake.cpp', 'editor/title_launch.cpp', 'editor/title_page.cpp', 'editor/title_shell.cpp',
                               'engine/backdrop.cpp', 'engine/title_export.cpp', 'engine/title_extension.cpp',
                               'engine/title_frames.cpp')
 if get_option('dropin_titles') == 'module'
@@ -97,6 +104,9 @@ endif
 # metadata (drafts until the owner's new logos; Icon= is a placeholder).
 install_data('data/com.ustudio.Titles.desktop', install_dir: get_option('datadir') / 'applications')
 install_data('data/com.ustudio.Titles.metainfo.xml', install_dir: get_option('datadir') / 'metainfo')
+# The built-in templates (doc 16, T4.2), found by u-studio-titles at
+# <prefix>/share/u-studio/titles/templates.
+install_subdir('data/templates', install_dir: get_option('datadir') / 'u-studio' / 'titles')
 install_data('data/com.ustudio.Titles.mime.xml', install_dir: get_option('datadir') / 'mime' / 'packages',
              rename: 'com.ustudio.Titles.xml')
 
