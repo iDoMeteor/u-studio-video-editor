@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.68.0-beta.1
+
+- Template packs: save templates as a .zip or .tar.gz and open packs from
+  others in U Stu Titles' gallery; each is checked before it's installed.
+
 ## 0.67.1-beta.1
 
 - The editor opens maximised, and the Render button is a little narrower

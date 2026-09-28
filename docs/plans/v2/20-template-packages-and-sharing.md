@@ -104,11 +104,14 @@ The hand-off follows ADR-015:
     fuzz-style validator test corpus (traversal, symlink, bomb, bad hash,
     unknown file, oversized).
   - Acceptance:
-    - [ ] A pack saved on one machine opens on another and renders
-          identically.
-    - [ ] Every malicious sample is rejected with a readable reason and
-          writes nothing.
-    - [ ] `.zip` and `.tar.gz` of the same pack install identically.
+    - [x] A pack saved on one machine opens on another and renders
+          identically. (`titles-packs-app`: packed, opened into another
+          library, byte-identical frames; live on Xvfb, 0.68.0.)
+    - [x] Every malicious sample is rejected with a readable reason and
+          writes nothing. (`titles-pack`: 20 samples in memory, and real
+          archives with a traversal, a symlink and a gzip bomb.)
+    - [x] `.zip` and `.tar.gz` of the same pack install identically.
+          (`titles-pack`, also a .zip made with the `zip` tool.)
 - **T7 — Sharing helper (about 2 weeks, after T4b; needs the service in
   doc 21 or its mock).**
   - Deliverables: `u-studio-share` with browse/search, preview, download

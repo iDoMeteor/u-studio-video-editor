@@ -28,6 +28,15 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.68.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.67.1-beta.1:</p>
+        <ul>
+          <li>Template packs: in U Stu Titles' template gallery, Save as Pack… makes a .zip or .tar.gz of your templates to share, and Open Pack… shows what a pack holds, then installs it as a section of its own. Remove Pack… takes it out again.</li>
+        </ul>
+        <p>Try saving a few of your templates as a pack, then opening it again (on another computer too). A pack that isn't safe (files outside it, links, fonts it may not share) is refused with the reason. Known limits: sharing packs online and updating a title from its template are still coming.</p>
+      </description>
+    </release>
     <release version="0.67.1-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.65.1-beta.1:</p>

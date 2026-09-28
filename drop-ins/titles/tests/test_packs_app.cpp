@@ -8,7 +8,10 @@
 #include "app/packs.h"
 #include "core/media/utf8_path.h"
 #include "core/template_library.h"
+#include "core/title_xml.h"
+#include "package/archive.h"
 #include "package/pack.h"
+#include "render/title_renderer.h"
 
 #include <chrono>
 #include <filesystem>
@@ -42,5 +45,25 @@ TEST_CASE("a pack's previews are PNGs of the template, and the pack validates")
         total += e.data.size();
     auto valid = pack::validate(*entries, total);
     CHECK_MESSAGE(valid.has_value(), (valid ? "" : valid.error()));
+
+    // Saved here, opened "on another machine" (another library): the
+    // template renders byte for byte as it did before it was packed.
+    if (pack::archivesSupported()) {
+        const fs::path file = library / "mine.tar.gz";
+        REQUIRE(pack::writeArchive(*entries, core::utf8String(file)).has_value());
+        auto installed = pack::openPackage(core::utf8String(file), core::utf8String(library / "other-machine"),
+                                           pack::Replace::Never);
+        REQUIRE_MESSAGE(installed.has_value(), (installed ? "" : installed.error()));
+        const auto there = listTemplates(installed->folder, false);
+        REQUIRE(there.size() == 1);
+        auto before = readTitle(copy->path), after = readTitle(there[0].path);
+        REQUIRE(before.has_value());
+        REQUIRE(after.has_value());
+        for (double t : {5.0, 40.0, 80.0}) {
+            CAPTURE(t);
+            CHECK(renderTitle(before->document, t, {}, 640, 360).frame.pixels ==
+                  renderTitle(after->document, t, {}, 640, 360).frame.pixels);
+        }
+    }
     fs::remove_all(library);
 }

@@ -17,6 +17,8 @@
 #include <archive_entry.h>
 #endif
 
+#include <glib.h>
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -378,6 +380,37 @@ TEST_CASE("archives: .zip and .tar.gz of one pack read back the same; real bad a
     REQUIRE(installed.has_value());
     CHECK(listTemplates(installed->folder, false).size() == 1);
 
+    // A pack zipped by hand with the everyday tools (directory entries,
+    // extra attributes and all) opens too.
+    gchar *zipTool = g_find_program_in_path("zip");
+    gchar *tarTool = g_find_program_in_path("tar");
+    if (zipTool && tarTool) {
+        const fs::path unpacked = scratch() / "unpacked";
+        fs::create_directories(unpacked);
+        const std::string tgzPath = core::utf8String(tgz), unpackedPath = core::utf8String(unpacked),
+                          handZip = core::utf8String(scratch() / "by-hand.zip");
+        const std::vector<std::vector<std::string>> commands = {
+            {tarTool, "-xzf", tgzPath, "-C", unpackedPath},
+            {zipTool, "-qr", handZip, "."},
+        };
+        for (const auto &command : commands) {
+            std::vector<char *> argv;
+            for (const std::string &arg : command)
+                argv.push_back(const_cast<char *>(arg.c_str()));
+            argv.push_back(nullptr);
+            gint status = 0;
+            REQUIRE(g_spawn_sync(unpackedPath.c_str(), argv.data(), nullptr, G_SPAWN_DEFAULT, nullptr, nullptr, nullptr,
+                                 nullptr, &status, nullptr));
+            REQUIRE(g_spawn_check_wait_status(status, nullptr));
+        }
+        auto byHand = pack::inspectPackage(handZip);
+        CHECK_MESSAGE(byHand.has_value(), (byHand ? "" : byHand.error()));
+        if (byHand)
+            CHECK(byHand->files == fromZip->files);
+    }
+    g_free(zipTool);
+    g_free(tarTool);
+
 #ifdef TITLES_HAVE_LIBARCHIVE
     // Archives libarchive itself writes, with what our writer never would.
     const auto raw = [](const fs::path &path, auto &&add) {
@@ -402,18 +435,20 @@ TEST_CASE("archives: .zip and .tar.gz of one pack read back the same; real bad a
     const fs::path traversal = scratch() / "traversal.tar.gz";
     raw(traversal, [&](archive *a) {
         for (const pack::Entry &e : entries)
-            file(a, e.path.c_str(), e.data);
+            if (e.kind == pack::Entry::Kind::File)
+                file(a, e.path.c_str(), e.data);
         file(a, "../../escaped.txt", "evil");
     });
     auto t = pack::inspectPackage(traversal.string());
     REQUIRE_FALSE(t.has_value());
-    CHECK(t.error().find("isn't a path inside the pack") != std::string::npos);
+    CHECK_MESSAGE(t.error().find("isn't a path inside the pack") != std::string::npos, t.error());
     CHECK_FALSE(fs::exists(scratch().parent_path().parent_path() / "escaped.txt"));
 
     const fs::path link = scratch() / "link.tar.gz";
     raw(link, [&](archive *a) {
         for (const pack::Entry &e : entries)
-            file(a, e.path.c_str(), e.data);
+            if (e.kind == pack::Entry::Kind::File)
+                file(a, e.path.c_str(), e.data);
         archive_entry *e = archive_entry_new();
         archive_entry_set_pathname(e, "images/passwd.png");
         archive_entry_set_filetype(e, AE_IFLNK);
@@ -424,7 +459,7 @@ TEST_CASE("archives: .zip and .tar.gz of one pack read back the same; real bad a
     });
     auto l = pack::inspectPackage(link.string());
     REQUIRE_FALSE(l.has_value());
-    CHECK(l.error().find("is a link") != std::string::npos);
+    CHECK_MESSAGE(l.error().find("is a link") != std::string::npos, l.error());
 
     // A bomb: 200 MB of zeros gzip down to a few hundred kB. Reading stops
     // at the limit, long before it's all in memory.
