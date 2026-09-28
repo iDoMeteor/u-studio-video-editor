@@ -63,8 +63,11 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   transition, so it follows a change of length.
 - **Project files can't name a service**: `Model::check()` refuses a
   transition whose params name anything outside
-  `transitionServiceAllowed()` or set `resource`, `factory` or
-  `producer.*`, so the reader refuses the file. A map is only ever a
+  `transitionServiceAllowed()`, or set anything MLT would open, on any of
+  its services (the cut filters too) and at any depth: `resource`,
+  `factory`, `background`, `luma`, `producer.*` (`affine`'s filter opens
+  its `background` as a producer and passes `producer.*` and
+  `transition.*` on, filter_affine.yml). The reader then refuses the file. A map is only ever a
   generated one, by name; an unknown name plays as the plain dissolve.
 - **Where maps are written:** the editor's graph uses
   `<user cache>/ustudio/luma/v<N>/<name>.pgm` (`platform::
