@@ -4,6 +4,8 @@
 #include "app/shell_host.h"
 #include "core/commands.h"
 #include "core/descriptor.h"
+#include "core/keyframes.h"
+#include "core/model/animation.h"
 
 #include <gtk/gtk.h>
 
@@ -80,6 +82,11 @@ struct Control
     std::vector<std::string> choices;
     uint64_t gesture = 0;
     gint64 lastChange = 0;
+    // Keyframes (animatable numbers and the mix): previous, pin, next, and
+    // the key-at-playhead's feel.
+    bool animatable = false;
+    GtkWidget *pin = nullptr, *previous = nullptr, *next = nullptr, *feel = nullptr;
+    std::vector<core::Easing> feelEasings; // the feel drop-down's entries, in order
 };
 
 // A card's own buttons.
@@ -110,6 +117,16 @@ class Rack
             {"effects.card-remove", "Effects", "Remove effect", nullptr, nullptr, nullptr},
             {"effects.card-mix", "Effects", "Mix",
              "How much of the effect shows: 0% is the picture without it, 100% the full effect", nullptr, nullptr},
+            {"effects.key-pin", "Effects", "Pin",
+             "A keyframe here at the playhead, or remove the one here. The first pin makes the value change over "
+             "time; move the playhead and change the value to add the next",
+             "effects-pin", nullptr},
+            {"effects.key-previous", "Effects", "Previous keyframe", nullptr, nullptr, nullptr},
+            {"effects.key-next", "Effects", "Next keyframe", nullptr, nullptr, nullptr},
+            {"effects.key-feel", "Effects", "Feel",
+             "How the value moves from this keyframe to the next: steady, smooth, easing in or out, bouncing, "
+             "or holding still until the next",
+             nullptr, nullptr},
             {"effects.card-cost", "Effects", "Cost",
              "How much work the effect is for each frame, measured when it was checked", nullptr, nullptr},
         });
@@ -117,6 +134,7 @@ class Rack
         // Browser lands it opens the Add search.
         static const std::vector<app::ActionSpec> actions = {
             {"effects-browser", "Add an effect", "Effects", {"e"}, &onBrowserActionTrampoline},
+            {"effects-pin", "Pin the value at the playhead", "Effects", {"p"}, &onPinActionTrampoline},
         };
         m_host.addActions(actions, this);
         m_host.setTooltip(m_scope, "effects.rack-scope");
@@ -124,6 +142,7 @@ class Rack
         m_host.addInspectorPage({"effects.rack", "Effects", "applications-graphics-symbolic", m_root});
         m_host.selectionChanged().connect([this] { refresh(); });
         m_host.projectChanged().connect([this] { refresh(); });
+        m_host.playheadMoved().connect([this] { onPlayheadMoved(); });
         m_catalog.changed.connect([this] {
             m_structure.clear(); // names and badges may have arrived
             refresh();
@@ -148,6 +167,14 @@ class Rack
         const core::Model &model = m_host.model();
         if (!model.hasEffect(control.effect))
             return;
+        if (control.animatable)
+            m_lastControl = std::make_pair(control.effect, control.param);
+        // Animated: the change is the key at the playhead (set, or added).
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        if (!keys.empty()) {
+            applyKeys(control, withKeyAt(keys, ownerFrame(control.effect), numberOf(control)), control.gesture);
+            return;
+        }
         if (control.param.empty()) {
             core::KeyframedValue mix = model.effect(control.effect).mix;
             mix.value = std::clamp(gtk_adjustment_get_value(control.adjustment) / 100.0, 0.0, 1.0);
@@ -157,6 +184,142 @@ class Rack
         core::Param param = currentParam(model.effect(control.effect), control.param, control.kind);
         param.value = readControl(control);
         m_host.execute(std::make_unique<SetParam>(control.effect, param, control.gesture));
+    }
+
+    // --- Keyframes ---------------------------------------------------------
+
+    // The playhead in the effect owner's frames: a clip's keys count from
+    // its first frame on the timeline, a track's and the sequence's from 0.
+    core::FrameIndex ownerFrame(core::EffectId effect) const
+    {
+        const core::Model &model = m_host.model();
+        const core::FrameIndex frame = m_host.currentFrame();
+        auto found = model.findEffect(effect);
+        if (found && found->first.kind == core::Model::EffectTarget::Kind::Clip)
+            return frame - model.clip(core::ClipId{found->first.id}).position;
+        return frame;
+    }
+
+    core::FrameIndex ownerStart(core::EffectId effect) const
+    {
+        return m_host.currentFrame() - ownerFrame(effect);
+    }
+
+    std::vector<core::Keyframe> keysOf(const Control &control) const
+    {
+        const core::Model &model = m_host.model();
+        if (!model.hasEffect(control.effect))
+            return {};
+        const core::Effect &effect = model.effect(control.effect);
+        if (control.param.empty())
+            return effect.mix.keyframes;
+        return currentParam(effect, control.param, control.kind).keyframes;
+    }
+
+    // The control's number in model units (the mix 0-1).
+    double numberOf(const Control &control) const
+    {
+        if (control.param.empty())
+            return std::clamp(gtk_adjustment_get_value(control.adjustment) / 100.0, 0.0, 1.0);
+        return asNumber(readControl(control));
+    }
+
+    // Sets the control's keys (empty: not animated, at the value it showed).
+    void applyKeys(Control &control, std::vector<core::Keyframe> keys, uint64_t gesture)
+    {
+        const core::Model &model = m_host.model();
+        if (!model.hasEffect(control.effect))
+            return;
+        const core::Effect &effect = model.effect(control.effect);
+        const double shown = numberOf(control);
+        if (control.param.empty()) {
+            core::KeyframedValue mix = effect.mix;
+            if (keys.empty())
+                mix.value = shown;
+            mix.keyframes = std::move(keys);
+            m_host.execute(std::make_unique<SetMix>(control.effect, mix, gesture));
+            return;
+        }
+        core::Param param = currentParam(effect, control.param, control.kind);
+        if (keys.empty())
+            param.value = shown;
+        param.keyframes = std::move(keys);
+        m_host.execute(std::make_unique<SetParam>(control.effect, param, gesture));
+    }
+
+    // The pin: a key at the playhead, or none there. The first pin turns
+    // animation on; removing the last turns it off at that value.
+    void onKeyPin(Control &control)
+    {
+        m_lastControl = std::make_pair(control.effect, control.param);
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        const core::FrameIndex at = ownerFrame(control.effect);
+        if (keyAt(keys, at))
+            applyKeys(control, withoutKeyAt(keys, at), 0);
+        else
+            applyKeys(control, withKeyAt(keys, at, numberOf(control)), 0);
+    }
+
+    void onKeyStep(Control &control, bool forward)
+    {
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        const core::FrameIndex at = ownerFrame(control.effect);
+        const std::optional<core::FrameIndex> key = forward ? nextKey(keys, at) : previousKey(keys, at);
+        if (key)
+            m_host.seek(ownerStart(control.effect) + *key);
+    }
+
+    void onKeyFeel(Control &control)
+    {
+        if (m_updating)
+            return;
+        const guint index = gtk_drop_down_get_selected(GTK_DROP_DOWN(control.feel));
+        if (index >= control.feelEasings.size())
+            return;
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::Keyframe *key = keyAt(keys, at);
+        if (!key || key->easing == control.feelEasings[index])
+            return;
+        applyKeys(control, withEasingAt(keys, at, control.feelEasings[index]), 0);
+    }
+
+    // P: pin the parameter last touched.
+    void onPinAction()
+    {
+        for (const std::unique_ptr<Control> &control : m_controls)
+            if (m_lastControl && control->animatable && control->effect == m_lastControl->first &&
+                control->param == m_lastControl->second) {
+                onKeyPin(*control);
+                return;
+            }
+        m_host.showStatus("Change an effect's value first, then press P to pin it at the playhead");
+    }
+
+    // The pin lit when the playhead is on a key; previous/next only when
+    // there's one that way; the feel only on a key.
+    void showKeyState(Control &control)
+    {
+        if (!control.pin)
+            return;
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::Keyframe *key = keyAt(keys, at);
+        gtk_button_set_icon_name(GTK_BUTTON(control.pin), key ? "starred-symbolic" : "non-starred-symbolic");
+        if (key)
+            gtk_widget_add_css_class(control.pin, "accent");
+        else
+            gtk_widget_remove_css_class(control.pin, "accent");
+        gtk_widget_set_sensitive(control.previous, previousKey(keys, at).has_value());
+        gtk_widget_set_sensitive(control.next, nextKey(keys, at).has_value());
+        gtk_widget_set_visible(control.feel, key != nullptr);
+        gtk_widget_set_visible(GTK_WIDGET(g_object_get_data(G_OBJECT(control.feel), "label")), key != nullptr);
+        if (key) {
+            auto it = std::find(control.feelEasings.begin(), control.feelEasings.end(), key->easing);
+            if (it != control.feelEasings.end())
+                gtk_drop_down_set_selected(GTK_DROP_DOWN(control.feel),
+                                           static_cast<guint>(it - control.feelEasings.begin()));
+        }
     }
 
     void onCardAction(const CardAction &action)
@@ -550,6 +713,7 @@ class Rack
         for (size_t i = 0; i < effects.size(); ++i)
             gtk_box_append(GTK_BOX(m_cards), buildCard(effects[i], i, effects.size()));
         m_updating = false;
+        updateValues(); // animated values at the playhead, key states
     }
 
     GtkWidget *iconButton(const char *icon, const char *hint, core::EffectId effect, int move, bool sensitive)
@@ -647,11 +811,13 @@ class Rack
             gtk_scale_set_draw_value(GTK_SCALE(scale), TRUE);
             gtk_scale_set_value_pos(GTK_SCALE(scale), GTK_POS_RIGHT);
             gtk_widget_set_hexpand(scale, TRUE);
-            gtk_widget_set_sensitive(scale, effect.mix.keyframes.empty());
             m_host.setTooltip(scale, "effects.card-mix");
             control->widget = scale;
+            control->animatable = true;
             g_signal_connect(control->adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
-            addRow(grid, row++, "Mix", scale, !effect.mix.keyframes.empty());
+            addRow(grid, row, "Mix", scale);
+            addKeyControls(grid, row, *control);
+            row += 2;
             m_controls.push_back(std::move(control));
         }
         if (descriptor)
@@ -660,31 +826,80 @@ class Rack
                     continue;
                 const core::Param current = currentParam(effect, p.id, p.kind);
                 GtkWidget *widget = buildControl(effect.id, p, current);
-                if (widget)
-                    addRow(grid, row++, p.title, widget, !current.keyframes.empty(), p.description);
+                if (!widget)
+                    continue;
+                addRow(grid, row, p.title, widget, p.description);
+                if (m_controls.back()->animatable) {
+                    addKeyControls(grid, row, *m_controls.back());
+                    row += 2;
+                } else {
+                    ++row;
+                }
             }
         gtk_box_append(GTK_BOX(inner), grid);
         return card;
     }
 
-    void addRow(GtkWidget *grid, int row, const std::string &title, GtkWidget *widget, bool animated,
+    void addRow(GtkWidget *grid, int row, const std::string &title, GtkWidget *widget,
                 const std::string &description = {})
     {
         GtkWidget *label = gtk_label_new(title.c_str());
         gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
         gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
-        gtk_label_set_width_chars(GTK_LABEL(label), 10);
-        gtk_label_set_max_width_chars(GTK_LABEL(label), 16);
+        gtk_label_set_width_chars(GTK_LABEL(label), 6);
+        gtk_label_set_max_width_chars(GTK_LABEL(label), 12);
         if (!description.empty())
             gtk_widget_set_tooltip_text(label, description.c_str());
         gtk_grid_attach(GTK_GRID(grid), label, 0, row, 1, 1);
+        gtk_widget_set_hexpand(widget, TRUE);
         gtk_grid_attach(GTK_GRID(grid), widget, 1, row, 1, 1);
-        if (animated) {
-            // Keyframes are edited in a later slice; until then an animated
-            // value shows but doesn't change.
-            gtk_widget_set_sensitive(widget, FALSE);
-            gtk_widget_set_tooltip_text(widget, "Animated: this value changes over time");
+    }
+
+    // Previous key, pin, next key beside the value; the feel of the key at
+    // the playhead on the row below (shown only there).
+    void addKeyControls(GtkWidget *grid, int row, Control &control)
+    {
+        GtkWidget *keys = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_widget_add_css_class(keys, "linked");
+        auto button = [&](const char *icon, const char *hint, GCallback callback) {
+            GtkWidget *b = gtk_button_new_from_icon_name(icon);
+            gtk_widget_add_css_class(b, "flat");
+            m_host.setTooltip(b, hint);
+            g_signal_connect(b, "clicked", callback, &control);
+            gtk_box_append(GTK_BOX(keys), b);
+            return b;
+        };
+        control.previous = button("go-previous-symbolic", "effects.key-previous", G_CALLBACK(&onKeyPreviousTrampoline));
+        control.pin = button("non-starred-symbolic", "effects.key-pin", G_CALLBACK(&onKeyPinTrampoline));
+        control.next = button("go-next-symbolic", "effects.key-next", G_CALLBACK(&onKeyNextTrampoline));
+        gtk_grid_attach(GTK_GRID(grid), keys, 2, row, 1, 1);
+
+        std::vector<std::string> names;
+        for (const Feel &feel : feels()) {
+            names.push_back(feel.name);
+            control.feelEasings.push_back(feel.easing);
         }
+        for (int e = 0; e <= static_cast<int>(core::Easing::BounceInOut); ++e) {
+            const auto easing = static_cast<core::Easing>(e);
+            if (std::find(control.feelEasings.begin(), control.feelEasings.end(), easing) != control.feelEasings.end())
+                continue;
+            names.push_back(std::string("Curve: ") + core::easingName(easing));
+            control.feelEasings.push_back(easing);
+        }
+        std::vector<const char *> strings;
+        for (const std::string &n : names)
+            strings.push_back(n.c_str());
+        strings.push_back(nullptr);
+        control.feel = gtk_drop_down_new_from_strings(strings.data());
+        m_host.setTooltip(control.feel, "effects.key-feel");
+        g_signal_connect(control.feel, "notify::selected", G_CALLBACK(&onKeyFeelTrampoline), &control);
+        GtkWidget *feelLabel = gtk_label_new("Feel");
+        gtk_label_set_xalign(GTK_LABEL(feelLabel), 1.0f);
+        gtk_widget_add_css_class(feelLabel, "dim-label");
+        gtk_grid_attach(GTK_GRID(grid), feelLabel, 0, row + 1, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), control.feel, 1, row + 1, 2, 1);
+        g_object_set_data(G_OBJECT(control.feel), "label", feelLabel);
+        showKeyState(control);
     }
 
     GtkWidget *buildControl(core::EffectId effect, const ParamDescriptor &p, const core::Param &current)
@@ -711,6 +926,7 @@ class Rack
             gtk_widget_set_hexpand(scale, TRUE);
             gtk_box_append(GTK_BOX(box), scale);
             GtkWidget *spin = gtk_spin_button_new(control->adjustment, span / 100.0, span <= 10.0 ? 3 : 1);
+            gtk_editable_set_width_chars(GTK_EDITABLE(spin), 6);
             gtk_box_append(GTK_BOX(box), spin);
             if (p.display && !p.display->unit.empty()) {
                 GtkWidget *unit = gtk_label_new(p.display->unit.c_str());
@@ -718,6 +934,7 @@ class Rack
                 gtk_box_append(GTK_BOX(box), unit);
             }
             widget = box;
+            control->animatable = p.animatable;
             g_signal_connect(control->adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
             break;
         }
@@ -781,12 +998,30 @@ class Rack
             if (!model.hasEffect(control->effect))
                 continue;
             const core::Effect &effect = model.effect(control->effect);
-            if (control->param.empty())
+            const std::vector<core::Keyframe> keys = keysOf(*control);
+            if (!keys.empty()) {
+                // Animated: the value at the playhead.
+                const double value = core::easedValue(keys, static_cast<double>(ownerFrame(control->effect)));
+                if (control->param.empty())
+                    gtk_adjustment_set_value(control->adjustment, value * 100.0);
+                else
+                    writeControl(*control, value);
+            } else if (control->param.empty()) {
                 gtk_adjustment_set_value(control->adjustment, effect.mix.value * 100.0);
-            else
+            } else {
                 writeControl(*control, currentParam(effect, control->param, control->kind).value);
+            }
+            showKeyState(*control);
         }
         m_updating = false;
+    }
+
+    // Only animated values and key states move with the playhead.
+    void onPlayheadMoved()
+    {
+        if (m_rebuildPending)
+            return;
+        updateValues();
     }
 
     // --- GTK signal trampolines ---------------------------------------------
@@ -794,6 +1029,30 @@ class Rack
     static void onSearchActivateTrampoline(GtkSearchEntry *, gpointer self)
     {
         static_cast<Rack *>(self)->onSearchActivate();
+    }
+    static void onPinActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onPinAction();
+    }
+    static void onKeyPinTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onKeyPin(*c);
+    }
+    static void onKeyPreviousTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onKeyStep(*c, false);
+    }
+    static void onKeyNextTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onKeyStep(*c, true);
+    }
+    static void onKeyFeelTrampoline(GObject *, GParamSpec *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onKeyFeel(*c);
     }
     static void onBrowserActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
     {
@@ -852,6 +1111,9 @@ class Rack
     std::string m_structure;
     bool m_updating = false;
     bool m_rebuildPending = false;
+    // The parameter P pins: by effect and name, since pinning rebuilds the
+    // cards (the value becomes animated).
+    std::optional<std::pair<core::EffectId, std::string>> m_lastControl;
     uint64_t m_nextGesture = 0;
 };
 
