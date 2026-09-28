@@ -1,4 +1,4 @@
-# Demo-tour driving library: runs inside dbus-run-session on Xvfb :97.
+# Demo-tour driving library: runs inside dbus-run-session on a private Xvfb (run_tour.sh picks the display).
 import gi, os, subprocess, sys, time, json
 gi.require_version('Atspi', '2.0')
 from gi.repository import Atspi
@@ -77,16 +77,57 @@ def wait_exit(timeout=60):
     log(f"app exit: {proc.poll()}")
 
 # ---------- AT-SPI
+TARGET = None   # None: the editor we launched; else another app's AT-SPI name ('u-studio-titles')
+
+def use_app(name=None):
+    """Point find/press/walk at another app (U Stu Titles, which the editor starts), or back."""
+    global TARGET
+    TARGET = name
+
 def app_node():
     d = Atspi.get_desktop(0)
     for i in range(d.get_child_count()):
         a = d.get_child_at_index(i)
         try:
-            if a and proc and a.get_process_id() == proc.pid:
+            if a and (a.get_name() == TARGET if TARGET else proc and a.get_process_id() == proc.pid):
                 return a
         except Exception:
             pass
     return None
+
+def extents(node):
+    """Screen box (x, y, w, h). GTK4's SCREEN extents are unreliable, but summing
+    PARENT extents up to the frame works (tools/titles-smoke/drive.py); the
+    windows sit at the screen's origin here (fitwin.py, no WM)."""
+    x = y = 0
+    n = node
+    while n is not None and n.get_role_name() != 'frame':
+        e = n.get_extents(Atspi.CoordType.PARENT)
+        x += e.x; y += e.y
+        n = n.get_parent()
+    e = node.get_extents(Atspi.CoordType.PARENT)
+    return x, y, e.width, e.height
+
+FRAME_OFF = (12, 11)   # frame extents include the CSD shadow: screen = extents + this (measured)
+
+def centre_of(node):
+    x, y, w, h = extents(node)
+    return x + w // 2 + FRAME_OFF[0], y + h // 2 + FRAME_OFF[1]
+
+def where(text, roles=('button', 'toggle button', 'push button'), exact=False, timeout=6):
+    """Screen centre of a widget found by name, or None."""
+    n = find(text, roles=roles, exact=exact, timeout=timeout)
+    return centre_of(n) if n else None
+
+def dump_tree(path, maxlen=60):
+    """Every named node of the current app, with role and box: for writing chapters."""
+    with open(path, 'w') as f:
+        for n in walk(app_node()):
+            nm, ds, rl = info(n)
+            if nm or ds:
+                try: box = extents(n)
+                except Exception: box = None
+                f.write(f"{rl:18} {nm[:maxlen]!r:64} {ds[:40]!r:44} {box}\n")
 
 def walk(n, depth=0):
     if n is None or depth > 60:

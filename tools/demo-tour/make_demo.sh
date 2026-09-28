@@ -31,7 +31,8 @@ fi
 # 2. current main, built as release in this worktree (never in the owner's checkout)
 git -C "$REPO" fetch -q origin && git -C "$REPO" merge -q --no-edit origin/main
 BUILD=$REPO/builddir
-[ -d "$BUILD" ] || meson setup "$BUILD" "$REPO" -Dbuildtype=release >/dev/null
+[ -d "$BUILD" ] || meson setup "$BUILD" "$REPO" >/dev/null
+meson configure "$BUILD" -Dbuildtype=release -Ddropin_titles=builtin >/dev/null   # the titles chapters need the designer
 meson compile -C "$BUILD" >/dev/null
 VERSION=$(meson introspect "$BUILD" --projectinfo | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
 

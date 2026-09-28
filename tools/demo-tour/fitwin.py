@@ -1,8 +1,10 @@
 # Resize the app's top-level window to fill the Xvfb screen (no WM needed).
+# fitwin.py [class]: a window whose WM_CLASS contains `class` (e.g. u-studio-titles); default the editor.
 import sys, time
 from Xlib import display, X
 d = display.Display()
 root = d.screen().root
+WANT = sys.argv[1].lower() if len(sys.argv) > 1 else None
 W, H = d.screen().width_in_pixels, d.screen().height_in_pixels
 def walk(w):
     name = ''
@@ -16,7 +18,10 @@ def walk(w):
     except Exception:
         cls = ()
     attrs = w.get_attributes()
-    if attrs.map_state == X.IsViewable and ('u Studio' in name or 'U Stu' in name or any('u-studio' in c.lower() or 'videoeditor' in c.lower() for c in cls)):
+    if WANT:
+        if attrs.map_state == X.IsViewable and any(WANT in c.lower() for c in cls):
+            return w
+    elif attrs.map_state == X.IsViewable and 'titles' not in ' '.join(cls).lower() and ('u Studio' in name or 'U Stu' in name or any('u-studio' in c.lower() or 'videoeditor' in c.lower() for c in cls)):
         return w
     for c in w.query_tree().children:
         r = walk(c)

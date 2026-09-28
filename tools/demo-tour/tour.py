@@ -53,6 +53,11 @@ def step(title, sub=''):
         quit_app(); sys.exit(0)
     chapter(title, sub)
 
+# TOUR_GPU=0 presets GPU acceleration off in the run's private dconf (dconf
+# honours XDG_CONFIG_HOME, so the owner's settings are untouched).
+if os.environ.get('TOUR_GPU', '1') == '0':
+    subprocess.run(['dconf', 'write', '/com/ustudio/VideoEditor/gpu-acceleration', 'false'], check=True)
+    T.log('GPU acceleration preset off')
 launch()
 step('U Stu Video Editor', 'a GNOME-native multi-track video editor')
 pause(3)
@@ -249,9 +254,109 @@ click(drop_x + 6, RULER_Y); pause(0.8)   # playhead onto the sequence
 act('play-pause'); pause(1.5); snap('c5c-playing'); pause(1.2); act('play-pause'); pause(0.8)
 act('undo'); pause(1); rest()   # keep the later chapters' timeline as it was
 
+# ---------------------------------------------------------------- 5d titles (U Stu Titles)
+def wait_status(prefixes, timeout):
+    end = time.time() + timeout
+    while time.time() < end:
+        st = status()
+        if st.startswith(prefixes):
+            return st
+        time.sleep(0.5)
+    return status()
+
+TG = ('toggle button',)
+def dump(name):
+    if SHOTS: dump_tree(os.path.join(os.environ['TOUR_OUT'], f'tree-{name}.txt'))
+def titles_window():
+    """Point the helpers at U Stu Titles once it's up, and size its window."""
+    use_app('u-studio-titles')
+    for _ in range(40):
+        if app_node(): break
+        time.sleep(0.5)
+    subprocess.run(['python3', os.path.join(T.DEMO, 'fitwin.py'), 'u-studio-titles'], capture_output=True, timeout=30)
+    pause(1.5)
+PACK = os.path.join(WORK, 'stream-kit.zip')
+subprocess.run(['python3', os.path.join(T.DEMO, 'make_demo_pack.py'), PACK], check=True)
+
+step('Titles', 'New Title (Shift+T): a title clip at the playhead on the active track, and U Stu Titles opens on it')
+v3 = clips_in_row(YB(0))
+title_x = (max(r[1] for r in v3) if v3 else 300) + 60
+click(1500, YB(0)); pause(0.6)                 # the empty end of V3: make it the active track
+click(title_x, RULER_Y); pause(0.8)
+act('titles-new'); pause(5)
+titles_window(); snap('c5d-gallery')
+step('Template gallery', 'lower thirds, bugs and badges, cards, end screens, countdowns, live and social, and your own')
+for _ in range(10):
+    mouse(960, 600, 'b5c'); time.sleep(0.12)
+pause(1.5)
+for _ in range(10):
+    mouse(960, 600, 'b4c'); time.sleep(0.12)
+pause(1)
+step('Template packs', 'Open Pack… shows what a shared pack holds before installing it; Save as Pack… makes one')
+press('Open Pack…'); pause(1.5); set_location(PACK); keysym(K_RETURN); pause(1.2)
+if find('Open', exact=True, timeout=1):
+    press('Open', exact=True)
+pause(2.5); snap('c5d-pack')
+press('Install', exact=True); pause(2.5)
+for _ in range(40):
+    mouse(960, 600, 'b5c'); time.sleep(0.06)
+pause(2); snap('c5d-pack-installed')
+for _ in range(40):
+    mouse(960, 600, 'b4c'); time.sleep(0.06)
+pause(1)
+press('Lower third, two lines', exact=True); pause(3); snap('c5d-template')
+step('Designing over the picture', 'the video at the playhead shows behind the title: layers on the left, the inspector on the right')
+n = find('{{name}}', roles=('label',), timeout=3)
+if n:
+    click(*centre_of(n)); pause(1.5)
+dump('c5d-layer'); snap('c5d-layer')
+step('Brand kit', 'the Unicorn Tears colours, gradients and fonts, one click each; Apply Brand restyles a whole title')
+a = find('Anton', roles=('label', 'button'), exact=True, timeout=2)
+if a:
+    click(*centre_of(a)); pause(2)
+snap('c5d-brand')
+step('Animation', 'Add In…, Out… and Loop… show each behaviour on your own layer; the strip shows intro, hold and outro')
+press('Add In…', roles=TG, exact=True); pause(3)
+p = find('Pop', roles=('table cell',), exact=True, timeout=2)
+if p:
+    click(*centre_of(p)); pause(1.2)
+else:
+    keysym(K_ESC); pause(0.6)
+press('Add Loop…', roles=TG, exact=True); pause(2.5)
+p = find('Glow breathe', roles=('table cell',), exact=True, timeout=2)
+if p:
+    click(*centre_of(p)); pause(1.2)
+else:
+    keysym(K_ESC); pause(0.6)
+press('Play the intro'); pause(5); snap('c5d-playing'); press('Play the intro'); pause(0.6)
+step('Export for OBS', 'Ctrl+E: ProRes 4444, WebM or a PNG sequence with transparency, or H.264, at any length')
+keysym(ord('e'), mods=('ctrl',)); pause(2); snap('c5d-export'); dump('c5d-export')
+keysym(K_ESC); pause(1)
+step('Save', 'Ctrl+S: the editor picks it up at once, with clean transparent edges over the video')
+keysym(ord('s'), mods=('ctrl',)); pause(2)
+press('Close', exact=True); pause(2)
+use_app(None)
+act('zoom-in', 4, gap=0.3); pause(1)
+act('step-forward-10', 4, gap=0.2); pause(1.5); snap('c5d-editor')
+step('Title fields', 'the inspector’s Title page: one lower third for every guest, and the preview follows as you type')
+act('select-next-clip'); pause(0.8)
+click(*where('Inspector', roles=TG)); pause(2); dump('c5d-titlepage'); snap('c5d-titlepage')
+fields = [n for n in walk(app_node()) if info(n)[2] in ('text', 'entry') and extents(n)[0] > 1400]
+T.log(f"title fields: {[info(f)[0] for f in fields]}")
+for f, text in zip(fields, ('DJ Unicorn', 'Resident, Neon Grove')):
+    click(*centre_of(f)); pause(0.4); keysym(ord('a'), mods=('ctrl',)); typestr(text); pause(1.2)
+pause(1.5); snap('c5d-fields')
+step('Bake', 'Bake… renders the title to a ProRes 4444 file and plays that instead; Ctrl+Z brings the live title back')
+if press('Bake…'):
+    ff_start(); st = wait_status(('Baked', "Couldn't bake"), 180); ff_end(); T.log(f"bake status {st!r}")
+pause(2); snap('c5d-baked')
+act('undo'); pause(1.5)
+click(*where('Inspector', roles=TG)); pause(1)
+act('zoom-fit'); pause(1)
+
 # ---------------------------------------------------------------- 6 save
 PROJECT = os.path.join(WORK, 'unicorn-demo.ustudio')
-HDR = {'save': (1550, 27), 'render': (1642, 27), 'settings': (1736, 27), 'help': (1772, 27)}
+HDR = {'save': where('Save project'), 'render': where('Render…')}   # the header changed in 0.67; find, don't guess
 def name_entry_set(path):
     for n in walk(app_node()):
         nm, ds, rl = info(n)
@@ -280,7 +385,7 @@ TABS = {'General': 663, 'Toggles': 763, 'Performance': 861, 'Locations': 960, 'R
 step('Settings', 'every preference, grouped')
 press('Settings'); pause(2)
 for tab, sub in [('Toggles', 'reopen the last project, snapping, follow playhead, thumbnails, waveforms'),
-                 ('Performance', 'preview scale, worker threads, thumbnail and waveform jobs'),
+                 ('Performance', 'preview scale, proxies, GPU acceleration and hardware video decoding, worker threads'),
                  ('Locations', 'default project and export folders'),
                  ('Render', 'render profiles (High quality is the default) and render threads'),
                  ('Drop-ins', 'optional effects, titles and more, installed separately'),
@@ -290,22 +395,18 @@ for tab, sub in [('Toggles', 'reopen the last project, snapping, follow playhead
 keysym(K_ESC); pause(1)
 
 # ---------------------------------------------------------------- 8 project frame rate
-step('Project frame rate', 'click the format under the title; everything stays in time')
-press('unicorn-demo'); pause(1.5); snap('c8-dialog')
+step('Project format', 'click the format under the title: frame rate and background colour, each one undo step')
+press('unicorn-demo'); pause(1.5); snap('c8-dialog'); dump('c8-dialog')
+cb = find('The colour wherever', roles=('button', 'push button', 'toggle button'), timeout=2)
+T.log(f"colour button {info(cb) if cb else None}")
+if cb:
+    click(*centre_of(cb)); pause(2); snap('c8-colours'); dump('c8-colours'); keysym(K_ESC); pause(1)
 click(960, 566); pause(1.2); snap('c8-list')
 keysym(0xff52); pause(0.4); keysym(0xff52); pause(0.4); keysym(K_RETURN); pause(1)
-press('Change', exact=True); pause(2.5); T.log(f"fps status {status()!r}"); snap('c8-changed')
+press('Apply', exact=True); pause(2.5); T.log(f"fps status {status()!r}"); snap('c8-changed')
 act('undo'); pause(1.5)
 
 # ---------------------------------------------------------------- 9 render
-def wait_status(prefixes, timeout):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = status()
-        if st.startswith(prefixes):
-            return st
-        time.sleep(0.5)
-    return status()
 
 step('Render', 'auto-named output in the export folder; High quality is the default profile')
 press('Render…'); center_dialogs(1.2); snap('c9-dialog'); pause(2)
@@ -321,7 +422,7 @@ ff_start(); st = wait_status(('Rendered',), 900); ff_end(); T.log(f"render statu
 if not st.startswith('Rendered'):
     snap('ERR-render-unfinished'); raise SystemExit(f'render did not finish: {st!r}')
 click(*HDR['render']); pause(4); snap('c9-player')
-# close whatever player GIO launched on :97
+# close whatever player GIO launched on our Xvfb
 import subprocess as _sp
 for pid in os.listdir('/proc'):
     if not pid.isdigit() or int(pid) in (os.getpid(), T.proc.pid): continue
@@ -330,7 +431,7 @@ for pid in os.listdir('/proc'):
         cmd = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\0', b' ').decode(errors='replace')
     except Exception:
         continue
-    if b'DISPLAY=:97' in env and b'TOUR_OUT=' not in env and not any(k in cmd for k in ('Xvfb', 'at-spi', 'dbus', 'ffmpeg', 'audiorec', 'python3', 'u-studio-video-editor', 'xdg-desktop-portal', 'goa', 'gvfs', 'dconf')):
+    if ('DISPLAY=' + os.environ['DISPLAY']).encode() in env and b'TOUR_OUT=' not in env and not any(k in cmd for k in ('Xvfb', 'at-spi', 'dbus', 'ffmpeg', 'audiorec', 'python3', 'u-studio-video-editor', 'xdg-desktop-portal', 'goa', 'gvfs', 'dconf')):
         T.log(f"closing player {pid}: {cmd[:80]}"); os.kill(int(pid), 15)
 pause(1.5)
 
