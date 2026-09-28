@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "core/media/utf8_path.h"
+#include "engine/dispatcher.h"
 #include "engine/effects_extension.h"
 #include "engine/plugins.h"
 #include "engine/registry.h"
@@ -73,46 +74,6 @@ struct Sink
     HealthScan::RegistryReady registryReady; // likewise
 };
 
-struct Posted
-{
-    std::shared_ptr<Sink> sink;
-    std::string service;
-    HealthRecord record;
-    bool finished;
-};
-
-gboolean deliver(gpointer data)
-{
-    std::unique_ptr<Posted> posted(static_cast<Posted *>(data));
-    HealthScan::Progress progress;
-    {
-        std::lock_guard lock(posted->sink->mutex);
-        progress = posted->sink->progress;
-    }
-    if (progress)
-        progress(posted->service, posted->record, posted->finished);
-    return G_SOURCE_REMOVE;
-}
-
-struct PostedRegistry
-{
-    std::shared_ptr<Sink> sink;
-    std::shared_ptr<const EffectRegistry> registry;
-};
-
-gboolean deliverRegistry(gpointer data)
-{
-    std::unique_ptr<PostedRegistry> posted(static_cast<PostedRegistry *>(data));
-    HealthScan::RegistryReady ready;
-    {
-        std::lock_guard lock(posted->sink->mutex);
-        ready = posted->sink->registryReady;
-    }
-    if (ready)
-        ready(posted->registry);
-    return G_SOURCE_REMOVE;
-}
-
 } // namespace
 
 // Everything below runs on the scan's own thread, around its own
@@ -122,8 +83,11 @@ gboolean deliverRegistry(gpointer data)
 struct HealthScan::Impl
 {
     HealthScanOptions options;
+    // The callbacks, reached from the scan's thread through
+    // engine::MainThreadDispatcher (never g_main_context_invoke(), which runs
+    // inline on the caller when the main context is unowned); posts made
+    // after the scan is gone are dropped with the sink.
     std::shared_ptr<Sink> sink = std::make_shared<Sink>();
-    GMainContext *mainContext = g_main_context_ref(g_main_context_default());
 
     // The scan thread's own; created and freed here, on the main thread, so
     // the destructor's wakeup never reaches a context the thread has
@@ -163,7 +127,6 @@ struct HealthScan::Impl
         if (worker.joinable())
             worker.join();
         g_main_context_unref(context);
-        g_main_context_unref(mainContext);
     }
 
     void run()
@@ -190,8 +153,18 @@ struct HealthScan::Impl
             std::lock_guard lock(resultsMutex);
             results = health;
         }
-        g_main_context_invoke_full(mainContext, G_PRIORITY_DEFAULT_IDLE, &deliver,
-                                   new Posted{sink, service, record, finished}, nullptr);
+        engine::MainThreadDispatcher::post(sink, [sink = std::weak_ptr<Sink>(sink), service, record, finished] {
+            std::shared_ptr<Sink> alive = sink.lock();
+            if (!alive)
+                return;
+            HealthScan::Progress progress;
+            {
+                std::lock_guard lock(alive->mutex);
+                progress = alive->progress;
+            }
+            if (progress)
+                progress(service, record, finished);
+        });
     }
 
     GSubprocess *spawn(const std::vector<std::string> &args, GError **error)
@@ -269,13 +242,27 @@ struct HealthScan::Impl
 
     void enqueueFrom(const EffectRegistry &registry)
     {
-        g_main_context_invoke_full(mainContext, G_PRIORITY_DEFAULT_IDLE, &deliverRegistry,
-                                   new PostedRegistry{sink, std::make_shared<const EffectRegistry>(registry)}, nullptr);
+        engine::MainThreadDispatcher::post(
+            sink, [sink = std::weak_ptr<Sink>(sink), shared = std::make_shared<const EffectRegistry>(registry)] {
+                std::shared_ptr<Sink> alive = sink.lock();
+                if (!alive)
+                    return;
+                HealthScan::RegistryReady ready;
+                {
+                    std::lock_guard lock(alive->mutex);
+                    ready = alive->registryReady;
+                }
+                if (ready)
+                    ready(shared);
+            });
         std::vector<const EffectDescriptor *> offered;
         for (const EffectDescriptor &d : registry.descriptors())
             if (!d.hidden && d.unstable.empty())
                 offered.push_back(&d);
+        // Featured first (the Browser's first page), then by family.
         std::stable_sort(offered.begin(), offered.end(), [](const EffectDescriptor *a, const EffectDescriptor *b) {
+            if (a->featured != b->featured)
+                return a->featured;
             return familyRank(a->family) < familyRank(b->family);
         });
         std::vector<std::string> services;

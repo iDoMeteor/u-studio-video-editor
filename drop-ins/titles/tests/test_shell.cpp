@@ -55,6 +55,7 @@ class FakeShell : public app::ShellHost
         return 0;
     }
     void seek(core::FrameIndex) override {}
+    void showInspectorPage(const char *) override {}
     core::Signal<> &playheadMoved() override
     {
         return m_playheadMoved;

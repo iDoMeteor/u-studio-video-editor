@@ -2,6 +2,7 @@
 // in, it exports ustudio_dropin_effects_describe() (listed in the generated
 // drop_ins.h); as a module, ustudio_drop_in_describe().
 
+#include "app/browser.h"
 #include "app/catalog.h"
 #include "app/health_scan.h"
 #include "app/rack.h"
@@ -64,6 +65,7 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         static Catalog catalog;
         static bool scanning = false;
         addRack(shell, catalog);
+        addBrowser(shell, catalog);
         if (scanning)
             return; // one scan per process, however many windows
         scanning = true;

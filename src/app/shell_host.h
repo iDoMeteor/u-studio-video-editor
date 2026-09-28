@@ -104,6 +104,9 @@ class ShellHost
     // Inspector: a collapsible sidebar on the window's right, one switcher
     // page each. The first page creates it (and its header toggle).
     virtual void addInspectorPage(const InspectorPage &page) = 0;
+    // Opens the inspector on that page (its InspectorPage::id): effects' E
+    // opens the Browser. Nothing if no page has that id.
+    virtual void showInspectorPage(const char *id) = 0;
 
     // Actions ("win.<name>") with default shortcuts, listed in Help under
     // their category (action_registry.h's contributeActions()). A shortcut
