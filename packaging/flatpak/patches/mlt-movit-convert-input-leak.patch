@@ -1,0 +1,76 @@
+From: VE GPU (U Stu Video Editor) <noreply@anthropic.com>
+Subject: [PATCH] movit: free the movit::Input of an MltInput no chain took over
+
+convert_image() in filter_movit_convert.cpp makes an MltInput for every
+input of every frame (create_input(), which news a movit FlatInput or
+YCbCrInput) and parks it on the frame. When the chain for that fingerprint
+already exists, dispose_movit_effects() deletes the parked MltInput, but
+~MltInput() doesn't delete its movit::Input (the comment in
+mlt_movit_input.h says it is "owned by the EffectChain", which is only
+true once build_movit_chain() has added it to one). So every frame played
+through a reused chain leaks one movit input per MLT input: about 1.2 KB
+each (the FlatInput and its uniform vectors), 3.6 KB a frame with three
+inputs, ~10 MB a minute of 30 fps playback with five.
+
+The two error paths in convert_image() that delete a parked MltInput
+leak the same way.
+
+Delete the movit::Input with the MltInput wherever an MltInput that never
+reached a chain is deleted. A parked input has no texture yet
+(FlatInput/YCbCrInput create theirs in set_gl_state()), so deleting it
+needs no GL context.
+
+Measured with MLT 7.40.0, movit 1.7.1/1.7.2, Mesa 26.1, a 320x180 graph of
+black plus two movit.rect'd colour tracks over movit.overlay, 1,200
+frames pulled as RGBA: RSS +3.63 KB a frame before, 0.00 after.
+LeakSanitizer reports the FlatInput allocations (MltInput::useFlatInput)
+before and nothing after.
+
+Carried by U Stu's Flatpak until upstream has a fix; the upstream report
+draft is in docs/developer/notes/mlt-upstream.md.
+---
+--- a/src/modules/movit/filter_movit_convert.cpp
++++ b/src/modules/movit/filter_movit_convert.cpp
+@@ -269,11 +269,21 @@
+     return effect;
+ }
+ 
++// An MltInput that no EffectChain took over still owns its movit::Input
++// (~MltInput() leaves it to the chain): delete both.
++static void delete_unchained_input(MltInput *input)
++{
++    if (input) {
++        delete input->get_input();
++        delete input;
++    }
++}
++
+ static void dispose_movit_effects(mlt_service service, mlt_frame frame)
+ {
+     if (service == (mlt_service) -1) {
+         mlt_producer producer = mlt_producer_cut_parent(mlt_frame_get_original_producer(frame));
+-        delete GlslManager::get_input(producer, frame);
++        delete_unchained_input(GlslManager::get_input(producer, frame));
+         GlslManager::set_input(producer, frame, NULL);
+         return;
+     }
+@@ -670,7 +680,8 @@
+ 
+         if (!img_copy) {
+             mlt_log_error(nullptr, "filter movit.convert: make_input_copy failed\n");
+-            delete input;
++            GlslManager::set_input(producer, frame, NULL);
++            delete_unchained_input(input);
+             return 1;
+         }
+ 
+@@ -692,7 +703,8 @@
+             MltInput *input = GlslManager::get_input(producer, frame);
+             *image = GlslManager::get_input_pixel_pointer(producer, frame);
+             *format = input->get_format();
+-            delete input;
++            GlslManager::set_input(producer, frame, NULL);
++            delete_unchained_input(input);
+             GlslManager::get_instance()->unlock_service(frame);
+             return convert_on_cpu(frame, image, format, output_format);
+         }

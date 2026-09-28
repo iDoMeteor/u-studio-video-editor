@@ -138,8 +138,10 @@ every RGBA source whatever its tags, so soft edges, semi-transparent
 pictures and dissolve midpoints come out brighter than on the CPU, which
 blends the coded values; opaque pictures match within 2 levels (G3,
 `tests/engine/test_gpu_pipeline`). Accepted as the GPU path's look, with
-export on the preview's pipeline (point 7); put to the owner through the
-VE Strategist on 2026-09-27.
+export on the preview's pipeline (point 7). **Decided** by the owner on
+2026-09-27 (through the VE Strategist: "i'm fine w/both"), together with
+rotated tracks staying CPU islands (about 22 fps for three at 1080p Full)
+as an accepted exception to M4's real-time box.
 Effects stay CPU (frei0r, avfilter) inside the GPU graph the same way.
 A rotation-capable GPU transform would need a movit effect of our own,
 which means linking GPL movit; out of scope.
@@ -202,7 +204,7 @@ this ADR.
 | G2 | `platform::GlContext` (Linux EGL), `engine::probeGpu()`, `u-studio-render --gpu-probe` | Probe passes here and fails cleanly without EGL (test); no graph or UI change yet |
 | G3 | GPU graph in EngineSync behind the flag; context on the consumer's render thread; runtime fallback; the probe run from the editor with its cached result; the crash sentinel; Settings › Performance's two switches, hardware decode following the GPU pipeline | M4's box: three transformed 1080p tracks at Full play every frame; 10-minute soak holds; ASan+TSan full suites; preview matches CPU within tolerance |
 | G4 | Export on the GPU path; preview/export equality test; `u-studio-render` after MT5 | Render of a generated project matches the preview path within tolerance. Met in process (2026-09-27): 50% green over red, preview 137,137,50, export 137,138,51 (the CPU: 112,113,49); a title over video on the GPU has no dark fringe (darkest red 250+) and differs from the CPU's by 1.0 on average. `u-studio-render` waits for MT5 |
-| G5 | Flatpak (with VE Installers): GL extension, `--device=dri`, movit/FFTW modules; smoke test in the sandbox | Probe passes in the Flatpak on the owner's machine |
+| G5 | Flatpak (with VE Installers): GL extension, `--device=dri`, movit/FFTW modules, MLT's `xine` module (the loader's `deinterlace` normaliser; without it every producer arrives as BT.601 limited YUV and the probe fails, notes/gpu.md), the leak patch; smoke test in the sandbox | Probe passes in the Flatpak on the owner's machine |
 
 ## Consequences
 
@@ -277,5 +279,8 @@ is an MLT bug found by ASan: `movit.convert` leaks an `MltInput` (about
 1.2 KB) for every input of every frame whenever it reuses a chain, about
 10 MB a minute at 30 fps with five inputs (docs/developer/notes/gpu.md).
 It can't be freed from outside the module; the fix is a small MLT patch,
-carried in the Flatpak's MLT build (G5) and sent upstream. The CPU growth
+`packaging/flatpak/patches/mlt-movit-convert-input-leak.patch` (RSS +3.63
+KB a frame → 0.00 with three inputs; LeakSanitizer clean), carried in the
+Flatpak's MLT build (G5) and drafted for upstream in
+`docs/developer/notes/mlt-upstream.md`. The CPU growth
 is VE Core's open item.
