@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.72.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.71.1-beta.1: effects, in the Effects add-on. Open the inspector (the round button at the picture's top right) and press E: every effect is a tile showing your clip with it on. Point at one to try it on the picture, click to add it, then change it on the Effects page. Pin values at the playhead to make them change over time, save a set of effects as a look (five brand looks come with it), copy and paste effects between clips, and hold \ or press Compare to see before and after.</p>
+        <p>Try adding a few effects to a clip, keyframing one, applying a brand look to several clips at once, and dragging a look onto the picture. On a wide window the inspector now sits beside the picture instead of over it. Known limits: the Effects add-on isn't in this download yet (builds from source include it); effects can't be masked, and there are no wipes yet. The first run checks every effect in the background for a few minutes; tiles say "checking…" until then.</p>
+      </description>
+    </release>
     <release version="0.71.1-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.71.0-beta.1: GPU acceleration now starts off in this download, while a crash it can cause is being fixed. If you want it, turn it on in Settings › Performance › Hardware; your choice stays through updates.</p>

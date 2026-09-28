@@ -64,6 +64,21 @@ a space, it doesn't play. Click the timeline or the preview to use them again.
 |---|---|
 | `Ctrl+T` | Edit Transform (exact values) |
 
+## Effects
+
+With the Effects add-on ([Effects](effects.md)). Single keys don't fire
+while you're typing in a text field.
+
+| Key | Action |
+|---|---|
+| `E` | The Add page: find, try and add effects and looks |
+| `Enter` (in its search) | Add the best match to the selected clips |
+| `Esc` (on the Add page) | Stop trying an effect on the picture |
+| `P` | Pin the value you last changed at the playhead (a keyframe) |
+| `Ctrl+Shift+C` | Copy the effects on the Effects page |
+| `Ctrl+Shift+V` | Paste effects onto the selected clips (after or instead of theirs) |
+| `\` (hold) | See the picture without the selected clip's effects |
+
 ## Titles (in the editor)
 
 | Key | Action |

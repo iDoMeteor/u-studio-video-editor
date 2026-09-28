@@ -33,8 +33,9 @@ install it anyway.
 
 ## Add-ons
 
-Some features come as add-ons you install next to the app. The first one
-is **Titles** ([Titles](titles.md)). An add-on must be the same version as
+Some features come as add-ons you install next to the app: **Titles**
+([Titles](titles.md)) and, coming soon to the Flatpak, **Effects**
+([Effects](effects.md); builds from source already include it). An add-on must be the same version as
 the app, so update them together.
 
 ```sh
