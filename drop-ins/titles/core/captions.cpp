@@ -1,13 +1,18 @@
 #include "captions.h"
 
 #include "clip_fields.h"
+#include "title_xml.h"
 
 #include "core/commands/primitives.h"
+#include "core/media/utf8_path.h"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <map>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 
 namespace ustudio::titles::captions {
@@ -449,6 +454,141 @@ std::vector<Placed> place(const std::vector<Cue> &cues, core::Rational fps)
         out.push_back(p);
     }
     return out;
+}
+
+std::vector<ExportCue> captionCues(const core::Model &model)
+{
+    std::vector<ExportCue> out;
+    const auto &tracks = model.sequence().tracks;
+    std::vector<std::pair<size_t, ExportCue>> ordered; // track order, cue
+    for (size_t t = 0; t < tracks.size(); ++t) {
+        for (core::ClipId id : tracks[t].clips) {
+            const core::Clip &clip = model.clip(id);
+            if (!model.hasAsset(clip.asset) || !isTitleFile(model.asset(clip.asset).path))
+                continue;
+            const auto fields = clipFieldValues(clip);
+            auto caption = fields.find("caption");
+            if (caption == fields.end())
+                continue;
+            ExportCue cue;
+            cue.start = clip.position;
+            cue.end = clip.position + clip.length();
+            cue.text = caption->second;
+            if (auto speaker = fields.find("speaker"); speaker != fields.end())
+                cue.speaker = speaker->second;
+            ordered.push_back({t, std::move(cue)});
+        }
+    }
+    std::stable_sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) {
+        return a.second.start != b.second.start ? a.second.start < b.second.start : a.first < b.first;
+    });
+    for (auto &[track, cue] : ordered)
+        out.push_back(std::move(cue));
+    return out;
+}
+
+int64_t msAt(core::FrameIndex frame, core::Rational fps)
+{
+    if (fps.num <= 0 || fps.den <= 0)
+        return 0;
+    // frame * 1000 * den / num, rounded: (2·f·1000·den + num) / (2·num).
+    return (2 * frame * 1000 * static_cast<int64_t>(fps.den) + static_cast<int64_t>(fps.num)) /
+           (2 * static_cast<int64_t>(fps.num));
+}
+
+namespace {
+
+std::string clock(int64_t ms, char separator)
+{
+    char text[32];
+    std::snprintf(text, sizeof text, "%02lld:%02lld:%02lld%c%03lld", static_cast<long long>(ms / 3600000),
+                  static_cast<long long>(ms / 60000 % 60), static_cast<long long>(ms / 1000 % 60), separator,
+                  static_cast<long long>(ms % 1000));
+    return text;
+}
+
+// WebVTT: our <b>, <i> and <u> kept, any other &, < and > escaped.
+std::string escapeVtt(const std::string &text)
+{
+    std::string out;
+    for (size_t i = 0; i < text.size(); ++i) {
+        bool tag = false;
+        for (std::string_view t : {"<b>", "</b>", "<i>", "</i>", "<u>", "</u>"})
+            if (std::string_view(text).substr(i, t.size()) == t) {
+                out += t;
+                i += t.size() - 1;
+                tag = true;
+                break;
+            }
+        if (tag)
+            continue;
+        const char c = text[i];
+        out += c == '&' ? "&amp;" : c == '<' ? "&lt;" : c == '>' ? "&gt;" : std::string(1, c);
+    }
+    return out;
+}
+
+} // namespace
+
+std::string writeSubtitles(const std::vector<ExportCue> &cues, core::Rational fps, Format format)
+{
+    const bool vtt = format == Format::Vtt;
+    std::string out = vtt ? "WEBVTT\n\n" : "";
+    int index = 0;
+    for (const ExportCue &cue : cues) {
+        if (!vtt)
+            out += std::to_string(++index) + "\n";
+        const char sep = vtt ? '.' : ',';
+        out += clock(msAt(cue.start, fps), sep) + " --> " + clock(msAt(cue.end, fps), sep) + "\n";
+        std::string text = vtt ? escapeVtt(cue.text) : cue.text;
+        // A speaker: WebVTT's voice span (read back by our import in both).
+        if (!cue.speaker.empty())
+            text = "<v " + (vtt ? escapeVtt(cue.speaker) : cue.speaker) + ">" + text;
+        // A blank line ends a cue in both formats: drop any inside the words.
+        std::string lines;
+        size_t from = 0;
+        while (from <= text.size()) {
+            size_t to = text.find('\n', from);
+            if (to == std::string::npos)
+                to = text.size();
+            if (to > from)
+                lines += text.substr(from, to - from) + "\n";
+            from = to + 1;
+        }
+        out += (lines.empty() ? std::string("\n") : lines) + "\n";
+    }
+    return out;
+}
+
+Format formatFor(const std::string &path)
+{
+    std::string extension = core::utf8String(core::pathFromUtf8(path).extension());
+    for (char &c : extension)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return extension == ".vtt" ? Format::Vtt : Format::Srt;
+}
+
+std::string saveSubtitles(const std::vector<ExportCue> &cues, core::Rational fps, const std::string &path)
+{
+    const std::filesystem::path target = core::pathFromUtf8(path);
+    std::filesystem::path temp = target;
+    temp += ".part";
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (!out)
+            return "can't write " + core::utf8String(temp);
+        const std::string text = writeSubtitles(cues, fps, formatFor(path));
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        if (!out.flush())
+            return "can't write " + core::utf8String(temp);
+    }
+    std::error_code ec;
+    std::filesystem::rename(temp, target, ec);
+    if (ec) {
+        std::filesystem::remove(temp, ec);
+        return "can't replace " + path + " (" + ec.message() + ")";
+    }
+    return {};
 }
 
 ImportCaptions::ImportCaptions(core::Asset titleAsset, std::vector<Placed> placed, std::string name)

@@ -10,6 +10,9 @@
 #include "core/clip_fields.h"
 
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 using namespace ustudio;
@@ -253,4 +256,121 @@ TEST_CASE("1,000 cues read, place and import in well under two seconds")
     MESSAGE("1,000 cues: " << ms << " ms");
     CHECK(ms < 2000);
     CHECK(import.tracks().size() == 1);
+}
+
+namespace {
+
+// Imports `cues` at `fps` into an empty project with a video track.
+core::Model imported(const std::vector<Cue> &cues, core::Rational fps)
+{
+    core::Model model = core::Model::createEmpty();
+    model.addTrack(core::Track::Kind::Video, 0, "V1");
+    core::Asset title;
+    title.path = "/project/Titles/captions.ustitle";
+    title.info.hasVideo = true;
+    title.info.isStillImage = true;
+    ImportCaptions import(title, place(cues, fps), "captions");
+    REQUIRE(import.apply(model));
+    return model;
+}
+
+} // namespace
+
+TEST_CASE("export: SRT and VTT round-trip with import at the common rates")
+{
+    auto p = parse(kSrt);
+    REQUIRE(p.has_value());
+    std::vector<Cue> cues = p->cues;
+    cues.push_back({1500, 2000, "overlaps the first", {}, 99});
+    cues.push_back({3601234, 3602999, "an hour in\nand two lines", "Sam", 100});
+    const std::vector<core::Rational> rates = {{24000, 1001}, {25, 1}, {30000, 1001}, {30, 1}, {60000, 1001}};
+    for (const core::Rational &fps : rates) {
+        for (Format format : {Format::Srt, Format::Vtt}) {
+            CAPTURE(fps.num);
+            CAPTURE(fps.den);
+            CAPTURE(format == Format::Vtt);
+            const core::Model model = imported(cues, fps);
+            const auto exported = captionCues(model);
+            REQUIRE(exported.size() == cues.size());
+            const std::string file = writeSubtitles(exported, fps, format);
+            auto again = parse(file);
+            REQUIRE(again.has_value());
+            CHECK(again->skipped == 0);
+            REQUIRE(again->cues.size() == cues.size());
+            // Same frames, words and speakers once placed again.
+            const auto first = place(cues, fps), second = place(again->cues, fps);
+            for (size_t i = 0; i < first.size(); ++i) {
+                CHECK(first[i].position == second[i].position);
+                CHECK(first[i].length == second[i].length);
+                CHECK(first[i].cue->text == second[i].cue->text);
+                CHECK(first[i].cue->speaker == second[i].cue->speaker);
+            }
+            // And a second export writes the same file.
+            CHECK(writeSubtitles(captionCues(imported(again->cues, fps)), fps, format) == file);
+        }
+    }
+}
+
+TEST_CASE("export: the formats' headers, numbering and clocks")
+{
+    const std::vector<ExportCue> cues = {{25, 63, "Hello there", {}}, {90025, 90050, "Later", "Jay"}};
+    CHECK(writeSubtitles(cues, {25, 1}, Format::Srt) == "1\n00:00:01,000 --> 00:00:02,520\nHello there\n\n"
+                                                        "2\n01:00:01,000 --> 01:00:02,000\n<v Jay>Later\n\n");
+    CHECK(writeSubtitles(cues, {25, 1}, Format::Vtt) == "WEBVTT\n\n00:00:01.000 --> 00:00:02.520\nHello there\n\n"
+                                                        "01:00:01.000 --> 01:00:02.000\n<v Jay>Later\n\n");
+    CHECK(msAt(1, {30000, 1001}) == 33); // 33.3667 ms
+    CHECK(msAt(2, {60000, 1001}) == 33); // 33.3667 ms
+    CHECK(msAt(3, {24000, 1001}) == 125);
+}
+
+TEST_CASE("export: VTT escapes a literal <, & or > and keeps b, i and u; no blank line inside a cue")
+{
+    const std::vector<ExportCue> cues = {{0, 25, "<b>a</b> < b & c > d", {}}, {25, 50, "one\n\ntwo", {}}};
+    const std::string vtt = writeSubtitles(cues, {25, 1}, Format::Vtt);
+    CHECK(vtt.find("<b>a</b> &lt; b &amp; c &gt; d\n") != std::string::npos);
+    auto p = parse(vtt);
+    REQUIRE(p.has_value());
+    REQUIRE(p->cues.size() == 2);
+    CHECK(p->cues[0].text == "<b>a</b> < b & c > d");
+    CHECK(p->cues[1].text == "one\ntwo");
+}
+
+TEST_CASE("export: only caption clips, by start then track; none is an empty list")
+{
+    core::Model model = core::Model::createEmpty();
+    const core::TrackId video = model.addTrack(core::Track::Kind::Video, 0, "V1");
+    core::Asset clipAsset;
+    clipAsset.path = "/media/shot.mp4";
+    clipAsset.info.hasVideo = true;
+    const core::AssetId shot = model.addAsset(clipAsset);
+    model.insertClip(video, shot, 0, 0, 99);
+    CHECK(captionCues(model).empty());
+
+    const core::Model withCaptions = imported(
+        {{2000, 3000, "second", {}, 1}, {1000, 2500, "first", {}, 2}, {2000, 2600, "second, lane 2", {}, 3}},
+        {25, 1});
+    const auto cues = captionCues(withCaptions);
+    REQUIRE(cues.size() == 3);
+    CHECK(cues[0].text == "first");
+    CHECK(cues[1].text == "second"); // lane 0 ("Captions") is above lane 1
+    CHECK(cues[2].text == "second, lane 2");
+}
+
+TEST_CASE("export: the file name picks the format; saved whole, no temporary left")
+{
+    CHECK(formatFor("/a/b.vtt") == Format::Vtt);
+    CHECK(formatFor("/a/b.VTT") == Format::Vtt);
+    CHECK(formatFor("/a/b.srt") == Format::Srt);
+    CHECK(formatFor("/a/b") == Format::Srt);
+    const auto folder = std::filesystem::temp_directory_path() / ("ustudio-captions-" + std::to_string(std::rand()));
+    std::filesystem::create_directories(folder);
+    const std::string path = (folder / "out.vtt").string();
+    const std::vector<ExportCue> cues = {{25, 50, "Hi", {}}};
+    CHECK(saveSubtitles(cues, {25, 1}, path).empty());
+    std::ifstream in(path, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(text == writeSubtitles(cues, {25, 1}, Format::Vtt));
+    CHECK(!std::filesystem::exists(path + ".part"));
+    CHECK(!saveSubtitles(cues, {25, 1}, (folder / "missing" / "out.srt").string()).empty());
+    std::filesystem::remove_all(folder);
 }
