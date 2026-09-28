@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <utility>
+#include <vector>
 #include <memory>
 
 using namespace ustudio;
@@ -189,6 +191,36 @@ namespace {
 
 // A rotated white rectangle on transparent, as a 1080p PNG: every edge is
 // anti-aliased, with partial alpha (MLT's affine filter, avformat's png).
+// A still with alpha played for 10 frames, encoded as `vcodec`/`pixFmt`
+// (and any codec options) with the alpha kept. From the PNG rather than
+// the colour + affine source: that one, encoded as qtrle, hit a SIGFPE in
+// a core-module filter on the consumer's read-ahead thread (2026-09-27,
+// not our graphs' path; noted in mlt-upstream.md).
+fs::path makeAlphaVideo(const fs::path &still, const fs::path &path, const char *format, const char *vcodec,
+                        const char *pixFmt, std::vector<std::pair<const char *, const char *>> options = {})
+{
+    Model model = Model::createEmpty();
+    EngineSync sync(model);
+    Mlt::Profile &p = sync.profile();
+    Mlt::Producer picture(p, utf8String(still).c_str());
+    picture.set_in_and_out(0, 9);
+    Mlt::Consumer consumer(p, "avformat", utf8String(path).c_str());
+    consumer.set("f", format);
+    consumer.set("vcodec", vcodec);
+    consumer.set("pix_fmt", pixFmt);
+    // Asked for RGBA, the consumer converts to a yuva pix_fmt with the
+    // alpha; left to pick from the pix_fmt it asks for yuv422 and drops it
+    // for anything but rgba/argb/bgra (consumer_avformat.c, MLT 7.40).
+    consumer.set("mlt_image_format", "rgba");
+    for (const auto &[name, value] : options)
+        consumer.set(name, value);
+    consumer.set("an", 1);
+    consumer.set("real_time", -1);
+    consumer.connect(picture);
+    consumer.run();
+    return path;
+}
+
 fs::path makeAlphaStill(const fs::path &dir)
 {
     Model model = Model::createEmpty();
@@ -309,6 +341,64 @@ TEST_CASE("colour: a still's anti-aliased alpha edges over video have no dark or
         int w = 1920, h = 1080;
         const uint8_t *centre = frame->get_image(format, w, h) + (static_cast<size_t>(500) * 1920 + 950) * 4;
         CHECK(centre[1] < 30); // red, not the white rectangle
+    }
+    fs::remove_all(dir);
+}
+
+TEST_CASE("colour: videos with alpha are probed as such and composite without a fringe")
+{
+    static FactoryPolicy policy;
+    const fs::path dir = fs::temp_directory_path() / ("ustudio-alphav-" + std::to_string(platform::currentProcessId()));
+    fs::create_directories(dir);
+    struct Case
+    {
+        const char *name, *file, *format, *vcodec, *pixFmt;
+        std::vector<std::pair<const char *, const char *>> options;
+    };
+    // What U Stu Titles exports for OBS and other apps (T2d).
+    const std::vector<Case> cases = {
+        {"ProRes 4444", "p.mov", "mov", "prores_ks", "yuva444p10le", {{"profile", "4444"}}},
+        {"VP9 alpha", "v.webm", "webm", "libvpx-vp9", "yuva420p", {{"vb", "4M"}}},
+        {"QuickTime Animation", "q.mov", "mov", "qtrle", "argb", {}},
+    };
+    const fs::path still = makeAlphaStill(dir);
+    {
+        Model probeModel = Model::createEmpty();
+        EngineSync probeSync(probeModel);
+        CHECK_FALSE(probeSync.probeMedia(utf8String(makeBars(dir / "opaque.mp4"))).hasAlpha);
+        CHECK(probeSync.probeMedia(utf8String(still)).hasAlpha); // a PNG with alpha, for proxies
+    }
+    for (const Case &c : cases) {
+        INFO(std::string(c.name));
+        const fs::path path = makeAlphaVideo(still, dir / c.file, c.format, c.vcodec, c.pixFmt, c.options);
+        REQUIRE(fs::exists(path));
+        Model model = Model::createEmpty();
+        EngineSync::ProbedMedia probed;
+        {
+            EngineSync probeSync(model);
+            probed = probeSync.probeMedia(utf8String(path));
+        }
+        CHECK(probed.hasAlpha);
+        const TrackId upper = model.addTrack(Track::Kind::Video, 0, "V2");
+        const TrackId lower = model.addTrack(Track::Kind::Video, 1, "V1");
+        Asset red;
+        red.path = "color:red";
+        red.info.hasVideo = true;
+        red.info.lengthInSequenceFrames = 10'000;
+        model.insertClip(lower, model.addAsset(red), 0, 0, 9);
+        Asset overlay;
+        overlay.path = utf8String(path);
+        overlay.status = Asset::Status::Ready;
+        overlay.info.hasVideo = true;
+        overlay.info.hasAlpha = probed.hasAlpha;
+        overlay.info.width = 1920;
+        overlay.info.height = 1080;
+        overlay.info.lengthInSequenceFrames = 10;
+        model.insertClip(upper, model.addAsset(overlay), 0, 0, 9);
+        EngineSync sync(model);
+        // VP9 keeps its alpha at 4:2:0 and lossy: an edge a shade darker
+        // (249 measured), still no fringe (55 without the pairing).
+        checkNoFringe(sync.tractor(), 5, {std::string(c.name) == "VP9 alpha" ? 240 : 250, 6, 3.0});
     }
     fs::remove_all(dir);
 }

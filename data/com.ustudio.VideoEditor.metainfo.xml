@@ -28,12 +28,13 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
-    <release version="0.58.1-beta.1" date="2026-09-27" type="development">
+    <release version="0.64.1-beta.1" date="2026-09-27" type="development">
       <description>
         <p>New in this beta:</p>
         <ul>
           <li>A moved image sequence can be relinked: pick any of its images, or search a folder. It may be numbered from somewhere else now.</li>
-          <li>Image sequences get proxies, like video.</li>
+          <li>Image sequences get proxies, like video (unless they're transparent).</li>
+          <li>Video with transparency (ProRes 4444, WebM with alpha, QuickTime Animation) has clean edges over other tracks.</li>
           <li>Colours are right in the preview and in renders: HD footage used to come out slightly off (reds duller, cyans with a red tint).</li>
           <li>Open Log Folder now opens the folder the first time too, with this session's log selected.</li>
           <li>Pick the project's background colour (click the title in the header bar): it shows wherever no clip covers the frame, in the preview and in renders.</li>

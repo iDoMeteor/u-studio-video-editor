@@ -5,6 +5,13 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.64.1-beta.1
+
+- Video with transparency (ProRes 4444, WebM with alpha, QuickTime
+  Animation) has clean edges over other tracks, like PNGs and titles; such
+  video and transparent image sequences are no longer offered proxies,
+  which would lose the transparency.
+
 ## 0.64.0-beta.1
 
 - Bake Title: turn a title clip into a ProRes 4444 file with transparency

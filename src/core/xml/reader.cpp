@@ -406,6 +406,7 @@ std::expected<Model, std::string> loadProject(const std::string &path)
         info.isImageSequence = toBool(prop(node, "ustudio:is_image_sequence"));
         info.sequenceBegin = static_cast<int>(toI64(prop(node, "ustudio:sequence_begin")));
         info.isStillImage = toBool(prop(node, "ustudio:is_still_image"));
+        info.hasAlpha = toBool(prop(node, "ustudio:has_alpha", "0")); // absent before 0.64.1: none
         // Read the length directly rather than deriving it from the node's
         // "out" attribute: the writer collapses both "boundless/unknown"
         // and "exactly 1 frame long" to out="0" (there's no way to tell

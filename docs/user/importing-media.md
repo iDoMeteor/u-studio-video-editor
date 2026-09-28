@@ -39,7 +39,8 @@ numbered too and shouldn't turn into a clip by themselves.
   file. Relink it like any missing file: pick any image of the sequence in
   its new place (or let **Search a Folder** find its first image). It may
   be numbered from somewhere else now, as long as it has enough images.
-- Sequences get proxies like video (right-click › Create Proxy).
+- Sequences get proxies like video (right-click › Create Proxy), unless
+  their images are transparent (see below).
 - Limits: images are loaded through GTK's image loaders (gdk-pixbuf); if
   those can't open a format, the frames stay blank. A sequence whose
   numbers start above 100 may show no thumbnail in the media browser
@@ -102,6 +103,12 @@ A proxy is a smaller copy of a clip that plays smoothly while you edit.
 - **Create Conformed Proxy** makes a full-size copy at the project's frame
   rate. Use it for phone and screen recordings with variable frame rates.
 - Footage taller than 1080p is offered a proxy once per project.
+- Video and image sequences with transparency (ProRes 4444, WebM with
+  alpha, QuickTime Animation, PNGs with alpha) don't get proxies: a proxy
+  couldn't keep the transparency. Put them on a track above your video and
+  the transparent parts show the tracks below, with clean edges. A project
+  saved before 0.64.1 knows a video has transparency only once you import
+  it again.
 - Proxies are made in the background and stored in your user cache folder.
 - The **Proxies** toggle beside the preview scale switches playback between
   proxies and originals.

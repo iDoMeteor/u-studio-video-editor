@@ -195,6 +195,17 @@ mlt_frame pairAlphaProcess(mlt_filter, mlt_frame frame)
     return frame;
 }
 
+// FFmpeg's pixel formats with an alpha channel, by name (libavutil's
+// descriptor flag isn't ours to link): yuva*, gbrap*, ya8/ya16, and the
+// packed RGB orders with an "a". pal8 may carry alpha but is rare in video.
+bool pixelFormatHasAlpha(const std::string &name)
+{
+    for (const char *prefix : {"yuva", "gbrap", "ya8", "ya16", "rgba", "argb", "bgra", "abgr", "rgb32", "bgr32"})
+        if (name.rfind(prefix, 0) == 0)
+            return true;
+    return false;
+}
+
 // On a video-track cut whose clip has its video turned off. avformat drops
 // the picture for video_index=-1, but stills (pixbuf) and image sequences
 // ignore it and kept showing (2026-09-27). A frame marked test_image is
@@ -525,17 +536,26 @@ EngineSync::ProbedMedia EngineSync::probeMediaFile(const core::Profile &sequence
             result.fps = core::Rational{fpsNum, fpsDen};
         result.width = producer.get_int("meta.media.width");
         result.height = producer.get_int("meta.media.height");
+        // Also lazy (the first decoded frame). avformat picks a decoder that
+        // keeps alpha (libvpx for VP9 alpha): yuva444p12le (ProRes 4444),
+        // yuva420p (VP9), argb (qtrle), all with real alpha in their frames
+        // (standalone repro, 2026-09-27).
+        const char *pixelFormat = producer.get("meta.media.0.codec.pix_fmt");
+        result.hasAlpha = pixelFormat && pixelFormatHasAlpha(pixelFormat);
     } else {
         // A still's size too (M4 E: an image sequence is probed by its first
         // image, and fitting a picture needs its aspect). pixbuf sets
         // meta.media.width/height when it loads the image, on the first
         // get_image; avformat's single-image path on its first frame.
+        // mlt_image_none: the image as loaded, so its format says whether it
+        // has alpha (pixbuf: rgba or rgb; an image sequence of PNGs too).
         std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
-        mlt_image_format format = mlt_image_rgba;
+        mlt_image_format format = mlt_image_none;
         int w = 0, h = 0;
         frame->get_image(format, w, h);
         result.width = producer.get_int("meta.media.width");
         result.height = producer.get_int("meta.media.height");
+        result.hasAlpha = format == mlt_image_rgba;
     }
 
     return result;
@@ -773,7 +793,7 @@ bool EngineSync::carriesAlpha(const core::Clip &clip, bool transformed) const
     if (!m_model.hasAsset(clip.asset))
         return false;
     const core::MediaInfo &info = m_model.asset(clip.asset).info;
-    return info.isStillImage || info.isImageSequence;
+    return info.isStillImage || info.isImageSequence || info.hasAlpha;
 }
 
 std::vector<core::NativeFilter> EngineSync::transformNatives(const core::Transform &t, const core::MediaInfo &info,
