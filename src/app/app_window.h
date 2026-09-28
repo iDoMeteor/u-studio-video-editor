@@ -864,6 +864,7 @@ class AppWindow : public ShellHost
     static void trackDragBeginTrampoline(GtkGestureDrag *gesture, double x, double y, gpointer userData);
     static void trackDragUpdateTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
     static void trackDragEndTrampoline(GtkGestureDrag *gesture, double offsetX, double offsetY, gpointer userData);
+    static void trackDragCancelTrampoline(GtkGesture *gesture, GdkEventSequence *sequence, gpointer userData);
     static void undoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void redoActionActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
     static void playPauseActivated(GSimpleAction *action, GVariant *parameter, gpointer userData);
@@ -986,6 +987,9 @@ class AppWindow : public ShellHost
     // drags (from onTrackDragBegin() to its end or cancel), with the press.
     timeline::TimelineOverlayProvider *overlayClaimsPress(double x, double y, int nPress);
     timeline::TimelineOverlayProvider *m_overlayDrag = nullptr;
+    // Ends a provider's drag unfinished (Escape, a cancelled gesture, an
+    // edit landing mid-drag).
+    void cancelOverlayDrag();
     double m_overlayDragX = 0.0, m_overlayDragY = 0.0;
     // True while m_overlayDrag->dragged() runs: its own edits don't cancel it.
     bool m_overlayDragEditing = false;

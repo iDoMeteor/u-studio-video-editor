@@ -50,7 +50,9 @@ bool near(double a, double b, double within)
 TimelineOutcome TimelineController::click(const TimelineContext &ctx, int nPress, double x, double y, Modifiers mods)
 {
     TimelineOutcome out;
-    if (trackCount(ctx) <= 0)
+    // The top lane (a drop-in's, RowLayout::topLane) is no row: no active
+    // track change, no selection change.
+    if (trackCount(ctx) <= 0 || ctx.layout.inTopLane(y))
         return out;
 
     int row = ctx.layout.clampedRowAt(y, trackCount(ctx));
@@ -704,8 +706,8 @@ ContextTarget TimelineController::contextTargetAt(const TimelineContext &ctx, do
 {
     ContextTarget target;
     int count = trackCount(ctx);
-    if (count <= 0)
-        return target;
+    if (count <= 0 || ctx.layout.inTopLane(y))
+        return target; // row -1: no track there
     target.row = ctx.layout.clampedRowAt(y, count);
     if (ctx.sequenceLength <= 0 || x < ctx.handleWidth)
         return target;

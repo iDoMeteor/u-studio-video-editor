@@ -301,8 +301,8 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
         // A drop-in's drag too, unless the change is its own: an edit it
         // makes while dragging comes back through here, so it's cancelled
         // only when it didn't cause the change (m_overlayDragEditing).
-        if (m_overlayDrag && !m_overlayDragEditing)
-            std::exchange(m_overlayDrag, nullptr)->dragCancelled();
+        if (!m_overlayDragEditing)
+            cancelOverlayDrag();
         // IP5: drop-ins' inspector pages refresh, the selection already
         // pruned.
         m_shellProjectChanged.emit();
@@ -752,6 +752,9 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(drag, "drag-begin", G_CALLBACK(&AppWindow::trackDragBeginTrampoline), this);
     g_signal_connect(drag, "drag-update", G_CALLBACK(&AppWindow::trackDragUpdateTrampoline), this);
     g_signal_connect(drag, "drag-end", G_CALLBACK(&AppWindow::trackDragEndTrampoline), this);
+    // GTK cancels a gesture (a grab elsewhere, focus lost) with "cancel"
+    // before its "drag-end": a drop-in's drag ends unfinished then.
+    g_signal_connect(drag, "cancel", G_CALLBACK(&AppWindow::trackDragCancelTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(drag));
 
     // Drop target for dragging a media browser row onto the timeline
@@ -3378,6 +3381,8 @@ void AppWindow::onTimelineRightClicked(double x, double y)
         return;
 
     timeline::ContextTarget target = m_timelineController.contextTargetAt(timelineContext(), x, y);
+    if (target.row < 0)
+        return; // a drop-in's top lane: not a track
     int row = target.row;
     m_contextMenuTrack = row;
     m_contextMenuFrame = static_cast<int>(target.frame);
@@ -3878,6 +3883,15 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
         return;
     timeline::TimelineOutcome outcome = m_timelineController.motion(timelineContext(), offsetX, offsetY);
     applyTimelineOutcome(outcome);
+}
+
+void AppWindow::cancelOverlayDrag()
+{
+    if (timeline::TimelineOverlayProvider *overlay = std::exchange(m_overlayDrag, nullptr)) {
+        overlay->dragCancelled();
+        if (m_timeline)
+            gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+    }
 }
 
 void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
@@ -4524,7 +4538,10 @@ gboolean AppWindow::onTimelineDrop(const GValue *value, double x, double y)
         return FALSE;
     const core::Asset &asset = m_model.asset(assetId);
 
-    int row = rowLayout().clampedRowAt(y, trackCount);
+    const timeline::RowLayout layout = rowLayout();
+    if (layout.inTopLane(y))
+        return FALSE; // a drop-in's top lane: not a track
+    int row = layout.clampedRowAt(y, trackCount);
     core::TrackId trackId = trackIdForRow(row);
     if (m_model.track(trackId).locked) {
         showStatus("Can't drop onto a locked track.");
@@ -4558,7 +4575,10 @@ gboolean AppWindow::onTimelineFileDrop(GdkFileList *files, double x, double y)
     if (trackCount <= 0 || !files)
         return FALSE;
 
-    int row = rowLayout().clampedRowAt(y, trackCount);
+    const timeline::RowLayout layout = rowLayout();
+    if (layout.inTopLane(y))
+        return FALSE; // a drop-in's top lane: not a track
+    int row = layout.clampedRowAt(y, trackCount);
     core::TrackId trackId = trackIdForRow(row);
     if (m_model.track(trackId).locked) {
         showStatus("Can't drop onto a locked track.");
@@ -5716,6 +5736,11 @@ void AppWindow::trackDragEndTrampoline(GtkGestureDrag *, double offsetX, double 
     static_cast<AppWindow *>(userData)->onTrackDragEnd(offsetX, offsetY);
 }
 
+void AppWindow::trackDragCancelTrampoline(GtkGesture *, GdkEventSequence *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->cancelOverlayDrag();
+}
+
 void AppWindow::undoActionActivated(GSimpleAction *, GVariant *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onUndo();
@@ -6021,6 +6046,7 @@ void AppWindow::clearSelectionActivated(GSimpleAction *, GVariant *, gpointer us
 {
     auto *self = static_cast<AppWindow *>(userData);
     self->m_timelineController.cancel();
+    self->cancelOverlayDrag();
     self->m_timelineController.selection().clear();
     gtk_widget_queue_draw(GTK_WIDGET(self->m_timeline));
 }
