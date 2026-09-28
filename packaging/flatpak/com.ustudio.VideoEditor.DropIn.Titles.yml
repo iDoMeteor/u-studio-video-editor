@@ -100,6 +100,9 @@ modules:
     config-opts:
       - --buildtype=release
       - -Ddefault_library=static
+      # PIC even though static: it links into libmltustudio, a shared
+      # module (meson's default, pinned here).
+      - -Db_staticpic=true
       - -Dengines=cpu
       - -Dloaders=lottie,png,jpg,ttf
       - -Dextra=
