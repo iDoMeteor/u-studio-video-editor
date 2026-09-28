@@ -89,8 +89,8 @@ class PlaybackController
 
     void seek(int frame);
     void stepFrame(int delta); // pause, then seek(current + delta)
-    void toHome();              // seek(0)
-    void toEnd();                // seek(totalFrames() - 1)
+    void toHome();             // seek(0)
+    void toEnd();              // seek(totalFrames() - 1)
 
     // std::nullopt clears the loop. Playback wraps to `in` once position
     // reaches `out` (checked on the main thread from the frame-show
@@ -204,6 +204,9 @@ class PlaybackController
     // (main thread) tearing down the consumer/event/tractor mid-callback
     // -- see both methods' comments.
     std::mutex m_frameShowMutex;
+    // Set by shutdown() around the consumer's stop(): handleFrameShow()
+    // drops the frames shown meanwhile (see there).
+    std::atomic<bool> m_stopping{false};
 
     std::atomic<bool> m_playing{false};
     std::atomic<double> m_speed{1.0};

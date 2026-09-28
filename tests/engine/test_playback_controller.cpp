@@ -158,8 +158,8 @@ TEST_CASE("PlaybackController: null-consumer position test -- frame-show deliver
         std::mutex mutex;
         std::vector<int> positions;
     } shown;
-    Mlt::Event *event = consumer.listen(
-        "consumer-frame-show", &shown, [](mlt_properties, void *self, mlt_event_data data) {
+    Mlt::Event *event =
+        consumer.listen("consumer-frame-show", &shown, [](mlt_properties, void *self, mlt_event_data data) {
             Mlt::Frame frame(Mlt::EventData(data).to_frame());
             if (!frame.is_valid())
                 return;
@@ -217,8 +217,12 @@ TEST_CASE("PlaybackController: pause shows the exact frame sought to, not one of
     // implicit pause) land, then seek to an interior frame while paused --
     // this is the "scrub while stopped" path (doc 05), which purges and
     // forces exactly one refreshed frame through.
-    pumpMainContextUntil([&] { std::lock_guard<std::mutex> lock(mutex); return !deliveredPositions.empty(); },
-                        std::chrono::seconds(2));
+    pumpMainContextUntil(
+        [&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return !deliveredPositions.empty();
+        },
+        std::chrono::seconds(2));
 
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -517,4 +521,26 @@ TEST_CASE("PlaybackController: frames reach the UI at the preview size, not the 
         CHECK(width == expectedWidth);
         CHECK(height == expectedHeight);
     }
+}
+
+TEST_CASE("PlaybackController: frames shown while the consumer stops are dropped, not rendered")
+{
+    // sdl2_audio shows its queued frames, and the last one, while it stops
+    // (every rebuild's restart), often unrendered: handling them rendered
+    // each on the consumer's thread (on the GPU pipeline, GL there: the
+    // create_fbo crash). Dropped now: no frame-show counts during stop().
+    sharedFactoryPolicy();
+    Mlt::Profile profile;
+    int shownDuringStop = 0;
+    for (int round = 0; round < 10; ++round) {
+        PlaybackController controller;
+        controller.setTractor(makeOneClipTractor(profile, 300));
+        controller.play(1.0);
+        const long started = controller.frameShowCount();
+        pumpMainContextUntil([&] { return controller.frameShowCount() > started + 5; }, std::chrono::seconds(5));
+        const long before = controller.frameShowCount();
+        controller.shutdown();
+        shownDuringStop += static_cast<int>(controller.frameShowCount() - before);
+    }
+    CHECK(shownDuringStop == 0);
 }
