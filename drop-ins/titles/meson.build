@@ -115,6 +115,10 @@ titles_register_args = [
   '-DTITLES_APP_INSTALL_DIR="' + get_option('prefix') / get_option('bindir') + '"',
   # Running from a build directory: the designer built next to it.
   '-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"',
+  # The built-in templates (caption imports start from one): installed, or
+  # this source tree's.
+  '-DTITLES_TEMPLATES_INSTALL_DIR="' + get_option('prefix') / get_option('datadir') / 'u-studio' / 'titles' / 'templates' + '"',
+  '-DTITLES_TEMPLATES_SOURCE_DIR="' + meson.current_source_dir() / 'data' / 'templates' + '"',
 ]
 # The editor's side: the engine extension (IP3), the render tool's
 # --title-frames (IP6) and the shell's import and file watch (IP5).

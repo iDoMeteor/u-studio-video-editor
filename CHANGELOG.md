@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.70.0-beta.1
+
+- Captions: import .srt and .vtt subtitle files as caption clips on their
+  own tracks, styled by one caption title (three built-in looks).
+
 ## 0.69.3-beta.1
 
 - With GPU acceleration on, pausing no longer crashes the editor when a

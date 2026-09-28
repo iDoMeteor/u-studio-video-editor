@@ -558,8 +558,8 @@ Title page's field, like any lower third.
 **Import.** Import… (or a drop) takes `.srt` and `.vtt` through the titles
 drop-in's import handler. One undoable step:
 
-- the caption title: a copy of the caption template (the last one used,
-  else "Caption, boxed"), sized and timed to the sequence, written to the
+- the caption title: a copy of "Caption, plain" (restyle it, or edit it
+  to another look from the gallery's Captions section), written to the
   project's `Titles/` folder as `<subtitle name> captions.ustitle` (the
   New Title folder rules when the project isn't saved);
 - a new video track, "Captions", above the others, with a clip per cue at
@@ -568,8 +568,9 @@ drop-in's import handler. One undoable step:
   since a track never overlaps.
 
 **Caption templates.** Built-ins in a new category, Captions: "Caption,
-boxed" (a bar behind the text, bottom centre), "Caption, plain" (text with
-an outline and shadow, bottom centre) and "Caption, top". Each has a
+plain" (text with an outline and shadow, bottom centre; the import's
+default), "Caption, boxed" (a band across the bottom behind the text: text
+layers have no box of their own) and "Caption, top". Each has a
 `caption` field (wrapping text box, up to three lines at 1080p sizes) and
 a `speaker` field shown only when a cue has one. A short fade in and out
 (4 frames each), so a cue of any length plays (elastic timing; one shorter
@@ -612,22 +613,29 @@ really overlap move to the next captions track.
 
 Acceptance:
 
-- [ ] An `.srt` and a `.vtt` with the same cues import to the same clips:
-      same tracks, positions, lengths and field values.
-- [ ] At 23.976, 25, 29.97, 30 and 59.94 fps every cue starts on the frame
+- [x] An `.srt` and a `.vtt` with the same cues import to the same clips:
+      same tracks, positions, lengths and field values. (`titles-captions`:
+      the same cues; placement and import are the same code, 0.70.0.)
+- [x] At 23.976, 25, 29.97, 30 and 59.94 fps every cue starts on the frame
       nearest its time, no clip is shorter than a frame, and cues that
       touch in the file touch on the timeline (no rounding gaps or
-      overlaps).
-- [ ] Overlapping cues go to a second captions track; no track overlaps.
-- [ ] Line breaks survive; `<b>`, `<i>` and `<u>` render bold, italic and
+      overlaps). (`titles-captions`, exact rates in 64-bit integers.)
+- [x] Overlapping cues go to a second captions track; no track overlaps.
+      (`titles-captions`, `titles-shell`; `check()` clean.)
+- [x] Line breaks survive; `<b>`, `<i>` and `<u>` render bold, italic and
       underlined; `<v Speaker>` fills the speaker field; other tags and
       VTT settings disappear without losing words; markup-like text in a
-      field that isn't one of those three stays literal.
-- [ ] One caption title per import: restyling it restyles every cue.
-- [ ] A file with some bad cues imports the rest and reports them; a
+      field that isn't one of those three stays literal. (`titles-captions`,
+      `titles-render` "tags=basic"; live on Xvfb.)
+- [x] One caption title per import: restyling it restyles every cue.
+      (Every caption clip plays the one asset; `titles-shell`.)
+- [x] A file with some bad cues imports the rest and reports them; a
       file with none, binary content, or over the limits is refused with
       a reason and imports nothing; an import is one undo step.
-- [ ] A 1,000-cue file imports in under two seconds and plays.
+      (`titles-captions`, `titles-shell`; the status keeps the report.)
+- [x] A 1,000-cue file imports in under two seconds and plays. (About
+      0.5 s to read, place and import; the engine builds the 1,000-clip
+      graph in about 0.3 s and shows a caption mid-way: `titles-engine`.)
 
 Not in T5: exporting subtitles back out, word-level (karaoke) timing, and
 per-cue positions from VTT settings.

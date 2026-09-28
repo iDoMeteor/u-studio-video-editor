@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Caption, top" category="Captions" width="1920" height="1080" fps="30/1">
+  <timing intro="4" hold="60" outro="4"/>
+  <field name="caption" label="Caption" default="Caption text"/>
+  <field name="speaker" label="Speaker" default=""/>
+  <layer id="speaker" kind="text" x="160" y="70" w="1600" fit="shrink" align="center">
+    <text>{{speaker}}</text>
+    <font family="Space Grotesk" weight="700" size="40"/>
+    <fill color="#19e3ff"/>
+    <stroke color="#000000" width="3"/>
+    <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
+    <behavior slot="in" id="fade" duration="4"/><behavior slot="out" id="fade" duration="4"/>
+  </layer>
+  <layer id="caption" kind="text" x="160" y="126" w="1600" fit="wrap" align="center" tags="basic">
+    <text>{{caption}}</text>
+    <font family="Space Grotesk" weight="600" size="56"/>
+    <fill color="#ffffff"/>
+    <stroke color="#000000" width="4"/>
+    <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
+    <behavior slot="in" id="fade" duration="4"/><behavior slot="out" id="fade" duration="4"/>
+  </layer>
+</ustitle>

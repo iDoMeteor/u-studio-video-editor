@@ -18,6 +18,8 @@
 - A file that can't be opened is skipped. At the end, a dialog lists each
   skipped file and why: empty, a folder, not media, or it took over 20
   seconds to open.
+- **Subtitle files** (`.srt`, `.vtt`) become captions on tracks of their
+  own, with the Titles add-on ([Titles › Captions](titles.md#captions)).
 - **Still images** (PNG, JPEG, …) stretch from where they land to the end
   of the project, so a logo on an empty top track covers the whole video.
 

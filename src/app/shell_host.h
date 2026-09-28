@@ -58,7 +58,9 @@ struct InspectorPage
 
 // Files a drop-in opens itself instead of the media import (titles'
 // .ustitle, doc 16). Runs on the main thread when the file is imported, so
-// it must be quick: parse, then execute a command.
+// it must be quick: parse, then execute a command. A handler that reports
+// its outcome with showStatus() keeps that message; otherwise the shell
+// says "Imported <path>".
 struct ImportHandler
 {
     std::vector<std::string> extensions; // lowercase, no dot: {"ustitle"}

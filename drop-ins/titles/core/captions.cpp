@@ -519,6 +519,13 @@ bool ImportCaptions::apply(core::Model &model)
             fields["speaker"] = p.cue->speaker;
         if (!run(std::make_unique<SetClipFields>(insert->clipId(), std::move(fields))))
             return fail();
+        // Named by its words, so the timeline reads like the script.
+        std::string name = p.cue->text.substr(0, p.cue->text.find('\n'));
+        for (const char *tag : {"<b>", "</b>", "<i>", "</i>", "<u>", "</u>"})
+            for (size_t at; (at = name.find(tag)) != std::string::npos;)
+                name.erase(at, std::string_view(tag).size());
+        if (!run(std::make_unique<core::RenameClip>(insert->clipId(), name)))
+            return fail();
     }
     return true;
 }

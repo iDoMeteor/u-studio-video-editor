@@ -212,6 +212,8 @@ TEST_CASE("the import: a track per lane on top, a clip per cue with its fields; 
     CHECK(first.position == 25);
     CHECK(first.length() == 38); // 1 s to 2.5 s at 25 fps: frames 25..62
     CHECK(clipFieldValues(first) == std::map<std::string, std::string>{{"caption", "Hello there"}});
+    CHECK(first.name == "Hello there");
+    CHECK(model.clip(import.clips()[2]).name == "Two lines,"); // the first line, its tags gone (clips by start)
     CHECK(clipFieldValues(model.clip(import.clips()[3])).at("speaker") == "Jay");
     const std::vector<core::ClipId> ids = import.clips();
 

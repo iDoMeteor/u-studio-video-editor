@@ -4928,6 +4928,7 @@ void AppWindow::updateWindowTitle()
 
 void AppWindow::showStatus(const std::string &text)
 {
+    ++m_statusCount;
     gtk_label_set_text(m_statusLabel, text.c_str());
     gtk_widget_set_tooltip_text(GTK_WIDGET(m_statusLabel), text.c_str());
     // Every user-visible outcome (import result, save/open/render success
