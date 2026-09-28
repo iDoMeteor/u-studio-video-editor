@@ -58,7 +58,11 @@ struct InspectorPage
 
 // Files a drop-in opens itself instead of the media import (titles'
 // .ustitle, doc 16). Runs on the main thread when the file is imported, so
-// it must be quick: parse, then execute a command.
+// it must be quick: parse, then execute a command. A handler that reports
+// its outcome with showStatus() keeps that message; otherwise the shell
+// says "Imported <path>". (Counted by showStatus() calls during the import,
+// so a projectChanged() listener that reports would count too; nothing
+// does. An explicit "reported" flag in the result would be sturdier.)
 struct ImportHandler
 {
     std::vector<std::string> extensions; // lowercase, no dot: {"ustitle"}
@@ -84,6 +88,12 @@ class ShellHost
     virtual core::Signal<> &projectChanged() = 0;
     // The frame the preview shows.
     virtual core::FrameIndex currentFrame() const = 0;
+    // Moves the playhead there (clamped to the sequence), as a click on the
+    // ruler does: effects' previous/next keyframe.
+    virtual void seek(core::FrameIndex frame) = 0;
+    // After each frame the preview shows, playing or not: what follows the
+    // playhead (an animated value in the effects Rack) updates from here.
+    virtual core::Signal<> &playheadMoved() = 0;
     virtual void showStatus(const std::string &text) = 0;
 
     // Selection.

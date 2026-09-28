@@ -30,6 +30,12 @@ core::FrameIndex AppWindow::currentFrame() const
     return m_engine->currentFrame();
 }
 
+void AppWindow::seek(core::FrameIndex frame)
+{
+    const core::FrameIndex last = std::max<core::FrameIndex>(m_model.sequence().length() - 1, 0);
+    m_engine->seek(static_cast<int>(std::clamp<core::FrameIndex>(frame, 0, last)));
+}
+
 ShellSelection AppWindow::currentSelection() const
 {
     ShellSelection selection;
@@ -269,6 +275,7 @@ std::vector<std::string> AppWindow::importWithHandlers(std::vector<std::string> 
             rest.push_back(std::move(path));
             continue;
         }
+        const uint64_t statusBefore = m_statusCount;
         auto result = handler->import(path, trackId, position);
         if (!result) {
             showStatus(result.error());
@@ -276,7 +283,10 @@ std::vector<std::string> AppWindow::importWithHandlers(std::vector<std::string> 
         }
         if (*result && position)
             position = **result;
-        showStatus("Imported " + path);
+        // The handler's own report (captions: how many, what was skipped)
+        // stays; the plain one only when it said nothing.
+        if (m_statusCount == statusBefore)
+            showStatus("Imported " + path);
     }
     return rest;
 }

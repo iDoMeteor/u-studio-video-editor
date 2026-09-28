@@ -288,8 +288,8 @@ void Gallery::rebuild()
     std::vector<std::pair<size_t, std::string>> jobs; // thumbnail index, template file
     // Built-ins by category, the most used first; any other after, as
     // listed.
-    static const std::vector<std::string> kOrder = {"Lower thirds", "Bugs and badges", "Cards",
-                                                    "End screens",  "Countdowns",      "Live and social"};
+    static const std::vector<std::string> kOrder = {"Lower thirds", "Bugs and badges", "Cards",   "End screens",
+                                                    "Countdowns",   "Live and social", "Captions"};
     const std::vector<TemplateInfo> builtIns = listTemplates(builtInTemplatesDir(), true);
     std::vector<std::string> categories;
     for (const TemplateInfo &info : builtIns)

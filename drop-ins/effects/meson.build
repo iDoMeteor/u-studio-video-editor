@@ -8,7 +8,7 @@ effects_inc = include_directories('.')
 # core/: std and src/core only (tools/dropin_boundary_check.sh).
 effects_core = static_library(
   'ustudio_effects_core',
-  files('core/commands.cpp', 'core/descriptor.cpp', 'core/health.cpp', 'core/json.cpp'),
+  files('core/commands.cpp', 'core/descriptor.cpp', 'core/health.cpp', 'core/json.cpp', 'core/keyframes.cpp'),
   include_directories: effects_inc,
   dependencies: [libustudio_core_dep],
   pic: true,
@@ -32,8 +32,9 @@ effects_args = [
 
 effects_engine_sources = files('engine/effects_extension.cpp', 'engine/plugins.cpp', 'engine/probe.cpp',
                                'engine/registry.cpp')
-# app/: GIO for the scan's children; no MLT (tools/dropin_boundary_check.sh).
-effects_app_sources = files('app/health_scan.cpp')
+# app/: GTK for the Rack, GIO for the scan's children; no MLT
+# (tools/dropin_boundary_check.sh).
+effects_app_sources = files('app/catalog.cpp', 'app/health_scan.cpp', 'app/rack.cpp')
 effects_dropin_sources = files('register.cpp') + effects_engine_sources + effects_app_sources
 
 if get_option('dropin_effects') == 'module'
@@ -54,7 +55,7 @@ if get_option('dropin_effects') == 'module'
     dependencies: [
       libustudio_engine_dep.partial_dependency(compile_args: true, includes: true),
       libustudio_dropins_dep.partial_dependency(compile_args: true, includes: true),
-      mltpp_dep, mlt_dep, glib_dep, gio_dep, libxml2_dep,
+      mltpp_dep, mlt_dep, glib_dep, gio_dep, gtk4_dep, libxml2_dep,
     ],
     install: true,
     install_dir: dropin_install_dir,
@@ -66,10 +67,10 @@ else
     cpp_args: effects_args,
     include_directories: [src_inc, effects_inc],
     dependencies: [effects_core_dep, libustudio_engine_dep, libustudio_dropins_dep, libustudio_platform_dep, glib_dep,
-                   gio_dep],
+                   gio_dep, gtk4_dep],
     install: false,
   )
-  dropin_effects_dep = declare_dependency(link_with: effects_builtin, dependencies: [effects_core_dep, glib_dep, gio_dep])
+  dropin_effects_dep = declare_dependency(link_with: effects_builtin, dependencies: [effects_core_dep, glib_dep, gio_dep, gtk4_dep])
 endif
 
 # The drop-in's own tests. tests/meson.build runs after drop-ins/, so look

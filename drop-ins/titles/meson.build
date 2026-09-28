@@ -12,7 +12,7 @@ titles_inc = include_directories('.')
 # core/: std, libxml2 and src/core only (tools/dropin_boundary_check.sh).
 titles_core = static_library(
   'ustudio_titles_core',
-  files('core/animation.cpp', 'core/brand_kit.cpp', 'core/clip_fields.cpp', 'core/evaluate.cpp', 'core/template_library.cpp', 'core/export_formats.cpp', 'core/snapping.cpp', 'core/title_document.cpp', 'core/title_edit.cpp', 'core/title_xml.cpp'),
+  files('core/animation.cpp', 'core/brand_kit.cpp', 'core/captions.cpp', 'core/clip_fields.cpp', 'core/evaluate.cpp', 'core/template_library.cpp', 'core/export_formats.cpp', 'core/snapping.cpp', 'core/title_document.cpp', 'core/title_edit.cpp', 'core/title_xml.cpp'),
   include_directories: titles_inc,
   dependencies: [libustudio_core_dep],
   pic: true,
@@ -115,6 +115,10 @@ titles_register_args = [
   '-DTITLES_APP_INSTALL_DIR="' + get_option('prefix') / get_option('bindir') + '"',
   # Running from a build directory: the designer built next to it.
   '-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"',
+  # The built-in templates (caption imports start from one): installed, or
+  # this source tree's.
+  '-DTITLES_TEMPLATES_INSTALL_DIR="' + get_option('prefix') / get_option('datadir') / 'u-studio' / 'titles' / 'templates' + '"',
+  '-DTITLES_TEMPLATES_SOURCE_DIR="' + meson.current_source_dir() / 'data' / 'templates' + '"',
 ]
 # The editor's side: the engine extension (IP3), the render tool's
 # --title-frames (IP6) and the shell's import and file watch (IP5).

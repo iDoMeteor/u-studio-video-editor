@@ -17,7 +17,9 @@ opens on it with the template gallery. Pick a design, change the text, and
 save; the editor updates straight away. The file goes in a **Titles** folder
 next to your project (`Title 1.ustitle`, `Title 2.ustitle`, …). If the
 project isn't saved yet, it goes in your default project folder (Settings ›
-Locations), or, without one, in **U Stu Titles** in your Videos folder.
+Locations); without one, in **U Stu Titles** in your Videos folder; and
+without a Videos folder, in U Stu's own data folder
+(`~/.local/share/ustudio/U Stu Titles`).
 Either way the clip keeps finding it after you save the project.
 
 The **T** button in the header bar opens U Stu Titles too: on the selected
@@ -120,6 +122,31 @@ or move it to another computer.
   unsafe pack (files outside the pack, links, fonts it may not share,
   anything that isn't a picture, font or title) is refused, and the
   message says why. Nothing in a pack ever runs.
+
+## Captions
+
+Import a subtitle file (**Import…**, pick an `.srt` or `.vtt`) and each of
+its lines becomes a caption on the timeline, at its time, on a new
+**Captions** track at the top. Captions that overlap go on **Captions 2**.
+The status bar says how many were imported, and which lines of the file
+couldn't be read and were left out.
+
+- All the captions play one caption title, `<file name>
+  captions.ustitle`, made next to your project from **Caption, plain**.
+  Edit it (double-click a caption, or Ctrl+Shift+T) to restyle every
+  caption at once; the gallery's Captions section has boxed and top
+  styles too.
+- Each caption's words are its own: fix one on the **Title** page. The
+  timeline names each caption by its first line.
+- Line breaks are kept. **Bold**, *italic* and underline from the file
+  (`<b>`, `<i>`, `<u>`) show as such; a WebVTT speaker (`<v Name>`) shows
+  above the words. Colours, positions and other styling in the file are
+  ignored.
+- One **Ctrl+Z** takes the whole import back.
+- Files in UTF-8 or UTF-16 read as they are; others are read as Windows
+  text (Western European), and the status bar says so. A file with no
+  captions, one that isn't text, or one over 10 MB or 20,000 captions is
+  refused, and nothing is added.
 
 ## Live text: clocks, countdowns and dates
 

@@ -1,0 +1,1130 @@
+#include "app/rack.h"
+
+#include "app/catalog.h"
+#include "app/shell_host.h"
+#include "core/commands.h"
+#include "core/descriptor.h"
+#include "core/keyframes.h"
+#include "core/model/animation.h"
+
+#include <gtk/gtk.h>
+
+#include <algorithm>
+#include <cmath>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace ustudio::effects {
+
+namespace {
+
+// What the Rack edits: the selected clip, that clip's track, or the whole
+// sequence (doc 15: "clip, several clips, track header ... or the
+// sequence"; several clips at once is a later slice).
+enum class Scope
+{
+    Clip,
+    Track,
+    Sequence,
+};
+
+// A new undo step when a control rests this long between changes; closer
+// changes (a slider drag, typing) merge into one.
+constexpr gint64 kGestureGapUs = 600'000;
+
+std::string lower(std::string text)
+{
+    for (char &c : text)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return text;
+}
+
+const char *costLabel(CostBadge badge)
+{
+    switch (badge) {
+    case CostBadge::Light:
+        return "light";
+    case CostBadge::Medium:
+        return "medium";
+    case CostBadge::Heavy:
+        return "heavy";
+    }
+    return "";
+}
+
+const char *costClass(CostBadge badge)
+{
+    switch (badge) {
+    case CostBadge::Light:
+        return "success";
+    case CostBadge::Medium:
+        return "warning";
+    case CostBadge::Heavy:
+        return "error";
+    }
+    return "";
+}
+
+class Rack;
+
+// One control bound to one effect parameter (or the mix).
+struct Control
+{
+    Rack *rack;
+    core::EffectId effect;
+    std::string param; // empty: the mix
+    ParamKind kind = ParamKind::Scalar;
+    std::optional<DisplayMap> display;
+    GtkWidget *widget = nullptr;         // spin, switch, colour button, drop-down, entry
+    GtkAdjustment *adjustment = nullptr; // scalar, integer, mix
+    std::vector<GtkAdjustment *> rect;   // x, y, w, h
+    std::vector<std::string> choices;
+    uint64_t gesture = 0;
+    gint64 lastChange = 0;
+    // Keyframes (animatable numbers and the mix): previous, pin, next, and
+    // the key-at-playhead's feel.
+    bool animatable = false;
+    GtkWidget *pin = nullptr, *previous = nullptr, *next = nullptr, *feel = nullptr;
+    std::vector<core::Easing> feelEasings; // the feel drop-down's entries, in order
+};
+
+// A card's own buttons.
+struct CardAction
+{
+    Rack *rack;
+    core::EffectId effect;
+    int move; // -1 up, +1 down, 0 remove
+};
+
+class Rack
+{
+  public:
+    Rack(app::ShellHost &host, Catalog &catalog) : m_host(host), m_catalog(catalog) {}
+
+    void install()
+    {
+        build();
+        m_host.addHints({
+            {"effects.rack-scope", "Effects", "Effects on",
+             "The selected clip, its whole track, or the whole sequence (the finished picture)", nullptr, nullptr},
+            {"effects.rack-add", "Effects", "Add effect", "Search every effect this install offers", "effects-browser",
+             nullptr},
+            {"effects.card-bypass", "Effects", "Effect on or off", "Off keeps the effect and its settings", nullptr,
+             nullptr},
+            {"effects.card-up", "Effects", "Move up", "Effects apply top to bottom", nullptr, nullptr},
+            {"effects.card-down", "Effects", "Move down", "Effects apply top to bottom", nullptr, nullptr},
+            {"effects.card-remove", "Effects", "Remove effect", nullptr, nullptr, nullptr},
+            {"effects.card-mix", "Effects", "Mix",
+             "How much of the effect shows: 0% is the picture without it, 100% the full effect", nullptr, nullptr},
+            {"effects.key-pin", "Effects", "Pin",
+             "A keyframe here at the playhead, or remove the one here. The first pin makes the value change over "
+             "time; move the playhead and change the value to add the next",
+             "effects-pin", nullptr},
+            {"effects.key-previous", "Effects", "Previous keyframe", nullptr, nullptr, nullptr},
+            {"effects.key-next", "Effects", "Next keyframe", nullptr, nullptr, nullptr},
+            {"effects.key-feel", "Effects", "Feel",
+             "How the value moves from this keyframe to the next: steady, smooth, easing in or out, bouncing, "
+             "or holding still until the next",
+             nullptr, nullptr},
+            {"effects.card-cost", "Effects", "Cost",
+             "How much work the effect is for each frame, measured when it was checked", nullptr, nullptr},
+        });
+        // E: the Effect Browser (doc 15, "Keyboard summary"); until FX2's
+        // Browser lands it opens the Add search.
+        static const std::vector<app::ActionSpec> actions = {
+            {"effects-browser", "Add an effect", "Effects", {"e"}, &onBrowserActionTrampoline},
+            {"effects-pin", "Pin the value at the playhead", "Effects", {"p"}, &onPinActionTrampoline},
+        };
+        m_host.addActions(actions, this);
+        m_host.setTooltip(m_scope, "effects.rack-scope");
+        m_host.setTooltip(m_add, "effects.rack-add");
+        m_host.addInspectorPage({"effects.rack", "Effects", "applications-graphics-symbolic", m_root});
+        m_host.selectionChanged().connect([this] { refresh(); });
+        m_host.projectChanged().connect([this] { refresh(); });
+        m_host.playheadMoved().connect([this] { onPlayheadMoved(); });
+        m_catalog.changed.connect([this] {
+            m_structure.clear(); // names and badges may have arrived
+            refresh();
+        });
+        refresh();
+    }
+
+    void onScopeChanged()
+    {
+        m_structure.clear();
+        refresh();
+    }
+
+    void onControlChanged(Control &control)
+    {
+        if (m_updating)
+            return;
+        const gint64 now = g_get_monotonic_time();
+        if (control.gesture == 0 || now - control.lastChange > kGestureGapUs)
+            control.gesture = ++m_nextGesture;
+        control.lastChange = now;
+        const core::Model &model = m_host.model();
+        if (!model.hasEffect(control.effect))
+            return;
+        if (control.animatable)
+            m_lastControl = std::make_pair(control.effect, control.param);
+        // Animated: the change is the key at the playhead (set, or added).
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        if (!keys.empty()) {
+            applyKeys(control, withKeyAt(keys, ownerFrame(control.effect), numberOf(control)), control.gesture);
+            return;
+        }
+        if (control.param.empty()) {
+            core::KeyframedValue mix = model.effect(control.effect).mix;
+            mix.value = std::clamp(gtk_adjustment_get_value(control.adjustment) / 100.0, 0.0, 1.0);
+            m_host.execute(std::make_unique<SetMix>(control.effect, mix, control.gesture));
+            return;
+        }
+        core::Param param = currentParam(model.effect(control.effect), control.param, control.kind);
+        param.value = readControl(control);
+        m_host.execute(std::make_unique<SetParam>(control.effect, param, control.gesture));
+    }
+
+    // --- Keyframes ---------------------------------------------------------
+
+    // The playhead in the effect owner's frames: a clip's keys count from
+    // its first frame on the timeline, a track's and the sequence's from 0.
+    core::FrameIndex ownerFrame(core::EffectId effect) const
+    {
+        const core::Model &model = m_host.model();
+        const core::FrameIndex frame = m_host.currentFrame();
+        auto found = model.findEffect(effect);
+        if (found && found->first.kind == core::Model::EffectTarget::Kind::Clip)
+            return frame - model.clip(core::ClipId{found->first.id}).position;
+        return frame;
+    }
+
+    core::FrameIndex ownerStart(core::EffectId effect) const
+    {
+        return m_host.currentFrame() - ownerFrame(effect);
+    }
+
+    std::vector<core::Keyframe> keysOf(const Control &control) const
+    {
+        const core::Model &model = m_host.model();
+        if (!model.hasEffect(control.effect))
+            return {};
+        const core::Effect &effect = model.effect(control.effect);
+        if (control.param.empty())
+            return effect.mix.keyframes;
+        return currentParam(effect, control.param, control.kind).keyframes;
+    }
+
+    // The control's number in model units (the mix 0-1).
+    double numberOf(const Control &control) const
+    {
+        if (control.param.empty())
+            return std::clamp(gtk_adjustment_get_value(control.adjustment) / 100.0, 0.0, 1.0);
+        return asNumber(readControl(control));
+    }
+
+    // Sets the control's keys (empty: not animated, at the value it showed).
+    void applyKeys(Control &control, std::vector<core::Keyframe> keys, uint64_t gesture)
+    {
+        const core::Model &model = m_host.model();
+        if (!model.hasEffect(control.effect))
+            return;
+        const core::Effect &effect = model.effect(control.effect);
+        const double shown = numberOf(control);
+        if (control.param.empty()) {
+            core::KeyframedValue mix = effect.mix;
+            if (keys.empty())
+                mix.value = shown;
+            mix.keyframes = std::move(keys);
+            m_host.execute(std::make_unique<SetMix>(control.effect, mix, gesture));
+            return;
+        }
+        core::Param param = currentParam(effect, control.param, control.kind);
+        if (keys.empty())
+            param.value = shown;
+        param.keyframes = std::move(keys);
+        m_host.execute(std::make_unique<SetParam>(control.effect, param, gesture));
+    }
+
+    // The pin: a key at the playhead, or none there. The first pin turns
+    // animation on; removing the last turns it off at that value.
+    void onKeyPin(Control &control)
+    {
+        m_lastControl = std::make_pair(control.effect, control.param);
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        const core::FrameIndex at = ownerFrame(control.effect);
+        if (keyAt(keys, at))
+            applyKeys(control, withoutKeyAt(keys, at), 0);
+        else
+            applyKeys(control, withKeyAt(keys, at, numberOf(control)), 0);
+    }
+
+    void onKeyStep(Control &control, bool forward)
+    {
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        const core::FrameIndex at = ownerFrame(control.effect);
+        const std::optional<core::FrameIndex> key = forward ? nextKey(keys, at) : previousKey(keys, at);
+        if (key)
+            m_host.seek(ownerStart(control.effect) + *key);
+    }
+
+    void onKeyFeel(Control &control)
+    {
+        if (m_updating)
+            return;
+        const guint index = gtk_drop_down_get_selected(GTK_DROP_DOWN(control.feel));
+        if (index >= control.feelEasings.size())
+            return;
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::Keyframe *key = keyAt(keys, at);
+        if (!key || key->easing == control.feelEasings[index])
+            return;
+        applyKeys(control, withEasingAt(keys, at, control.feelEasings[index]), 0);
+    }
+
+    // P: pin the parameter last touched.
+    void onPinAction()
+    {
+        for (const std::unique_ptr<Control> &control : m_controls)
+            if (m_lastControl && control->animatable && control->effect == m_lastControl->first &&
+                control->param == m_lastControl->second) {
+                onKeyPin(*control);
+                return;
+            }
+        m_host.showStatus("Change an effect's value first, then press P to pin it at the playhead");
+    }
+
+    // The pin lit when the playhead is on a key; previous/next only when
+    // there's one that way; the feel only on a key.
+    void showKeyState(Control &control)
+    {
+        if (!control.pin)
+            return;
+        const std::vector<core::Keyframe> keys = keysOf(control);
+        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::Keyframe *key = keyAt(keys, at);
+        gtk_button_set_icon_name(GTK_BUTTON(control.pin), key ? "starred-symbolic" : "non-starred-symbolic");
+        if (key)
+            gtk_widget_add_css_class(control.pin, "accent");
+        else
+            gtk_widget_remove_css_class(control.pin, "accent");
+        gtk_widget_set_sensitive(control.previous, previousKey(keys, at).has_value());
+        gtk_widget_set_sensitive(control.next, nextKey(keys, at).has_value());
+        gtk_widget_set_visible(control.feel, key != nullptr);
+        gtk_widget_set_visible(GTK_WIDGET(g_object_get_data(G_OBJECT(control.feel), "label")), key != nullptr);
+        if (key) {
+            auto it = std::find(control.feelEasings.begin(), control.feelEasings.end(), key->easing);
+            if (it != control.feelEasings.end())
+                gtk_drop_down_set_selected(GTK_DROP_DOWN(control.feel),
+                                           static_cast<guint>(it - control.feelEasings.begin()));
+        }
+    }
+
+    void onCardAction(const CardAction &action)
+    {
+        const core::Model &model = m_host.model();
+        auto found = model.findEffect(action.effect);
+        if (!found)
+            return;
+        if (action.move == 0) {
+            m_host.execute(std::make_unique<RemoveEffect>(action.effect));
+            return;
+        }
+        const size_t size = model.effects(found->first).size();
+        const long index = static_cast<long>(found->second) + action.move;
+        if (index < 0 || static_cast<size_t>(index) >= size)
+            return;
+        m_host.execute(std::make_unique<MoveEffect>(action.effect, static_cast<size_t>(index)));
+    }
+
+    void onBypass(core::EffectId effect, bool enabled)
+    {
+        if (m_updating)
+            return;
+        m_host.execute(std::make_unique<SetEffectEnabled>(effect, enabled));
+    }
+
+    void onSearchChanged()
+    {
+        fillAddList();
+    }
+
+    void onAddRow(GtkListBoxRow *row)
+    {
+        const char *service = static_cast<const char *>(g_object_get_data(G_OBJECT(row), "service"));
+        const EffectDescriptor *descriptor = service ? m_catalog.find(service) : nullptr;
+        std::optional<core::Model::EffectTarget> target = currentTarget();
+        if (!descriptor || !target)
+            return;
+        gtk_popover_popdown(GTK_POPOVER(m_addPopover));
+        const size_t end = m_host.model().effects(*target).size();
+        if (!m_host.execute(std::make_unique<AddEffect>(*target, makeEffect(*descriptor), end)))
+            m_host.showStatus("Couldn't add " + descriptor->name);
+    }
+
+    void onSearchActivate()
+    {
+        fillAddList(); // search-changed is delayed; the list must match the text now
+        if (GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(m_addList), 0))
+            if (g_object_get_data(G_OBJECT(first), "service"))
+                onAddRow(first);
+    }
+
+    void onBrowserAction()
+    {
+        gtk_menu_button_popup(GTK_MENU_BUTTON(m_add));
+    }
+
+    void onAddShown()
+    {
+        gtk_editable_set_text(GTK_EDITABLE(m_search), "");
+        fillAddList();
+        gtk_widget_grab_focus(m_search);
+    }
+
+  private:
+    // --- Target ------------------------------------------------------------
+
+    std::optional<core::Model::EffectTarget> currentTarget() const
+    {
+        const core::Model &model = m_host.model();
+        const app::ShellSelection selection = m_host.currentSelection();
+        std::optional<core::ClipId> clip;
+        for (core::ClipId id : selection.clips)
+            if (model.hasClip(id)) {
+                clip = id;
+                break;
+            }
+        const auto scope = static_cast<Scope>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_scope)));
+        if (scope == Scope::Clip && clip)
+            return core::Model::EffectTarget::clip(*clip);
+        if (scope != Scope::Sequence) {
+            if (clip)
+                return core::Model::EffectTarget::track(model.clip(*clip).track);
+            if (selection.track && model.hasTrack(*selection.track))
+                return core::Model::EffectTarget::track(*selection.track);
+        }
+        return core::Model::EffectTarget::sequence();
+    }
+
+    std::string targetTitle(const core::Model::EffectTarget &target) const
+    {
+        const core::Model &model = m_host.model();
+        switch (target.kind) {
+        case core::Model::EffectTarget::Kind::Clip:
+            return "Clip: " + model.clip(core::ClipId{target.id}).name;
+        case core::Model::EffectTarget::Kind::Track:
+            return "Track: " + model.track(core::TrackId{target.id}).name;
+        case core::Model::EffectTarget::Kind::Sequence:
+            return "The whole sequence";
+        case core::Model::EffectTarget::Kind::AdjustmentBlock:
+            return "Adjustment block";
+        }
+        return "";
+    }
+
+    // --- Values ------------------------------------------------------------
+
+    const ParamDescriptor *paramDescriptor(const std::string &service, const std::string &name) const
+    {
+        const EffectDescriptor *descriptor = m_catalog.find(service);
+        if (!descriptor)
+            return nullptr;
+        for (const ParamDescriptor &p : descriptor->params)
+            if (p.id == name)
+                return &p;
+        return nullptr;
+    }
+
+    // The effect's parameter, or the descriptor's default when it doesn't
+    // carry one yet (left to the service until set).
+    core::Param currentParam(const core::Effect &effect, const std::string &name, ParamKind kind) const
+    {
+        for (const core::Param &p : effect.params)
+            if (p.name == name)
+                return p;
+        core::Param param;
+        param.name = name;
+        const ParamDescriptor *p = paramDescriptor(effect.service, name);
+        param.value = p ? p->defaultValue : parseValue(kind, "");
+        return param;
+    }
+
+    static double asNumber(const core::Param::Value &value)
+    {
+        if (const double *d = std::get_if<double>(&value))
+            return *d;
+        if (const int64_t *i = std::get_if<int64_t>(&value))
+            return static_cast<double>(*i);
+        if (const bool *b = std::get_if<bool>(&value))
+            return *b ? 1.0 : 0.0;
+        return 0.0;
+    }
+
+    core::Param::Value readControl(const Control &control) const
+    {
+        switch (control.kind) {
+        case ParamKind::Scalar: {
+            const double shown = gtk_adjustment_get_value(control.adjustment);
+            return control.display ? control.display->fromDisplay(shown) : shown;
+        }
+        case ParamKind::Integer:
+            return static_cast<int64_t>(std::llround(gtk_adjustment_get_value(control.adjustment)));
+        case ParamKind::Toggle:
+            return static_cast<bool>(gtk_switch_get_active(GTK_SWITCH(control.widget)));
+        case ParamKind::Color: {
+            const GdkRGBA *rgba = gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(control.widget));
+            auto channel = [](float v) { return static_cast<uint8_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255)); };
+            return core::Color{channel(rgba->red), channel(rgba->green), channel(rgba->blue), channel(rgba->alpha)};
+        }
+        case ParamKind::Choice: {
+            const guint index = gtk_drop_down_get_selected(GTK_DROP_DOWN(control.widget));
+            return index < control.choices.size() ? control.choices[index] : std::string();
+        }
+        case ParamKind::Rect:
+            return core::Rect{gtk_adjustment_get_value(control.rect[0]), gtk_adjustment_get_value(control.rect[1]),
+                              gtk_adjustment_get_value(control.rect[2]), gtk_adjustment_get_value(control.rect[3])};
+        case ParamKind::File:
+        case ParamKind::Text:
+            return std::string(gtk_editable_get_text(GTK_EDITABLE(control.widget)));
+        }
+        return 0.0;
+    }
+
+    void writeControl(Control &control, const core::Param::Value &value)
+    {
+        switch (control.kind) {
+        case ParamKind::Scalar: {
+            const double v = asNumber(value);
+            gtk_adjustment_set_value(control.adjustment, control.display ? control.display->toDisplay(v) : v);
+            break;
+        }
+        case ParamKind::Integer:
+            gtk_adjustment_set_value(control.adjustment, asNumber(value));
+            break;
+        case ParamKind::Toggle:
+            gtk_switch_set_active(GTK_SWITCH(control.widget), asNumber(value) != 0.0);
+            break;
+        case ParamKind::Color:
+            if (const core::Color *c = std::get_if<core::Color>(&value)) {
+                const GdkRGBA rgba{c->r / 255.0f, c->g / 255.0f, c->b / 255.0f, c->a / 255.0f};
+                gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(control.widget), &rgba);
+            }
+            break;
+        case ParamKind::Choice:
+            if (const std::string *s = std::get_if<std::string>(&value)) {
+                auto it = std::find(control.choices.begin(), control.choices.end(), *s);
+                if (it != control.choices.end())
+                    gtk_drop_down_set_selected(GTK_DROP_DOWN(control.widget),
+                                               static_cast<guint>(it - control.choices.begin()));
+            }
+            break;
+        case ParamKind::Rect:
+            if (const core::Rect *r = std::get_if<core::Rect>(&value)) {
+                gtk_adjustment_set_value(control.rect[0], r->x);
+                gtk_adjustment_set_value(control.rect[1], r->y);
+                gtk_adjustment_set_value(control.rect[2], r->w);
+                gtk_adjustment_set_value(control.rect[3], r->h);
+            }
+            break;
+        case ParamKind::File:
+        case ParamKind::Text:
+            if (const std::string *s = std::get_if<std::string>(&value);
+                s && *s != gtk_editable_get_text(GTK_EDITABLE(control.widget)))
+                gtk_editable_set_text(GTK_EDITABLE(control.widget), s->c_str());
+            break;
+        }
+    }
+
+    // --- Building ----------------------------------------------------------
+
+    void build()
+    {
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+        gtk_widget_set_margin_start(box, 12);
+        gtk_widget_set_margin_end(box, 12);
+        gtk_widget_set_margin_top(box, 12);
+        gtk_widget_set_margin_bottom(box, 12);
+
+        GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        const char *scopes[] = {"Selected clip", "Its track", "Whole sequence", nullptr};
+        m_scope = gtk_drop_down_new_from_strings(scopes);
+        gtk_widget_set_hexpand(m_scope, TRUE);
+        g_signal_connect(m_scope, "notify::selected", G_CALLBACK(&onScopeTrampoline), this);
+        gtk_box_append(GTK_BOX(header), m_scope);
+
+        m_add = gtk_menu_button_new();
+        gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(m_add), "list-add-symbolic");
+        gtk_menu_button_set_label(GTK_MENU_BUTTON(m_add), "Add");
+        m_addPopover = gtk_popover_new();
+        GtkWidget *addBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        m_search = gtk_search_entry_new();
+        g_signal_connect(m_search, "search-changed", G_CALLBACK(&onSearchTrampoline), this);
+        // Enter adds the best match.
+        g_signal_connect(m_search, "activate", G_CALLBACK(&onSearchActivateTrampoline), this);
+        gtk_box_append(GTK_BOX(addBox), m_search);
+        GtkWidget *scroll = gtk_scrolled_window_new();
+        gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroll), 320);
+        gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(scroll), 280);
+        m_addList = gtk_list_box_new();
+        g_signal_connect(m_addList, "row-activated", G_CALLBACK(&onAddRowTrampoline), this);
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), m_addList);
+        gtk_box_append(GTK_BOX(addBox), scroll);
+        gtk_popover_set_child(GTK_POPOVER(m_addPopover), addBox);
+        g_signal_connect(m_addPopover, "show", G_CALLBACK(&onAddShownTrampoline), this);
+        gtk_menu_button_set_popover(GTK_MENU_BUTTON(m_add), m_addPopover);
+        gtk_box_append(GTK_BOX(header), m_add);
+        gtk_box_append(GTK_BOX(box), header);
+
+        m_title = gtk_label_new("");
+        gtk_label_set_xalign(GTK_LABEL(m_title), 0.0f);
+        gtk_label_set_ellipsize(GTK_LABEL(m_title), PANGO_ELLIPSIZE_MIDDLE);
+        gtk_widget_add_css_class(m_title, "heading");
+        gtk_box_append(GTK_BOX(box), m_title);
+
+        m_empty = gtk_label_new("No effects yet. Add one to change how this looks or sounds.");
+        gtk_label_set_wrap(GTK_LABEL(m_empty), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(m_empty), 0.0f);
+        gtk_widget_add_css_class(m_empty, "dim-label");
+        gtk_box_append(GTK_BOX(box), m_empty);
+
+        m_cards = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+        gtk_box_append(GTK_BOX(box), m_cards);
+
+        m_root = gtk_scrolled_window_new();
+        gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(m_root), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(m_root), box);
+    }
+
+    void fillAddList()
+    {
+        while (GtkWidget *child = gtk_widget_get_first_child(m_addList))
+            gtk_list_box_remove(GTK_LIST_BOX(m_addList), child);
+        if (!m_catalog.ready()) {
+            GtkWidget *wait = gtk_label_new("Still finding the effects this install offers…");
+            gtk_widget_add_css_class(wait, "dim-label");
+            gtk_list_box_append(GTK_LIST_BOX(m_addList), wait);
+            return;
+        }
+        const std::string query = lower(gtk_editable_get_text(GTK_EDITABLE(m_search)));
+        // Best first: the name itself, then names starting with the query,
+        // then any other match (name, category, service or tag).
+        std::vector<std::pair<int, const EffectDescriptor *>> matches;
+        for (const EffectDescriptor *d : m_catalog.offered()) {
+            const std::string name = lower(d->name);
+            std::string haystack = name + " " + lower(d->category + " " + d->service);
+            for (const std::string &tag : d->tags)
+                haystack += " " + lower(tag);
+            int rank = 3;
+            if (query.empty())
+                rank = d->featured ? 0 : 1;
+            else if (name == query)
+                rank = 0;
+            else if (name.starts_with(query))
+                rank = 1;
+            else if (haystack.find(query) != std::string::npos)
+                rank = 2;
+            if (rank < 3)
+                matches.emplace_back(rank, d);
+        }
+        std::stable_sort(matches.begin(), matches.end(),
+                         [](const auto &a, const auto &b) { return a.first < b.first; });
+        int shown = 0;
+        for (const auto &[rank, d] : matches) {
+            if (++shown > 300)
+                break;
+            GtkWidget *row = gtk_list_box_row_new();
+            GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+            GtkWidget *name = gtk_label_new(d->name.c_str());
+            gtk_label_set_xalign(GTK_LABEL(name), 0.0f);
+            gtk_widget_set_hexpand(name, TRUE);
+            gtk_box_append(GTK_BOX(line), name);
+            GtkWidget *category = gtk_label_new(d->category.c_str());
+            gtk_widget_add_css_class(category, "dim-label");
+            gtk_widget_add_css_class(category, "caption");
+            gtk_box_append(GTK_BOX(line), category);
+            gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), line);
+            gtk_widget_set_tooltip_text(row, d->description.empty() ? nullptr : d->description.c_str());
+            g_object_set_data_full(G_OBJECT(row), "service", g_strdup(d->service.c_str()), g_free);
+            gtk_accessible_update_property(GTK_ACCESSIBLE(row), GTK_ACCESSIBLE_PROPERTY_LABEL, d->name.c_str(), -1);
+            gtk_list_box_append(GTK_LIST_BOX(m_addList), row);
+        }
+        if (shown == 0) {
+            GtkWidget *none = gtk_label_new("No effect matches");
+            gtk_widget_add_css_class(none, "dim-label");
+            gtk_list_box_append(GTK_LIST_BOX(m_addList), none);
+        }
+    }
+
+    // What the cards show, minus values: rebuilt when this changes, else
+    // only the values move (so a drag keeps its widget).
+    std::string structureOf(const core::Model::EffectTarget &target) const
+    {
+        std::string key = std::to_string(static_cast<int>(target.kind)) + ":" + std::to_string(target.id);
+        for (const core::Effect &e : m_host.model().effects(target)) {
+            key += "|" + std::to_string(e.id.value) + e.service + (e.enabled ? "+" : "-") +
+                   (e.mix.keyframes.empty() ? "" : "k");
+            for (const core::Param &p : e.params)
+                key += "," + p.name + (p.keyframes.empty() ? "" : "k");
+        }
+        return key;
+    }
+
+    void refresh()
+    {
+        std::optional<core::Model::EffectTarget> target = currentTarget();
+        if (!target || !m_host.model().hasEffectTarget(*target))
+            return;
+        gtk_label_set_text(GTK_LABEL(m_title), targetTitle(*target).c_str());
+        const std::string structure = structureOf(*target);
+        if (structure == m_structure) {
+            updateValues();
+            return;
+        }
+        // From an idle: this may run inside a card's own signal handler
+        // (remove, bypass), which must not destroy its widget under itself.
+        if (!m_rebuildPending) {
+            m_rebuildPending = true;
+            g_idle_add(&onRebuildTrampoline, this);
+        }
+    }
+
+    void rebuildNow()
+    {
+        m_rebuildPending = false;
+        std::optional<core::Model::EffectTarget> target = currentTarget();
+        if (!target || !m_host.model().hasEffectTarget(*target))
+            return;
+        m_structure = structureOf(*target);
+        rebuildCards(*target);
+    }
+
+    void rebuildCards(const core::Model::EffectTarget &target)
+    {
+        while (GtkWidget *child = gtk_widget_get_first_child(m_cards))
+            gtk_box_remove(GTK_BOX(m_cards), child);
+        m_controls.clear();
+        m_actions.clear();
+        const std::vector<core::Effect> &effects = m_host.model().effects(target);
+        gtk_widget_set_visible(m_empty, effects.empty());
+        m_updating = true;
+        for (size_t i = 0; i < effects.size(); ++i)
+            gtk_box_append(GTK_BOX(m_cards), buildCard(effects[i], i, effects.size()));
+        m_updating = false;
+        updateValues(); // animated values at the playhead, key states
+    }
+
+    GtkWidget *iconButton(const char *icon, const char *hint, core::EffectId effect, int move, bool sensitive)
+    {
+        GtkWidget *button = gtk_button_new_from_icon_name(icon);
+        gtk_widget_add_css_class(button, "flat");
+        gtk_widget_set_sensitive(button, sensitive);
+        m_host.setTooltip(button, hint);
+        m_actions.push_back(std::make_unique<CardAction>(CardAction{this, effect, move}));
+        g_signal_connect(button, "clicked", G_CALLBACK(&onCardActionTrampoline), m_actions.back().get());
+        return button;
+    }
+
+    GtkWidget *buildCard(const core::Effect &effect, size_t index, size_t count)
+    {
+        const EffectDescriptor *descriptor = m_catalog.find(effect.service);
+        const bool ours = effect.owner == kOwner;
+
+        GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_widget_add_css_class(card, "card");
+        GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_widget_set_margin_start(inner, 10);
+        gtk_widget_set_margin_end(inner, 10);
+        gtk_widget_set_margin_top(inner, 8);
+        gtk_widget_set_margin_bottom(inner, 8);
+        gtk_box_append(GTK_BOX(card), inner);
+
+        GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        GtkWidget *bypass = gtk_switch_new();
+        gtk_switch_set_active(GTK_SWITCH(bypass), effect.enabled);
+        gtk_widget_set_valign(bypass, GTK_ALIGN_CENTER);
+        gtk_widget_set_sensitive(bypass, ours);
+        m_host.setTooltip(bypass, "effects.card-bypass");
+        g_object_set_data(G_OBJECT(bypass), "rack", this);
+        g_signal_connect(bypass, "notify::active", G_CALLBACK(&onBypassTrampoline),
+                         GSIZE_TO_POINTER(static_cast<gsize>(effect.id.value)));
+        gtk_box_append(GTK_BOX(header), bypass);
+
+        const std::string name = !effect.displayName.empty() ? effect.displayName
+                                 : descriptor                ? descriptor->name
+                                                             : effect.service;
+        GtkWidget *label = gtk_label_new(name.c_str());
+        gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+        gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+        gtk_widget_set_hexpand(label, TRUE);
+        gtk_widget_add_css_class(label, "heading");
+        if (!effect.enabled)
+            gtk_widget_add_css_class(label, "dim-label");
+        gtk_box_append(GTK_BOX(header), label);
+
+        if (std::optional<HealthRecord> health = m_catalog.health(effect.service); health && health->usable()) {
+            const CostBadge badge = costBadge(health->msPerFrame);
+            GtkWidget *cost = gtk_label_new(costLabel(badge));
+            gtk_widget_add_css_class(cost, "caption");
+            gtk_widget_add_css_class(cost, costClass(badge));
+            m_host.setTooltip(cost, "effects.card-cost");
+            gtk_box_append(GTK_BOX(header), cost);
+        }
+        gtk_box_append(GTK_BOX(header), iconButton("go-up-symbolic", "effects.card-up", effect.id, -1, index > 0));
+        gtk_box_append(GTK_BOX(header),
+                       iconButton("go-down-symbolic", "effects.card-down", effect.id, +1, index + 1 < count));
+        gtk_box_append(GTK_BOX(header), iconButton("user-trash-symbolic", "effects.card-remove", effect.id, 0, true));
+        gtk_box_append(GTK_BOX(inner), header);
+
+        // Why it may not play (the extension skips these; doc 15, "Gating").
+        std::string note;
+        if (!ours)
+            note = "Added by the " + effect.owner + " drop-in; its settings are its own.";
+        else if (!descriptor && m_catalog.ready())
+            note = "Not available on this computer: it plays without this effect.";
+        else if (descriptor && !m_catalog.usable(effect.service))
+            note = "Turned off: it failed the stability check on this computer.";
+        if (!note.empty()) {
+            GtkWidget *warning = gtk_label_new(note.c_str());
+            gtk_label_set_wrap(GTK_LABEL(warning), TRUE);
+            gtk_label_set_xalign(GTK_LABEL(warning), 0.0f);
+            gtk_widget_add_css_class(warning, "warning");
+            gtk_box_append(GTK_BOX(inner), warning);
+        }
+        if (!ours)
+            return card;
+
+        GtkWidget *grid = gtk_grid_new();
+        gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
+        gtk_grid_set_row_spacing(GTK_GRID(grid), 4);
+        int row = 0;
+        // The mix: video effects only (MLT's mask pair composites pictures).
+        if (!descriptor || descriptor->media == MediaKind::Video) {
+            auto control = std::make_unique<Control>();
+            control->rack = this;
+            control->effect = effect.id;
+            control->adjustment = gtk_adjustment_new(effect.mix.value * 100.0, 0.0, 100.0, 1.0, 10.0, 0.0);
+            GtkWidget *scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, control->adjustment);
+            gtk_scale_set_digits(GTK_SCALE(scale), 0);
+            gtk_scale_set_draw_value(GTK_SCALE(scale), TRUE);
+            gtk_scale_set_value_pos(GTK_SCALE(scale), GTK_POS_RIGHT);
+            gtk_widget_set_hexpand(scale, TRUE);
+            m_host.setTooltip(scale, "effects.card-mix");
+            control->widget = scale;
+            control->animatable = true;
+            g_signal_connect(control->adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
+            addRow(grid, row, "Mix", scale);
+            addKeyControls(grid, row, *control);
+            row += 2;
+            m_controls.push_back(std::move(control));
+        }
+        if (descriptor)
+            for (const ParamDescriptor &p : descriptor->params) {
+                if (p.hidden)
+                    continue;
+                const core::Param current = currentParam(effect, p.id, p.kind);
+                GtkWidget *widget = buildControl(effect.id, p, current);
+                if (!widget)
+                    continue;
+                addRow(grid, row, p.title, widget, p.description);
+                if (m_controls.back()->animatable) {
+                    addKeyControls(grid, row, *m_controls.back());
+                    row += 2;
+                } else {
+                    ++row;
+                }
+            }
+        gtk_box_append(GTK_BOX(inner), grid);
+        return card;
+    }
+
+    void addRow(GtkWidget *grid, int row, const std::string &title, GtkWidget *widget,
+                const std::string &description = {})
+    {
+        GtkWidget *label = gtk_label_new(title.c_str());
+        gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+        gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+        gtk_label_set_width_chars(GTK_LABEL(label), 6);
+        gtk_label_set_max_width_chars(GTK_LABEL(label), 12);
+        if (!description.empty())
+            gtk_widget_set_tooltip_text(label, description.c_str());
+        gtk_grid_attach(GTK_GRID(grid), label, 0, row, 1, 1);
+        gtk_widget_set_hexpand(widget, TRUE);
+        gtk_grid_attach(GTK_GRID(grid), widget, 1, row, 1, 1);
+    }
+
+    // Previous key, pin, next key beside the value; the feel of the key at
+    // the playhead on the row below (shown only there).
+    void addKeyControls(GtkWidget *grid, int row, Control &control)
+    {
+        GtkWidget *keys = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_widget_add_css_class(keys, "linked");
+        auto button = [&](const char *icon, const char *hint, GCallback callback) {
+            GtkWidget *b = gtk_button_new_from_icon_name(icon);
+            gtk_widget_add_css_class(b, "flat");
+            m_host.setTooltip(b, hint);
+            g_signal_connect(b, "clicked", callback, &control);
+            gtk_box_append(GTK_BOX(keys), b);
+            return b;
+        };
+        control.previous = button("go-previous-symbolic", "effects.key-previous", G_CALLBACK(&onKeyPreviousTrampoline));
+        control.pin = button("non-starred-symbolic", "effects.key-pin", G_CALLBACK(&onKeyPinTrampoline));
+        control.next = button("go-next-symbolic", "effects.key-next", G_CALLBACK(&onKeyNextTrampoline));
+        gtk_grid_attach(GTK_GRID(grid), keys, 2, row, 1, 1);
+
+        std::vector<std::string> names;
+        for (const Feel &feel : feels()) {
+            names.push_back(feel.name);
+            control.feelEasings.push_back(feel.easing);
+        }
+        for (int e = 0; e <= static_cast<int>(core::Easing::BounceInOut); ++e) {
+            const auto easing = static_cast<core::Easing>(e);
+            if (std::find(control.feelEasings.begin(), control.feelEasings.end(), easing) != control.feelEasings.end())
+                continue;
+            names.push_back(std::string("Curve: ") + core::easingName(easing));
+            control.feelEasings.push_back(easing);
+        }
+        std::vector<const char *> strings;
+        for (const std::string &n : names)
+            strings.push_back(n.c_str());
+        strings.push_back(nullptr);
+        control.feel = gtk_drop_down_new_from_strings(strings.data());
+        m_host.setTooltip(control.feel, "effects.key-feel");
+        g_signal_connect(control.feel, "notify::selected", G_CALLBACK(&onKeyFeelTrampoline), &control);
+        GtkWidget *feelLabel = gtk_label_new("Feel");
+        gtk_label_set_xalign(GTK_LABEL(feelLabel), 1.0f);
+        gtk_widget_add_css_class(feelLabel, "dim-label");
+        gtk_grid_attach(GTK_GRID(grid), feelLabel, 0, row + 1, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), control.feel, 1, row + 1, 2, 1);
+        g_object_set_data(G_OBJECT(control.feel), "label", feelLabel);
+        showKeyState(control);
+    }
+
+    GtkWidget *buildControl(core::EffectId effect, const ParamDescriptor &p, const core::Param &current)
+    {
+        auto control = std::make_unique<Control>();
+        control->rack = this;
+        control->effect = effect;
+        control->param = p.id;
+        control->kind = p.kind;
+        control->display = p.display;
+        GtkWidget *widget = nullptr;
+        switch (p.kind) {
+        case ParamKind::Scalar: {
+            double lo = p.minimum.value_or(0.0), hi = p.maximum.value_or(std::max(1.0, lo + 1.0));
+            if (p.display) {
+                lo = p.display->toMin;
+                hi = p.display->toMax;
+            }
+            const double span = hi - lo;
+            control->adjustment = gtk_adjustment_new(lo, lo, hi, span / 100.0, span / 10.0, 0.0);
+            GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+            GtkWidget *scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, control->adjustment);
+            gtk_scale_set_draw_value(GTK_SCALE(scale), FALSE);
+            gtk_widget_set_hexpand(scale, TRUE);
+            gtk_box_append(GTK_BOX(box), scale);
+            GtkWidget *spin = gtk_spin_button_new(control->adjustment, span / 100.0, span <= 10.0 ? 3 : 1);
+            gtk_editable_set_width_chars(GTK_EDITABLE(spin), 6);
+            gtk_box_append(GTK_BOX(box), spin);
+            if (p.display && !p.display->unit.empty()) {
+                GtkWidget *unit = gtk_label_new(p.display->unit.c_str());
+                gtk_widget_add_css_class(unit, "dim-label");
+                gtk_box_append(GTK_BOX(box), unit);
+            }
+            widget = box;
+            control->animatable = p.animatable;
+            g_signal_connect(control->adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
+            break;
+        }
+        case ParamKind::Integer: {
+            const double lo = p.minimum.value_or(-1'000'000.0), hi = p.maximum.value_or(1'000'000.0);
+            control->adjustment = gtk_adjustment_new(lo, lo, hi, 1.0, 10.0, 0.0);
+            widget = gtk_spin_button_new(control->adjustment, 1.0, 0);
+            g_signal_connect(control->adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
+            break;
+        }
+        case ParamKind::Toggle:
+            widget = gtk_switch_new();
+            gtk_widget_set_halign(widget, GTK_ALIGN_START);
+            g_signal_connect(widget, "notify::active", G_CALLBACK(&onControlNotifyTrampoline), control.get());
+            break;
+        case ParamKind::Color:
+            widget = gtk_color_dialog_button_new(gtk_color_dialog_new());
+            gtk_widget_set_halign(widget, GTK_ALIGN_START);
+            g_signal_connect(widget, "notify::rgba", G_CALLBACK(&onControlNotifyTrampoline), control.get());
+            break;
+        case ParamKind::Choice: {
+            control->choices = p.choices;
+            std::vector<const char *> strings;
+            for (const std::string &c : p.choices)
+                strings.push_back(c.c_str());
+            strings.push_back(nullptr);
+            widget = gtk_drop_down_new_from_strings(strings.data());
+            g_signal_connect(widget, "notify::selected", G_CALLBACK(&onControlNotifyTrampoline), control.get());
+            break;
+        }
+        case ParamKind::Rect: {
+            widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+            for (int i = 0; i < 4; ++i) {
+                GtkAdjustment *adjustment = gtk_adjustment_new(0.0, -100'000.0, 100'000.0, 1.0, 10.0, 0.0);
+                control->rect.push_back(adjustment);
+                GtkWidget *spin = gtk_spin_button_new(adjustment, 1.0, 0);
+                gtk_editable_set_width_chars(GTK_EDITABLE(spin), 5);
+                gtk_box_append(GTK_BOX(widget), spin);
+                g_signal_connect(adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
+            }
+            break;
+        }
+        case ParamKind::File:
+        case ParamKind::Text:
+            widget = gtk_entry_new();
+            gtk_widget_set_hexpand(widget, TRUE);
+            g_signal_connect(widget, "changed", G_CALLBACK(&onControlTrampoline), control.get());
+            break;
+        }
+        control->widget = control->widget ? control->widget : widget;
+        writeControl(*control, current.value);
+        m_controls.push_back(std::move(control));
+        return widget;
+    }
+
+    void updateValues()
+    {
+        const core::Model &model = m_host.model();
+        m_updating = true;
+        for (const std::unique_ptr<Control> &control : m_controls) {
+            if (!model.hasEffect(control->effect))
+                continue;
+            const core::Effect &effect = model.effect(control->effect);
+            const std::vector<core::Keyframe> keys = keysOf(*control);
+            if (!keys.empty()) {
+                // Animated: the value at the playhead.
+                const double value = core::easedValue(keys, static_cast<double>(ownerFrame(control->effect)));
+                if (control->param.empty())
+                    gtk_adjustment_set_value(control->adjustment, value * 100.0);
+                else
+                    writeControl(*control, value);
+            } else if (control->param.empty()) {
+                gtk_adjustment_set_value(control->adjustment, effect.mix.value * 100.0);
+            } else {
+                writeControl(*control, currentParam(effect, control->param, control->kind).value);
+            }
+            showKeyState(*control);
+        }
+        m_updating = false;
+    }
+
+    // Only animated values and key states move with the playhead.
+    void onPlayheadMoved()
+    {
+        if (m_rebuildPending)
+            return;
+        updateValues();
+    }
+
+    // --- GTK signal trampolines ---------------------------------------------
+
+    static void onSearchActivateTrampoline(GtkSearchEntry *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onSearchActivate();
+    }
+    static void onPinActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onPinAction();
+    }
+    static void onKeyPinTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onKeyPin(*c);
+    }
+    static void onKeyPreviousTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onKeyStep(*c, false);
+    }
+    static void onKeyNextTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onKeyStep(*c, true);
+    }
+    static void onKeyFeelTrampoline(GObject *, GParamSpec *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onKeyFeel(*c);
+    }
+    static void onBrowserActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onBrowserAction();
+    }
+    static gboolean onRebuildTrampoline(gpointer self)
+    {
+        static_cast<Rack *>(self)->rebuildNow();
+        return G_SOURCE_REMOVE;
+    }
+    static void onScopeTrampoline(GObject *, GParamSpec *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onScopeChanged();
+    }
+    static void onSearchTrampoline(GtkSearchEntry *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onSearchChanged();
+    }
+    static void onAddRowTrampoline(GtkListBox *, GtkListBoxRow *row, gpointer self)
+    {
+        static_cast<Rack *>(self)->onAddRow(row);
+    }
+    static void onAddShownTrampoline(GtkWidget *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onAddShown();
+    }
+    static void onControlTrampoline(gpointer, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onControlChanged(*c);
+    }
+    static void onControlNotifyTrampoline(GObject *, GParamSpec *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onControlChanged(*c);
+    }
+    static void onCardActionTrampoline(GtkButton *, gpointer action)
+    {
+        auto *a = static_cast<CardAction *>(action);
+        a->rack->onCardAction(*a);
+    }
+    static void onBypassTrampoline(GObject *widget, GParamSpec *, gpointer effect)
+    {
+        auto *rack = static_cast<Rack *>(g_object_get_data(widget, "rack"));
+        rack->onBypass(core::EffectId{static_cast<uint64_t>(GPOINTER_TO_SIZE(effect))},
+                       gtk_switch_get_active(GTK_SWITCH(widget)));
+    }
+
+    app::ShellHost &m_host;
+    Catalog &m_catalog;
+    GtkWidget *m_root = nullptr, *m_scope = nullptr, *m_add = nullptr, *m_addPopover = nullptr;
+    GtkWidget *m_search = nullptr, *m_addList = nullptr, *m_title = nullptr, *m_empty = nullptr;
+    GtkWidget *m_cards = nullptr;
+    std::vector<std::unique_ptr<Control>> m_controls;
+    std::vector<std::unique_ptr<CardAction>> m_actions;
+    std::string m_structure;
+    bool m_updating = false;
+    bool m_rebuildPending = false;
+    // The parameter P pins: by effect and name, since pinning rebuilds the
+    // cards (the value becomes animated).
+    std::optional<std::pair<core::EffectId, std::string>> m_lastControl;
+    uint64_t m_nextGesture = 0;
+};
+
+} // namespace
+
+void addRack(app::ShellHost &host, Catalog &catalog)
+{
+    // For the window's life: its widgets and signal handlers point here.
+    static std::vector<std::unique_ptr<Rack>> racks;
+    racks.push_back(std::make_unique<Rack>(host, catalog));
+    racks.back()->install();
+}
+
+} // namespace ustudio::effects

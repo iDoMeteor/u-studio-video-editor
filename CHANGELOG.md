@@ -5,6 +5,22 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.70.0-beta.1
+
+- Captions: import .srt and .vtt subtitle files as caption clips on their
+  own tracks, styled by one caption title (three built-in looks).
+
+## 0.69.3-beta.1
+
+- With GPU acceleration on, pausing no longer crashes the editor when a
+  clip and a copy of it play on different tracks at once (for example a
+  rotated picture-in-picture over the original).
+
+## 0.69.2-beta.1
+
+- New Title in an unsaved project never makes a folder loose in your home
+  folder: default project folder, then Videos, then U Stu's data folder.
+
 ## 0.69.1-beta.1
 
 - U Stu Share uses the editor's Unicorn Tears styling.

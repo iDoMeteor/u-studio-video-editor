@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -435,4 +436,140 @@ TEST_CASE("GPU pipeline: the preview leaving the GPU mid-export doesn't stop the
     INFO(error);
     CHECK(ok);
     CHECK_FALSE(GpuSession::current()); // gone with the export
+}
+
+// VE Demos' crash (0.67.1, 2026-09-28): movit's create_fbo asserted
+// GL_FRAMEBUFFER_COMPLETE (here: a segfault in glTexSubImage2D, about one run
+// in six) on the paused refresh of four tracks at Half. The cause: V3's
+// rotated picture-in-picture was a copy of a V1 clip, so both cut from one
+// master producer, and MLT's movit keys a chain's inputs by producer; the
+// RGBA island at profile size and the YUV cut at source size then shared
+// one input. On the GPU pipeline each track, and each clip of a dissolve's
+// pair, now has its own master (EngineSync::masterLane()).
+namespace {
+
+Model demoTourModel(bool sameAssetDissolve)
+{
+    const std::string blue = utf8String(generate("blue.mp4", 1920, 1080, "color:#2040c0"));
+    const std::string green = utf8String(generate("green.mp4", 1920, 1080, "color:#20c040"));
+    const std::string capture = utf8String(generate("capture-1344.mp4", 1344, 768, "color:#c0c020"));
+    Model model = Model::createEmpty();
+    const TrackId v1 = model.addTrack(Track::Kind::Video, 0, "V1");
+    const TrackId v2 = model.addTrack(Track::Kind::Video, 0, "V2");
+    const TrackId v3 = model.addTrack(Track::Kind::Video, 0, "V3");
+    model.addTrack(Track::Kind::Video, 0, "V4");
+    auto asset = [&](const std::string &path, int w, int h) {
+        Asset a;
+        a.path = path;
+        a.info.hasVideo = true;
+        a.info.width = w;
+        a.info.height = h;
+        a.info.lengthInSequenceFrames = 60;
+        return model.addAsset(a);
+    };
+    const AssetId blueAsset = asset(blue, 1920, 1080), greenAsset = asset(green, 1920, 1080);
+    const ClipId first = model.insertClip(v1, blueAsset, 0, 0, 59);
+    // A dissolve into the same file, or into another one.
+    const ClipId second = model.insertClip(v1, sameAssetDissolve ? blueAsset : greenAsset, 60, 0, 59);
+    REQUIRE(model.addTransition(v1, first, second, 10, 10).value != 0);
+    const AssetId captureAsset = asset(capture, 1344, 768);
+    model.insertClip(v2, captureAsset, 0, 0, 59);
+    model.insertClip(v2, captureAsset, 60, 0, 59);
+    // Copies of V1's clips, scaled, rotated and flipped, as in the tour.
+    Transform t = placed(1300, 700, 945, 540, 21);
+    t.flipH = true;
+    model.setClipTransform(model.insertClip(v3, blueAsset, 0, 0, 59), t);
+    model.setClipTransform(model.insertClip(v3, greenAsset, 60, 0, 59), t);
+    return model;
+}
+
+// The master producers the tractor's cuts come from, per track (the cut's
+// parent; a dissolve segment's two cuts both count for its track).
+std::vector<std::set<mlt_producer>> mastersPerTrack(EngineSync &sync)
+{
+    std::vector<std::set<mlt_producer>> result;
+    Mlt::Tractor &tractor = sync.tractor();
+    for (int t = 0; t < tractor.count(); ++t) {
+        std::set<mlt_producer> masters;
+        std::unique_ptr<Mlt::Producer> track(tractor.track(t));
+        Mlt::Playlist playlist(*track);
+        for (int c = 0; playlist.is_valid() && c < playlist.count(); ++c) {
+            std::unique_ptr<Mlt::Producer> clip(playlist.get_clip(c));
+            if (!clip || clip->is_blank())
+                continue;
+            const char *service = clip->parent().get("mlt_service");
+            if (service && std::string(service) == "tractor") {
+                Mlt::Tractor sub(clip->parent());
+                for (int s = 0; s < sub.count(); ++s) {
+                    std::unique_ptr<Mlt::Producer> cut(sub.track(s));
+                    masters.insert(cut->parent().get_producer());
+                }
+            } else {
+                masters.insert(clip->parent().get_producer());
+            }
+        }
+        result.push_back(std::move(masters));
+    }
+    return result;
+}
+
+} // namespace
+
+TEST_CASE("GPU pipeline: no master producer feeds two inputs of one frame")
+{
+    sharedFactoryPolicy();
+    Model model = demoTourModel(true);
+    std::string error;
+    std::shared_ptr<GpuSession> session = GpuSession::acquire(error);
+    if (!session) {
+        MESSAGE("no GPU pipeline here (" << error << ")");
+        return;
+    }
+    EngineSync sync(model, PreviewScale::Half, EngineSync::FrameReads::ProfileSize);
+    sync.setPipeline(EngineSync::Pipeline::Gpu, {});
+    const std::vector<std::set<mlt_producer>> masters = mastersPerTrack(sync);
+    for (size_t a = 1; a < masters.size(); ++a)
+        for (size_t b = a + 1; b < masters.size(); ++b)
+            for (mlt_producer p : masters[a])
+                CHECK_MESSAGE(!masters[b].contains(p), "tracks " << a << " and " << b << " share a master");
+    // The same-file dissolve on V1 (MLT index 1) cuts from two masters.
+    CHECK(masters[1].size() >= 2);
+
+    // The check itself: the CPU pipeline shares masters across tracks, and
+    // it finds that.
+    EngineSync cpu(model, PreviewScale::Half, EngineSync::FrameReads::ProfileSize);
+    const std::vector<std::set<mlt_producer>> shared = mastersPerTrack(cpu);
+    bool sharing = false;
+    for (mlt_producer p : shared[1])
+        sharing = sharing || shared[3].contains(p);
+    CHECK(sharing);
+}
+
+TEST_CASE("GPU pipeline: the demo tour's four-track graph renders every frame at Half")
+{
+    sharedFactoryPolicy();
+    for (bool sameAssetDissolve : {false, true}) {
+        Model model = demoTourModel(sameAssetDissolve);
+        std::string error;
+        std::shared_ptr<GpuSession> session = GpuSession::acquire(error);
+        if (!session) {
+            MESSAGE("no GPU pipeline here (" << error << ")");
+            return;
+        }
+        REQUIRE(session->renderThreadStarted());
+        for (PreviewScale scale : {PreviewScale::Full, PreviewScale::Half}) {
+            EngineSync sync(model, scale, EngineSync::FrameReads::ProfileSize);
+            sync.setPipeline(EngineSync::Pipeline::Gpu, {});
+            const int w = sync.profile().width(), h = sync.profile().height();
+            for (int position = 0; position < 120; ++position) {
+                Mlt::Tractor &tractor = sync.tractor();
+                tractor.seek(position);
+                std::unique_ptr<Mlt::Frame> frame(tractor.get_frame());
+                mlt_image_format format = mlt_image_rgba;
+                int fw = w, fh = h;
+                REQUIRE(frame->get_image(format, fw, fh) != nullptr);
+            }
+        }
+        session->renderThreadStopped();
+    }
 }

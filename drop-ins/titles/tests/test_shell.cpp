@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 
 using namespace ustudio;
 namespace fs = std::filesystem;
@@ -52,6 +53,11 @@ class FakeShell : public app::ShellHost
     core::FrameIndex currentFrame() const override
     {
         return 0;
+    }
+    void seek(core::FrameIndex) override {}
+    core::Signal<> &playheadMoved() override
+    {
+        return m_playheadMoved;
     }
     void showStatus(const std::string &text) override
     {
@@ -129,7 +135,7 @@ class FakeShell : public app::ShellHost
   private:
     core::Model m_model;
     core::UndoStack m_undo{m_model};
-    core::Signal<> m_projectChanged, m_selectionChanged;
+    core::Signal<> m_projectChanged, m_selectionChanged, m_playheadMoved;
 };
 
 // extendShell() builds the Title page's widgets, which need a display.
@@ -246,7 +252,7 @@ TEST_CASE("a saved title is reported changed within a second, once per save")
     core::Profile profile;
     FakeShell shell(profile);
     titles::extendShell(shell);
-    REQUIRE(shell.importHandlers.size() == 1);
+    REQUIRE(shell.importHandlers.size() == 2); // titles, and subtitles (T5)
     CHECK(shell.importHandlers[0].extensions == std::vector<std::string>{"ustitle"});
     const std::string path = saveTitle("watched.ustitle");
     REQUIRE(shell.importHandlers[0].import(path, shell.video, std::nullopt).has_value());
@@ -492,8 +498,11 @@ TEST_CASE("New Title: a blank title in the project's Titles folder, at the playh
 
     // The next one never overwrites it.
     CHECK(titles::newTitlePath(core::utf8String(project)) == core::utf8String(project / "Titles" / "Title 2.ustitle"));
-    // No project folder: the Videos folder's "U Stu Titles".
-    CHECK(titles::newTitlePath("").find("U Stu Titles") != std::string::npos);
+    // No project folder: the Videos folder's "U Stu Titles", or one in the
+    // data dir; never a folder straight in $HOME.
+    const fs::path fallback = core::pathFromUtf8(titles::newTitlePath("")).parent_path();
+    CHECK(fallback.filename() == "U Stu Titles");
+    CHECK(fallback.parent_path() != core::pathFromUtf8(g_get_home_dir()));
     titles::setTitlesLauncherForTesting(nullptr);
 }
 
@@ -534,4 +543,72 @@ TEST_CASE("New Title in an unsaved project: the link survives saving the project
     CHECK(relinked == core::utf8String(scratch() / "unsaved-home-moved" / "Titles" / "Title 1.ustitle"));
     CHECK(fs::exists(core::pathFromUtf8(relinked)));
     titles::setTitlesLauncherForTesting(nullptr);
+}
+
+TEST_CASE("importing subtitles: a caption title beside the project, a clip per cue on tracks on top, one undo step")
+{
+    if (!haveGtk())
+        return;
+    core::Profile profile;
+    profile.fps = {25, 1};
+    FakeShell shell(profile);
+    const fs::path project = scratch() / "captions-project";
+    fs::remove_all(project);
+    fs::create_directories(project);
+    shell.folder = core::utf8String(project);
+    titles::extendShell(shell);
+    // .srt and .vtt go through the titles drop-in.
+    const auto handler =
+        std::find_if(shell.importHandlers.begin(), shell.importHandlers.end(), [](const app::ImportHandler &h) {
+            return std::find(h.extensions.begin(), h.extensions.end(), "srt") != h.extensions.end();
+        });
+    REQUIRE(handler != shell.importHandlers.end());
+    CHECK(std::find(handler->extensions.begin(), handler->extensions.end(), "vtt") != handler->extensions.end());
+
+    const fs::path srt = scratch() / "show.srt";
+    {
+        std::ofstream out(srt, std::ios::binary);
+        out << "1\n00:00:01,000 --> 00:00:03,000\nHello\n\n"
+               "2\n00:00:02,000 --> 00:00:04,000\n<i>Overlapping</i>\n\n"
+               "3\n00:00:0X,000 --> 00:00:05,000\nbroken\n\n"
+               "4\n00:00:05,000 --> 00:00:06,000\n<v Jay>Bye</v>\n";
+    }
+    const size_t tracksBefore = shell.model().sequence().tracks.size();
+    auto result = handler->import(core::utf8String(srt), shell.video, std::nullopt);
+    REQUIRE_MESSAGE(result.has_value(), (result ? "" : result.error()));
+    CHECK(shell.status.find("Imported 3 captions") != std::string::npos);
+    CHECK(shell.status.find("Skipped 1 unreadable cue (the first at line 10") != std::string::npos);
+
+    const fs::path title = project / "Titles" / "show captions.ustitle";
+    REQUIRE(fs::exists(title));
+    const auto &tracks = shell.model().sequence().tracks;
+    REQUIRE(tracks.size() == tracksBefore + 2);
+    CHECK(tracks[0].name == "Captions");
+    CHECK(tracks[1].name == "Captions 2");
+    REQUIRE(tracks[0].clips.size() == 2);
+    REQUIRE(tracks[1].clips.size() == 1);
+    const core::Clip &hello = shell.model().clip(tracks[0].clips[0]);
+    CHECK(hello.position == 25);
+    CHECK(hello.length() == 50);
+    CHECK(shell.model().asset(hello.asset).path == core::utf8String(title));
+    CHECK(titles::clipFieldValues(hello).at("caption") == "Hello");
+    CHECK(titles::clipFieldValues(shell.model().clip(tracks[1].clips[0])).at("caption") == "<i>Overlapping</i>");
+    CHECK(titles::clipFieldValues(shell.model().clip(tracks[0].clips[1])).at("speaker") == "Jay");
+    CHECK(shell.model().check().empty());
+
+    shell.undo(); // one step
+    CHECK(shell.model().sequence().tracks.size() == tracksBefore);
+    CHECK(shell.model().project().bin.empty());
+
+    // A second import of the same file makes its own caption title.
+    REQUIRE(handler->import(core::utf8String(srt), shell.video, std::nullopt).has_value());
+    CHECK(fs::exists(project / "Titles" / "show captions 2.ustitle"));
+
+    // A file that isn't subtitles: refused, nothing added.
+    const fs::path junk = scratch() / "junk.vtt";
+    std::ofstream(junk) << "WEBVTT\n\nnothing to see\n";
+    const size_t tracksNow = shell.model().sequence().tracks.size();
+    auto refused = handler->import(core::utf8String(junk), shell.video, std::nullopt);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(shell.model().sequence().tracks.size() == tracksNow);
 }

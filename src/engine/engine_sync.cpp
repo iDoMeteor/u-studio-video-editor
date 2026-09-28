@@ -340,8 +340,7 @@ void EngineSync::dropChangedMasters(const core::Project &before, const core::Pro
         if (was == before.bin.end() || (was->path == now.path && was->status == now.status &&
                                         was->proxyPath == now.proxyPath && was->fileFingerprint == now.fileFingerprint))
             continue;
-        for (uint64_t variant = 0; variant < 4; ++variant)
-            m_masterProducers.erase((now.id.value << 2) | variant);
+        dropMastersOf(now.id);
         m_unavailableAssets.erase(now.id.value);
         m_proxiedAssets.erase(now.id.value);
     }
@@ -415,8 +414,7 @@ void EngineSync::dropProxiedMasters()
     for (const core::Asset &asset : m_model.project().bin) {
         if (asset.proxyPath.empty())
             continue;
-        for (uint64_t variant = 0; variant < 4; ++variant)
-            m_masterProducers.erase((asset.id.value << 2) | variant);
+        dropMastersOf(asset.id);
         m_proxiedAssets.erase(asset.id.value);
     }
 }
@@ -561,7 +559,44 @@ EngineSync::ProbedMedia EngineSync::probeMediaFile(const core::Profile &sequence
     return result;
 }
 
-Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEnabled, bool audioEnabled)
+namespace {
+// m_masterProducers' key: the asset, its stream switches (two bits) and a
+// lane (16 bits; masterLane()).
+constexpr unsigned kLaneBits = 16;
+uint64_t masterKey(core::AssetId asset, bool videoEnabled, bool audioEnabled, uint32_t lane)
+{
+    const uint64_t variant = (asset.value << 2) | (videoEnabled ? 1u : 0u) | (audioEnabled ? 2u : 0u);
+    return (variant << kLaneBits) | lane;
+}
+} // namespace
+
+void EngineSync::dropMastersOf(core::AssetId asset)
+{
+    std::erase_if(m_masterProducers, [&](const auto &entry) { return entry.first >> (kLaneBits + 2) == asset.value; });
+}
+
+uint32_t EngineSync::masterLane(const core::Clip &clip) const
+{
+    // MLT's movit keys a chain's inputs by producer (the cut's parent,
+    // filter_movit_convert.cpp), so one master feeding two inputs of one
+    // frame makes them share an MltInput: a copy of a clip on another track,
+    // or the two clips a dissolve mixes, from the same file. When the two
+    // arrive at different sizes or formats (a rotated CPU island is RGBA at
+    // the profile's size; the plain cut YUV at the source's), movit reads
+    // one's pixels with the other's size: a crash in glTexSubImage2D, or
+    // movit's create_fbo asserting (VE Demos, 0.67.1, 2026-09-28;
+    // tests/engine/test_gpu_pipeline). On the GPU pipeline each track has
+    // its own masters, alternating between clips so neighbours in a dissolve
+    // differ. The CPU pipeline shares one per asset.
+    if (m_pipeline != Pipeline::Gpu)
+        return 0;
+    const core::Track &track = m_model.track(clip.track);
+    const auto at = std::find(track.clips.begin(), track.clips.end(), clip.id);
+    const auto ordinal = static_cast<uint32_t>(at - track.clips.begin());
+    return 1 + (((static_cast<uint32_t>(clip.track.value) & 0x3fff) << 1) | (ordinal & 1));
+}
+
+Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEnabled, bool audioEnabled, uint32_t lane)
 {
     const core::Asset &asset = m_model.asset(assetId);
 
@@ -574,7 +609,7 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
     // the master silenced / blanked it and every cut taken from it. Until
     // this was fixed, a Split Audio clip's video half kept playing its
     // sound under the new audio clip.
-    const uint64_t key = (assetId.value << 2) | (videoEnabled ? 1u : 0u) | (audioEnabled ? 2u : 0u);
+    const uint64_t key = masterKey(assetId, videoEnabled, audioEnabled, lane);
     auto it = m_masterProducers.find(key);
     if (it == m_masterProducers.end()) {
         // A file already known to be missing (checked on load) isn't
@@ -760,7 +795,7 @@ Mlt::Producer &EngineSync::producerForClip(const core::Clip &clip)
             }
         }
     }
-    return masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled);
+    return masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled, masterLane(clip));
 }
 
 double EngineSync::outputScale() const
@@ -775,7 +810,8 @@ double EngineSync::sourceScale(const core::Clip &clip)
     if (!m_proxiedAssets.contains(clip.asset.value) || !m_model.hasAsset(clip.asset))
         return 1.0;
     const int sourceWidth = m_model.asset(clip.asset).info.width;
-    const int playing = masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled).get_int("meta.media.width");
+    const int playing = masterProducerFor(clip.asset, clip.videoEnabled, clip.audioEnabled, masterLane(clip))
+                            .get_int("meta.media.width");
     return sourceWidth > 0 && playing > 0 ? static_cast<double>(playing) / sourceWidth : 1.0;
 }
 

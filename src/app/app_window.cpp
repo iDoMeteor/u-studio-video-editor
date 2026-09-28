@@ -476,7 +476,7 @@ void AppWindow::buildUi(GtkApplication *app)
     GtkWidget *toggleMediaBrowserButton = gtk_button_new_from_icon_name("sidebar-show-symbolic");
     setTooltip(toggleMediaBrowserButton, "header.media-browser");
     g_signal_connect(toggleMediaBrowserButton, "clicked", G_CALLBACK(&AppWindow::toggleMediaBrowserClickedTrampoline),
-                      this);
+                     this);
     gtk_box_append(GTK_BOX(mediaGroup), toggleMediaBrowserButton);
 
     GtkWidget *historyGroup = headerGroup();
@@ -624,8 +624,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // gtk_widget_set_visible(FALSE) on a box child reclaims its layout
     // space immediately, which is all "collapsible" needs here.
     GtkWidget *mediaBrowserScroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(mediaBrowserScroller), GTK_POLICY_NEVER,
-                                   GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(mediaBrowserScroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_size_request(mediaBrowserScroller, 320, -1);
     gtk_widget_add_css_class(mediaBrowserScroller, "media-browser-panel");
     setUpMediaList(mediaBrowserScroller);
@@ -637,8 +636,7 @@ void AppWindow::buildUi(GtkApplication *app)
     // position to insert a clip at here, unlike the timeline's own file
     // drop target above.
     GtkDropTarget *mediaBrowserFileDropTarget = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
-    g_signal_connect(mediaBrowserFileDropTarget, "drop", G_CALLBACK(&AppWindow::mediaBrowserFileDropTrampoline),
-                     this);
+    g_signal_connect(mediaBrowserFileDropTarget, "drop", G_CALLBACK(&AppWindow::mediaBrowserFileDropTrampoline), this);
     gtk_widget_add_controller(m_mediaBrowserPanel, GTK_EVENT_CONTROLLER(mediaBrowserFileDropTarget));
     gtk_box_append(GTK_BOX(previewRow), m_mediaBrowserPanel);
 
@@ -671,7 +669,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_add_css_class(m_deleteAssetFileButton, "flat");
     setTooltip(m_deleteAssetFileButton, "media.trash");
     g_signal_connect(m_deleteAssetFileButton, "clicked", G_CALLBACK(&AppWindow::deleteAssetFileClickedTrampoline),
-                      this);
+                     this);
     gtk_box_append(GTK_BOX(mediaContextBox), m_deleteAssetFileButton);
     addProxyMenuItems(mediaContextBox);
     gtk_popover_set_child(m_mediaBrowserContextMenu, mediaContextBox);
@@ -901,7 +899,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_add_css_class(m_removeTransitionButton, "flat");
     setTooltip(m_removeTransitionButton, "track-menu.remove-transition");
     g_signal_connect(m_removeTransitionButton, "clicked", G_CALLBACK(&AppWindow::removeTransitionClickedTrampoline),
-                      this);
+                     this);
     gtk_box_append(GTK_BOX(contextMenuBox), m_removeTransitionButton);
 
     m_syncClipsButton = gtk_button_new_with_label("Sync Tracks (Audio)");
@@ -932,8 +930,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_parent(GTK_WIDGET(m_inlineNameEditPopover), GTK_WIDGET(m_timeline));
     m_inlineNameEditEntry = GTK_ENTRY(gtk_entry_new());
     gtk_widget_set_size_request(GTK_WIDGET(m_inlineNameEditEntry), 160, -1);
-    g_signal_connect(m_inlineNameEditEntry, "activate", G_CALLBACK(&AppWindow::inlineNameEditActivateTrampoline),
-                      this);
+    g_signal_connect(m_inlineNameEditEntry, "activate", G_CALLBACK(&AppWindow::inlineNameEditActivateTrampoline), this);
     GtkEventController *inlineEditKey = gtk_event_controller_key_new();
     g_signal_connect(inlineEditKey, "key-pressed", G_CALLBACK(&AppWindow::inlineNameEditKeyTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_inlineNameEditEntry), inlineEditKey);
@@ -1696,12 +1693,26 @@ void AppWindow::applyTransportActionsEnabled()
     m_transportActionsEnabled = enabled;
     Log::debug(std::string("[app] single-key shortcuts ") + (enabled ? "on" : "off (text entry)"));
     static const char *kTransportActions[] = {
-        "shuttle-forward", "shuttle-reverse",     "shuttle-stop",         "step-forward",
-        "step-backward",   "seek-home",           "seek-end",             "loop-set-in",
-        "loop-set-out",    "seek-previous-cut",   "seek-next-cut",        "active-track-up",
-        "seek-previous-cut-on-active-track", "seek-next-cut-on-active-track", "active-track-top",
+        "shuttle-forward",
+        "shuttle-reverse",
+        "shuttle-stop",
+        "step-forward",
+        "step-backward",
+        "seek-home",
+        "seek-end",
+        "loop-set-in",
+        "loop-set-out",
+        "seek-previous-cut",
+        "seek-next-cut",
+        "active-track-up",
+        "seek-previous-cut-on-active-track",
+        "seek-next-cut-on-active-track",
+        "active-track-top",
         "active-track-bottom",
-        "active-track-down", "step-forward-10",   "step-backward-10",    "step-forward-minute",
+        "active-track-down",
+        "step-forward-10",
+        "step-backward-10",
+        "step-forward-minute",
         "step-backward-minute",
         // Enhancements #1/#3: bare Space and Delete, and X (split at
         // playhead), same reasoning as every action above -- a text entry
@@ -1710,7 +1721,9 @@ void AppWindow::applyTransportActionsEnabled()
         // they're disabled here too. Ctrl+S/Shift+S/O/N/I
         // below are deliberately NOT in this list, same as Ctrl+Z/Shift+Z:
         // modifier combos a text entry never needs for itself.
-        "play-pause", "delete-selected-clip", "split-at-playhead",
+        "play-pause",
+        "delete-selected-clip",
+        "split-at-playhead",
         // + - = 0 are ordinary characters in a name entry.
         "zoom-in",
         "zoom-out",
@@ -3365,8 +3378,8 @@ void AppWindow::onTimelineRightClicked(double x, double y)
 
     gtk_widget_set_visible(m_removeTransitionButton, m_contextMenuTransitionId.isValid());
     const std::set<core::ClipId> &selectedClips = m_timelineController.selection().clips();
-    gtk_widget_set_visible(m_syncClipsButton, target.clip.isValid() && selectedClips.size() == 2 &&
-                                                  selectedClips.contains(target.clip));
+    gtk_widget_set_visible(m_syncClipsButton,
+                           target.clip.isValid() && selectedClips.size() == 2 && selectedClips.contains(target.clip));
     gtk_widget_set_visible(m_addTransitionButton, m_contextMenuAddTransitionA.isValid());
 
     gtk_widget_set_visible(m_deleteClipButton, m_contextMenuClipStartFrame >= 0);
@@ -3380,7 +3393,7 @@ void AppWindow::onTimelineRightClicked(double x, double y)
             if (clip.trackIndex == row && clip.startFrame == m_contextMenuClipStartFrame) {
                 const core::Clip &modelClip = m_model.clip(clip.id);
                 showSplitAudio = modelClip.videoEnabled && modelClip.audioEnabled &&
-                                m_model.hasAsset(modelClip.asset) && m_model.asset(modelClip.asset).info.hasAudio;
+                                 m_model.hasAsset(modelClip.asset) && m_model.asset(modelClip.asset).info.hasAudio;
                 break;
             }
         }
@@ -3645,8 +3658,7 @@ void AppWindow::onSyncClipsClicked()
                 error = "Couldn't read the sound of one of the clips (silent, or the file can't be opened).";
             else if (!(alignment = core::audio::align(*envA, *envB, kSyncSearchSeconds * 1000.0, 2'000.0)))
                 error = "The clips don't overlap for long enough to compare their sound (2 seconds or more).";
-            engine::MainThreadDispatcher::post(token, [this, anchor, other, stateBefore, generation, alignment,
-                                                       error] {
+            engine::MainThreadDispatcher::post(token, [this, anchor, other, stateBefore, generation, alignment, error] {
                 applySyncResult(anchor, other, stateBefore, generation, alignment, error);
             });
         },
@@ -3676,19 +3688,21 @@ void AppWindow::applySyncResult(core::ClipId anchor, core::ClipId other, core::U
         showStatus(buf);
         return;
     }
-    const core::FrameIndex shift = static_cast<core::FrameIndex>(std::llround(alignment->shiftMs * sequenceFps() / 1000.0));
+    const core::FrameIndex shift =
+        static_cast<core::FrameIndex>(std::llround(alignment->shiftMs * sequenceFps() / 1000.0));
     if (shift == 0) {
         showStatus("Already in sync.");
         return;
     }
     const core::Clip &b = m_model.clip(other);
     if (!m_undoStack.execute(std::make_unique<core::MoveClip>(other, b.track, b.position + shift))) {
-        showStatus("Can't sync: the clip would land on another clip on its track (or before the start). Nothing moved.");
+        showStatus(
+            "Can't sync: the clip would land on another clip on its track (or before the start). Nothing moved.");
         return;
     }
     refreshTimeline();
-    showStatus("Synced: moved the clip " + std::to_string(std::abs(shift)) + (std::abs(shift) == 1 ? " frame " : " frames ") +
-               (shift > 0 ? "later." : "earlier."));
+    showStatus("Synced: moved the clip " + std::to_string(std::abs(shift)) +
+               (std::abs(shift) == 1 ? " frame " : " frames ") + (shift > 0 ? "later." : "earlier."));
 }
 
 void AppWindow::onRemoveTransitionClicked()
@@ -3726,8 +3740,8 @@ void AppWindow::onAddTransitionClicked()
     if (m_model.hasAsset(clipA.asset)) {
         const core::Asset &asset = m_model.asset(clipA.asset);
         handleA = asset.info.isBoundless()
-                    ? targetLength
-                    : std::max<core::FrameIndex>(0, asset.info.lengthInSequenceFrames - 1 - clipA.out);
+                      ? targetLength
+                      : std::max<core::FrameIndex>(0, asset.info.lengthInSequenceFrames - 1 - clipA.out);
     }
     core::FrameIndex handleB = clipB.in; // source starts at 0, so `in` itself is the available head room
 
@@ -3952,6 +3966,7 @@ void AppWindow::onFrameReady(std::vector<uint8_t> rgba, int width, int height, i
     redrawPreviewOverlays(); // IP5: handles follow the frame (none without drop-ins)
 
     refreshTransport(frameNumber);
+    m_shellPlayheadMoved.emit(); // IP5: nothing listens without drop-ins
 }
 
 void AppWindow::onWaveformReady()
@@ -4033,8 +4048,7 @@ void AppWindow::refreshRecentProjectsMenu()
         gint64 timestamp = modified ? g_date_time_to_unix(modified) : 0;
         entries.emplace_back(timestamp, info);
     }
-    std::sort(entries.begin(), entries.end(),
-             [](const auto &a, const auto &b) { return a.first > b.first; });
+    std::sort(entries.begin(), entries.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
 
     int shown = 0;
     const int maxShown = m_settings->recentProjectsMax();
@@ -4108,7 +4122,7 @@ void AppWindow::setUpMediaList(GtkWidget *scroller)
                              window->m_mediaBoundThumbs.erase(bound);
                      }),
                      this);
-    GtkNoSelection *selection = gtk_no_selection_new(G_LIST_MODEL(m_mediaIds)); // takes the list
+    GtkNoSelection *selection = gtk_no_selection_new(G_LIST_MODEL(m_mediaIds));      // takes the list
     m_mediaBrowserList = gtk_list_view_new(GTK_SELECTION_MODEL(selection), factory); // takes both
     gtk_widget_add_css_class(m_mediaBrowserList, "media-list");
     gtk_widget_set_margin_top(m_mediaBrowserList, 6);
@@ -4291,10 +4305,9 @@ void AppWindow::refreshMediaBrowser()
     // The same assets in the same order, maybe with more after them (an
     // import appends): rebind the changed rows, append the new ones. A
     // removal or a reorder replaces the list.
-    const bool samePrefix =
-        rows.size() >= m_mediaRows.size() &&
-        std::equal(m_mediaRows.begin(), m_mediaRows.end(), rows.begin(),
-                   [](const auto &a, const auto &b) { return a.first == b.first; });
+    const bool samePrefix = rows.size() >= m_mediaRows.size() &&
+                            std::equal(m_mediaRows.begin(), m_mediaRows.end(), rows.begin(),
+                                       [](const auto &a, const auto &b) { return a.first == b.first; });
     if (samePrefix) {
         for (size_t i = 0; i < m_mediaRows.size(); ++i)
             if (rows[i].second != m_mediaRows[i].second)
@@ -4571,7 +4584,8 @@ bool AppWindow::insertAssetAtPosition(core::AssetId assetId, core::TrackId track
         return false;
     }
 
-    core::FrameIndex length = effectiveInsertLength(asset.info.isBoundless(), asset.info.lengthInSequenceFrames, position);
+    core::FrameIndex length =
+        effectiveInsertLength(asset.info.isBoundless(), asset.info.lengthInSequenceFrames, position);
     if (!m_model.isRangeFree(trackId, position, position + length)) {
         showStatus("Can't insert " + asset.displayName + " there: it would overlap another clip.");
         return false;
@@ -4707,8 +4721,8 @@ core::TrackId AppWindow::trackIdForRow(int row) const
 {
     const auto &tracks = m_model.sequence().tracks;
     if (row < 0 || row >= static_cast<int>(tracks.size())) {
-        Log::error("[app] trackIdForRow: row " + std::to_string(row) + " out of range (" + std::to_string(tracks.size()) +
-                   " tracks)");
+        Log::error("[app] trackIdForRow: row " + std::to_string(row) + " out of range (" +
+                   std::to_string(tracks.size()) + " tracks)");
         return core::TrackId{};
     }
     return tracks[static_cast<size_t>(row)].id;
@@ -4928,6 +4942,7 @@ void AppWindow::updateWindowTitle()
 
 void AppWindow::showStatus(const std::string &text)
 {
+    ++m_statusCount;
     gtk_label_set_text(m_statusLabel, text.c_str());
     gtk_widget_set_tooltip_text(GTK_WIDGET(m_statusLabel), text.c_str());
     // Every user-visible outcome (import result, save/open/render success
@@ -5168,10 +5183,10 @@ bool AppWindow::offerRecoveryIfAny()
     std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M", &tmBuf);
 
     std::string article = isFirstOfferThisLaunch ? "An" : "Another";
-    std::string body = found->meta.originalPath.empty()
-                          ? article + " unsaved, untitled project from " + timeBuf + " was found."
-                          : article + " unsaved version of “" + found->meta.originalPath + "” from " + timeBuf +
-                                " was found.";
+    std::string body =
+        found->meta.originalPath.empty()
+            ? article + " unsaved, untitled project from " + timeBuf + " was found."
+            : article + " unsaved version of “" + found->meta.originalPath + "” from " + timeBuf + " was found.";
     if (!isFirstOfferThisLaunch)
         body += " Recovering it will replace what you just recovered.";
 
@@ -5339,8 +5354,7 @@ void AppWindow::deleteAssetFileClickedTrampoline(GtkButton *, gpointer userData)
     static_cast<AppWindow *>(userData)->onDeleteAssetFileClicked();
 }
 
-gboolean AppWindow::timelineDropTrampoline(GtkDropTarget *, const GValue *value, double x, double y,
-                                           gpointer userData)
+gboolean AppWindow::timelineDropTrampoline(GtkDropTarget *, const GValue *value, double x, double y, gpointer userData)
 {
     return static_cast<AppWindow *>(userData)->onTimelineDrop(value, x, y);
 }
@@ -5350,8 +5364,8 @@ gboolean AppWindow::timelineFileDropTrampoline(GtkDropTarget *, const GValue *va
 {
     if (!G_VALUE_HOLDS(value, GDK_TYPE_FILE_LIST))
         return FALSE;
-    return static_cast<AppWindow *>(userData)->onTimelineFileDrop(
-        static_cast<GdkFileList *>(g_value_get_boxed(value)), x, y);
+    return static_cast<AppWindow *>(userData)->onTimelineFileDrop(static_cast<GdkFileList *>(g_value_get_boxed(value)),
+                                                                  x, y);
 }
 
 gboolean AppWindow::mediaBrowserFileDropTrampoline(GtkDropTarget *, const GValue *value, double, double,
@@ -5364,7 +5378,7 @@ gboolean AppWindow::mediaBrowserFileDropTrampoline(GtkDropTarget *, const GValue
 }
 
 void AppWindow::mediaBrowserRowActivatedTrampoline(GtkGestureClick *gesture, int nPress, double, double,
-                                                    gpointer userData)
+                                                   gpointer userData)
 {
     if (nPress != 2)
         return;

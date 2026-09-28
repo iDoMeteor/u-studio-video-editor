@@ -77,6 +77,18 @@ thing inside the session, and set `GIO_USE_VFS=local`. Keep the real
 `XDG_RUNTIME_DIR` for the processes the harness starts itself: a private
 one for everything breaks the AT-SPI bus. `tools/titles-smoke` does this.
 
+## The effects smoke test
+
+`tools/effects-smoke/run.sh <builddir> <outdir>` drives a build's editor over
+AT-SPI on a private Xvfb display, with its own D-Bus session and AT-SPI bus.
+It imports a generated clip, opens the Effects page of the inspector, adds
+Glow with **E** and the search (Enter adds the best match), undoes and
+redoes it, pins Blur with **P** and changes it 60 frames on, and checks the
+saved project each time (`value.py` sets a spin button over AT-SPI). The build needs `-Ddropin_effects`.
+It reuses `tools/packaging-smoke/drive.py` for each step; screenshots and
+logs land in `<outdir>`. Activated services get their own runtime directory,
+as for the titles smoke test.
+
 ## Notable tests
 
 - **Undo property test** (`core-undo-fuzz`, the same binary filtered to

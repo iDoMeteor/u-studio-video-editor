@@ -326,6 +326,12 @@ std::optional<Layer> readLayer(const xmlNode *node, std::string &error, std::set
         else
             a.fail("align", *align);
     }
+    if (auto tags = attr(node, "tags")) {
+        if (*tags == "basic")
+            layer.basicTags = true;
+        else if (*tags != "none")
+            a.fail("tags", *tags);
+    }
     if (auto fit = attr(node, "fit")) {
         if (*fit == "none")
             layer.fit = Fit::None;
@@ -624,6 +630,8 @@ std::string writeTitle(const TitleDocument &title)
         if (layer.kind == LayerKind::Text) {
             setAttr(node, "align", kAligns[static_cast<size_t>(layer.align)]);
             setAttr(node, "fit", kFits[static_cast<size_t>(layer.fit)]);
+            if (layer.basicTags)
+                setAttr(node, "tags", "basic");
             xmlNode *text = xmlNewChild(node, nullptr, BAD_CAST "text", nullptr);
             xmlNodeAddContent(text, BAD_CAST layer.text.c_str()); // escapes &, <, >
             xmlNode *font = xmlNewChild(node, nullptr, BAD_CAST "font", nullptr);

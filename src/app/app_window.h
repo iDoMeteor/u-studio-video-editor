@@ -109,6 +109,11 @@ class AppWindow : public ShellHost
         return m_shellProjectChanged;
     }
     core::FrameIndex currentFrame() const override;
+    void seek(core::FrameIndex frame) override;
+    core::Signal<> &playheadMoved() override
+    {
+        return m_shellPlayheadMoved;
+    }
     void showStatus(const std::string &text) override;
     ShellSelection currentSelection() const override;
     core::Signal<> &selectionChanged() override
@@ -958,6 +963,7 @@ class AppWindow : public ShellHost
     std::vector<ImportHandler> m_importHandlers;
     core::Signal<> m_shellProjectChanged;
     core::Signal<> m_shellSelectionChanged;
+    core::Signal<> m_shellPlayheadMoved;
     ShellSelection m_lastShellSelection;
     guint m_shellSelectionIdleId = 0;
     bool m_hasShellExtensions = false;
@@ -1129,6 +1135,9 @@ class AppWindow : public ShellHost
     // Drop-ins' actions with a shortcut a text field would type (addActions()):
     // switched with the editor's own single keys.
     std::vector<std::string> m_typingKeyActions;
+    // Bumped by showStatus(): whether a drop-in's import handler said
+    // something itself (then the shell's "Imported <path>" doesn't cover it).
+    uint64_t m_statusCount = 0;
     // The header's Settings/Help group: drop-ins' buttons go before Settings.
     GtkWidget *m_appHeaderGroup = nullptr;
     GtkWidget *m_settingsButton = nullptr;

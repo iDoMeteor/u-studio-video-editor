@@ -521,3 +521,54 @@ TEST_CASE("every built-in template reads cleanly, fills its fields, draws, and s
     }
     CHECK(categories.size() >= 6);
 }
+
+TEST_CASE("tags=\"basic\": <b>, <i> and <u> style the text and leave it; nothing else is markup (T5)")
+{
+    const auto frame = [](const std::string &text, bool basic, int weight = 400, const std::string &field = {}) {
+        TitleDocument doc;
+        doc.width = 640;
+        doc.height = 200;
+        doc.fields.push_back({"caption", "Caption", ""});
+        Layer layer;
+        layer.id = "t";
+        layer.kind = LayerKind::Text;
+        layer.x = 20;
+        layer.y = 40;
+        layer.text = text;
+        layer.font.family = "DejaVu Sans";
+        layer.font.size = 48;
+        layer.font.weight = weight;
+        layer.basicTags = basic;
+        doc.layers.push_back(layer);
+        std::map<std::string, std::string> values;
+        if (!field.empty())
+            values["caption"] = field;
+        return renderTitle(doc, 0, values, 640, 200).frame.pixels;
+    };
+    // <b>A</b> is a bold A, the tags gone.
+    CHECK(frame("<b>Aa</b>", true) == frame("Aa", false, 700));
+    CHECK(frame("<b>Aa</b>", true) != frame("Aa", false));
+    // Italic and underline change the picture, and leave no brackets.
+    CHECK(frame("<i>Aa</i>", true) != frame("Aa", false));
+    CHECK(frame("<u>Aa</u>", true) != frame("Aa", false));
+    // Without tags="basic", the same text is drawn as written.
+    CHECK(frame("<b>Aa</b>", false) != frame("Aa", false, 700));
+    // In a basic layer, anything else stays literal: a field can't smuggle
+    // markup in, and <span> isn't bold.
+    CHECK(frame("{{caption}}", true, 400, "<span weight='bold'>Aa</span>") ==
+          frame("<span weight='bold'>Aa</span>", false));
+    // A caption's own tags come through its field.
+    CHECK(frame("{{caption}}", true, 400, "<b>Aa</b>") == frame("Aa", false, 700));
+
+    // The attribute survives a save.
+    TitleDocument doc;
+    Layer layer;
+    layer.id = "t";
+    layer.kind = LayerKind::Text;
+    layer.text = "x";
+    layer.basicTags = true;
+    doc.layers.push_back(layer);
+    auto again = parseTitle(writeTitle(doc));
+    REQUIRE(again.has_value());
+    CHECK(again->document.layers[0].basicTags);
+}
