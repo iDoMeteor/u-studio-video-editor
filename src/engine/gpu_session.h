@@ -51,12 +51,12 @@ class GpuSession
     void renderThreadStopped();
 
     // Around rendering on the consumer's own thread (PlaybackController::
-    // setFrameShowHooks()). MLT's real-time consumer passes on a frame its
-    // render thread skipped (late), and marks one "rendered" for the
-    // consumer thread to render itself after too many drops
-    // (mlt_consumer.c, "forcing next frame"); get_image() then runs the
-    // whole movit graph on that thread, which needs a context of its own
-    // (the render thread holds the first). One thread at a time.
+    // setFrameShowHooks()). MLT's read-ahead thread passes on a frame it
+    // skipped for lateness unrendered, and sdl2_audio shows such frames
+    // without checking (the paused refresh; the frames still queued when
+    // it stops); get_image() then runs the whole movit graph on sdl2's
+    // thread, which needs a context of its own (the render thread holds the
+    // first). One thread at a time. docs/developer/notes/gpu.md.
     bool frameShowEnter();
     void frameShowLeave();
 

@@ -424,9 +424,10 @@ void PlaybackController::handleFrameShow(const Mlt::EventData &eventData)
     if (!frame.is_valid())
         return;
 
-    // The frame may not be rendered yet (skipped by the render thread, or
-    // forced after too many drops): get_image() renders it here, on the
-    // consumer's thread, which on the GPU pipeline needs a context current.
+    // The frame may not be rendered yet: the read-ahead thread skipped it
+    // for lateness, and sdl2_audio shows it anyway (at a pause, or while
+    // stopping). get_image() then renders it here, on the consumer's
+    // thread, which on the GPU pipeline needs a context current.
     if (m_frameShowEnter && !m_frameShowEnter())
         return;
     struct Leave
