@@ -11,6 +11,8 @@
 #include "core/descriptor.h"
 #include "core/health.h"
 #include "core/json.h"
+#include "core/keyframes.h"
+#include "core/model/animation.h"
 #include "core/model/effect_native.h"
 
 #include <random>
@@ -411,4 +413,39 @@ TEST_CASE("Commands: refusals change nothing")
     CHECK(std::get<double>(model.effect(id).params[0].value) == 1.0);
     undo.undo(); // the parameter goes again: the effect as it was
     CHECK(sameProject(model.project(), before));
+}
+
+TEST_CASE("Keyframes: pin, move between, re-ease, and the feels")
+{
+    std::vector<core::Keyframe> keys;
+    keys = withKeyAt(keys, 30, 1.0);
+    keys = withKeyAt(keys, 0, 0.0);
+    keys = withKeyAt(keys, 15, 0.25, core::Easing::CubicIn);
+    REQUIRE(keys.size() == 3);
+    CHECK(keys[0].at == 0);
+    CHECK(keys[1].at == 15);
+    CHECK(keys[2].at == 30);         // kept in order
+    keys = withKeyAt(keys, 15, 0.5); // an existing key: its value only
+    CHECK(keys.size() == 3);
+    CHECK(keys[1].value == 0.5);
+    CHECK(keys[1].easing == core::Easing::CubicIn);
+    CHECK(keyAt(keys, 15));
+    CHECK(!keyAt(keys, 16));
+    CHECK(previousKey(keys, 15) == 0);
+    CHECK(previousKey(keys, 0) == std::nullopt);
+    CHECK(nextKey(keys, 15) == 30);
+    CHECK(nextKey(keys, 16) == 30);
+    CHECK(nextKey(keys, 30) == std::nullopt);
+    keys = withEasingAt(keys, 0, core::Easing::BounceOut);
+    CHECK(keys[0].easing == core::Easing::BounceOut);
+    keys = withoutKeyAt(keys, 15);
+    CHECK(keys.size() == 2);
+    CHECK(withoutKeyAt(keys, 99) == keys);
+    // Halfway between 0 (0.0) and 30 (1.0), linear: 0.5.
+    CHECK(core::easedValue(withEasingAt(keys, 0, core::Easing::Linear), 15) == doctest::Approx(0.5));
+
+    REQUIRE(feels().size() == 8);
+    CHECK(feelName(core::Easing::Discrete) == "Hold");
+    CHECK(feelName(core::Easing::SmoothNatural) == "Smooth");
+    CHECK(feelName(core::Easing::QuarticIn) == core::easingName(core::Easing::QuarticIn));
 }

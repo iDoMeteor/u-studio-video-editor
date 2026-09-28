@@ -67,6 +67,21 @@ d act save; sleep 2
 check "undo removes it" saved_lacks "frei0r.glow"
 shot 4-undone
 
+# Keyframes: redo the effect, set Blur, pin it at frame 0 (P), move 60
+# frames on and change it (a second key, added by changing the value).
+v() { python3 "$SMOKE_HERE/value.py" "$@" 2>/dev/null; }
+d act redo; sleep 1.5
+d act seek-home; sleep 0.5
+v 0 0.5; sleep 1
+d act effects-pin; sleep 1.5
+for _ in 1 2 3 4 5 6; do d act step-forward-10 >/dev/null; done; sleep 1
+v 0 1.0; sleep 1.5
+shot 5-keyframed
+d act save; sleep 2
+check "saved animated: two keys" grep -q '<property name="0">0=0.5;60=1</property>' "$OUT/smoke.ustudio"
+d act seek-home; sleep 1
+shot 6-back-at-start
+
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
 echo "RESULT: $FAILED failed"

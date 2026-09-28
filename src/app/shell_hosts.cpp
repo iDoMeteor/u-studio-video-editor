@@ -30,6 +30,12 @@ core::FrameIndex AppWindow::currentFrame() const
     return m_engine->currentFrame();
 }
 
+void AppWindow::seek(core::FrameIndex frame)
+{
+    const core::FrameIndex last = std::max<core::FrameIndex>(m_model.sequence().length() - 1, 0);
+    m_engine->seek(static_cast<int>(std::clamp<core::FrameIndex>(frame, 0, last)));
+}
+
 ShellSelection AppWindow::currentSelection() const
 {
     ShellSelection selection;

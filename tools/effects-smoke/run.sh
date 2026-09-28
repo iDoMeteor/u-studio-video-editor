@@ -3,7 +3,8 @@
 # and keyboard only, over AT-SPI, on a private Xvfb display with its own
 # D-Bus session and AT-SPI bus, so nothing appears on the desktop and nothing
 # reaches running apps. Imports a generated clip, adds an effect from the
-# Rack, changes it, undoes, saves, and checks the saved project.
+# Rack, undoes and redoes it, keyframes a parameter (a pin, then a change
+# 60 frames on), and checks the saved project after each step.
 #
 #   tools/effects-smoke/run.sh <builddir> <outdir>
 #

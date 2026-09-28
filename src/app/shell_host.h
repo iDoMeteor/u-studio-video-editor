@@ -88,6 +88,12 @@ class ShellHost
     virtual core::Signal<> &projectChanged() = 0;
     // The frame the preview shows.
     virtual core::FrameIndex currentFrame() const = 0;
+    // Moves the playhead there (clamped to the sequence), as a click on the
+    // ruler does: effects' previous/next keyframe.
+    virtual void seek(core::FrameIndex frame) = 0;
+    // After each frame the preview shows, playing or not: what follows the
+    // playhead (an animated value in the effects Rack) updates from here.
+    virtual core::Signal<> &playheadMoved() = 0;
     virtual void showStatus(const std::string &text) = 0;
 
     // Selection.

@@ -12,7 +12,7 @@ a dependency of this drop-in only, never of the editor) and
 (one self-contained folder; nothing in `src/` includes from here).
 
 Status: FX1 (engine and model) is done; FX2 (the Rack, the Browser,
-keyframes in the inspector) is in progress: the Rack's first slice is in. Effects in a project play in the
+keyframes in the inspector) is in progress: the Rack and keyframes in it are in (pins, previous/next, feels; **P** pins the value last changed). Effects in a project play in the
 preview, export and stock `melt`; every effect MLT offers is described,
 health-checked in its own process and quarantined if it crashes or hangs.
 There's no UI yet: the Rack and Browser are FX2, and the build option stays
