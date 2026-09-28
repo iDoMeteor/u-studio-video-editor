@@ -671,6 +671,58 @@ Acceptance:
 - [x] Only caption clips are exported; a project without any says so and
       writes nothing. (`titles-captions`, `titles-shell`.)
 
+#### T4.3 — Update from template (planned 2026-09-28)
+
+A title made from a template remembers which one, and which revision of
+it, so that when the template changes (a new app version's built-in, an
+updated pack, or the user editing their own template), U Stu Titles
+offers to bring the title up to date without losing its text.
+
+- **What's recorded.** Two root attributes of the `.ustitle`:
+  `template="builtin:<id>"`, `"user:<id>"` or `"pack:<pack folder>/<id>"`,
+  and `template-revision`, a 64-bit FNV-1a hex digest of the template's
+  design: its file as `writeTitle()` writes it with the name and category
+  cleared (so renaming a template isn't a change). Pictures are part of
+  the design only by file name: a picture replaced under the same name
+  isn't noticed. Set by `templateDocument()` (Use Template, New Title,
+  the editor's gallery); cleared by Save as Template and Duplicate (a
+  template doesn't point at a template). Titles made before T4.3 have
+  none, and are never offered an update. No format version bump: older
+  readers ignore unknown root attributes.
+- **Resolving.** `builtin:` in the built-ins folder, `user:` and `pack:`
+  in the template library. The reference comes from an untrusted file:
+  each part must be a plain name (letters, digits, `-`, `_`, `.`, not
+  starting with a dot), else it resolves to nothing. A template that's
+  gone (deleted, pack removed) offers nothing.
+- **The offer.** Opening a title whose template's revision differs from
+  the recorded one shows a banner: "Its template “<name>” has changed"
+  with **Update**. Nothing happens on its own.
+- **The merge.** The title becomes the template's current design
+  (layers, timing, background, size, fields), with the title's own
+  field default text kept for every field the template still has (by
+  name), and the new revision recorded. One undo step ("Update from
+  Template"), not saved until the user saves. The toast names any field
+  the template no longer has. Per-clip field values in the editor are on
+  the clips, keyed by field name, so they survive untouched. Direct
+  edits to the title's design (moved layers, text typed over a field)
+  are replaced: that's what updating means, and undo brings them back.
+
+Acceptance:
+
+- [ ] A title made from a built-in, a user template and a pack's
+      template records the right reference and revision; Save as
+      Template and Duplicate record none; the attributes round-trip.
+- [ ] Renaming a template doesn't change its revision; changing a
+      layer does.
+- [ ] Hostile references (`user:../x`, `pack:a/../../b`, absolute
+      paths, empty parts) resolve to nothing.
+- [ ] The merge keeps field text by name, takes the template's design,
+      reports dropped fields, and records the new revision; undo restores
+      the title exactly.
+- [ ] In U Stu Titles: open a title, change its user template, reopen:
+      the banner shows; Update applies it; the banner goes; saving and
+      reopening shows no banner.
+
 ### Later
 
 - **T6 Lottie:** import Lottie animations as layers via `rlottie` (not
