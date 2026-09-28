@@ -47,6 +47,13 @@ std::string transitionProblem(const Transition &transition);
 // The services a transition's params may name.
 bool transitionServiceAllowed(const std::string &service);
 
+// The wipe maps' generator version: part of every map's path, so a map
+// written by an older generator is never reused. Bump it whenever any map
+// function changes.
+inline constexpr int kLumaMapVersion = 1;
+// Where `name`'s map lives under `folder`: <folder>/v<version>/<name>.pgm.
+std::filesystem::path lumaMapPath(const std::filesystem::path &folder, const std::string &name);
+
 // The generated wipe maps, by name ("left", "radial", "star", ...).
 const std::vector<std::string> &lumaMapNames();
 // Writes `name`'s map to `file` (16-bit greyscale PGM, P5, maxval 65535; the

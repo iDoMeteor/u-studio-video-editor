@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/model/transition_native.h"
 #include "core/xml/writer.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
@@ -341,7 +342,7 @@ TEST_CASE("A saved wipe and dip play frame-identically outside the editor")
     } cleanup{dir};
     std::filesystem::path path = dir / "wipe.ustudio";
     REQUIRE(saveProject(model, path.string()).empty());
-    CHECK(std::filesystem::is_regular_file(dir / "ustudio-wipes" / "left.pgm"));
+    CHECK(std::filesystem::is_regular_file(lumaMapPath(dir / "ustudio-wipes", "left")));
 
     Mlt::Producer loaded(sync.profile(), ("xml:" + path.string()).c_str());
     REQUIRE(loaded.is_valid());

@@ -67,10 +67,15 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   `producer.*`, so the reader refuses the file. A map is only ever a
   generated one, by name; an unknown name plays as the plain dissolve.
 - **Where maps are written:** the editor's graph uses
-  `$XDG_CACHE_HOME/ustudio/luma/<name>.pgm`; a saved project gets
-  `ustudio-wipes/<name>.pgm` beside it, named relative to the project, so
-  `melt` finds it. Writes are atomic (a uniquely named temp file, then a
-  rename), so an editor and a render child can make the same map at once.
-- **On the GPU pipeline a wipe plays as the plain dissolve** for now:
-  `movit.luma_mix` documents `resource`, but it hasn't been verified in our
-  GPU graph yet (VE GPU's repros).
+  `<user cache>/ustudio/luma/v<N>/<name>.pgm` (`platform::
+  userCacheDirectory()`); a saved project gets `ustudio-wipes/v<N>/<name>.pgm`
+  beside it, named relative to the project, so `melt` finds it. `N` is
+  `core::kLumaMapVersion`: an existing map is reused, so bump it whenever a
+  map function changes, or old maps would stay in use forever. Writes are
+  atomic (a uniquely named temp file, then a rename, the temp removed on
+  failure), so an editor and a render child can make the same map at once.
+- **On the GPU pipeline every recipe plays as the plain dissolve** for now
+  (`movit.luma_mix`, no cut filters, no map): `movit.luma_mix` documents
+  `resource`, and dips put CPU `brightness` filters on the cuts, but neither
+  is verified inside our movit graph yet (VE GPU's repros). A render on the
+  CPU pipeline, and `melt`, play the recipe.

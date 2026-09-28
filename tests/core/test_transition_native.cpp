@@ -158,12 +158,12 @@ TEST_CASE("XML round-trip: a wipe's recipe survives, and its map is written besi
     auto loaded = loadProject(path.string());
     REQUIRE(loaded.has_value());
     CHECK(*loaded == model);
-    CHECK(fs::is_regular_file(dir.path / "ustudio-wipes" / "star.pgm"));
+    CHECK(fs::is_regular_file(dir.path / "ustudio-wipes" / "v1" / "star.pgm"));
 
     // Named relative to the project, so the folder can move.
     std::ifstream in(path);
     const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    CHECK(text.find(">ustudio-wipes/star.pgm<") != std::string::npos);
+    CHECK(text.find(">ustudio-wipes/v1/star.pgm<") != std::string::npos);
 }
 
 TEST_CASE("writeLumaMap: a 16-bit PGM of every named map, the same every time")
@@ -191,4 +191,23 @@ TEST_CASE("writeLumaMap: a 16-bit PGM of every named map, the same every time")
     CHECK(static_cast<unsigned char>(data[pixels]) < static_cast<unsigned char>(data[pixels + 62 * 2]));
     CHECK_FALSE(writeLumaMap("no-such-map", dir.path / "x.pgm"));
     CHECK_FALSE(fs::exists(dir.path / "x.pgm"));
+}
+
+TEST_CASE("lumaMapPath: the generator version is in the path, so a newer generator never reuses an old map")
+{
+    CHECK(lumaMapPath("/cache/luma", "radial") ==
+          fs::path("/cache/luma") / ("v" + std::to_string(kLumaMapVersion)) / "radial.pgm");
+    // An existing file at that path is kept as is (the cache hit)...
+    TempDir dir;
+    const fs::path file = lumaMapPath(dir.path, "left");
+    fs::create_directories(file.parent_path());
+    std::ofstream(file) << "stale";
+    REQUIRE(writeLumaMap("left", file, 8, 8));
+    CHECK(fs::file_size(file) == 5);
+    // ...so a changed generator must land at another path: a bumped version.
+    CHECK(file.parent_path().filename() == "v" + std::to_string(kLumaMapVersion));
+    // No temp file is left behind by a write.
+    REQUIRE(writeLumaMap("right", lumaMapPath(dir.path, "right"), 8, 8));
+    for (const auto &entry : fs::directory_iterator(file.parent_path()))
+        CHECK(entry.path().extension() == ".pgm");
 }

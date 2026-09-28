@@ -365,7 +365,7 @@ std::string lumaMapResource(const std::string &name, const fs::path &projectDir)
     const std::vector<std::string> &names = lumaMapNames();
     if (std::find(names.begin(), names.end(), name) == names.end())
         return {};
-    const fs::path file = projectDir / "ustudio-wipes" / (name + ".pgm");
+    const fs::path file = lumaMapPath(projectDir / "ustudio-wipes", name);
     if (!writeLumaMap(name, file)) {
         Log::warn("[xml] couldn't write the wipe map " + utf8String(file));
         return {};

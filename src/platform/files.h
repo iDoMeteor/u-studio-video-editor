@@ -19,4 +19,8 @@ std::filesystem::path makePrivateDirectory(const std::filesystem::path &base, co
 // need privileges, on Windows). False on failure, with `error` saying why.
 bool linkFile(const std::filesystem::path &target, const std::filesystem::path &link, std::string *error = nullptr);
 
+// The user's cache folder: $XDG_CACHE_HOME, else ~/.cache (%LOCALAPPDATA%
+// on Windows). Empty if neither is known. Not created.
+std::filesystem::path userCacheDirectory();
+
 } // namespace ustudio::platform

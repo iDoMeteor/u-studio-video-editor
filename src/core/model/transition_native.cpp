@@ -227,6 +227,11 @@ const std::vector<std::string> &lumaMapNames()
     return names;
 }
 
+std::filesystem::path lumaMapPath(const std::filesystem::path &folder, const std::string &name)
+{
+    return folder / ("v" + std::to_string(kLumaMapVersion)) / (name + ".pgm");
+}
+
 bool writeLumaMap(const std::string &name, const std::filesystem::path &file, int width, int height)
 {
     const std::map<std::string, MapFunction> maps = mapFunctions(width, height);
@@ -253,11 +258,19 @@ bool writeLumaMap(const std::string &name, const std::filesystem::path &file, in
     {
         std::ofstream out(temp, std::ios::binary | std::ios::trunc);
         out.write(data.data(), static_cast<std::streamsize>(data.size()));
-        if (!out)
-            return false;
     }
+    std::ifstream check(temp, std::ios::binary | std::ios::ate);
+    if (!check || static_cast<size_t>(check.tellg()) != data.size()) {
+        std::filesystem::remove(temp, ec);
+        return false;
+    }
+    check.close();
     std::filesystem::rename(temp, file, ec);
-    return !ec;
+    if (ec) {
+        std::filesystem::remove(temp, ec);
+        return false;
+    }
+    return true;
 }
 
 } // namespace ustudio::core

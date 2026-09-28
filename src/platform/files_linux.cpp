@@ -32,4 +32,15 @@ bool linkFile(const std::filesystem::path &target, const std::filesystem::path &
     return !ec;
 }
 
+std::filesystem::path userCacheDirectory()
+{
+    // As GLib's g_get_user_cache_dir(): an empty or relative
+    // XDG_CACHE_HOME is ignored (the XDG base directory spec).
+    if (const char *xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg == '/')
+        return xdg;
+    if (const char *home = std::getenv("HOME"); home && *home)
+        return std::filesystem::path(home) / ".cache";
+    return {};
+}
+
 } // namespace ustudio::platform

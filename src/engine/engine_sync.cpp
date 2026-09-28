@@ -14,9 +14,8 @@
 #include "core/model/transition_native.h"
 #include "core/media/utf8_path.h"
 #include "platform/console.h"
+#include "platform/files.h"
 #include "platform/gl_context.h"
-
-#include <glib.h>
 
 #include <algorithm>
 #include <cstring>
@@ -119,8 +118,10 @@ std::string lumaMapFile(const std::string &name)
     const std::vector<std::string> &names = core::lumaMapNames();
     if (std::find(names.begin(), names.end(), name) == names.end())
         return {};
-    const std::filesystem::path file =
-        core::pathFromUtf8(g_get_user_cache_dir()) / "ustudio" / "luma" / (name + ".pgm");
+    const std::filesystem::path cache = platform::userCacheDirectory();
+    if (cache.empty())
+        return {};
+    const std::filesystem::path file = core::lumaMapPath(cache / "ustudio" / "luma", name);
     if (!core::writeLumaMap(name, file)) {
         Log::warn("[engine] couldn't write the wipe map " + name);
         return {};
@@ -1025,7 +1026,15 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // The transition's recipe (core/model/transition_native.h): the plain
     // dissolve for empty params, a wipe, a dip or a flash otherwise.
     // Model::check() has already refused any service outside its allowlist.
-    const core::NativeTransition native = core::nativeTransition(t);
+    // The GPU graph gets only what VE GPU has verified in it: every recipe
+    // plays there as the plain dissolve (movit.luma_mix), with no CPU
+    // filters on the cuts and no map (a wipe's resource on movit.luma_mix
+    // is unverified; composite/affine/brightness inside a movit graph too).
+    const bool gpu = m_pipeline == Pipeline::Gpu;
+    core::Transition plain = t;
+    if (gpu)
+        plain.params.clear();
+    const core::NativeTransition native = core::nativeTransition(plain);
     for (const auto &[filters, cut] : {std::pair{&native.tailFilters, tailA.get()}, {&native.headFilters, headB.get()}})
         for (const core::NativeFilter &spec : *filters) {
             Mlt::Filter filter(*m_profile, spec.service.c_str());
@@ -1039,10 +1048,8 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
         }
 
     // The GPU graph dissolves with movit.luma_mix, a plain mix without a
-    // luma `resource` (transition_movit_luma.yml). A wipe's map on the GPU
-    // path isn't verified yet (VE GPU's repros), so there it plays as the
-    // dissolve.
-    const bool gpuDissolve = m_pipeline == Pipeline::Gpu && native.video.service == "luma";
+    // luma `resource` (transition_movit_luma.yml).
+    const bool gpuDissolve = gpu && native.video.service == "luma";
     Mlt::Transition luma(*m_profile, gpuDissolve ? "movit.luma_mix" : native.video.service.c_str());
     for (const auto &[name, value] : native.video.properties)
         luma.set(name.c_str(), value.c_str());
