@@ -8,7 +8,7 @@ effects_inc = include_directories('.')
 # core/: std and src/core only (tools/dropin_boundary_check.sh).
 effects_core = static_library(
   'ustudio_effects_core',
-  files('core/commands.cpp', 'core/descriptor.cpp', 'core/health.cpp', 'core/json.cpp', 'core/keyframes.cpp'),
+  files('core/commands.cpp', 'core/descriptor.cpp', 'core/health.cpp', 'core/json.cpp', 'core/keyframes.cpp', 'core/looks.cpp'),
   include_directories: effects_inc,
   dependencies: [libustudio_core_dep],
   pic: true,
@@ -23,6 +23,7 @@ effects_core_dep = declare_dependency(
 # Curated overlays (and, from FX3, transition recipes and luma maps).
 effects_data_install_dir = get_option('datadir') / 'u-studio' / 'drop-ins' / 'effects'
 install_subdir('data/overlays', install_dir: effects_data_install_dir)
+install_subdir('data/looks', install_dir: effects_data_install_dir)
 effects_args = [
   '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
   '-DEFFECTS_DATA_INSTALL_DIR="' + get_option('prefix') / effects_data_install_dir + '"',

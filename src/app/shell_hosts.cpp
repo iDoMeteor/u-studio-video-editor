@@ -81,6 +81,26 @@ void AppWindow::addInspectorPage(const InspectorPage &page)
         adw_overlay_split_view_set_min_sidebar_width(m_inspectorSplit, 240);
         adw_overlay_split_view_set_max_sidebar_width(m_inspectorSplit, 360);
 
+        // Docked beside the content when the window has room (FX2, the
+        // effects Rack: floating, it covers the picture and its shield takes
+        // every drop meant for the preview). A window with breakpoints no
+        // longer takes its minimum size from its content, so the minimum it
+        // has now is pinned first (doc 15's REVIEW note on the inspector).
+        int minWidth = 0, minHeight = 0;
+        gtk_widget_measure(GTK_WIDGET(m_window), GTK_ORIENTATION_HORIZONTAL, -1, &minWidth, nullptr, nullptr, nullptr);
+        gtk_widget_measure(GTK_WIDGET(m_window), GTK_ORIENTATION_VERTICAL, minWidth, &minHeight, nullptr, nullptr,
+                           nullptr);
+        gtk_widget_set_size_request(GTK_WIDGET(m_window), minWidth, minHeight);
+        // The content's minimum (about 885 px) plus the sidebar's widest.
+        AdwBreakpoint *dock = adw_breakpoint_new(adw_breakpoint_condition_new_length(
+            ADW_BREAKPOINT_CONDITION_MIN_WIDTH, std::max(1280, minWidth + 360), ADW_LENGTH_UNIT_PX));
+        GValue collapsed = G_VALUE_INIT;
+        g_value_init(&collapsed, G_TYPE_BOOLEAN);
+        g_value_set_boolean(&collapsed, FALSE);
+        adw_breakpoint_add_setter(dock, G_OBJECT(m_inspectorSplit), "collapsed", &collapsed);
+        g_value_unset(&collapsed);
+        adw_application_window_add_breakpoint(m_window, dock);
+
         GtkWidget *content = gtk_overlay_new();
         g_object_ref(m_mainPaned);
         adw_toolbar_view_set_content(m_toolbarView, GTK_WIDGET(m_inspectorSplit));
