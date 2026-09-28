@@ -73,7 +73,9 @@ Notes on driving GTK dialogs there are in
 - **Playback soak**: `tests/engine/playback_soak.cpp` is a manual tool for
   long playback runs. `--gpu` plays on the GPU pipeline, `--hwdecode` adds
   VAAPI, `--no-rotation` leaves the transformed tracks unrotated
-  (ADR-019).
+  (ADR-019). Judge memory by its "RSS growth after warm-up" line, not
+  by the first report: the first minute is warm-up (see the
+  [playback notes](notes/playback-engine.md)).
 
 The acceptance criteria each test backs are listed per milestone in
 [v2 doc 12](../plans/v2/12-roadmap-and-milestones.md).
