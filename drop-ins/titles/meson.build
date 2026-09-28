@@ -41,6 +41,27 @@ titles_render_dep = declare_dependency(
                  titles_fontconfig_dep],
 )
 
+# package/ (doc 20, T4b): template packs. The manifest, validator and
+# library install; std, libxml2 and GLib (SHA-256). No network.
+# Archives through libarchive (ADR-020: this drop-in only). Without its
+# headers the drop-in still builds, and opening or saving a pack says so.
+titles_archive_dep = dependency('libarchive', required: false)
+titles_package_args = titles_archive_dep.found() ? ['-DTITLES_HAVE_LIBARCHIVE'] : []
+titles_package = static_library(
+  'ustudio_titles_package',
+  files('package/archive.cpp', 'package/pack.cpp'),
+  include_directories: titles_inc,
+  cpp_args: titles_package_args,
+  dependencies: [titles_core_dep, glib_dep, libxml2_dep, titles_archive_dep],
+  install: false,
+)
+titles_package_dep = declare_dependency(
+  link_with: titles_package,
+  include_directories: titles_inc,
+  compile_args: titles_package_args,
+  dependencies: [titles_core_dep, glib_dep, libxml2_dep, titles_archive_dep],
+)
+
 subdir('mltmodule')
 subdir('app')
 

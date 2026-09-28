@@ -1,7 +1,10 @@
 #include "gallery.h"
 
+#include "packs.h"
+
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
+#include "package/pack.h"
 #include "platform/process.h"
 #include "render/title_renderer.h"
 
@@ -61,8 +64,11 @@ struct Gallery
         stopWorker();
     }
     void rebuild();
+    // `readOnly`: built-ins and packs' templates, changed only through a
+    // copy. `headerExtra` sits beside the heading (a pack's Remove button).
     void addSection(const std::string &heading, const std::vector<TemplateInfo> &templates,
-                    std::vector<std::pair<size_t, std::string>> &jobs);
+                    std::vector<std::pair<size_t, std::string>> &jobs, bool readOnly = false,
+                    GtkWidget *headerExtra = nullptr);
 };
 
 struct Posted
@@ -140,14 +146,46 @@ void confirmDelete(Gallery *gallery, const TemplateInfo &info)
         new Pending{gallery, info});
 }
 
-void Gallery::addSection(const std::string &heading, const std::vector<TemplateInfo> &templates,
-                         std::vector<std::pair<size_t, std::string>> &jobs)
+void confirmRemovePack(Gallery *gallery, const pack::InstalledPack &installed)
 {
+    AdwDialog *alert = adw_alert_dialog_new("Remove pack?", nullptr);
+    adw_alert_dialog_format_body(ADW_ALERT_DIALOG(alert),
+                                 "“%s” and its templates will be removed. Titles already made from them stay as they "
+                                 "are.",
+                                 installed.manifest.title.c_str());
+    adw_alert_dialog_add_responses(ADW_ALERT_DIALOG(alert), "cancel", "_Cancel", "remove", "_Remove", nullptr);
+    adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(alert), "remove", ADW_RESPONSE_DESTRUCTIVE);
+    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(alert), "cancel");
+    struct Pending
+    {
+        Gallery *gallery;
+        pack::InstalledPack installed;
+    };
+    adw_alert_dialog_choose(
+        ADW_ALERT_DIALOG(alert), GTK_WIDGET(gallery->dialog), nullptr,
+        [](GObject *source, GAsyncResult *result, gpointer data) {
+            std::unique_ptr<Pending> pending(static_cast<Pending *>(data));
+            if (std::string(adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result)) != "remove")
+                return;
+            if (auto removed = pack::remove(pending->installed); !removed)
+                pending->gallery->callbacks.toast("Couldn't remove it: " + removed.error());
+            pending->gallery->rebuild();
+        },
+        new Pending{gallery, installed});
+}
+
+void Gallery::addSection(const std::string &heading, const std::vector<TemplateInfo> &templates,
+                         std::vector<std::pair<size_t, std::string>> &jobs, bool readOnly, GtkWidget *headerExtra)
+{
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_margin_top(header, 12);
     GtkWidget *label = gtk_label_new(heading.c_str());
     gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
     gtk_widget_add_css_class(label, "title-4");
-    gtk_widget_set_margin_top(label, 12);
-    gtk_box_append(GTK_BOX(content), label);
+    gtk_box_append(GTK_BOX(header), label);
+    if (headerExtra)
+        gtk_box_append(GTK_BOX(header), headerExtra);
+    gtk_box_append(GTK_BOX(content), header);
 
     GtkWidget *flow = gtk_flow_box_new();
     gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(flow), GTK_SELECTION_NONE);
@@ -194,7 +232,7 @@ void Gallery::addSection(const std::string &heading, const std::vector<TemplateI
         GtkWidget *popover = gtk_popover_new();
         GtkWidget *items = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
         const std::string library = userTemplatesDir();
-        if (info.builtIn) {
+        if (info.builtIn || readOnly) {
             menuItem(popover, items, "Edit a Copy", [this, info, library] {
                 auto copy = duplicateTemplate(info, library, info.name);
                 if (!copy) {
@@ -283,6 +321,18 @@ void Gallery::rebuild()
         gtk_box_append(GTK_BOX(content), hint);
     } else {
         addSection("My Templates", mine, jobs);
+    }
+
+    // Installed packs (doc 20), each a section of its own; their fonts
+    // are made available first, for the thumbnails and the canvas.
+    for (const pack::InstalledPack &installed : pack::installedPacks(userTemplatesDir())) {
+        addFontDirectory(core::utf8String(core::pathFromUtf8(installed.folder) / "fonts"));
+        GtkWidget *removeButton = gtk_button_new_with_label("Remove Pack…");
+        gtk_widget_add_css_class(removeButton, "flat");
+        gtk_widget_set_tooltip_text(removeButton, "Remove this pack and its templates from My Templates");
+        connectClick(removeButton, [this, installed] { confirmRemovePack(this, installed); });
+        const std::string heading = installed.manifest.title + " (pack " + installed.manifest.version + ")";
+        addSection(heading, listTemplates(installed.folder, false), jobs, true, removeButton);
     }
 
     // Thumbnails mid-hold, on a worker, delivered one by one.
@@ -375,8 +425,20 @@ void showGallery(GtkWidget *parent, GalleryCallbacks callbacks)
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_vexpand(scroller, TRUE);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), gallery->content);
+    // Template packs (doc 20): open one into My Templates, or make one.
+    GtkWidget *header = adw_header_bar_new();
+    GtkWidget *openPack = gtk_button_new_with_label("Open Pack…");
+    gtk_widget_set_tooltip_text(openPack, "Install a template pack (.zip or .tar.gz) into My Templates");
+    connectClick(openPack, [gallery] {
+        openPackage(GTK_WIDGET(gallery->dialog), gallery->callbacks.toast, [gallery] { gallery->rebuild(); });
+    });
+    adw_header_bar_pack_start(ADW_HEADER_BAR(header), openPack);
+    GtkWidget *savePack = gtk_button_new_with_label("Save as Pack…");
+    gtk_widget_set_tooltip_text(savePack, "Make a template pack from My Templates, to share");
+    connectClick(savePack, [gallery] { savePackage(GTK_WIDGET(gallery->dialog), gallery->callbacks.toast); });
+    adw_header_bar_pack_start(ADW_HEADER_BAR(header), savePack);
     GtkWidget *view = adw_toolbar_view_new();
-    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view), adw_header_bar_new());
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view), header);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(view), scroller);
     adw_dialog_set_child(gallery->dialog, view);
     gallery->rebuild();

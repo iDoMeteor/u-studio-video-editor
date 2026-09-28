@@ -95,6 +95,26 @@ fills that title, otherwise it opens in a new window.
 Most templates have fields (a name, a role, a handle), so the same design
 works for every guest: fill them in on the editor's **Title** page.
 
+### Template packs
+
+A pack is a `.zip` or `.tar.gz` of templates, to share a set with someone
+or move it to another computer.
+
+- **Open Pack…** (top of the gallery) shows what a pack holds (its title,
+  author, licence, templates and fonts) before you install it. It then
+  appears in the gallery as a section of its own. Opening a newer version
+  replaces the old one; an older one, or the same one again, asks first.
+- **Save as Pack…** makes one from My Templates: give it a title, author,
+  version and licence, pick the templates, and choose where to save it
+  (`.zip`, or a name ending in `.tar.gz`).
+- A pack's templates are read-only: use **Edit a Copy** to change one.
+  **Remove Pack…** next to a pack's name removes it; titles you made from
+  it keep working, with its fonts and pictures beside them.
+- U Stu checks every pack before installing anything: a damaged or
+  unsafe pack (files outside the pack, links, fonts it may not share,
+  anything that isn't a picture, font or title) is refused, and the
+  message says why. Nothing in a pack ever runs.
+
 ## Live text: clocks, countdowns and dates
 
 Type one of these into a text layer and it changes as the video plays:

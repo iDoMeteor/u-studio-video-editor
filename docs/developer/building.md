@@ -24,6 +24,10 @@ comes in with MLT anyway.
   ([Playback engine notes](notes/playback-engine.md)).
 - **No Qt, no KDE Frameworks**, not even at run time
   ([ADR-007](../plans/v2/adr/007-mlt-module-load-policy.md)).
+- **libarchive** (`sudo dnf install libarchive-devel`) for the titles
+  drop-in's template packs ([ADR-020](../plans/v2/adr/020-template-packages-and-sharing.md);
+  the drop-in only). Without its headers the drop-in still builds, and
+  opening or saving a pack says it can't.
 - Anything else needs an ADR and the owner's sign-off
   ([CLAUDE.md](../../CLAUDE.md), "Language & build standards").
 

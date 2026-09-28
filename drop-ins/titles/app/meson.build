@@ -29,19 +29,19 @@ if get_option('dropin_titles') == 'module'
 endif
 titles_app_lib = static_library(
   'ustudio_titles_app',
-  files('animation_strip.cpp', 'behavior_drawer.cpp', 'canvas.cpp', 'export.cpp', 'gallery.cpp', 'inspector.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp',
+  files('animation_strip.cpp', 'behavior_drawer.cpp', 'canvas.cpp', 'export.cpp', 'gallery.cpp', 'inspector.cpp', 'packs.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp',
         'view_settings.cpp'),
   titles_app_tokens_h,
   include_directories: [src_inc, titles_inc],
   cpp_args: titles_app_args,
-  dependencies: [titles_render_dep, libustudio_platform_dep, gtk4_dep, adwaita_dep],
+  dependencies: [titles_render_dep, titles_package_dep, libustudio_platform_dep, gtk4_dep, adwaita_dep],
   install: false,
 )
 titles_app_dep = declare_dependency(
   link_with: titles_app_lib,
   sources: titles_app_tokens_h,
   include_directories: [src_inc, titles_inc],
-  dependencies: [titles_render_dep, libustudio_platform_dep, gtk4_dep, adwaita_dep],
+  dependencies: [titles_render_dep, titles_package_dep, libustudio_platform_dep, gtk4_dep, adwaita_dep],
 )
 titles_app_exe = executable(
   'u-studio-titles',

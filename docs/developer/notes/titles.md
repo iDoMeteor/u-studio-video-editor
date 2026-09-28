@@ -219,3 +219,23 @@ Cairo 1.18, fontconfig 2.17):
   something references it: `extendShell()` calls
   `ustudio_titles_editor_get_resource()` for that. Without it the button
   showed GTK's missing-image icon.
+
+## T4b: template packs
+
+- **Validate in memory, then write.** `package/archive.cpp` reads every
+  entry into memory, stopping at the limits as it reads (it never trusts
+  an entry's declared size), and `package/pack.cpp`'s `validate()` checks
+  the whole set before `install()` writes a byte. So a traversal, a link
+  or a bomb never reaches the disk, and a refused pack leaves nothing.
+- **Only zip, tar and gzip** are enabled in libarchive's reader, so no
+  other decoder sees a stranger's bytes.
+- **Two path rules.** Entry paths are strict: no `..` at all
+  (`normalisePath()`). A template's picture reference is resolved from
+  `templates/` and may climb (`../images/logo.png`), but never above the
+  pack's root (`resolveInPack()`), and must land in `images/`.
+- **An installed pack is My Templates' shape**: `<library>/packs/<id>/`,
+  one folder per template, the fonts in `fonts/` and `pack.xml` kept. A
+  title made from one gets the fonts in `fonts/` beside it, where the
+  producer looks.
+- **Save as Pack validates its own output** before writing, so what we
+  send out is what another copy accepts.
