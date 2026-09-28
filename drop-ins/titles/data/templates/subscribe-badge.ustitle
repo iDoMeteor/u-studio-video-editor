@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Subscribe reminder" category="Bugs and badges" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="120" outro="15"/>
+  <field name="label" label="Label" default="Subscribe"/>
+  <layer id="pill" kind="shape" shape="rounded-rect" x="160" y="880" w="380" h="84" radius="42">
+    <fill color="#ff3b5c"/>
+    <behavior slot="in" id="pop"/><behavior slot="loop" id="pulse"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="label" kind="text" x="180" y="894" w="340" fit="shrink" align="center">
+    <text>{{label}}</text>
+    <font family="Space Grotesk" weight="700" size="46"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

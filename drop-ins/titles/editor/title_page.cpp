@@ -1,8 +1,12 @@
 #include "title_page.h"
 
 #include "core/clip_fields.h"
+#include "core/export_formats.h"
+#include "core/media/utf8_path.h"
 #include "core/title_xml.h"
+#include "title_bake.h"
 
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
@@ -25,10 +29,17 @@ class TitlePage
         build();
         host.addHints({{"titles.page-edit", "Titles", "Edit title",
                         "Open this title in U Stu Titles to change its design", "titles-edit", nullptr},
+                       {"titles.page-export-format", "Titles", "Export format",
+                        "With transparency (alpha) for OBS and other apps, or flattened onto the title's background",
+                        nullptr, nullptr},
+                       {"titles.page-export", "Titles", "Export title",
+                        "The clip's title on its own, at the clip's length, with its fields", nullptr, nullptr},
                        {"titles.page-field", "Titles", "Title field",
                         "This clip's text for the field; the title's default when left as it is", nullptr, nullptr}});
         host.setTooltip(m_edit, "titles.page-edit");
         host.setTooltip(m_bake, "titles.bake");
+        host.setTooltip(m_format, "titles.page-export-format");
+        host.setTooltip(m_exportButton, "titles.page-export");
         host.addInspectorPage({"titles.title", "Title", "insert-text-symbolic", m_root});
         host.selectionChanged().connect([this] { refresh(); });
         host.projectChanged().connect([this] { refresh(); });
@@ -83,6 +94,24 @@ class TitlePage
         gtk_label_set_xalign(GTK_LABEL(m_noFields), 0.0f);
         gtk_widget_add_css_class(m_noFields, "dim-label");
         gtk_box_append(GTK_BOX(m_content), m_noFields);
+
+        // Export on its own (doc 16, T2d): for OBS and other tools.
+        GtkWidget *exportLabel = gtk_label_new("Export on its own");
+        gtk_label_set_xalign(GTK_LABEL(exportLabel), 0.0f);
+        gtk_widget_add_css_class(exportLabel, "heading");
+        gtk_box_append(GTK_BOX(m_content), exportLabel);
+        GtkWidget *exportRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        GtkStringList *labels = gtk_string_list_new(nullptr);
+        for (const ExportFormat &format : exportFormats())
+            gtk_string_list_append(labels, format.label);
+        m_format = gtk_drop_down_new(G_LIST_MODEL(labels), nullptr);
+        gtk_widget_set_hexpand(m_format, TRUE);
+        gtk_box_append(GTK_BOX(exportRow), m_format);
+        GtkWidget *exportButton = gtk_button_new_with_label("Export…");
+        g_signal_connect(exportButton, "clicked", G_CALLBACK(&TitlePage::onExportTrampoline), this);
+        gtk_box_append(GTK_BOX(exportRow), exportButton);
+        gtk_box_append(GTK_BOX(m_content), exportRow);
+        m_exportButton = exportButton;
         gtk_box_append(GTK_BOX(m_root), m_content);
     }
 
@@ -167,6 +196,49 @@ class TitlePage
         m_updating = false;
     }
 
+    void onExport()
+    {
+        if (!m_clip || !m_host->model().hasClip(*m_clip))
+            return;
+        const std::vector<ExportFormat> &formats = exportFormats();
+        const guint index = gtk_drop_down_get_selected(GTK_DROP_DOWN(m_format));
+        const ExportFormat &format = index < formats.size() ? formats[index] : formats.front();
+        const core::Model &model = m_host->model();
+        const std::string title = model.asset(model.clip(*m_clip).asset).path;
+        const std::filesystem::path path = core::pathFromUtf8(title);
+        std::string name = core::utf8String(path.stem());
+        if (format.extension[0])
+            name += std::string(".") + format.extension;
+        GtkFileDialog *dialog = gtk_file_dialog_new();
+        gtk_file_dialog_set_title(dialog, format.extension[0] ? "Export Title" : "Export Title (a folder of PNGs)");
+        gtk_file_dialog_set_initial_name(dialog, name.c_str());
+        GFile *folder = g_file_new_for_path(core::utf8String(path.parent_path()).c_str());
+        gtk_file_dialog_set_initial_folder(dialog, folder);
+        g_object_unref(folder);
+        struct Request
+        {
+            TitlePage *page;
+            core::ClipId clip;
+            std::string format;
+        };
+        gtk_file_dialog_save(
+            dialog, GTK_WINDOW(gtk_widget_get_root(m_root)), nullptr,
+            [](GObject *source, GAsyncResult *result, gpointer data) {
+                std::unique_ptr<Request> request(static_cast<Request *>(data));
+                GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source), result, nullptr);
+                if (!file)
+                    return;
+                gchar *chosen = g_file_get_path(file);
+                g_object_unref(file);
+                if (!chosen)
+                    return;
+                exportTitleClip(*request->page->m_host, request->clip, request->format, chosen);
+                g_free(chosen);
+            },
+            new Request{this, *m_clip, format.name});
+        g_object_unref(dialog);
+    }
+
     void onChanged()
     {
         if (m_updating || !m_clip || !m_host->model().hasClip(*m_clip))
@@ -185,7 +257,8 @@ class TitlePage
 
     app::ShellHost *m_host = nullptr;
     GtkWidget *m_root = nullptr, *m_empty = nullptr, *m_content = nullptr, *m_name = nullptr, *m_edit = nullptr,
-              *m_bake = nullptr, *m_fieldsLabel = nullptr, *m_fields = nullptr, *m_noFields = nullptr;
+              *m_bake = nullptr, *m_fieldsLabel = nullptr, *m_fields = nullptr, *m_noFields = nullptr,
+              *m_format = nullptr, *m_exportButton = nullptr;
     std::optional<core::ClipId> m_clip;
     std::vector<Row> m_rows;
     std::string m_cachedPath, m_cachedFingerprint;
@@ -197,6 +270,10 @@ class TitlePage
     static void onChangedTrampoline(GtkEditable *, gpointer self)
     {
         static_cast<TitlePage *>(self)->onChanged();
+    }
+    static void onExportTrampoline(GtkButton *, gpointer self)
+    {
+        static_cast<TitlePage *>(self)->onExport();
     }
     static void onFocusLeaveTrampoline(GtkEventControllerFocus *, gpointer self)
     {

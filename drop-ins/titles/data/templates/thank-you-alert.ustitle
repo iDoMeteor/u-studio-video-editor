@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Thank-you alert" category="Live and social" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="150" outro="15"/>
+  <field name="name" label="Name" default="viewer42"/>
+  <field name="amount" label="What" default="5 gifted subs"/>
+  <layer id="name" kind="text" x="360" y="180" w="1200" fit="shrink" align="center">
+    <text>{{name}}</text>
+    <font family="Anton" size="96"/>
+    <fill gradient="linear" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0"/>
+    <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="amount" kind="text" x="360" y="310" w="1200" fit="shrink" align="center">
+    <text>thank you for {{amount}}!</text>
+    <font family="Space Grotesk" size="48"/>
+    <fill color="#ffffff"/>
+    <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
+    <behavior slot="in" id="word-by-word"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

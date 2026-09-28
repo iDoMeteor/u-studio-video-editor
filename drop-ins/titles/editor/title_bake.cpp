@@ -132,4 +132,36 @@ void bakeTitleClip(app::ShellHost &host, core::ClipId id)
     });
 }
 
+void exportTitleClip(app::ShellHost &host, core::ClipId id, const std::string &format, const std::string &output)
+{
+    const core::Model &model = host.model();
+    if (!model.hasClip(id))
+        return;
+    const core::Clip &clip = model.clip(id);
+    if (!model.hasAsset(clip.asset) || !isTitleFile(model.asset(clip.asset).path))
+        return;
+    TitleExportRequest request;
+    request.title = model.asset(clip.asset).path;
+    request.output = output;
+    request.format = format;
+    request.frames = clip.length();
+    request.fps = model.sequence().profile.fps;
+    request.timelineStart = static_cast<double>(clip.position);
+    for (const core::Param &param : clip.sourceParams)
+        if (param.name.starts_with("field."))
+            request.fields.push_back(param);
+    const std::string file = core::utf8String(core::pathFromUtf8(output).filename());
+    host.showStatus("Exporting " + file + "…");
+    app::ShellHost *hostPtr = &host; // the window lives for the process
+    startJob([request, file, hostPtr] {
+        auto written = exportTitle(request, &jobsCancelled());
+        postToMain([written, file, hostPtr] {
+            if (written)
+                hostPtr->showStatus("Exported " + file + ".");
+            else if (written.error() != "cancelled")
+                hostPtr->showStatus("Couldn't export " + file + ": " + written.error());
+        });
+    });
+}
+
 } // namespace ustudio::titles

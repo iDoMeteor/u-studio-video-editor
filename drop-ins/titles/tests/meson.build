@@ -9,7 +9,8 @@ test('titles-core', titles_test_core)
 titles_test_render = executable(
   'test_titles_render',
   files('test_render.cpp'),
-  cpp_args: ['-DTITLES_TEST_FONT_DIR="' + meson.current_build_dir() / 'fonts' + '"'],
+  cpp_args: ['-DTITLES_TEST_FONT_DIR="' + meson.current_build_dir() / 'fonts' + '"',
+             '-DTITLES_TEMPLATES_DIR="' + meson.current_source_dir() / '..' / 'data' / 'templates' + '"'],
   dependencies: [titles_doctest_dep, titles_render_dep],
   install: false,
 )

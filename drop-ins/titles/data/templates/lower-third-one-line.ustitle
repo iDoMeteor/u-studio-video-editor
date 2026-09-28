@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Lower third, one line" category="Lower thirds" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="120" outro="15"/>
+  <field name="name" label="Name" default="Jay Doe"/>
+  <layer id="bar" kind="shape" shape="rounded-rect" x="160" y="850" w="640" h="110" radius="14">
+    <fill color="#1b1230" opacity="0.92"/>
+    <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="accent" kind="shape" shape="rect" x="160" y="850" w="10" h="110">
+    <fill gradient="linear" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="name" kind="text" x="200" y="872" w="580" fit="shrink">
+    <text>{{name}}</text>
+    <font family="Space Grotesk" weight="700" size="56"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

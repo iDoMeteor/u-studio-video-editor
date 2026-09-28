@@ -5,12 +5,16 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/evaluate.h"
+#include "core/template_library.h"
 #include "core/title_xml.h"
 #include "render/blur.h"
 #include "render/title_renderer.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -474,4 +478,46 @@ TEST_CASE("glow breathe gives a layer with no shadow a glow in its own colour")
     const Straight a = render(plain, 50), b = render(glowing, 50);
     // Just outside the text's own ink, the glow shows.
     CHECK(static_cast<double>(inkSum(b)) > static_cast<double>(inkSum(a)) * 1.2);
+}
+
+TEST_CASE("every built-in template reads cleanly, fills its fields, draws, and stays on the canvas (T4.2)")
+{
+    const auto templates = listTemplates(TITLES_TEMPLATES_DIR, true);
+    CHECK(templates.size() >= 28); // doc 16's eight and about twenty more
+    std::set<std::string> categories;
+    for (const TemplateInfo &info : templates) {
+        CAPTURE(info.id);
+        auto read = readTitle(info.path);
+        REQUIRE(read.has_value());
+        CHECK(read->warnings.empty());
+        const TitleDocument &doc = read->document;
+        CHECK_FALSE(doc.name.empty());
+        CHECK_FALSE(doc.category.empty());
+        categories.insert(doc.category);
+        // Every {{name}} is a field with a default, or a dynamic field.
+        for (const Layer &layer : doc.layers) {
+            if (layer.kind != LayerKind::Text)
+                continue;
+            FieldClock clock;
+            clock.localTime.tm_year = 126;
+            clock.localTime.tm_mday = 1;
+            const std::string shown = substituteFields(layer.text, doc.fields, {}, clock);
+            CHECK_MESSAGE(shown.find("{{") == std::string::npos, layer.id << ": " << shown);
+        }
+        // Mid-hold: something drawn, and every layer inside the frame.
+        const double at =
+            static_cast<double>(doc.timing.intro) + std::min<double>(30, static_cast<double>(doc.timing.hold) / 2);
+        const RenderResult result = renderTitle(doc, at, {}, 480, 270);
+        const bool drawn = std::any_of(result.frame.pixels.begin(), result.frame.pixels.end(),
+                                       [](uint32_t p) { return (p >> 24) != 0; });
+        CHECK(drawn);
+        for (const LayerGeometry &g : measureLayers(doc, at, {})) {
+            CAPTURE(g.id);
+            CHECK(g.box.x >= 0);
+            CHECK(g.box.y >= 0);
+            CHECK(g.box.x + g.box.w <= doc.width);
+            CHECK(g.box.y + g.box.h <= doc.height);
+        }
+    }
+    CHECK(categories.size() >= 6);
 }

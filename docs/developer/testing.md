@@ -49,6 +49,18 @@ python3 with `gi` (Atspi) and python-xlib, and ImageMagick's `import`.
 Notes on driving GTK dialogs there are in
 [the titles notes](notes/titles.md).
 
+**Any harness with a private D-Bus session** (`dbus-run-session`) must keep
+the services that session activates out of the desktop's runtime dir. With
+the real `XDG_RUNTIME_DIR`, the private session's `xdg-document-portal`
+mounts over `/run/user/<uid>/doc` and unmounts it when it exits, which
+leaves the desktop's own portal without its mount: Flatpak apps can't open
+files through it, and `app-portal-path` fails, until the owner restarts it
+(`systemctl --user restart xdg-document-portal.service`). Run
+`dbus-update-activation-environment XDG_RUNTIME_DIR=<a mktemp dir>` first
+thing inside the session, and set `GIO_USE_VFS=local`. Keep the real
+`XDG_RUNTIME_DIR` for the processes the harness starts itself: a private
+one for everything breaks the AT-SPI bus. `tools/titles-smoke` does this.
+
 ## Notable tests
 
 - **Undo property test** (`core-undo-fuzz`, the same binary filtered to

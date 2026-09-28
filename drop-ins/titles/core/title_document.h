@@ -287,6 +287,9 @@ struct Timing
 
 struct TitleDocument
 {
+    // What the template gallery shows (doc 16, T4): "Lower third, two
+    // lines" under "Lower thirds". Empty on an ordinary title.
+    std::string name, category;
     int width = 1920, height = 1080;
     int fpsNum = 30, fpsDen = 1;
     Timing timing;
