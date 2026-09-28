@@ -288,6 +288,28 @@ The titles extension is
   `just dist` copies it with a `.sha256`. Modules must match the app release
   exactly, so the app and its extensions ship as a pair.
 
+### Publishing
+
+`just publish <bundle>` uploads a bundle to the public download bucket,
+`s3://ut-software-dist/` (default AWS profile; `USTUDIO_PUBLISH_BUCKET`
+overrides), which `https://software.unicornviz.com/` serves through
+CloudFront:
+
+- under its versioned name and its `-latest` name
+  (`u-studio-video-editor-latest.flatpak`,
+  `u-studio-video-editor-dropin-titles-latest.flatpak`), each with a
+  `.sha256` that names that file, so `sha256sum -c` works on either;
+- as `application/vnd.flatpak`, so a browser download opens in the
+  software centre; the `-latest` files with `Cache-Control: max-age=300`;
+- public through the bucket policy: the bucket enforces owner ownership,
+  so ACLs are disabled and none is set;
+- a versioned object already there with other contents is never replaced.
+
+Publish the app and its extensions together, after the smoke test and
+`just dist`. The CDN's firewall answers command-line downloaders (curl,
+wget) with 403, so check a published URL with a browser User-Agent:
+`curl -sI -A 'Mozilla/5.0' <url>`.
+
 ## Releases
 
 - Everyday version bumps go in [`CHANGELOG.md`](../../CHANGELOG.md).
