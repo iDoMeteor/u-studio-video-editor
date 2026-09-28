@@ -4,8 +4,6 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
-
-
 ## 0.74.1-beta.1
 
 - Importing thousands of clips onto one track (a long caption file, a big
