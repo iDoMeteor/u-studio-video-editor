@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.67.1-beta.1
+
+- The editor opens maximised, and the Render button is a little narrower
+  ("Render 42%" while it runs), so the header's project title has room.
+
 ## 0.67.0-beta.1
 
 - The header's Help button is a plain question mark, and with the Titles
