@@ -232,25 +232,39 @@ std::filesystem::path lumaMapPath(const std::filesystem::path &folder, const std
     return folder / ("v" + std::to_string(kLumaMapVersion)) / (name + ".pgm");
 }
 
-bool writeLumaMap(const std::string &name, const std::filesystem::path &file, int width, int height)
+std::vector<uint16_t> lumaMapPixels(const std::string &name, int width, int height)
 {
+    std::vector<uint16_t> pixels;
+    if (width <= 0 || height <= 0)
+        return pixels;
     const std::map<std::string, MapFunction> maps = mapFunctions(width, height);
     auto it = maps.find(name);
-    if (it == maps.end() || width <= 0 || height <= 0)
-        return false;
-    std::error_code ec;
-    if (std::filesystem::is_regular_file(file, ec))
-        return true;
-    std::filesystem::create_directories(file.parent_path(), ec);
-    std::string data = "P5\n" + std::to_string(width) + " " + std::to_string(height) + "\n65535\n";
-    data.reserve(data.size() + static_cast<size_t>(width) * static_cast<size_t>(height) * 2);
+    if (it == maps.end())
+        return pixels;
+    pixels.reserve(static_cast<size_t>(width) * static_cast<size_t>(height));
     for (int y = 0; y < height; ++y)
         for (int x = 0; x < width; ++x) {
             const double v = std::clamp(it->second((x + 0.5) / width, (y + 0.5) / height), 0.0, 1.0);
-            const auto sample = static_cast<uint16_t>(std::lround(v * 65535.0));
-            data += static_cast<char>(sample >> 8); // big-endian, as PGM wants
-            data += static_cast<char>(sample & 0xFF);
+            pixels.push_back(static_cast<uint16_t>(std::lround(v * 65535.0)));
         }
+    return pixels;
+}
+
+bool writeLumaMap(const std::string &name, const std::filesystem::path &file, int width, int height)
+{
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(file, ec))
+        return !lumaMapPixels(name, 1, 1).empty();
+    const std::vector<uint16_t> pixels = lumaMapPixels(name, width, height);
+    if (pixels.empty())
+        return false;
+    std::filesystem::create_directories(file.parent_path(), ec);
+    std::string data = "P5\n" + std::to_string(width) + " " + std::to_string(height) + "\n65535\n";
+    data.reserve(data.size() + pixels.size() * 2);
+    for (uint16_t sample : pixels) {
+        data += static_cast<char>(sample >> 8); // big-endian, as PGM wants
+        data += static_cast<char>(sample & 0xFF);
+    }
     // A temp file of its own, then a rename: a reader (MLT) never sees half a
     // map, and two processes making the same one (the editor and a render
     // child) don't write into each other's.

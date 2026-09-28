@@ -22,6 +22,7 @@
 #include "core/model/native_filter.h"
 #include "core/model/types.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -56,6 +57,10 @@ std::filesystem::path lumaMapPath(const std::filesystem::path &folder, const std
 
 // The generated wipe maps, by name ("left", "radial", "star", ...).
 const std::vector<std::string> &lumaMapNames();
+// `name`'s map as `width` x `height` samples (0 = where the incoming clip
+// appears first, 65535 = last), row by row; empty for an unknown name. What
+// writeLumaMap() writes, and what a picker draws a wipe's shape from.
+std::vector<uint16_t> lumaMapPixels(const std::string &name, int width, int height);
 // Writes `name`'s map to `file` (16-bit greyscale PGM, P5, maxval 65535; the
 // incoming clip appears where the map is darkest first) unless it's there
 // already. False for an unknown name or a write failure. Every map is
