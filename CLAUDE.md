@@ -489,15 +489,21 @@ No permission needed for:
   change. It opens a window on the owner's desktop: keep it short, close it
   or kill the process you started, and never leave instances running.
 - Reading the reference checkouts (`~/Repos/kdenlive`, the design system).
+- Installing, with `sudo dnf`, the Fedora packages that approved work needs
+  (the `-devel` headers of a dependency an accepted ADR allows, a test or
+  packaging tool). Say in your report what you installed (owner,
+  2026-09-28).
+- Deleting your own stray or merged branches and worktrees, `git branch -D`
+  included (owner, 2026-09-28).
 
 Permission **is required** before:
 
 - Anything destructive or irreversible: `rm -rf` outside `builddir/` and
-  the scratchpad, `git reset --hard`, `git clean`, `git branch -D`,
-  removing another agent's worktree, overwriting or moving the owner's media
+  the scratchpad, `git reset --hard`, `git clean`, `git branch -D` on
+  anyone else's branch, removing another agent's worktree, overwriting or moving the owner's media
   or project files.
-- Installing or removing system packages (`dnf`), or changing `meson.build`
-  dependencies.
+- Removing system packages, installing one that no approved work needs, or
+  adding a `meson.build` dependency without an accepted ADR.
 - Pushing to any branch other than your own `agent/<name>` branch or the
   fast-forward landing on `main` described above; creating or modifying
   GitHub repos, releases, or workflows.
