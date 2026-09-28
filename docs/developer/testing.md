@@ -96,10 +96,12 @@ both at once, drags a brand Look onto the picture, turns compare on, and
 holds **\\**. Then two stills go at the end of the track, **T** adds a
 dissolve between them, the first wipe's tile (Wipe Right) on the
 Transitions page is clicked, and the saved project must name `wipe.left`
-and its map `ustudio-wipes/v1/left.pgm` (written beside it); undo takes it back. It also checks an audition leaves the live graph's rebuild
+and its map `ustudio-wipes/v1/left.pgm` (written beside it); undo takes it back. Last it arms the first clip's Blur for touch-record,
+ramps it in 40 quick changes while playing (`ramp.py`), and checks that one
+performance was recorded and saved as fewer keys than frames. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
-`value.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
+`value.py`, `ramp.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
 spin button, set an entry by name, select a Browser tile, find a widget's
 centre, drag slowly enough for XDND, and hold a key, over AT-SPI (the main window
 reports no focus without a window manager). The build needs `-Ddropin_effects`.
