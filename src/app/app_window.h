@@ -982,7 +982,13 @@ class AppWindow : public ShellHost
     // any drop-in lanes.
     timeline::RowLayout rowLayout() const;
     // A drop-in's timeline overlay claims a press before the timeline does.
-    bool overlayClaimsPress(double x, double y, int nPress);
+    // The provider that claimed a press, or null; `m_overlayDrag` while it
+    // drags (from onTrackDragBegin() to its end or cancel), with the press.
+    timeline::TimelineOverlayProvider *overlayClaimsPress(double x, double y, int nPress);
+    timeline::TimelineOverlayProvider *m_overlayDrag = nullptr;
+    double m_overlayDragX = 0.0, m_overlayDragY = 0.0;
+    // True while m_overlayDrag->dragged() runs: its own edits don't cancel it.
+    bool m_overlayDragEditing = false;
     // Called after each timeline snapshot: a changed selection is posted to
     // selectionChanged from an idle (never from inside the draw).
     void noteSelectionForShell();

@@ -298,6 +298,11 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
             if (m_timeline)
                 gtk_widget_queue_draw(m_timeline);
         }
+        // A drop-in's drag too, unless the change is its own: an edit it
+        // makes while dragging comes back through here, so it's cancelled
+        // only when it didn't cause the change (m_overlayDragEditing).
+        if (m_overlayDrag && !m_overlayDragEditing)
+            std::exchange(m_overlayDrag, nullptr)->dragCancelled();
         // IP5: drop-ins' inspector pages refresh, the selection already
         // pruned.
         m_shellProjectChanged.emit();
@@ -3302,8 +3307,11 @@ void AppWindow::onTimelineClicked(int nPress, double x, double y, timeline::Modi
 timeline::RowLayout AppWindow::rowLayout() const
 {
     timeline::RowLayout layout{kTrackRowHeight, kTrackLabelHeight, {}};
-    // IP5: a drop-in's lanes under the tracks; none without one.
+    // IP5: a drop-in's lanes under the tracks and above the first; none
+    // without one.
     if (!m_timelineOverlays.empty()) {
+        for (const timeline::TimelineOverlayProvider *overlay : m_timelineOverlays)
+            layout.topLane = std::max(layout.topLane, overlay->topLaneHeight(m_model));
         for (const core::Track &track : m_model.sequence().tracks) {
             double lane = 0.0;
             for (const timeline::TimelineOverlayProvider *overlay : m_timelineOverlays)
@@ -3846,8 +3854,11 @@ bool AppWindow::onTrackDragBegin(double x, double y, timeline::Modifiers mods)
 {
     if (m_model.sequence().tracks.empty())
         return false;
-    if (overlayClaimsPress(x, y, 1))
+    if ((m_overlayDrag = overlayClaimsPress(x, y, 1))) {
+        m_overlayDragX = x;
+        m_overlayDragY = y;
         return true;
+    }
     timeline::TimelineOutcome outcome = m_timelineController.press(timelineContext(), x, y, mods);
     applyTimelineOutcome(outcome);
     return true;
@@ -3855,6 +3866,14 @@ bool AppWindow::onTrackDragBegin(double x, double y, timeline::Modifiers mods)
 
 void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
 {
+    if (m_overlayDrag) {
+        m_overlayDragEditing = true;
+        m_overlayDrag->dragged(m_model, m_viewport, rowLayout(), m_overlayDragX + offsetX, m_overlayDragY + offsetY,
+                               false);
+        m_overlayDragEditing = false;
+        gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
+        return;
+    }
     if (m_timelineController.mode() == timeline::TimelineController::Mode::None)
         return;
     timeline::TimelineOutcome outcome = m_timelineController.motion(timelineContext(), offsetX, offsetY);
@@ -3863,6 +3882,13 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
 
 void AppWindow::onTrackDragEnd(double offsetX, double offsetY)
 {
+    if (timeline::TimelineOverlayProvider *overlay = std::exchange(m_overlayDrag, nullptr)) {
+        m_overlayDragEditing = true;
+        overlay->dragged(m_model, m_viewport, rowLayout(), m_overlayDragX + offsetX, m_overlayDragY + offsetY, true);
+        m_overlayDragEditing = false;
+        refreshTimeline();
+        return;
+    }
     timeline::TimelineOutcome outcome = m_timelineController.release(timelineContext(), offsetX, offsetY);
     applyTimelineOutcome(outcome);
     refreshTimeline();
