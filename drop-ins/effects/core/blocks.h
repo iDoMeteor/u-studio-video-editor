@@ -21,11 +21,8 @@ namespace ustudio::effects {
 std::string blockProblem(const core::Model &model, const core::AdjustmentBlock &block,
                          std::optional<core::AdjustmentBlockId> self = std::nullopt);
 
-// The block's effects as they play: each effect's mix scaled by the fade
-// envelope (0 at the block's first frame, 1 after fadeIn, back to 0 at its
-// last after fadeOut). Keys count from the block's start. Without fades the
-// effects are unchanged.
-std::vector<core::Effect> blockEffects(const core::AdjustmentBlock &block);
+// The block's effects as they play: core::blockEffects()
+// (core/model/effect_native.h, shared with the project writer).
 
 class AddAdjustmentBlock : public core::Command
 {

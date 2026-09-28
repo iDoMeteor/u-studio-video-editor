@@ -55,4 +55,12 @@ std::string nativeParam(const Param &param, FrameIndex offset, FrameIndex length
 std::vector<NativeFilter> nativeFilters(const Effect &effect, FrameIndex offset, FrameIndex length,
                                         MixTransition mix = MixTransition::Cairoblend);
 
+// An adjustment block's effects as they play (doc 15, "FX lane"): each
+// effect's mix scaled by the block's fade envelope (0 at its first frame, 1
+// after fadeIn, back to 0 at its last after fadeOut; an animated mix keeps
+// its shape under it). Keys count from the block's start. Without fades the
+// effects are unchanged. The engine's effects extension and the project
+// writer both play blocks through this.
+std::vector<Effect> blockEffects(const AdjustmentBlock &block);
+
 } // namespace ustudio::core

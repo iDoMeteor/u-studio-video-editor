@@ -15,6 +15,7 @@
 #include "core/looks.h"
 #include "core/transitions.h"
 #include "core/blocks.h"
+#include "core/model/effect_native.h"
 #include "core/model/animation.h"
 #include "core/model/effect_native.h"
 #include "core/model/transition_native.h"
@@ -786,11 +787,11 @@ TEST_CASE("blockEffects: fades ramp each effect's mix in and out")
     core::AdjustmentBlock block;
     block.length = 101;
     block.effects = {glowEffect(0.8)};
-    CHECK(blockEffects(block)[0].mix.keyframes.empty()); // no fades: as it is
+    CHECK(core::blockEffects(block)[0].mix.keyframes.empty()); // no fades: as it is
 
     block.fadeIn = core::FadeSpec{20};
     block.fadeOut = core::FadeSpec{40};
-    const std::vector<core::Keyframe> keys = blockEffects(block)[0].mix.keyframes;
+    const std::vector<core::Keyframe> keys = core::blockEffects(block)[0].mix.keyframes;
     auto at = [&](double frame) { return core::easedValue(keys, frame); };
     CHECK(at(0) == doctest::Approx(0.0));
     CHECK(at(10) == doctest::Approx(0.4));
@@ -802,7 +803,7 @@ TEST_CASE("blockEffects: fades ramp each effect's mix in and out")
 
     // An animated mix keeps its shape under the envelope.
     block.effects[0].mix.keyframes = {{0, 0.5, core::Easing::Linear}, {100, 1.0, core::Easing::Linear}};
-    const std::vector<core::Keyframe> shaped = blockEffects(block)[0].mix.keyframes;
+    const std::vector<core::Keyframe> shaped = core::blockEffects(block)[0].mix.keyframes;
     CHECK(core::easedValue(shaped, 50.0) == doctest::Approx(0.75));
     CHECK(core::easedValue(shaped, 100.0) == doctest::Approx(0.0));
 }

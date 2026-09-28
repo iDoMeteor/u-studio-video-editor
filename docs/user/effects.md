@@ -120,6 +120,24 @@ change applies to every one of them as one undo step. Adding an effect or a
 look adds it to all of them. (Moving effects and keyframes are one clip at
 a time.)
 
+## Adjustment blocks (the FX lane)
+
+An adjustment block puts effects on everything beneath it for a stretch of
+time: a grade for one scene, a blur behind a title, a glow for the chorus.
+Blocks live in the **FX** lane, the thin lane above the tracks.
+
+1. **Drag across the FX lane** to draw a block over the time it should
+   cover. It's selected, and the **Effects** page shows it.
+2. **Add effects** to it as to a clip: press **E** and pick, or search.
+3. **Drag the block** to move it, **drag its ends** to lengthen or shorten
+   it, and **drag the small dots at its top corners** inwards to fade its
+   effects in and out.
+4. On the **Effects** page, **Affects** chooses what it changes: **Every
+   track**, or a track and those below it (so a title on a higher track
+   stays untouched). The **bin** removes the block.
+
+Clicking a clip on the timeline takes the **Effects** page back to clips.
+
 ## Copy and paste
 
 **Ctrl+Shift+C** copies the effects on the **Effects** page.

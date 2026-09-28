@@ -2,6 +2,7 @@
 
 #include "app/catalog.h"
 #include "app/shell_host.h"
+#include "core/blocks.h"
 #include "core/commands.h"
 #include "core/descriptor.h"
 #include "core/keyframes.h"
@@ -31,6 +32,7 @@ enum class Scope
     Clip,
     Track,
     Sequence,
+    Block, // the adjustment block the FX lane selected (app/fx_lane.h)
 };
 
 // A new undo step when a control rests this long between changes; closer
@@ -138,6 +140,10 @@ class Rack
              "Armed, moving this value records it as you go (play, then move it); when you let go, just enough "
              "keyframes are kept to follow what you did",
              nullptr, nullptr},
+            {"effects.block-affects", "Effects", "Affects",
+             "Which tracks the adjustment block changes: every track, or a track and those below it", nullptr,
+             nullptr},
+            {"effects.block-remove", "Effects", "Remove adjustment block", nullptr, nullptr, nullptr},
             {"effects.rack-menu", "Effects", "Effects menu", "Copy, paste, and save as a look", nullptr, nullptr},
             {"effects.card-cost", "Effects", "Cost",
              "How much work the effect is for each frame, measured when it was checked", nullptr, nullptr},
@@ -160,6 +166,7 @@ class Rack
         m_host.selectionChanged().connect([this] { refresh(); });
         m_host.projectChanged().connect([this] { refresh(); });
         m_host.playheadMoved().connect([this] { onPlayheadMoved(); });
+        m_catalog.blockSelected.connect([this] { onBlockSelected(); });
         m_catalog.changed.connect([this] {
             m_structure.clear(); // names may have arrived
             refresh();
@@ -347,6 +354,8 @@ class Rack
         auto found = model.findEffect(effect);
         if (found && found->first.kind == core::Model::EffectTarget::Kind::Clip)
             return frame - model.clip(core::ClipId{found->first.id}).position;
+        if (found && found->first.kind == core::Model::EffectTarget::Kind::AdjustmentBlock)
+            return frame - model.adjustmentBlock(core::AdjustmentBlockId{found->first.id}).start;
         return frame;
     }
 
@@ -704,6 +713,11 @@ class Rack
                 break;
             }
         const auto scope = static_cast<Scope>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_scope)));
+        if (scope == Scope::Block) {
+            if (m_catalog.selectedBlock && model.hasAdjustmentBlock(*m_catalog.selectedBlock))
+                return core::Model::EffectTarget::adjustmentBlock(*m_catalog.selectedBlock);
+            return core::Model::EffectTarget::sequence();
+        }
         if (scope == Scope::Clip && clip)
             return core::Model::EffectTarget::clip(*clip);
         if (scope != Scope::Sequence) {
@@ -727,8 +741,11 @@ class Rack
             return "Track: " + model.track(core::TrackId{target.id}).name;
         case core::Model::EffectTarget::Kind::Sequence:
             return "The whole sequence";
-        case core::Model::EffectTarget::Kind::AdjustmentBlock:
-            return "Adjustment block";
+        case core::Model::EffectTarget::Kind::AdjustmentBlock: {
+            const core::AdjustmentBlock &block = model.adjustmentBlock(core::AdjustmentBlockId{target.id});
+            return "Adjustment block: " + std::to_string(block.length) + " frames from frame " +
+                   std::to_string(block.start);
+        }
         }
         return "";
     }
@@ -857,7 +874,7 @@ class Rack
         gtk_widget_set_margin_bottom(box, 12);
 
         GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-        const char *scopes[] = {"Selected clip", "Its track", "Whole sequence", nullptr};
+        const char *scopes[] = {"Selected clip", "Its track", "Whole sequence", "Adjustment block", nullptr};
         m_scope = gtk_drop_down_new_from_strings(scopes);
         gtk_widget_set_hexpand(m_scope, TRUE);
         g_signal_connect(m_scope, "notify::selected", G_CALLBACK(&onScopeTrampoline), this);
@@ -914,6 +931,28 @@ class Rack
         gtk_widget_add_css_class(m_title, "heading");
         gtk_box_append(GTK_BOX(m_titleRow), m_title);
         gtk_box_append(GTK_BOX(box), m_titleRow);
+
+        // An adjustment block's own settings: which tracks it affects (its
+        // lane) and removing it. Shown in the block scope only.
+        m_blockBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        GtkWidget *affects = gtk_label_new("Affects");
+        gtk_widget_add_css_class(affects, "dim-label");
+        gtk_box_append(GTK_BOX(m_blockBar), affects);
+        m_blockLane = gtk_drop_down_new(G_LIST_MODEL(gtk_string_list_new(nullptr)), nullptr);
+        gtk_widget_set_hexpand(m_blockLane, TRUE);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_blockLane), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                       "Tracks the block affects", -1);
+        m_host.setTooltip(m_blockLane, "effects.block-affects");
+        g_signal_connect(m_blockLane, "notify::selected", G_CALLBACK(&onBlockLaneTrampoline), this);
+        gtk_box_append(GTK_BOX(m_blockBar), m_blockLane);
+        GtkWidget *removeBlock = gtk_button_new_from_icon_name("user-trash-symbolic");
+        gtk_accessible_update_property(GTK_ACCESSIBLE(removeBlock), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                       "Remove adjustment block", -1);
+        m_host.setTooltip(removeBlock, "effects.block-remove");
+        g_signal_connect(removeBlock, "clicked", G_CALLBACK(&onBlockRemoveTrampoline), this);
+        gtk_box_append(GTK_BOX(m_blockBar), removeBlock);
+        gtk_widget_set_visible(m_blockBar, FALSE);
+        gtk_box_append(GTK_BOX(box), m_blockBar);
 
         // Ctrl+Shift+V: after or instead of the effects here (doc 15,
         // "Applying effects"). Parented to the title row, unparented when
@@ -1059,6 +1098,7 @@ class Rack
         if (!target || !m_host.model().hasEffectTarget(*target))
             return;
         gtk_label_set_text(GTK_LABEL(m_title), targetTitle(*target).c_str());
+        showBlockBar(*target);
         const std::string structure = structureOf(*target);
         if (structure == m_structure) {
             updateValues();
@@ -1070,6 +1110,66 @@ class Rack
             m_rebuildPending = true;
             g_idle_add(&onRebuildTrampoline, this);
         }
+    }
+
+    // --- Adjustment blocks ----------------------------------------------
+
+    // The block bar: "Every track", then "<track> and below" for each row a
+    // block can sit above (lane k = above row k).
+    void showBlockBar(const core::Model::EffectTarget &target)
+    {
+        const bool block = target.kind == core::Model::EffectTarget::Kind::AdjustmentBlock;
+        gtk_widget_set_visible(m_blockBar, block);
+        if (!block)
+            return;
+        const core::Model &model = m_host.model();
+        std::vector<std::string> names{"Every track"};
+        const auto &tracks = model.sequence().tracks;
+        for (size_t row = 1; row < tracks.size(); ++row)
+            names.push_back(tracks[row].name + " and below");
+        std::vector<const char *> strings;
+        for (const std::string &name : names)
+            strings.push_back(name.c_str());
+        strings.push_back(nullptr);
+        m_updating = true;
+        gtk_drop_down_set_model(GTK_DROP_DOWN(m_blockLane), G_LIST_MODEL(gtk_string_list_new(strings.data())));
+        const int lane = model.adjustmentBlock(core::AdjustmentBlockId{target.id}).lane;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_blockLane),
+                                   static_cast<guint>(std::clamp<int>(lane, 0, static_cast<int>(names.size()) - 1)));
+        m_updating = false;
+    }
+
+    void onBlockLane()
+    {
+        if (m_updating || !m_catalog.selectedBlock || !m_host.model().hasAdjustmentBlock(*m_catalog.selectedBlock))
+            return;
+        const core::AdjustmentBlock &block = m_host.model().adjustmentBlock(*m_catalog.selectedBlock);
+        const int lane = static_cast<int>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_blockLane)));
+        if (lane == block.lane)
+            return;
+        if (!m_host.execute(std::make_unique<SetAdjustmentBlockRange>(block.id, lane, block.start, block.length)))
+            m_host.showStatus("Another block is already there on that lane.");
+    }
+
+    void onBlockRemove()
+    {
+        if (!m_catalog.selectedBlock || !m_host.model().hasAdjustmentBlock(*m_catalog.selectedBlock))
+            return;
+        if (m_host.execute(std::make_unique<RemoveAdjustmentBlock>(*m_catalog.selectedBlock))) {
+            m_catalog.selectedBlock.reset();
+            m_catalog.blockSelected.emit();
+        }
+    }
+
+    void onBlockSelected()
+    {
+        const auto scope = static_cast<Scope>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_scope)));
+        if (m_catalog.selectedBlock)
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(m_scope), static_cast<guint>(Scope::Block));
+        else if (scope == Scope::Block)
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(m_scope), static_cast<guint>(Scope::Clip));
+        m_structure.clear();
+        refresh();
     }
 
     void rebuildNow()
@@ -1512,6 +1612,14 @@ class Rack
         rack->finishRecording();
         return G_SOURCE_REMOVE;
     }
+    static void onBlockLaneTrampoline(GtkDropDown *, GParamSpec *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onBlockLane();
+    }
+    static void onBlockRemoveTrampoline(GtkButton *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onBlockRemove();
+    }
     static void onKeyPinTrampoline(GtkButton *, gpointer control)
     {
         auto *c = static_cast<Control *>(control);
@@ -1577,6 +1685,7 @@ class Rack
 
     app::ShellHost &m_host;
     Catalog &m_catalog;
+    GtkWidget *m_blockBar = nullptr, *m_blockLane = nullptr;
     GtkWidget *m_root = nullptr, *m_scope = nullptr, *m_add = nullptr, *m_addPopover = nullptr;
     GtkWidget *m_search = nullptr, *m_addList = nullptr, *m_title = nullptr, *m_empty = nullptr;
     GtkWidget *m_cards = nullptr, *m_menu = nullptr, *m_titleRow = nullptr, *m_pastePopover = nullptr;

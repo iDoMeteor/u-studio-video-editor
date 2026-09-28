@@ -62,6 +62,13 @@ class Catalog
     // One service's health result arrived (its badge, whether it's usable).
     core::Signal<const std::string &> healthChanged;
 
+    // The adjustment block the FX lane selected (the shell's selection has
+    // no blocks yet): the Rack edits its effects. Null when none.
+    std::optional<core::AdjustmentBlockId> selectedBlock;
+    // After selectedBlock changes. Process-wide, like the clipboard: with
+    // two windows, a block selected in one shows in both Racks.
+    core::Signal<> blockSelected;
+
   private:
     std::shared_ptr<const EffectRegistry> m_registry;
     HealthFile m_health;

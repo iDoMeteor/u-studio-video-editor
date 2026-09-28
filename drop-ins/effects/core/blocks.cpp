@@ -1,6 +1,7 @@
 #include "core/blocks.h"
 
 #include "core/model/animation.h"
+#include "core/model/effect_native.h"
 
 #include <algorithm>
 #include <set>
@@ -24,54 +25,6 @@ std::string blockProblem(const core::Model &model, const core::AdjustmentBlock &
             return "overlaps another block on its lane";
     }
     return {};
-}
-
-namespace {
-
-// The fade envelope at `frame` of a block `length` long.
-double envelope(const core::AdjustmentBlock &block, double frame)
-{
-    double gain = 1.0;
-    const double last = static_cast<double>(block.length - 1);
-    if (block.fadeIn && block.fadeIn->length > 0)
-        gain = std::min(gain, frame / static_cast<double>(block.fadeIn->length));
-    if (block.fadeOut && block.fadeOut->length > 0)
-        gain = std::min(gain, (last - frame) / static_cast<double>(block.fadeOut->length));
-    return std::clamp(gain, 0.0, 1.0);
-}
-
-} // namespace
-
-std::vector<core::Effect> blockEffects(const core::AdjustmentBlock &block)
-{
-    std::vector<core::Effect> effects = block.effects;
-    const bool fadeIn = block.fadeIn && block.fadeIn->length > 0;
-    const bool fadeOut = block.fadeOut && block.fadeOut->length > 0;
-    if (!fadeIn && !fadeOut)
-        return effects;
-    // Keys where the envelope bends and wherever the mix had its own, each
-    // the mix there times the envelope (linear between: the envelope is
-    // linear, and the mix's own keys are kept as points).
-    const core::FrameIndex last = block.length - 1;
-    for (core::Effect &effect : effects) {
-        std::set<core::FrameIndex> at{0, last};
-        if (fadeIn)
-            at.insert(std::min(block.fadeIn->length, last));
-        if (fadeOut)
-            at.insert(std::max<core::FrameIndex>(last - block.fadeOut->length, 0));
-        for (const core::Keyframe &key : effect.mix.keyframes)
-            if (key.at >= 0 && key.at <= last)
-                at.insert(key.at);
-        std::vector<core::Keyframe> keys;
-        for (core::FrameIndex frame : at) {
-            const double mix = effect.mix.keyframes.empty()
-                                   ? effect.mix.value
-                                   : core::easedValue(effect.mix.keyframes, static_cast<double>(frame));
-            keys.push_back({frame, mix * envelope(block, static_cast<double>(frame)), core::Easing::Linear});
-        }
-        effect.mix.keyframes = std::move(keys);
-    }
-    return effects;
 }
 
 bool AddAdjustmentBlock::apply(core::Model &model)

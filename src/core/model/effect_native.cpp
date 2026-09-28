@@ -2,7 +2,9 @@
 
 #include "core/model/animation.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <set>
 
 namespace ustudio::core {
 
@@ -99,6 +101,54 @@ std::vector<NativeFilter> nativeFilters(const Effect &effect, FrameIndex offset,
         for (NativeFilter &filter : filters)
             filter.properties.emplace_back("disable", "1");
     return filters;
+}
+
+namespace {
+
+// The fade envelope at `frame` of a block `length` long.
+double envelope(const AdjustmentBlock &block, double frame)
+{
+    double gain = 1.0;
+    const double last = static_cast<double>(block.length - 1);
+    if (block.fadeIn && block.fadeIn->length > 0)
+        gain = std::min(gain, frame / static_cast<double>(block.fadeIn->length));
+    if (block.fadeOut && block.fadeOut->length > 0)
+        gain = std::min(gain, (last - frame) / static_cast<double>(block.fadeOut->length));
+    return std::clamp(gain, 0.0, 1.0);
+}
+
+} // namespace
+
+std::vector<Effect> blockEffects(const AdjustmentBlock &block)
+{
+    std::vector<Effect> effects = block.effects;
+    const bool fadeIn = block.fadeIn && block.fadeIn->length > 0;
+    const bool fadeOut = block.fadeOut && block.fadeOut->length > 0;
+    if (!fadeIn && !fadeOut)
+        return effects;
+    // Keys where the envelope bends and wherever the mix had its own, each
+    // the mix there times the envelope (linear between: the envelope is
+    // linear, and the mix's own keys are kept as points).
+    const FrameIndex last = block.length - 1;
+    for (Effect &effect : effects) {
+        std::set<FrameIndex> at{0, last};
+        if (fadeIn)
+            at.insert(std::min(block.fadeIn->length, last));
+        if (fadeOut)
+            at.insert(std::max<FrameIndex>(last - block.fadeOut->length, 0));
+        for (const Keyframe &key : effect.mix.keyframes)
+            if (key.at >= 0 && key.at <= last)
+                at.insert(key.at);
+        std::vector<Keyframe> keys;
+        for (FrameIndex frame : at) {
+            const double mix = effect.mix.keyframes.empty()
+                                   ? effect.mix.value
+                                   : easedValue(effect.mix.keyframes, static_cast<double>(frame));
+            keys.push_back({frame, mix * envelope(block, static_cast<double>(frame)), Easing::Linear});
+        }
+        effect.mix.keyframes = std::move(keys);
+    }
+    return effects;
 }
 
 } // namespace ustudio::core

@@ -424,10 +424,13 @@ class Browser
         return top;
     }
 
-    // Every selected clip, else the whole sequence.
+    // The adjustment block the FX lane selected, else every selected clip,
+    // else the whole sequence.
     std::vector<core::Model::EffectTarget> applyTargets() const
     {
         const core::Model &model = m_host.model();
+        if (m_catalog.selectedBlock && model.hasAdjustmentBlock(*m_catalog.selectedBlock))
+            return {core::Model::EffectTarget::adjustmentBlock(*m_catalog.selectedBlock)};
         std::vector<core::Model::EffectTarget> targets;
         for (core::ClipId id : m_host.currentSelection().clips)
             if (model.hasClip(id))

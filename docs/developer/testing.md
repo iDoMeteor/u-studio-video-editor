@@ -101,10 +101,13 @@ ramps it in 40 quick changes while playing (`ramp.py`), and checks that one
 performance was recorded and saved as fewer keys than frames; then **C**
 opens the clip's curve lanes, the last keyframe's dot (found on the
 screenshot, `keydot.py`) is dragged, and the saved curve must have moved
-one key and come back with one undo. It also checks an audition leaves the live graph's rebuild
+one key and come back with one undo. Last, a drag across the FX lane
+draws an adjustment block, Glow added from the Browser must land on the
+block, and the block's right end (its cyan outline on the screenshot,
+`rightmost.py`) is dragged longer and undone. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
-`value.py`, `ramp.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
+`value.py`, `ramp.py`, `rightmost.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
 spin button, set an entry by name, select a Browser tile, find a widget's
 centre, drag slowly enough for XDND, and hold a key, over AT-SPI (the main window
 reports no focus without a window manager). The build needs `-Ddropin_effects`.

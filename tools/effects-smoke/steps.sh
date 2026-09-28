@@ -223,11 +223,12 @@ check "C shows curve lanes" grep -q "curve lanes shown: [1-9]" "$OUT/app.log"
 # Drag the last keyframe right and down: same number of keys, one moved.
 d act save; sleep 2
 BEFORE=$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)
-KEY=$(python3 "$SMOKE_HERE/keydot.py" "$OUT/17-curve-lanes.png" 2>>"$OUT/helpers.err")
+KEY=$(python3 "$SMOKE_HERE/rightmost.py" "$OUT/17-curve-lanes.png" "#ff2bd6" 2>>"$OUT/helpers.err")
 echo "key at $KEY" >>"$OUT/steps.log"
 if [ -n "$KEY" ]; then
+    # The dot is 7 px across: its centre is 3 px in from its rightmost pixel.
     set -- $KEY
-    python3 "$SMOKE_HERE/drag.py" "$1" "$2" "$(($1 + 40))" "$(($2 + 14))" 2>>"$OUT/helpers.err"
+    python3 "$SMOKE_HERE/drag.py" "$(($1 - 3))" "$2" "$(($1 + 37))" "$(($2 + 14))" 2>>"$OUT/helpers.err"
 fi
 sleep 1.5
 shot 18-key-dragged
@@ -240,6 +241,46 @@ check "a dragged keyframe moves (same number of keys)" moved
 d act undo; sleep 1
 d act save; sleep 2
 check "the drag is one undo step" [ "$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)" = "$BEFORE" ]
+
+
+# The FX lane (FX4): a thin lane above the tracks. Drawing across it adds
+# an adjustment block, selected for the Rack; an effect added there goes
+# on the block; dragging its right end resizes it; undo takes that back.
+d click 900 900; sleep 0.5 # away from any hover tooltip
+python3 "$SMOKE_HERE/drag.py" 700 765 900 765 2>>"$OUT/helpers.err"; sleep 1.5
+shot 19-fx-block
+d act save; sleep 2
+check "drawing on the FX lane adds a block" grep -q 'ustudio:adjustment_block_id' "$OUT/smoke.ustudio"
+check "the Rack shows the block" grep -q "adjustment block drawn" "$OUT/app.log"
+d act effects-browser; sleep 1
+e "Search effects" glow; sleep 3
+d press "Search effects"; sleep 0.3; d enter; sleep 2
+d press "Effects" exact; sleep 1
+shot 20-block-effect
+d act save; sleep 2
+on_block() { python3 - "$OUT/smoke.ustudio" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+block = re.search(r'<playlist id="adjustment_[0-9]+">(.*?)</playlist>', text, re.S)
+sys.exit(0 if block and "frei0r.glow" in block.group(1) else 1)
+PY
+}
+check "an effect added with the block selected goes on the block" on_block
+LENGTH=$(grep -o '<property name="ustudio:length">[0-9]*' "$OUT/smoke.ustudio" | head -1 | grep -o '[0-9]*$')
+# The selected block's right end: its cyan outline in the FX lane.
+EDGE=$(python3 "$SMOKE_HERE/rightmost.py" "$OUT/20-block-effect.png" "#19e3ff" 752 778 1500 10 2>>"$OUT/helpers.err")
+echo "block edge at $EDGE" >>"$OUT/steps.log"
+if [ -n "$EDGE" ]; then
+    set -- $EDGE
+    python3 "$SMOKE_HERE/drag.py" "$(($1 - 1))" 765 "$(($1 + 100))" 765 2>>"$OUT/helpers.err"
+fi
+sleep 1.5
+d act save; sleep 2
+LONGER=$(grep -o '<property name="ustudio:length">[0-9]*' "$OUT/smoke.ustudio" | head -1 | grep -o '[0-9]*$')
+echo "block length $LENGTH -> $LONGER" >>"$OUT/steps.log"
+check "dragging the block's end lengthens it" [ "${LONGER:-0}" -gt "${LENGTH:-0}" ]
+d act undo; sleep 1; d act save; sleep 2
+check "undo gives the old length back" grep -q "<property name=\"ustudio:length\">$LENGTH<" "$OUT/smoke.ustudio"
 
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null

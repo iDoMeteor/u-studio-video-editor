@@ -51,7 +51,7 @@ effects_app_tokens_h = custom_target(
   command: [find_program('python3'), meson.project_source_root() / 'tools' / 'gen_tokens.py', '@INPUT@', '@OUTPUT@'],
 )
 effects_app_sources = files('app/browser.cpp', 'app/catalog.cpp', 'app/compare.cpp', 'app/health_scan.cpp',
-                              'app/rack.cpp', 'app/transitions_page.cpp', 'app/curve_lanes.cpp') + [effects_app_tokens_h]
+                              'app/rack.cpp', 'app/transitions_page.cpp', 'app/curve_lanes.cpp', 'app/fx_lane.cpp') + [effects_app_tokens_h]
 effects_dropin_sources = files('register.cpp') + effects_engine_sources + effects_app_sources
 
 if get_option('dropin_effects') == 'module'
