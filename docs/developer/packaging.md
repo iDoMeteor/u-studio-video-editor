@@ -308,6 +308,11 @@ The titles extension is
   extension strips its binaries instead (0.73.1's bundle was 19 MB with
   debug info, 0.9 MB stripped). `.dynsym` stays, so the loader's symbols
   resolve as before. Any future drop-in extension needs the same.
+- **ThorVG 1.0.6** (animated Lottie layers, ADR-021) is built static
+  inside the extension without expressions (no JavaScript engine,
+  `-Dextra=`) and without file access (`-Dfile=false`); those flags are the
+  second line of defence behind the drop-in's own validator. Check a build
+  with `grep -c jerry` on the shipped binaries: it must find nothing.
 - `-Dtitles_share=disabled`: `u-studio-share`, the template sharing
   helper, needs network access, which the app's sandbox doesn't have. How
   it ships (its own app ID) is an open question. Without it installed
