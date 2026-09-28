@@ -58,6 +58,8 @@ Two checks guard every package, Flatpak or Snap:
      - the export runs without a CPU fallback.
 
      `SMOKE_GPU=0` skips these on a machine without a usable GPU.
+     The Flatpak starts with GPU acceleration off (below), so these
+     checks switch it on first (the `gpu-acceleration` GSettings key).
   5. Split, undo, redo, save; reopen the saved project.
   6. Render with the High quality profile, and ffprobe the output.
   7. Make a 4K proxy; import a 30-image sequence.
@@ -349,3 +351,16 @@ wget) with 403, so check a published URL with a browser User-Agent:
 See also [v2 doc 11: Build, test, CI, packaging](../plans/v2/11-build-test-ci-packaging.md).
 GitHub Actions CI is parked (manual dispatch only) until the owner turns
 it back on.
+
+## GPU acceleration's default
+
+The Flatpak builds with `-Dgpu_acceleration_default=off` (owner decision,
+2026-09-28): meson then installs
+`data/gsettings-overrides/ustudio-gpu-off.gschema.override` next to the
+schema, and `glib-compile-schemas` folds it into the `gpu-acceleration`
+key's default. A vendor override changes the default only: a user who
+switches GPU acceleration on has that value saved, and keeps it through
+updates; one who never touched it starts with it off. A build with the
+option at `auto` (the default, as for dev builds) starts with it on where
+the startup probe passes ([ADR-019](../plans/v2/adr/019-gpu-acceleration.md)).
+

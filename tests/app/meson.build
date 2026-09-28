@@ -62,6 +62,34 @@ test(
   depends: ustudio_gschemas_compiled,
 )
 
+# ADR-019: the schema compiled with the GPU-off vendor override, as a
+# -Dgpu_acceleration_default=off install does, in a directory of its own.
+gpu_off_schema_dir = meson.current_build_dir() / 'gpu-off-schemas'
+gpu_off_schemas = custom_target(
+  'gpu-off-schemas',
+  input: [meson.project_source_root() / 'data' / 'com.ustudio.VideoEditor.gschema.xml',
+          meson.project_source_root() / 'data' / 'gsettings-overrides' / 'ustudio-gpu-off.gschema.override'],
+  output: 'gpu-off-schemas.stamp',
+  command: [find_program('sh'), '-c',
+            'mkdir -p "$1" && cp "$2" "$3" "$1"/ && glib-compile-schemas "$1" && touch "$4"',
+            'sh', gpu_off_schema_dir, '@INPUT0@', '@INPUT1@', '@OUTPUT@'],
+)
+test_settings_gpu_off_exe = executable(
+  'test_settings_gpu_off',
+  files('test_settings_gpu_off.cpp'),
+  dependencies: [doctest_dep, app_settings_dep],
+  install: false,
+)
+test(
+  'app-settings-gpu-off',
+  test_settings_gpu_off_exe,
+  env: {
+    'GSETTINGS_SCHEMA_DIR': gpu_off_schema_dir,
+    'GSETTINGS_BACKEND': 'memory',
+  },
+  depends: gpu_off_schemas,
+)
+
 test_settings_missing_schema_exe = executable(
   'test_settings_missing_schema',
   files('test_settings_missing_schema.cpp'),

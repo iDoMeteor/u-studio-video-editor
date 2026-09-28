@@ -23,6 +23,7 @@ TEST_CASE("Settings: schema found -- defaults match the gschema, get/set round-t
     CHECK(settings.shuttleMaxSpeed() == doctest::Approx(Settings::kDefaultShuttleMaxSpeed));
     CHECK(settings.recentProjectsMax() == Settings::kDefaultRecentProjectsMax);
     CHECK(settings.workerThreads() == Settings::kDefaultWorkerThreads);
+    CHECK(settings.gpuAcceleration()); // "auto": the dev builds' default (ADR-019)
 
     settings.setAutosaveDelayMinutes(7);
     CHECK(settings.autosaveDelayMinutes() == 7);

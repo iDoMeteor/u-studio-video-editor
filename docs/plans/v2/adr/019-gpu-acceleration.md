@@ -84,7 +84,11 @@ means "on where the probe passes") and **Hardware video decoding**
 (Automatic / Off; Automatic means "on while the GPU pipeline is": the
 measurements show it costs frames on the CPU path; VE Strategist,
 2026-09-27). Both land in G2. The CPU path stays the reference and the fallback; no
-feature may exist only on the GPU path.
+feature may exist only on the GPU path. **Packaged builds may start with it
+off** (owner, 2026-09-28, after the create_fbo crashes: "set gpu off in the
+flatpaks but i'll leave it on for myself"): `-Dgpu_acceleration_default=off`
+installs a GSettings vendor override, so the Flatpak starts Off while a
+user's saved choice wins (docs/developer/packaging.md).
 
 **2. The GL context is ours, created behind `src/platform/`** (ADR-017):
 `platform::GlContext` (create in a share group, make current on the
