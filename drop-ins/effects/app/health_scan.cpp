@@ -69,7 +69,8 @@ int familyRank(const std::string &family)
 struct Sink
 {
     std::mutex mutex;
-    HealthScan::Progress progress; // cleared when the scan is destroyed
+    HealthScan::Progress progress;           // cleared when the scan is destroyed
+    HealthScan::RegistryReady registryReady; // likewise
 };
 
 struct Posted
@@ -90,6 +91,25 @@ gboolean deliver(gpointer data)
     }
     if (progress)
         progress(posted->service, posted->record, posted->finished);
+    return G_SOURCE_REMOVE;
+}
+
+struct PostedRegistry
+{
+    std::shared_ptr<Sink> sink;
+    std::shared_ptr<const EffectRegistry> registry;
+};
+
+gboolean deliverRegistry(gpointer data)
+{
+    std::unique_ptr<PostedRegistry> posted(static_cast<PostedRegistry *>(data));
+    HealthScan::RegistryReady ready;
+    {
+        std::lock_guard lock(posted->sink->mutex);
+        ready = posted->sink->registryReady;
+    }
+    if (ready)
+        ready(posted->registry);
     return G_SOURCE_REMOVE;
 }
 
@@ -136,6 +156,7 @@ struct HealthScan::Impl
         {
             std::lock_guard lock(sink->mutex);
             sink->progress = nullptr;
+            sink->registryReady = nullptr;
         }
         stopping = true;
         g_main_context_wakeup(context);
@@ -248,6 +269,8 @@ struct HealthScan::Impl
 
     void enqueueFrom(const EffectRegistry &registry)
     {
+        g_main_context_invoke_full(mainContext, G_PRIORITY_DEFAULT_IDLE, &deliverRegistry,
+                                   new PostedRegistry{sink, std::make_shared<const EffectRegistry>(registry)}, nullptr);
         std::vector<const EffectDescriptor *> offered;
         for (const EffectDescriptor &d : registry.descriptors())
             if (!d.hidden && d.unstable.empty())
@@ -362,10 +385,12 @@ struct HealthScan::Impl
     }
 };
 
-HealthScan::HealthScan(HealthScanOptions options, Progress progress) : m_impl(std::make_unique<Impl>())
+HealthScan::HealthScan(HealthScanOptions options, Progress progress, RegistryReady registryReady)
+    : m_impl(std::make_unique<Impl>())
 {
     m_impl->options = std::move(options);
     m_impl->sink->progress = std::move(progress);
+    m_impl->sink->registryReady = std::move(registryReady);
 }
 
 HealthScan::~HealthScan() = default;
@@ -406,7 +431,7 @@ std::string renderToolPath()
     return out;
 }
 
-void startEditorHealthScan()
+void startEditorHealthScan(HealthScan::Progress progress, HealthScan::RegistryReady registryReady)
 {
     const std::string tool = renderToolPath();
     if (tool.empty()) {
@@ -422,7 +447,7 @@ void startEditorHealthScan()
     options.fingerprint.clear();
     // For the process: stopped (its children killed) when the program exits.
     static std::unique_ptr<HealthScan> scan;
-    scan = std::make_unique<HealthScan>(std::move(options), nullptr);
+    scan = std::make_unique<HealthScan>(std::move(options), std::move(progress), std::move(registryReady));
     scan->start();
 }
 

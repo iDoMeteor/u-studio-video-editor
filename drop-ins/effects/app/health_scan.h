@@ -37,6 +37,8 @@ struct HealthScanOptions
     std::vector<std::pair<std::string, std::string>> environment;
 };
 
+class EffectRegistry;
+
 class HealthScan
 {
   public:
@@ -44,7 +46,11 @@ class HealthScan
     // never after the scan is destroyed.
     using Progress = std::function<void(const std::string &service, const HealthRecord &record, bool finished)>;
 
-    HealthScan(HealthScanOptions options, Progress progress);
+    // The registry, once the scan has it (from the cache or the render
+    // tool), on the main loop; never after the scan is destroyed.
+    using RegistryReady = std::function<void(std::shared_ptr<const EffectRegistry> registry)>;
+
+    HealthScan(HealthScanOptions options, Progress progress, RegistryReady registryReady = nullptr);
     ~HealthScan(); // stops the scan and kills any children still running
     HealthScan(const HealthScan &) = delete;
     HealthScan &operator=(const HealthScan &) = delete;
@@ -62,7 +68,8 @@ class HealthScan
 std::string renderToolPath();
 
 // The editor's scan, started once the window exists (register.cpp's shell
-// extension). Quarantines take effect at the next graph build.
-void startEditorHealthScan();
+// extension). Quarantines take effect at the next graph build. The
+// callbacks run on the main loop (the Rack's badges and effect list).
+void startEditorHealthScan(HealthScan::Progress progress, HealthScan::RegistryReady registryReady);
 
 } // namespace ustudio::effects

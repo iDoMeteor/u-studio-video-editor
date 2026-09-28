@@ -20,7 +20,7 @@ effects_test_engine = executable(
   cpp_args: effects_engine_args,
   include_directories: [src_inc, effects_inc],
   dependencies: [effects_doctest_dep, effects_core_dep, libustudio_engine_dep, libustudio_dropins_dep,
-                 libustudio_platform_dep, glib_dep, gio_dep],
+                 libustudio_platform_dep, glib_dep, gio_dep, gtk4_dep],
   install: false,
 )
 test('effects-engine', effects_test_engine, timeout: 300)
@@ -59,7 +59,7 @@ if get_option('render_tool')
     cpp_args: effects_scan_args,
     include_directories: [src_inc, effects_inc],
     dependencies: [effects_doctest_dep, effects_core_dep, libustudio_engine_dep, libustudio_platform_dep, glib_dep,
-                   gio_dep],
+                   gio_dep, gtk4_dep],
     install: false,
   )
   test('effects-scan', effects_test_scan, depends: effects_broken_plugins, timeout: 180)
