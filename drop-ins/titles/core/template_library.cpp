@@ -222,6 +222,17 @@ std::expected<TitleDocument, std::string> templateDocument(const TemplateInfo &i
         return doc;
     }
     const fs::path target = core::pathFromUtf8(titlePath);
+    // A pack's template: its fonts go beside the title (fonts/), where the
+    // editor's producer and the designer look for a title's own fonts.
+    std::error_code ec;
+    const fs::path packFolder = core::pathFromUtf8(info.folder).parent_path();
+    if (!info.folder.empty() && fs::is_regular_file(packFolder / "pack.xml", ec) &&
+        fs::is_directory(packFolder / "fonts", ec)) {
+        fs::create_directories(target.parent_path() / "fonts", ec);
+        for (const fs::directory_entry &font : fs::directory_iterator(packFolder / "fonts", ec))
+            if (font.is_regular_file(ec) && !fs::exists(target.parent_path() / "fonts" / font.path().filename(), ec))
+                fs::copy_file(font.path(), target.parent_path() / "fonts" / font.path().filename(), ec);
+    }
     const std::string images = core::utf8String(target.stem()) + " images";
     if (auto taken = takePictures(doc, target.parent_path() / core::pathFromUtf8(images), images + "/"); !taken)
         return std::unexpected(taken.error());

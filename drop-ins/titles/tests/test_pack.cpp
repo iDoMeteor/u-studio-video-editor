@@ -292,6 +292,12 @@ TEST_CASE("install, the version rules, remove; nothing written for a refused pac
     REQUIRE(templates.size() == 1);
     CHECK(templates[0].name == "Guest");
     CHECK_FALSE(templates[0].preview.empty());
+    // A title made from it gets the pack's fonts beside it.
+    const fs::path titles = scratch() / "titles";
+    fs::create_directories(titles);
+    REQUIRE(newTitleFromTemplate(templates[0], core::utf8String(titles / "Guest 1.ustitle")).has_value());
+    CHECK(fs::exists(titles / "fonts" / "Anton-Regular.ttf"));
+    CHECK(fs::exists(titles / "Guest 1 images" / "logo.png"));
 
     CHECK_FALSE(pack::install(*one, core::utf8String(library), pack::Replace::IfNewer).has_value()); // same version
     CHECK_FALSE(pack::install(*one, core::utf8String(library), pack::Replace::Never).has_value());
