@@ -83,6 +83,22 @@ if [ "$SMOKE_GPU" = 1 ]; then
     fi
 fi
 
+# --- 0c: the Flatpak starts with GPU acceleration off (a vendor override,
+# docs/developer/packaging.md "GPU acceleration's default"). This run's HOME
+# is fresh, so nothing is saved yet and the key reads its default. The GPU
+# checks below then switch it on, as a user would.
+if [ "$SMOKE_RUNNER" = flatpak ]; then
+    gsettings_in() { flatpak run --user --no-documents-portal --command=gsettings "$SMOKE_APP_ID" "$@" 2>&1; }
+    gpu_default=$(gsettings_in get com.ustudio.VideoEditor gpu-acceleration)
+    echo "  gpu-acceleration on a fresh install: $gpu_default"
+    check "a fresh install starts with GPU acceleration off" test "$gpu_default" = false
+    if [ "$SMOKE_GPU" = 1 ]; then
+        gsettings_in set com.ustudio.VideoEditor gpu-acceleration true
+        check "GPU acceleration switched on for the GPU checks" \
+            test "$(gsettings_in get com.ustudio.VideoEditor gpu-acceleration)" = true
+    fi
+fi
+
 # --- 1: launch
 d launch $LAUNCH
 sleep 2
