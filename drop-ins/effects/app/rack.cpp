@@ -268,10 +268,21 @@ class Rack
 
     void onArmToggled(Control &control)
     {
-        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(control.arm)))
+        const bool armed = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(control.arm));
+        if (armed)
             m_armed.insert(keyOf(control));
         else
             m_armed.erase(keyOf(control));
+        showArmed(control, armed);
+    }
+
+    // Armed reads as a record button (red), not just a pressed one.
+    static void showArmed(Control &control, bool armed)
+    {
+        if (armed)
+            gtk_widget_add_css_class(control.arm, "destructive-action");
+        else
+            gtk_widget_remove_css_class(control.arm, "destructive-action");
     }
 
     void record(Control &control)
@@ -1281,6 +1292,7 @@ class Rack
                                            -1);
             m_host.setTooltip(control.arm, "effects.key-arm");
             gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(control.arm), isArmed(control));
+            showArmed(control, isArmed(control));
             g_signal_connect(control.arm, "toggled", G_CALLBACK(&onArmTrampoline), &control);
             gtk_box_append(GTK_BOX(keys), control.arm);
         }

@@ -179,6 +179,42 @@ d act undo; sleep 1
 d act save; sleep 2
 check "undo takes the wipe back" saved_lacks ">wipe.left<"
 
+
+# Touch-record (FX4): the first clip's Blur armed, the value moved in a
+# steady ramp while playing; when the hand stops, the keys over what was
+# performed are thinned, fewer than the frames they span.
+d act seek-home; sleep 0.5
+d act select-next-clip; sleep 1
+d press "Effects" exact; sleep 1
+ARM=$(python3 "$SMOKE_HERE/where.py" "Touch-record" 1 2>>"$OUT/helpers.err")
+echo "arm at $ARM" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+[ -n "$ARM" ] && d click $ARM; sleep 0.5
+shot 15-armed
+d act play-pause; sleep 0.3
+python3 "$SMOKE_HERE/ramp.py" 0 0.1 0.9 40 0.05 2>>"$OUT/helpers.err"
+d act play-pause; sleep 2
+shot 16-recorded
+d act save; sleep 2
+# One recording of the whole ramp, not one per value.
+check "touch-record took the ramp as one performance" \
+    [ "$(grep -o 'touch-record: [0-9]* values recorded' "$OUT/app.log" | tail -1 | grep -o '[0-9]*')" -ge 20 ]
+check "a recorded curve: fewer keys than frames" python3 - "$OUT/smoke.ustudio" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+curves = [m for m in re.findall(r'<property name="0">([^<]*)</property>', text) if ";" in m]
+best = None
+for curve in curves:
+    keys = [int(k.split("=")[0]) for k in curve.split(";")]
+    span = max(keys) - min(keys) + 1
+    if len(keys) >= 3 and (best is None or span > best[1]):
+        best = (len(keys), span, curve)
+print(best)
+# Fewer keys than frames (doc 15's FX4 acceptance), with room to spare:
+# under Xvfb the frames come unevenly, so the ramp isn't quite straight.
+sys.exit(0 if best and best[0] * 2 < best[1] else 1)
+PY
+
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
 echo "RESULT: $FAILED failed"

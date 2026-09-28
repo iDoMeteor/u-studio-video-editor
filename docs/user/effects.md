@@ -86,6 +86,21 @@ moves to the next point: **Linear** (steady), **Smooth**, **Ease in**,
 **Ease out**, **Snap**, **Bounce**, **Elastic**, or **Hold** (it stays put,
 then jumps), plus every other curve in the list.
 
+### Recording a change as you play (touch-record)
+
+For a change that follows the music or the action, perform it instead of
+pinning points one by one:
+
+1. Click the **record** button (the dot) beside the setting: it turns red.
+2. Play, and move the setting's slider while it plays.
+3. Let go. U Stu keeps just enough keyframes to follow what you did, so
+   the curve stays easy to adjust afterwards. It replaces the keyframes
+   over the stretch you recorded; the rest stay.
+
+One performance is one undo step. Click the red button again to stop
+recording that setting. Recording works without playing too: each
+position of the playhead you move the slider at is recorded.
+
 ## Several clips at once
 
 Select several clips (click one, then **Ctrl**-click or **Shift**-click
