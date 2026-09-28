@@ -53,6 +53,7 @@ titles_package = static_library(
   include_directories: titles_inc,
   cpp_args: titles_package_args,
   dependencies: [titles_core_dep, glib_dep, libxml2_dep, titles_archive_dep],
+  pic: true,
   install: false,
 )
 titles_package_dep = declare_dependency(
@@ -69,17 +70,26 @@ titles_json_dep = dependency('json-glib-1.0', required: false)
 titles_secret_dep = dependency('libsecret-1', required: false)
 titles_share_enabled = titles_soup_dep.found() and titles_json_dep.found() and titles_archive_dep.found()
 if titles_share_enabled
+  titles_share_args = titles_secret_dep.found() ? ['-DTITLES_HAVE_LIBSECRET'] : []
   titles_share = static_library(
     'ustudio_titles_share',
-    files('share/client.cpp'),
+    files('share/client.cpp', 'share/handoff.cpp', 'share/signin.cpp'),
+    cpp_args: titles_share_args,
     include_directories: [src_inc, titles_inc],
-    dependencies: [titles_package_dep, titles_soup_dep, titles_json_dep],
+    dependencies: [titles_package_dep, titles_soup_dep, titles_json_dep, titles_secret_dep, gio_dep],
     install: false,
   )
   titles_share_dep = declare_dependency(
     link_with: titles_share,
     include_directories: [src_inc, titles_inc],
-    dependencies: [titles_package_dep, titles_soup_dep, titles_json_dep],
+    dependencies: [titles_package_dep, titles_soup_dep, titles_json_dep, titles_secret_dep, gio_dep],
+  )
+  # The helper: its own program (its own Flatpak app, com.ustudio.Share).
+  titles_share_exe = executable(
+    'u-studio-share',
+    files('share/main.cpp'),
+    dependencies: [titles_share_dep, libustudio_core_dep, gtk4_dep, adwaita_dep],
+    install: true,
   )
 endif
 
@@ -117,16 +127,16 @@ if get_option('dropin_titles') == 'module'
   shared_module(
     'ustudio-dropin-titles',
     titles_dropin_sources,
-    cpp_args: titles_register_args + ['-DTITLES_DROPIN_MODULE'],
     gnu_symbol_visibility: 'hidden',
-    link_with: titles_core,
+    link_with: [titles_core, titles_package],
     include_directories: [src_inc, titles_inc],
     dependencies: [
       libustudio_engine_dep.partial_dependency(compile_args: true, includes: true),
       libustudio_dropins_dep.partial_dependency(compile_args: true, includes: true),
       libustudio_platform_dep.partial_dependency(compile_args: true, includes: true),
-      mltpp_dep, mlt_dep, gtk4_dep, libxml2_dep,
+      mltpp_dep, mlt_dep, gtk4_dep, libxml2_dep, titles_archive_dep,
     ],
+    cpp_args: titles_register_args + ['-DTITLES_DROPIN_MODULE'] + titles_package_args,
     install: true,
     install_dir: dropin_install_dir,
   )
@@ -136,7 +146,8 @@ else
     titles_dropin_sources,
     cpp_args: titles_register_args,
     include_directories: [src_inc, titles_inc],
-    dependencies: [titles_core_dep, libustudio_engine_dep, libustudio_dropins_dep, libustudio_platform_dep, gtk4_dep],
+    dependencies: [titles_core_dep, titles_package_dep, libustudio_engine_dep, libustudio_dropins_dep,
+                   libustudio_platform_dep, gtk4_dep],
     install: false,
   )
   dropin_titles_dep = declare_dependency(link_with: titles_builtin, dependencies: [titles_core_dep, gtk4_dep])

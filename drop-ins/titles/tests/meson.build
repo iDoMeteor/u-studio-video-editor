@@ -85,7 +85,8 @@ titles_test_shell = executable(
              '-DTITLES_APP_INSTALL_DIR="' + get_option('prefix') / get_option('bindir') + '"',
              '-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"'],
   include_directories: [src_inc, titles_inc],
-  dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, gtk4_dep],
+  dependencies: [titles_doctest_dep, titles_core_dep, titles_package_dep, libustudio_engine_dep,
+                 libustudio_platform_dep, gtk4_dep],
   install: false,
 )
 test('titles-shell', titles_test_shell, depends: titles_mlt_module, timeout: 120)

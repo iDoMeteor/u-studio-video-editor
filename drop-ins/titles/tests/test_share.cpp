@@ -9,6 +9,8 @@
 #include "core/media/utf8_path.h"
 #include "package/archive.h"
 #include "share/client.h"
+#include "share/handoff.h"
+#include "share/signin.h"
 
 #include <gio/gio.h>
 #include <libsoup/soup.h>
@@ -18,6 +20,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 
 using namespace ustudio;
 using namespace ustudio::titles;
@@ -219,5 +222,102 @@ TEST_CASE("sign in with PKCE, then publish; nothing publishes signed out")
     const std::string before = mock.requests();
     CHECK_FALSE(client.publish(core::utf8String(junk)).has_value());
     CHECK(mock.requests() == before);
+}
+
+namespace {
+
+// What a browser does with a URL: follows it once, no further redirects;
+// the status and the Location it points to.
+std::pair<unsigned, std::string> visit(const std::string &url)
+{
+    SoupSession *browser = soup_session_new();
+    SoupMessage *page = soup_message_new("GET", url.c_str());
+    soup_message_set_flags(page, SOUP_MESSAGE_NO_REDIRECT);
+    GBytes *body = soup_session_send_and_read(browser, page, nullptr, nullptr);
+    if (body)
+        g_bytes_unref(body);
+    const unsigned status = soup_message_get_status(page);
+    const char *location = soup_message_headers_get_one(soup_message_get_response_headers(page), "Location");
+    std::pair<unsigned, std::string> out{status, location ? location : ""};
+    g_object_unref(page);
+    g_object_unref(browser);
+    return out;
+}
+
+// Runs the main loop until `done`, at most ten seconds.
+void pump(const bool &done)
+{
+    const gint64 end = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+    while (!done && g_get_monotonic_time() < end)
+        g_main_context_iteration(nullptr, FALSE);
+}
+
+} // namespace
+
+TEST_CASE("the loopback sign-in takes the browser's redirect, only with its own state")
+{
+    Mock mock(seed());
+    share::LoopbackSignIn signIn;
+    REQUIRE(signIn.listening());
+    CHECK(signIn.redirectUri().starts_with("http://127.0.0.1:"));
+
+    bool done = false;
+    std::string code, error;
+    const std::string page = signIn.start(mock.base, [&](std::string c, std::string e) {
+        code = std::move(c);
+        error = std::move(e);
+        done = true;
+    });
+    // The browser: the sign-in page redirects to our listener, which it then
+    // visits (on a thread: the listener answers from this main loop).
+    const auto [status, location] = visit(page);
+    REQUIRE(status == 302);
+    REQUIRE(location.starts_with(signIn.redirectUri()));
+    std::thread browser([location] { visit(location); });
+    pump(done);
+    browser.join();
+    REQUIRE(done);
+    CHECK(error.empty());
+    REQUIRE_FALSE(code.empty());
+    share::Client client(mock.base);
+    auto tokens = client.exchangeCode(share::kClientId, code, signIn.pkce().verifier, signIn.redirectUri());
+    CHECK_MESSAGE(tokens.has_value(), (tokens ? "" : tokens.error()));
+
+    // Another sign-in, answered with the wrong state: refused.
+    done = false;
+    signIn.start(mock.base, [&](std::string c, std::string e) {
+        code = std::move(c);
+        error = std::move(e);
+        done = true;
+    });
+    std::thread forged([&] { visit(signIn.redirectUri() + "?code=stolen&state=not-ours"); });
+    pump(done);
+    forged.join();
+    REQUIRE(done);
+    CHECK(code.empty());
+    CHECK(error.find("isn't for this sign-in") != std::string::npos);
+
+    // Nothing waiting: a stray callback does nothing.
+    std::thread stray([&] { visit(signIn.redirectUri() + "?code=x&state=y"); });
+    done = false;
+    const gint64 end = g_get_monotonic_time() + G_USEC_PER_SEC / 2;
+    while (g_get_monotonic_time() < end)
+        g_main_context_iteration(nullptr, FALSE);
+    stray.join();
+    CHECK_FALSE(done);
+}
+
+TEST_CASE("hand-off without a running editor installs into the template library")
+{
+    Mock mock(seed());
+    // A scratch library, and an editor name nobody owns: this test must
+    // reach neither a running U Stu nor the user's templates.
+    const fs::path library = scratch() / "library";
+    auto path = share::Client(mock.base).download("test/smoke-pack", "1.0.0", core::utf8String(scratch() / "dl"));
+    REQUIRE(path.has_value());
+    auto result = share::handOff(*path, core::utf8String(library), "com.ustudio.Test.NoSuchEditor");
+    REQUIRE_MESSAGE(result.has_value(), (result ? "" : result.error()));
+    CHECK(result->find("Installed") != std::string::npos);
+    CHECK(fs::exists(library / "packs" / "test--smoke-pack" / "pack.xml"));
     fs::remove_all(scratch());
 }

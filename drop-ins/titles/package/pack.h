@@ -105,6 +105,10 @@ bool fontLicenceAllowed(std::string_view spdx);
 
 // --- The user's library ------------------------------------------------------
 
+// The user's template library, My Templates: $XDG_DATA_HOME/ustudio/titles/
+// templates. The designer, the editor and u-studio-share all use it.
+std::string templatesLibrary();
+
 // Packs install into <library>/packs/<folder>/, each template a folder of
 // its own (<folder>/<template>/template.ustitle, images/, preview.png) as
 // My Templates are, with the pack's fonts in <folder>/fonts/ and its

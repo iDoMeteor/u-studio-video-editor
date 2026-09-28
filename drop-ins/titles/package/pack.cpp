@@ -475,6 +475,11 @@ std::expected<ValidPack, std::string> validate(const std::vector<Entry> &entries
     return pack;
 }
 
+std::string templatesLibrary()
+{
+    return core::utf8String(core::pathFromUtf8(g_get_user_data_dir()) / "ustudio" / "titles" / "templates");
+}
+
 std::vector<InstalledPack> installedPacks(const std::string &library)
 {
     std::vector<InstalledPack> out;

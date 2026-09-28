@@ -371,7 +371,7 @@ std::string builtInTemplatesDir()
 
 std::string userTemplatesDir()
 {
-    return core::utf8String(core::pathFromUtf8(g_get_user_data_dir()) / "ustudio" / "titles" / "templates");
+    return pack::templatesLibrary();
 }
 
 void askTemplateName(GtkWidget *parent, const std::string &heading, const std::string &initial,

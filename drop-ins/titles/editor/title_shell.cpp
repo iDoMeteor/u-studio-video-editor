@@ -7,6 +7,7 @@
 #include "core/title_xml.h"
 #include "engine/backdrop.h"
 #include "jobs.h"
+#include "package/archive.h"
 #include "title_bake.h"
 #include "title_launch.h"
 #include "title_page.h"
@@ -23,7 +24,6 @@
 #include <mutex>
 #include <set>
 #include <thread>
-
 
 namespace ustudio::titles {
 
@@ -238,6 +238,20 @@ void onOpenTitles(GSimpleAction *, GVariant *, gpointer target)
                                   : "Couldn't open U Stu Titles: " + error);
 }
 
+// app.install-template-pack(s): a pack handed over by u-studio-share (ADR-020)
+// installs into My Templates. Any program of the user's session may call
+// it: the pack is validated in full before anything is written, like one
+// opened by hand.
+void onInstallTemplatePack(GSimpleAction *, GVariant *parameter, gpointer target)
+{
+    auto &host = *static_cast<app::ShellHost *>(target);
+    const std::string path = g_variant_get_string(parameter, nullptr);
+    auto installed = pack::openPackage(path, pack::templatesLibrary(), pack::Replace::IfNewer);
+    host.showStatus(installed
+                        ? "Installed the template pack “" + installed->manifest.title + "”: New Title's gallery has it."
+                        : "Couldn't install the template pack: " + installed.error());
+}
+
 // Bake Title (the action): the first selected title clip.
 void onBakeTitle(GSimpleAction *, GVariant *, gpointer target)
 {
@@ -445,6 +459,15 @@ void extendShell(app::ShellHost &host)
     watcher.sync();
     host.projectChanged().connect([] { watcher.sync(); });
     addTitlePage(host);
+
+    // What u-studio-share calls to hand over a downloaded pack.
+    if (GApplication *application = g_application_get_default();
+        application && !g_action_map_lookup_action(G_ACTION_MAP(application), "install-template-pack")) {
+        GSimpleAction *install = g_simple_action_new("install-template-pack", G_VARIANT_TYPE_STRING);
+        g_signal_connect(install, "activate", G_CALLBACK(onInstallTemplatePack), &host);
+        g_action_map_add_action(G_ACTION_MAP(application), G_ACTION(install));
+        g_object_unref(install);
+    }
 
     // The header's "T", between Render… and Settings: only with this
     // drop-in, so without it there's no button and no gap. Its icon is in
