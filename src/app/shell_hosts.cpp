@@ -135,6 +135,11 @@ void AppWindow::addActions(const std::vector<ActionSpec> &specs, gpointer target
     }
 }
 
+void AppWindow::addHeaderButton(GtkWidget *button)
+{
+    gtk_box_insert_child_after(GTK_BOX(m_appHeaderGroup), button, gtk_widget_get_prev_sibling(m_settingsButton));
+}
+
 void AppWindow::addHints(const std::vector<HintSpec> &hints)
 {
     registerHints(hints);

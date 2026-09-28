@@ -211,3 +211,11 @@ Cairo 1.18, fontconfig 2.17):
 - **A drop-in's shortcut without Ctrl, Alt or Super** (Shift+T) joins the
   editor's single-key guard, so it never fires while a text field has
   focus.
+- **The header's "T"** (IP5 `addHeaderButton`, API 8) uses an icon from
+  the drop-in's own GResource (`editor/titles-editor.gresource.xml`),
+  added to the icon theme's resource path in `extendShell()`. In the
+  builtin build the drop-in is a static library, and the linker drops the
+  generated resource object (and its registering constructor) unless
+  something references it: `extendShell()` calls
+  `ustudio_titles_editor_get_resource()` for that. Without it the button
+  showed GTK's missing-image icon.

@@ -130,6 +130,7 @@ class AppWindow : public ShellHost
     void addImportHandler(ImportHandler handler) override;
     void assetChangedOnDisk(core::AssetId asset) override;
     std::string projectFolder() const override;
+    void addHeaderButton(GtkWidget *button) override;
 
     GtkWidget *widget() const
     {
@@ -1128,6 +1129,9 @@ class AppWindow : public ShellHost
     // Drop-ins' actions with a shortcut a text field would type (addActions()):
     // switched with the editor's own single keys.
     std::vector<std::string> m_typingKeyActions;
+    // The header's Settings/Help group: drop-ins' buttons go before Settings.
+    GtkWidget *m_appHeaderGroup = nullptr;
+    GtkWidget *m_settingsButton = nullptr;
 
     bool m_suppressSeekSignal = false;
 

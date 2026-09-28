@@ -10,6 +10,7 @@
 #include "title_bake.h"
 #include "title_launch.h"
 #include "title_page.h"
+#include "titles-editor-resources.h"
 
 #include <gio/gio.h>
 
@@ -216,6 +217,27 @@ void onNewTitle(GSimpleAction *, GVariant *, gpointer target)
     editTitleClip(host, *made, true);
 }
 
+// The header's "T" (Open U Stu Titles): a selected title clip's title,
+// else the designer's gallery on a new, untitled title. The timeline
+// doesn't change; New Title (Shift+T) is the way to add one.
+void onOpenTitles(GSimpleAction *, GVariant *, gpointer target)
+{
+    auto &host = *static_cast<app::ShellHost *>(target);
+    const core::Model &model = host.model();
+    for (core::ClipId id : host.currentSelection().clips) {
+        if (!model.hasClip(id))
+            continue;
+        const core::Clip &clip = model.clip(id);
+        if (model.hasAsset(clip.asset) && isTitleFile(model.asset(clip.asset).path)) {
+            editTitleClip(host, id);
+            return;
+        }
+    }
+    const std::string error = launchTitlesApp({}, nullptr, true);
+    host.showStatus(error.empty() ? "U Stu Titles is open with its templates."
+                                  : "Couldn't open U Stu Titles: " + error);
+}
+
 // Bake Title (the action): the first selected title clip.
 void onBakeTitle(GSimpleAction *, GVariant *, gpointer target)
 {
@@ -399,17 +421,21 @@ void extendShell(app::ShellHost &host)
                            }});
     host.addActions({{"titles-new", "New Title", "Titles", {"<Shift>t"}, &onNewTitle},
                      {"titles-edit", "Edit Title", "Titles", {"<Control><Shift>t"}, &onEditTitle},
-                     {"titles-bake", "Bake Title", "Titles", {}, &onBakeTitle}},
+                     {"titles-bake", "Bake Title", "Titles", {}, &onBakeTitle},
+                     {"titles-open", "Open U Stu Titles", "Titles", {}, &onOpenTitles}},
                     &host);
-    host.addHints({{"titles.new", "Titles", "New title",
-                    "A new title at the playhead on the active track, opened in U Stu Titles to pick a template",
-                    "titles-new", nullptr},
-                   {"titles.edit", "Titles", "Edit title", "Open the selected title clip in U Stu Titles",
-                    "titles-edit", "Double-click a title clip"},
-                   {"titles.bake", "Titles", "Bake title",
-                    "Render the clip to a video file with transparency, for tools without U Stu's titles; undo "
-                    "brings the live title back",
-                    "titles-bake", nullptr}});
+    host.addHints(
+        {{"titles.open", "Header bar", "Open U Stu Titles, the title designer",
+          "With a title clip selected, it opens that title; otherwise the template gallery", "titles-open", nullptr},
+         {"titles.new", "Titles", "New title",
+          "A new title at the playhead on the active track, opened in U Stu Titles to pick a template", "titles-new",
+          nullptr},
+         {"titles.edit", "Titles", "Edit title", "Open the selected title clip in U Stu Titles", "titles-edit",
+          "Double-click a title clip"},
+         {"titles.bake", "Titles", "Bake title",
+          "Render the clip to a video file with transparency, for tools without U Stu's titles; undo "
+          "brings the live title back",
+          "titles-bake", nullptr}});
     // For the process, as the host requires; bound to this window.
     static TitleClipClicks clicks;
     clicks.bind(host);
@@ -419,6 +445,21 @@ void extendShell(app::ShellHost &host)
     watcher.sync();
     host.projectChanged().connect([] { watcher.sync(); });
     addTitlePage(host);
+
+    // The header's "T", between Render… and Settings: only with this
+    // drop-in, so without it there's no button and no gap. Its icon is in
+    // the drop-in's own resources (editor/titles-editor.gresource.xml).
+    // Referencing the generated getter links the resource in (a static
+    // library's unreferenced objects are dropped), and with it the
+    // constructor that registers it.
+    g_resource_unref(g_resource_ref(ustudio_titles_editor_get_resource()));
+    if (GdkDisplay *display = gdk_display_get_default())
+        gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(display), "/com/ustudio/Titles/editor/icons");
+    GtkWidget *button = gtk_button_new_from_icon_name("ustudio-titles-symbolic");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(button), "win.titles-open");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(button), GTK_ACCESSIBLE_PROPERTY_LABEL, "Open U Stu Titles", -1);
+    host.setTooltip(button, "titles.open");
+    host.addHeaderButton(button);
 }
 
 } // namespace ustudio::titles

@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.67.0-beta.1
+
+- The header's Help button is a plain question mark, and with the Titles
+  add-on a T button (between Render and Settings) opens U Stu Titles.
+
 ## 0.66.0-beta.1
 
 - Title templates: New Title (Shift+T) puts a title at the playhead and

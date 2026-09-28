@@ -95,6 +95,11 @@ class FakeShell : public app::ShellHost
     {
         changedOnDisk.push_back(asset);
     }
+    void addHeaderButton(GtkWidget *button) override
+    {
+        headerButtons.push_back(button);
+    }
+    std::vector<GtkWidget *> headerButtons;
     std::string projectFolder() const override
     {
         return folder;
@@ -278,7 +283,13 @@ TEST_CASE("Edit Title: the action and a double-click open a title clip, and noth
     FakeShell shell(profile);
     titles::extendShell(shell);
     REQUIRE(shell.overlays.size() == 1);
-    REQUIRE(shell.actions.size() == 3); // New Title, Edit Title, Bake Title
+    REQUIRE(shell.actions.size() == 4); // New Title, Edit Title, Bake Title, Open U Stu Titles
+    CHECK(std::string(shell.actions[3].first.name) == "titles-open");
+    REQUIRE(shell.headerButtons.size() == 1); // the header's "T"
+    CHECK(std::string(gtk_actionable_get_action_name(GTK_ACTIONABLE(shell.headerButtons[0]))) == "win.titles-open");
+    // Its icon is in the drop-in's own resources, on the icon theme's path.
+    CHECK(
+        gtk_icon_theme_has_icon(gtk_icon_theme_get_for_display(gdk_display_get_default()), "ustudio-titles-symbolic"));
     CHECK(std::string(shell.actions[0].first.name) == "titles-new");
     CHECK(std::string(shell.actions[2].first.name) == "titles-bake");
     CHECK(std::string(shell.actions[1].first.name) == "titles-edit");
@@ -306,6 +317,18 @@ TEST_CASE("Edit Title: the action and a double-click open a title clip, and noth
     CHECK_FALSE(shell.overlays[0]->pressed(shell.model(), viewport, layout, viewport.xForFrame(50.0), y, 2));
     CHECK_FALSE(shell.overlays[0]->pressed(shell.model(), viewport, layout, x, 2.0, 2)); // the name strip
     CHECK(launched.size() == 2);
+
+    // The header's "T": the selected title clip's title, else a new one
+    // (no path) with the gallery; the timeline never changes.
+    const size_t clips = shell.model().track(shell.video).clips.size();
+    shell.actions[3].first.activated(nullptr, nullptr, shell.actions[3].second);
+    REQUIRE(launched.size() == 3);
+    CHECK(launched[2] == path);
+    shell.selection.clips = {};
+    shell.actions[3].first.activated(nullptr, nullptr, shell.actions[3].second);
+    REQUIRE(launched.size() == 4);
+    CHECK(launched[3].empty());
+    CHECK(shell.model().track(shell.video).clips.size() == clips);
     titles::setTitlesLauncherForTesting(nullptr);
 }
 

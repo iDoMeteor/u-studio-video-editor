@@ -575,12 +575,17 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(renderButton, "destroy", G_CALLBACK(&AppWindow::unparentPopoverTrampoline), m_renderMenu);
 
     GtkWidget *appGroup = headerGroup();
+    m_appHeaderGroup = appGroup;
     GtkWidget *settingsButton = gtk_button_new_from_icon_name("preferences-system-symbolic");
+    m_settingsButton = settingsButton;
     setTooltip(settingsButton, "header.settings");
     g_signal_connect(settingsButton, "clicked", G_CALLBACK(&AppWindow::settingsClickedTrampoline), this);
     gtk_box_append(GTK_BOX(appGroup), settingsButton);
 
-    GtkWidget *helpButton = gtk_button_new_from_icon_name("system-help-symbolic");
+    // Our own plain "?" (data/icons/symbolic): Adwaita's help icons are a
+    // lifebuoy or a "?" in a speech bubble, unlike the header's other
+    // single-glyph icons (owner, 2026-09-28).
+    GtkWidget *helpButton = gtk_button_new_from_icon_name("ustudio-help-symbolic");
     setTooltip(helpButton, "header.help");
     g_signal_connect(helpButton, "clicked", G_CALLBACK(&AppWindow::helpClickedTrampoline), this);
     gtk_box_append(GTK_BOX(appGroup), helpButton);

@@ -117,6 +117,11 @@ class RecordingShell : public app::ShellHost
     {
         changedOnDisk.push_back(asset);
     }
+    void addHeaderButton(GtkWidget *button) override
+    {
+        headerButtons.push_back(button);
+    }
+    std::vector<GtkWidget *> headerButtons;
     std::string projectFolder() const override
     {
         return folder;

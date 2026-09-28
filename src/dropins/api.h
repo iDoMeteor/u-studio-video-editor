@@ -17,8 +17,8 @@ struct FactoryPaths;
 // point a drop-in can see. Modules must match it exactly.
 // 2: engine::FactoryPaths (IP4); 3: addEngineExtension (IP3); 4: addRenderSubcommand (IP6);
 // 5: addShellExtension (IP5); 6: ShellHost::assetChangedOnDisk (IP5);
-// 7: ShellHost::projectFolder (IP5)
-#define DROPIN_API_VERSION 7
+// 7: ShellHost::projectFolder (IP5); 8: ShellHost::addHeaderButton (IP5)
+#define DROPIN_API_VERSION 8
 
 extern "C" {
 

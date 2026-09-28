@@ -20,6 +20,11 @@ project isn't saved yet, it goes in your default project folder (Settings ›
 Locations), or, without one, in **U Stu Titles** in your Videos folder.
 Either way the clip keeps finding it after you save the project.
 
+The **T** button in the header bar opens U Stu Titles too: on the selected
+title clip's title, or, with none selected, on a new title with the
+template gallery (it isn't added to the timeline; save it and import it,
+or use Shift+T instead).
+
 To use a title file you already have:
 
 1. Click **Import…** (or press **Ctrl+I**) and pick a `.ustitle` file. The

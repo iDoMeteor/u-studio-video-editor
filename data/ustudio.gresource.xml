@@ -4,5 +4,7 @@
     <file compressed="true">style.css</file>
     <file compressed="true">com.ustudio.VideoEditor.metainfo.xml</file>
     <file compressed="true">logos/u-stu-video-editor-full.svg</file>
+    <!-- GtkApplication adds <resource base>/icons to the icon theme. -->
+    <file compressed="true" alias="icons/scalable/actions/ustudio-help-symbolic.svg">icons/symbolic/ustudio-help-symbolic.svg</file>
   </gresource>
 </gresources>

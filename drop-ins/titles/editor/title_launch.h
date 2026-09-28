@@ -17,7 +17,8 @@ namespace ustudio::titles {
 // none is found.
 std::string titlesAppPath();
 
-// Starts the designer on `title` with `backdrop` (may be null) behind it,
+// Starts the designer on `title` (empty: a new, untitled one) with
+// `backdrop` (may be null) behind it,
 // and with its template gallery open when `gallery` (New Title). Empty on
 // success, else why not.
 std::string launchTitlesApp(const std::string &title, GdkTexture *backdrop, bool gallery = false);

@@ -106,6 +106,11 @@ class ShellHost
     virtual void addHints(const std::vector<HintSpec> &hints) = 0;
     virtual void setTooltip(GtkWidget *widget, const char *hintId) = 0;
 
+    // Header bar: `button` goes between Render… and Settings, after any
+    // added before it. A drop-in that isn't loaded adds nothing, so the
+    // header has no gap for it. Use a symbolic icon and setTooltip().
+    virtual void addHeaderButton(GtkWidget *button) = 0;
+
     // Preview: `overlay` is stacked over the preview picture, the same
     // size; previewMapping() places the frame inside it. The first overlay
     // creates the stack.
