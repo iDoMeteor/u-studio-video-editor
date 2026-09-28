@@ -235,7 +235,10 @@ team's practice is the rule:
   producer),
   **`plus`** (the `affine` filter used for clip transforms, ADR-018 — it is
   *not* in `core`), `normalize` (`volume`), `avformat`, `xml`, `sdl2`
-  (`sdl2_audio`), `rtaudio`, `gdk` (stills), `resample`. `null` is core.
+  (`sdl2_audio`), `rtaudio`, `gdk` (stills), `resample`, **`xine`** (the
+  loader's `deinterlace` normaliser; without it MLT falls back to
+  `avdeinterlace`, which converts every frame to BT.601 limited YUV, and the
+  GPU probe fails on the shifted colour, ADR-019 G5). `null` is core.
   Check a service's module in `/usr/share/mlt-7/<module>/` before assuming
   where it lives (the Flatpak's first build left out `plus` because this
   line used to call `affine` core). `frei0r` is required by the effects
