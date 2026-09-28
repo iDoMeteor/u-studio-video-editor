@@ -48,9 +48,7 @@ void PlaybackController::shutdown()
     // +shutdown() stress loop crashed with a heap corruption (double
     // free), reproducing reliably enough to be worth this fence rather
     // than trusting stop() alone.
-    {
-        std::lock_guard<std::mutex> lock(m_frameShowMutex);
-    }
+    { std::lock_guard<std::mutex> lock(m_frameShowMutex); }
     m_stopping.store(false); // the next consumer's frames are shown again
     m_frameShowEvent.reset();
     m_renderStartedEvent.reset();
@@ -72,15 +70,14 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
     for (const char *name : kConsumerBackends) {
         auto consumer = std::make_unique<Mlt::Consumer>(*profile, name);
         if (!consumer->is_valid()) {
-            Log::debug(std::string("[engine] Consumer '") + name +
-                       "' not valid on this machine, trying the next backend");
+            Log::debug(std::string("[engine] Consumer '") + name + "' not valid on this machine, trying the next backend");
             continue;
         }
 
         // Consumer configuration (doc 05's table). Properties a given
         // backend doesn't recognize are harmless no-ops in MLT's property
         // system, so this set is applied uniformly across all three.
-        consumer->set("real_time", 1);             // drop frames to keep real time, 1 decode thread
+        consumer->set("real_time", 1); // drop frames to keep real time, 1 decode thread
         consumer->set("mlt_image_format", "rgba"); // matches GDK_MEMORY_R8G8B8A8, no conversion
         consumer->set("channels", 2);
         consumer->set("frequency", 48000);
@@ -123,8 +120,7 @@ bool PlaybackController::selectAndStartConsumer(Mlt::Tractor &tractor)
         }
 
         if (consumer->start() != 0) {
-            Log::warn(std::string("[engine] Consumer '") + name +
-                      "' connected but failed to start; trying the next backend");
+            Log::warn(std::string("[engine] Consumer '") + name + "' connected but failed to start; trying the next backend");
             continue;
         }
 
@@ -373,6 +369,7 @@ void PlaybackController::applyVolumeToConsumer()
         m_consumer->set("volume", m_volume.load());
 }
 
+
 int PlaybackController::currentFrame() const
 {
     return m_playing.load() ? m_lastKnownFrame.load() : m_pausedPosition.load();
@@ -433,10 +430,10 @@ void PlaybackController::handleFrameShow(const Mlt::EventData &eventData)
     // rendered (the read-ahead skips late frames at real_time=1), and
     // get_image() would render them here on the consumer's thread: a full
     // render per restart on the CPU pipeline, and GL work on sdl2's thread
-    // on the GPU one (the create_fbo crash). So nothing here, not
-    // even the GL context below. A paused refresh still renders: that frame
-    // is what the user sees. VE GPU's instrumented runs, docs/developer/
-    // notes/gpu.md "Frames rendered on the consumer's own thread".
+    // on the GPU one (the create_fbo crash). So nothing here, not even the
+    // GL context below. A paused refresh still renders: that frame is what
+    // the user sees. VE GPU's instrumented runs, docs/developer/notes/
+    // gpu.md "Frames rendered on the consumer's own thread".
     if (m_stopping.load())
         return;
 

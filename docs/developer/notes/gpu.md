@@ -282,6 +282,8 @@ is thread-safe.
 - Exports are unaffected: at `real_time=-1` the consumer waits for the
   render thread to render each frame.
 
+Since 0.75.1, PlaybackController drops the frames shown while the consumer stops (`m_stopping`, checked before any GL context is made current), so only the paused refresh can still render on sdl2's thread.
+
 ## Wipes on the GPU pipeline (FX3, 2026-09-28)
 
 A wipe (a luma transition with a gradient map) on the GPU pipeline should

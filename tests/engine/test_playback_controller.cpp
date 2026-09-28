@@ -158,8 +158,8 @@ TEST_CASE("PlaybackController: null-consumer position test -- frame-show deliver
         std::mutex mutex;
         std::vector<int> positions;
     } shown;
-    Mlt::Event *event =
-        consumer.listen("consumer-frame-show", &shown, [](mlt_properties, void *self, mlt_event_data data) {
+    Mlt::Event *event = consumer.listen(
+        "consumer-frame-show", &shown, [](mlt_properties, void *self, mlt_event_data data) {
             Mlt::Frame frame(Mlt::EventData(data).to_frame());
             if (!frame.is_valid())
                 return;
@@ -217,12 +217,8 @@ TEST_CASE("PlaybackController: pause shows the exact frame sought to, not one of
     // implicit pause) land, then seek to an interior frame while paused --
     // this is the "scrub while stopped" path (doc 05), which purges and
     // forces exactly one refreshed frame through.
-    pumpMainContextUntil(
-        [&] {
-            std::lock_guard<std::mutex> lock(mutex);
-            return !deliveredPositions.empty();
-        },
-        std::chrono::seconds(2));
+    pumpMainContextUntil([&] { std::lock_guard<std::mutex> lock(mutex); return !deliveredPositions.empty(); },
+                        std::chrono::seconds(2));
 
     {
         std::lock_guard<std::mutex> lock(mutex);

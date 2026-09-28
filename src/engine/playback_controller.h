@@ -89,8 +89,8 @@ class PlaybackController
 
     void seek(int frame);
     void stepFrame(int delta); // pause, then seek(current + delta)
-    void toHome();             // seek(0)
-    void toEnd();              // seek(totalFrames() - 1)
+    void toHome();              // seek(0)
+    void toEnd();                // seek(totalFrames() - 1)
 
     // std::nullopt clears the loop. Playback wraps to `in` once position
     // reaches `out` (checked on the main thread from the frame-show
