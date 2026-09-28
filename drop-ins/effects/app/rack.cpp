@@ -130,10 +130,8 @@ class Rack
             {"effects.card-cost", "Effects", "Cost",
              "How much work the effect is for each frame, measured when it was checked", nullptr, nullptr},
         });
-        // E: the Effect Browser (doc 15, "Keyboard summary"); until FX2's
-        // Browser lands it opens the Add search.
+        // P pins (doc 15, "Keyboard summary"); E belongs to the Browser.
         static const std::vector<app::ActionSpec> actions = {
-            {"effects-browser", "Add an effect", "Effects", {"e"}, &onBrowserActionTrampoline},
             {"effects-pin", "Pin the value at the playhead", "Effects", {"p"}, &onPinActionTrampoline},
         };
         m_host.addActions(actions, this);
@@ -144,8 +142,20 @@ class Rack
         m_host.projectChanged().connect([this] { refresh(); });
         m_host.playheadMoved().connect([this] { onPlayheadMoved(); });
         m_catalog.changed.connect([this] {
-            m_structure.clear(); // names and badges may have arrived
+            m_structure.clear(); // names may have arrived
             refresh();
+        });
+        // A badge: rebuild only when that effect is on show.
+        m_catalog.healthChanged.connect([this](const std::string &service) {
+            std::optional<core::Model::EffectTarget> target = currentTarget();
+            if (!target || !m_host.model().hasEffectTarget(*target))
+                return;
+            for (const core::Effect &e : m_host.model().effects(*target))
+                if (e.service == service) {
+                    m_structure.clear();
+                    refresh();
+                    return;
+                }
         });
         refresh();
     }
@@ -370,11 +380,6 @@ class Rack
         if (GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(m_addList), 0))
             if (g_object_get_data(G_OBJECT(first), "service"))
                 onAddRow(first);
-    }
-
-    void onBrowserAction()
-    {
-        gtk_menu_button_popup(GTK_MENU_BUTTON(m_add));
     }
 
     void onAddShown()
@@ -1053,10 +1058,6 @@ class Rack
     {
         auto *c = static_cast<Control *>(control);
         c->rack->onKeyFeel(*c);
-    }
-    static void onBrowserActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
-    {
-        static_cast<Rack *>(self)->onBrowserAction();
     }
     static gboolean onRebuildTrampoline(gpointer self)
     {

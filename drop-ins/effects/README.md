@@ -12,7 +12,9 @@ a dependency of this drop-in only, never of the editor) and
 (one self-contained folder; nothing in `src/` includes from here).
 
 Status: FX1 (engine and model) is done; FX2 (the Rack, the Browser,
-keyframes in the inspector) is in progress: the Rack and keyframes in it are in (pins, previous/next, feels; **P** pins the value last changed). Effects in a project play in the
+keyframes in the inspector) is in progress: the Rack, keyframes in it (pins, previous/next, feels; **P** pins the value
+last changed) and the Browser (**E**: tiles of the frame through each effect,
+audition on the preview, Enter or a click adds) are in. Effects in a project play in the
 preview, export and stock `melt`; every effect MLT offers is described,
 health-checked in its own process and quarantined if it crashes or hangs.
 There's no UI yet: the Rack and Browser are FX2, and the build option stays
@@ -23,8 +25,8 @@ There's no UI yet: the Rack and Browser are FX2, and the build option stays
 | Folder | What | May use |
 |---|---|---|
 | `core/` | `EffectDescriptor` and normalisation (every family's parameters to one set of kinds), curated overlays, the effect commands (add, remove, reorder, bypass, set parameter, set mix; gestures merge), probe results and `effect-health.json`, a small JSON reader and writer | std, `src/core` (never GTK, GLib or MLT: checked by the build) |
-| `engine/` | `EffectRegistry` (every MLT filter, from `Mlt::Repository` metadata), frei0r discovery and curation (IP4), `EffectsExtension` (IP3), `u-studio-render --probe-effect` and `--effects-registry` (IP6) | `src/engine`, mlt++, GLib |
-| `app/` | The Effect Rack (an inspector page, IP5: the stack of the selected clip, its track or the sequence; bypass, reorder, remove, Mix, one control per parameter; **E** opens the Add search), the catalog it reads, and the editor's background health scan (the registry and one probe child per effect) | GTK, GIO, `engine/` headers without MLT; never MLT (checked by the build) |
+| `engine/` | `EffectRegistry` (every MLT filter, from `Mlt::Repository` metadata), frei0r discovery and curation (IP4), `EffectsExtension` (IP3), `u-studio-render --probe-effect` and `--effects-registry` (IP6), and `FrameRenderer` (a clip's frame through a stack, on a thread of its own with throwaway producers: the Browser's tiles and audition, never the live graph) | `src/engine`, mlt++, GLib |
+| `app/` | The Effect Rack and the Browser (inspector pages, IP5), the catalog they read (registry and health), and the editor's background health scan (the registry and one probe child per effect, featured first) | GTK, GIO, `engine/` headers without MLT; never MLT (checked by the build) |
 | `data/overlays/` | Curated names, categories, featured flags, defaults MLT doesn't give, hidden plumbing, known-unstable plugins, one JSON file per family | — |
 | `register.cpp` | The drop-in's describe function and its integration points | the drop-in host API |
 | `tests/` | `effects-core`, `effects-engine`, `effects-scan`; `frei0r/broken_plugin.cpp` builds two frei0r plugins broken on purpose (one crashes, one hangs) | doctest |
@@ -100,3 +102,14 @@ The tests need `frei0r-plugins` installed; `effects-engine`'s `melt` check
 needs `melt-7` and is skipped without it. Both `builtin` and `module` must
 pass the whole suite (ADR-013): `just dropins-builtin` and
 `just dropins-module`.
+
+## The Browser's rendering
+
+Tiles and the audition are rendered by `FrameRenderer` on its own thread,
+from its own producer of the clip's media (kept open between tiles; the
+`loader-nogl` service, so always the CPU chain), with the clip's effects
+and the candidate attached to a fresh cut. Only effects the health scan has
+passed run here, since this is the editor's process: the rest show
+"checking…". The audition is a picture over the preview (the preview
+overlay host), so the live graph is never rebuilt. The renderer stops when
+the window goes, before MLT's factory closes.

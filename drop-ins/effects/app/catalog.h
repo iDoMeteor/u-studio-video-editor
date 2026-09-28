@@ -34,7 +34,10 @@ class Catalog
     std::optional<HealthRecord> health(const std::string &service) const;
     bool usable(const std::string &service) const;
 
+    // The registry arrived (everything may differ).
     core::Signal<> changed;
+    // One service's health result arrived (its badge, whether it's usable).
+    core::Signal<const std::string &> healthChanged;
 
   private:
     std::shared_ptr<const EffectRegistry> m_registry;

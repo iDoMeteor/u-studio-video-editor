@@ -38,6 +38,7 @@ class TitlePage
                         "This clip's text for the field; the title's default when left as it is", nullptr, nullptr}});
         host.setTooltip(m_edit, "titles.page-edit");
         host.setTooltip(m_bake, "titles.bake");
+        host.setTooltip(m_exportCaptions, "titles.export-captions");
         host.setTooltip(m_format, "titles.page-export-format");
         host.setTooltip(m_exportButton, "titles.page-export");
         host.addInspectorPage({"titles.title", "Title", "insert-text-symbolic", m_root});
@@ -94,6 +95,11 @@ class TitlePage
         gtk_label_set_xalign(GTK_LABEL(m_noFields), 0.0f);
         gtk_widget_add_css_class(m_noFields, "dim-label");
         gtk_box_append(GTK_BOX(m_content), m_noFields);
+        // A caption (T5.1): every caption in the project to a subtitle file.
+        m_exportCaptions = gtk_button_new_with_label("Export Captions…");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(m_exportCaptions), "win.titles-export-captions");
+        gtk_widget_set_halign(m_exportCaptions, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(m_content), m_exportCaptions);
 
         // Export on its own (doc 16, T2d): for OBS and other tools.
         GtkWidget *exportLabel = gtk_label_new("Export on its own");
@@ -184,6 +190,7 @@ class TitlePage
         }
         gtk_widget_set_visible(m_fieldsLabel, !fields.empty());
         gtk_widget_set_visible(m_noFields, fields.empty());
+        gtk_widget_set_visible(m_exportCaptions, values.contains("caption"));
         // Undo, redo, another clip: show the clip's values, but never
         // rewrite what's being typed (it's what the model has already).
         m_updating = true;
@@ -258,7 +265,7 @@ class TitlePage
     app::ShellHost *m_host = nullptr;
     GtkWidget *m_root = nullptr, *m_empty = nullptr, *m_content = nullptr, *m_name = nullptr, *m_edit = nullptr,
               *m_bake = nullptr, *m_fieldsLabel = nullptr, *m_fields = nullptr, *m_noFields = nullptr,
-              *m_format = nullptr, *m_exportButton = nullptr;
+              *m_format = nullptr, *m_exportButton = nullptr, *m_exportCaptions = nullptr;
     std::optional<core::ClipId> m_clip;
     std::vector<Row> m_rows;
     std::string m_cachedPath, m_cachedFingerprint;

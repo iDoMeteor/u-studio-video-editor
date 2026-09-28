@@ -54,11 +54,22 @@ d press "Effects" exact; sleep 1
 shot 1-rack-empty
 check "rack shows the clip" grep -q "\[effects\] health scan" "$OUT/app.log"
 
-# Add Glow through the Add search.
+# The Browser (E): tiles of the frame through each effect; searching
+# "glow" and selecting a tile auditions it on the preview; Enter adds the
+# best match.
+e() { python3 "$SMOKE_HERE/entry.py" "$@" 2>>"$OUT/helpers.err"; }
 d act effects-browser; sleep 1
-d settext glow; sleep 1
-shot 2-add-search
-d enter; sleep 2
+shot 2a-browser-featured
+e "Search effects" glow; sleep 4
+shot 2-browser
+# Featured effects are checked first; Glow is one. Wait for its result.
+for _ in $(seq 1 60); do grep -q '"frei0r.glow"' "$OUT/home/cache/ustudio/effect-health.json" 2>/dev/null && break; sleep 1; done
+sleep 1
+python3 "$SMOKE_HERE/tile.py" 0 2>>"$OUT/helpers.err"; sleep 3
+shot 2b-audition
+check "audition rendered off the live graph" grep -q "auditioning frei0r.glow on the preview" "$OUT/app.log"
+d press "Search effects"; sleep 0.5; d enter; sleep 2
+d press "Effects" exact; sleep 1
 shot 3-glow-added
 d act save; sleep 1.5; d settext "$OUT/smoke.ustudio"; d enter; sleep 2
 check "saved with the effect" saved_has "frei0r.glow"
@@ -69,7 +80,7 @@ shot 4-undone
 
 # Keyframes: redo the effect, set Blur, pin it at frame 0 (P), move 60
 # frames on and change it (a second key, added by changing the value).
-v() { python3 "$SMOKE_HERE/value.py" "$@" 2>/dev/null; }
+v() { python3 "$SMOKE_HERE/value.py" "$@" 2>>"$OUT/helpers.err"; }
 d act redo; sleep 1.5
 d act seek-home; sleep 0.5
 v 0 0.5; sleep 1

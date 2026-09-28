@@ -110,6 +110,7 @@ class AppWindow : public ShellHost
     }
     core::FrameIndex currentFrame() const override;
     void seek(core::FrameIndex frame) override;
+    void showInspectorPage(const char *id) override;
     core::Signal<> &playheadMoved() override
     {
         return m_shellPlayheadMoved;

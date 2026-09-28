@@ -63,6 +63,38 @@ struct Placed
 std::vector<Placed> place(const std::vector<Cue> &cues, core::Rational fps);
 core::FrameIndex frameAt(int64_t ms, core::Rational fps);
 
+// --- Export (T5.1) -------------------------------------------------------------
+
+enum class Format
+{
+    Srt,
+    Vtt,
+};
+
+struct ExportCue
+{
+    core::FrameIndex start = 0, end = 0; // end: the frame after the last
+    std::string text, speaker;
+};
+
+// The project's captions: every clip playing a title with a `caption`
+// field, on any track, by start (then track order, top first).
+std::vector<ExportCue> captionCues(const core::Model &model);
+
+// A frame's time, in milliseconds rounded to the nearest (frameAt()'s
+// inverse: frameAt(msAt(f)) == f for any rate up to 1000 fps).
+int64_t msAt(core::FrameIndex frame, core::Rational fps);
+
+// The cues as a subtitle file, UTF-8 with \n line ends.
+std::string writeSubtitles(const std::vector<ExportCue> &cues, core::Rational fps, Format format);
+
+// The format a file name asks for: .vtt (any case) is VTT, anything else SRT.
+Format formatFor(const std::string &path);
+
+// Atomically: a temporary file next to `path`, then a rename over it.
+// Empty on success, else the reason.
+std::string saveSubtitles(const std::vector<ExportCue> &cues, core::Rational fps, const std::string &path);
+
 // One undo step: the caption title's asset, a track per lane (above the
 // others), and a clip per cue with its fields (caption, and speaker when it
 // has one). Refused, leaving the model as it was, when any step is.
