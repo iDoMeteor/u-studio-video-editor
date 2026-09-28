@@ -13,6 +13,7 @@
 // qtblend, which ADR-007 denies, so the transition is always named.
 // Masks (EffectMask) are FX2's and not realised yet: the model keeps them.
 
+#include "core/model/native_filter.h"
 #include "core/model/types.h"
 
 #include <string>
@@ -20,12 +21,6 @@
 #include <vector>
 
 namespace ustudio::core {
-
-struct NativeFilter
-{
-    std::string service;                                         // mlt_service
-    std::vector<std::pair<std::string, std::string>> properties; // besides mlt_service, in order
-};
 
 // mask_apply's transition for the mix. frei0r.cairoblend's "0" is its
 // opacity: 50% brightness mix of grey 128 at level 2 gave 192, for 6 ms a

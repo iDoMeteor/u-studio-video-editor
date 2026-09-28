@@ -4,6 +4,7 @@
 // project pixels, for the engine (its affine rect) and the preview handles.
 // Pure; no MLT.
 
+#include "core/model/native_filter.h"
 #include "core/model/types.h"
 
 #include <string>
@@ -61,11 +62,6 @@ bool hasTransformedClip(const Project &project);
 // graph, so a saved project plays in melt as in the editor. `outputScale`
 // is output pixels per project pixel (a scaled preview); `sourceScale` is
 // the playing file's pixels per source pixel (a proxy is smaller).
-struct NativeFilter
-{
-    std::string service;
-    std::vector<std::pair<std::string, std::string>> properties;
-};
 std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, int sourceHeight,
                                            const Profile &profile, double outputScale = 1.0, double sourceScale = 1.0);
 
