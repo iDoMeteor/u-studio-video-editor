@@ -100,7 +100,7 @@ and its map `ustudio-wipes/v1/left.pgm` (written beside it); undo takes it back.
 ramps it in 40 quick changes while playing (`ramp.py`), and checks that one
 performance was recorded and saved as fewer keys than frames; then **C**
 opens the clip's curve lanes, the last keyframe's dot (found on the
-screenshot, `keydot.py`) is dragged, and the saved curve must have moved
+screenshot, `rightmost.py`) is dragged, and the saved curve must have moved
 one key and come back with one undo. Last, a drag across the FX lane
 draws an adjustment block, Glow added from the Browser must land on the
 block, and the block's right end (its cyan outline on the screenshot,
