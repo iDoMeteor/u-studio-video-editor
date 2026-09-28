@@ -43,3 +43,34 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
 | Spawning from the editor costs 17–27 ms | `g_subprocess_launcher_spawnv()` from the editor's process blocked the main loop 17–27 ms per child (a 60 s run: about 40 stalls of 40–50 ms), and parsing the 1 MB registry JSON about 200 ms. The scan runs on its own thread around its own `GMainContext`; afterwards a 25 s run showed no stall from it. | `HealthScan` |
 | Posting from a worker thread | `g_main_context_invoke_full()` runs the closure inline on the calling thread whenever nothing owns the main context, and GLib's lock is invisible to TSan (a data race on every hand-off in the frame renderer's first version). Both effects threads now post through `engine::MainThreadDispatcher` (`g_idle_add_full` plus TSan release/acquire annotations, `src/engine/dispatcher.cpp`). | `FrameRenderer`, `HealthScan` |
 | Metadata cost | All 628 filters' metadata: about 0.2 s. Reading it beside a running graph isn't safe, so the editor gets the registry from `u-studio-render --effects-registry` (0.38 s in a child) and caches it. | `HealthScan` |
+
+## FX3 findings (2026-09-28, VE Effects)
+
+- **`luma` reads our generated 16-bit PGM maps** (`core::writeLumaMap()`, P5,
+  maxval 65535, big-endian) and scales a 640×360 map to the frame. The
+  incoming clip (b track) appears where the map is darkest first: with the
+  `left` map (0 at the left edge), red → blue at 1280×720 showed blue at
+  x=100 from frame 6 of 25, at x=640 by frame 18, and red at x=1180 until
+  the end. Repro: a two-colour tractor with `luma` `resource=left.pgm`,
+  in/out 0–24, sampling the centre row (scratchpad `luma_repro.cpp`).
+- **A transition recipe is pure data in `Transition::params`**
+  (`core/model/transition_native.h`): `video.*`, `audio.*`, and `a.<n>.*` /
+  `b.<n>.*` filters on the outgoing tail and incoming head cuts.
+  `EngineSync::buildTransitionSubTractor()` and the writer's dissolve
+  sub-tractor both expand it with `core::nativeTransition()`, so `melt`
+  plays what the editor does (`engine-xml-playback`, "A saved wipe and dip
+  …"). A `ramp:v0,v1,…` value becomes an animation spread over the
+  transition, so it follows a change of length.
+- **Project files can't name a service**: `Model::check()` refuses a
+  transition whose params name anything outside
+  `transitionServiceAllowed()` or set `resource`, `factory` or
+  `producer.*`, so the reader refuses the file. A map is only ever a
+  generated one, by name; an unknown name plays as the plain dissolve.
+- **Where maps are written:** the editor's graph uses
+  `$XDG_CACHE_HOME/ustudio/luma/<name>.pgm`; a saved project gets
+  `ustudio-wipes/<name>.pgm` beside it, named relative to the project, so
+  `melt` finds it. Writes are atomic (a uniquely named temp file, then a
+  rename), so an editor and a render child can make the same map at once.
+- **On the GPU pipeline a wipe plays as the plain dissolve** for now:
+  `movit.luma_mix` documents `resource`, but it hasn't been verified in our
+  GPU graph yet (VE GPU's repros).

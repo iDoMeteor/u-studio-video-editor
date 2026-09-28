@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "recipes": [
+    {
+      "id": "dissolve",
+      "name": "Dissolve",
+      "category": "Dissolves",
+      "description": "The two clips blend evenly",
+      "params": {}
+    },
+    {
+      "id": "dip-black",
+      "name": "Dip to Black",
+      "category": "Dissolves",
+      "description": "Out to black, then in from black",
+      "params": {
+        "a.0.service": "brightness",
+        "a.0.level": "ramp:1,0,0",
+        "a.0.rgb_only": 1,
+        "b.0.service": "brightness",
+        "b.0.level": "ramp:0,0,1",
+        "b.0.rgb_only": 1
+      }
+    },
+    {
+      "id": "flash",
+      "name": "Flash",
+      "category": "Dissolves",
+      "description": "A bright flash between the clips",
+      "params": {
+        "a.0.service": "brightness",
+        "a.0.level": "ramp:1,2.5,2.5",
+        "a.0.rgb_only": 1,
+        "b.0.service": "brightness",
+        "b.0.level": "ramp:2.5,2.5,1",
+        "b.0.rgb_only": 1
+      }
+    }
+  ]
+}

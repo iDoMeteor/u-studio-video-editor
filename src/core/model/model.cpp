@@ -1,5 +1,6 @@
 #include "model.h"
 #include "transform.h"
+#include "transition_native.h"
 
 #include "core/log.h"
 
@@ -1317,6 +1318,10 @@ std::vector<std::string> Model::check() const
             problems.push_back("transition " + std::to_string(transition.id.value) +
                                " has length != extendA + extendB");
         }
+        // A recipe's services come from the project file: only the allowed
+        // ones (core/model/transition_native.h).
+        if (std::string problem = transitionProblem(transition); !problem.empty())
+            problems.push_back("transition " + std::to_string(transition.id.value) + ": " + problem);
     }
 
     // T2 (2026-09-22 audit): a clip can be linked on both sides at once

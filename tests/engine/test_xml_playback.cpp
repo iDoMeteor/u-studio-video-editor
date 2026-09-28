@@ -7,12 +7,14 @@
 
 #include <mlt++/Mlt.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <random>
 #include <string>
+#include <vector>
 
 using namespace ustudio::core;
 using namespace ustudio::engine;
@@ -292,4 +294,92 @@ TEST_CASE("A saved project with a dissolve, track volume and a muted clip plays 
     CHECK(sampleFrame(sync.tractor(), 70, width, height).g > 100);
     CHECK(sampleFrame(sync.tractor(), 10, width, height).rms > 100.0);
     CHECK(sampleFrame(sync.tractor(), 60, width, height).rms < 1.0);
+}
+
+// FX3 (doc 15): a transition recipe (a wipe's map, a dip's brightness ramps)
+// comes from core::nativeTransition() in both the editor's graph and the
+// saved file, so melt plays what the editor shows. Sampled across the
+// width, since a wipe's two halves differ where a dissolve's don't.
+TEST_CASE("A saved wipe and dip play frame-identically outside the editor")
+{
+    sharedFactoryPolicy();
+
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId red = addGenerator(model, "color:red", true, false);
+    AssetId blue = addGenerator(model, "color:blue", true, false);
+    AssetId green = addGenerator(model, "color:green", true, false);
+    ClipId a = model.insertClip(video, red, 0, 0, 29);    // [0, 30)
+    ClipId b = model.insertClip(video, blue, 30, 10, 49); // [30, 70)
+    ClipId c = model.insertClip(video, green, 70, 10, 49); // [70, 110)
+    TransitionId wipe = model.addTransition(video, a, b, 5, 5); // [25, 35)
+    TransitionId dip = model.addTransition(video, b, c, 5, 5);  // [65, 75)
+    model.setTransitionRecipe(wipe, "wipe.left",
+                              {{"video.service", std::string("luma"), {}},
+                               {"video.luma", std::string("left"), {}},
+                               {"video.softness", 0.1, {}}});
+    model.setTransitionRecipe(dip, "dip-black",
+                              {{"a.0.service", std::string("brightness"), {}},
+                               {"a.0.level", std::string("ramp:1,0,0"), {}},
+                               {"b.0.service", std::string("brightness"), {}},
+                               {"b.0.level", std::string("ramp:0,0,1"), {}}});
+    REQUIRE(model.check().empty());
+    EngineSync sync(model);
+    CHECK(sync.verify().empty());
+
+    // A folder of its own: the writer puts the wipe's map beside the project.
+    std::filesystem::path dir = tempProjectPath("ustudio-xml-wipe").replace_extension();
+    std::filesystem::create_directories(dir);
+    struct RemoveDir
+    {
+        std::filesystem::path path;
+        ~RemoveDir()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+    } cleanup{dir};
+    std::filesystem::path path = dir / "wipe.ustudio";
+    REQUIRE(saveProject(model, path.string()).empty());
+    CHECK(std::filesystem::is_regular_file(dir / "ustudio-wipes" / "left.pgm"));
+
+    Mlt::Producer loaded(sync.profile(), ("xml:" + path.string()).c_str());
+    REQUIRE(loaded.is_valid());
+    CHECK(loaded.get_length() == sync.tractor().get_length());
+
+    const int width = sync.profile().width(), height = sync.profile().height();
+    auto row = [&](Mlt::Producer &producer, int position) {
+        producer.seek(position);
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_image_format format = mlt_image_rgb;
+        int w = width, h = height;
+        const uint8_t *image = frame->get_image(format, w, h);
+        std::vector<std::array<int, 3>> out;
+        for (int x : {w / 10, w / 2, w * 9 / 10}) {
+            const uint8_t *p = image + (static_cast<size_t>(h / 2) * static_cast<size_t>(w) + static_cast<size_t>(x)) * 3;
+            out.push_back({p[0], p[1], p[2]});
+        }
+        return out;
+    };
+    int mismatches = 0;
+    for (int position = 20; position < 80; ++position) {
+        auto live = row(sync.tractor(), position), saved = row(loaded, position);
+        for (size_t i = 0; i < live.size(); ++i)
+            for (size_t k = 0; k < 3; ++k)
+                if (std::abs(live[i][k] - saved[i][k]) > 2 && ++mismatches <= 5)
+                    MESSAGE("frame " << position << " sample " << i << " channel " << k << ": live " << live[i][k]
+                                     << " vs saved " << saved[i][k]);
+    }
+    CHECK(mismatches == 0);
+
+    // What the comparison relies on: mid-wipe the left is already blue and
+    // the right still red; mid-dip the picture is dark.
+    auto midWipe = row(sync.tractor(), 31);
+    CHECK(midWipe[0][2] > 200);
+    CHECK(midWipe[0][0] < 50);
+    CHECK(midWipe[2][0] > 200);
+    CHECK(midWipe[2][2] < 50);
+    auto midDip = row(sync.tractor(), 70);
+    for (const auto &sample : midDip)
+        CHECK(sample[0] + sample[1] + sample[2] < 60);
 }

@@ -45,7 +45,9 @@ test_xml_playback_exe = executable(
   install: false,
 )
 
-test('engine-xml-playback', test_xml_playback_exe, timeout: 90)
+# Wipe maps go to $XDG_CACHE_HOME/ustudio/luma: the build tree's, not the user's.
+test('engine-xml-playback', test_xml_playback_exe, timeout: 90,
+     env: ['XDG_CACHE_HOME=' + meson.current_build_dir() / 'xdg-cache'])
 
 test_playback_controller_exe = executable(
   'test_playback_controller',

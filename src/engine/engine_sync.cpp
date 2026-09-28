@@ -11,8 +11,12 @@
 #include "core/model/retime.h"
 #include "core/model/track_segments.h"
 #include "core/model/transform.h"
+#include "core/model/transition_native.h"
+#include "core/media/utf8_path.h"
 #include "platform/console.h"
 #include "platform/gl_context.h"
+
+#include <glib.h>
 
 #include <algorithm>
 #include <cstring>
@@ -104,6 +108,25 @@ void flattenPlaylist(Mlt::Playlist &playlist, int offset, std::vector<PlaylistEn
 }
 
 namespace {
+
+// A wipe's map (core::writeLumaMap()), made once into the user's cache and
+// reused; "" for an unknown name, which then plays as the plain dissolve.
+// MLT's luma reads the 16-bit P5 PGM and scales it to the frame; the
+// incoming clip appears where the map is darkest first (standalone repro,
+// docs/developer/notes/effects.md, 2026-09-28).
+std::string lumaMapFile(const std::string &name)
+{
+    const std::vector<std::string> &names = core::lumaMapNames();
+    if (std::find(names.begin(), names.end(), name) == names.end())
+        return {};
+    const std::filesystem::path file =
+        core::pathFromUtf8(g_get_user_cache_dir()) / "ustudio" / "luma" / (name + ".pgm");
+    if (!core::writeLumaMap(name, file)) {
+        Log::warn("[engine] couldn't write the wipe map " + name);
+        return {};
+    }
+    return core::utf8String(file);
+}
 
 // Track 0's black is the A frame every track composites onto, and the
 // composited frame keeps its properties. producer_colour tags any YUV
@@ -999,10 +1022,35 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // ~10 MB per 100 rebuilds leaked, flat when deleted). Own it, once.
     std::unique_ptr<Mlt::Field> field(sub->field());
 
+    // The transition's recipe (core/model/transition_native.h): the plain
+    // dissolve for empty params, a wipe, a dip or a flash otherwise.
+    // Model::check() has already refused any service outside its allowlist.
+    const core::NativeTransition native = core::nativeTransition(t);
+    for (const auto &[filters, cut] : {std::pair{&native.tailFilters, tailA.get()}, {&native.headFilters, headB.get()}})
+        for (const core::NativeFilter &spec : *filters) {
+            Mlt::Filter filter(*m_profile, spec.service.c_str());
+            if (!filter.is_valid()) {
+                Log::warn("[engine] transition filter unavailable: " + spec.service);
+                continue;
+            }
+            for (const auto &[name, value] : spec.properties)
+                filter.set(name.c_str(), value.c_str());
+            attachToCut(*cut, filter);
+        }
+
     // The GPU graph dissolves with movit.luma_mix, a plain mix without a
-    // luma `resource` (transition_movit_luma.yml).
-    const bool gpuDissolve = m_pipeline == Pipeline::Gpu && t.service == "luma";
-    Mlt::Transition luma(*m_profile, gpuDissolve ? "movit.luma_mix" : t.service.c_str());
+    // luma `resource` (transition_movit_luma.yml). A wipe's map on the GPU
+    // path isn't verified yet (VE GPU's repros), so there it plays as the
+    // dissolve.
+    const bool gpuDissolve = m_pipeline == Pipeline::Gpu && native.video.service == "luma";
+    Mlt::Transition luma(*m_profile, gpuDissolve ? "movit.luma_mix" : native.video.service.c_str());
+    for (const auto &[name, value] : native.video.properties)
+        luma.set(name.c_str(), value.c_str());
+    if (!native.luma.empty() && !gpuDissolve && native.video.service == "luma") {
+        const std::string map = lumaMapFile(native.luma);
+        if (!map.empty())
+            luma.set("resource", map.c_str());
+    }
     luma.set_in_and_out(0, static_cast<int>(t.length - 1));
     field->plant_transition(luma, 0, 1);
 
@@ -1016,9 +1064,11 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // dissolve, an audio crossfade's correctness wasn't independently
     // confirmed sample-by-sample (an RMS probe on two tone: generators
     // wasn't discriminating enough to prove it either way) -- flagged
-    // here rather than claimed as verified.
-    Mlt::Transition mix(*m_profile, "mix");
-    mix.set("start", -1);
+    // here rather than claimed as verified. nativeTransition() supplies
+    // start=-1 unless a recipe sets its own audio.
+    Mlt::Transition mix(*m_profile, native.audio.service.c_str());
+    for (const auto &[name, value] : native.audio.properties)
+        mix.set(name.c_str(), value.c_str());
     mix.set_in_and_out(0, static_cast<int>(t.length - 1));
     field->plant_transition(mix, 0, 1);
 
