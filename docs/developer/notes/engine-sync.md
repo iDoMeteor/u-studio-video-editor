@@ -237,6 +237,18 @@ from a standalone repro (MLT 7.40, 2026-09-25):
   needs none of this; keep the source's alpha straight through to it.
   Frames with no converter (a producer not made through `loader`) are left
   alone, since returning RGBA there would be read as YUV (2026-09-27 repro).
+- **Videos with alpha** (ProRes 4444 `yuva444p12le`, VP9 alpha
+  `yuva420p`, QuickTime Animation `argb`) are recognised by the probe from
+  `meta.media.0.codec.pix_fmt` (lazy: read after the first frame) and saved
+  as `MediaInfo::hasAlpha`; `carriesAlpha()` gives them the pairing too.
+  avformat decodes VP9 alpha with libvpx, which keeps it. A still's alpha
+  comes from its format with `mlt_image_none` (pixbuf returns `rgba` or
+  `rgb` as loaded). Alpha assets are never proxied (H.264 has no alpha).
+  Encoding alpha with MLT's `avformat` consumer needs `mlt_image_format=
+  rgba` on it: left to choose from `pix_fmt`, it asks for yuv422 and drops
+  the alpha for anything but `rgba`/`argb`/`bgra` (`consumer_avformat.c`).
+  Without the pairing an alpha video's edges measured the same fringe as a
+  PNG's (darkest red 55, `tests/engine/test_colour`).
 - **A still with its video turned off kept showing**: `pixbuf` ignores
   `video_index=-1`. A cut whose clip has its video off gets a filter that
   marks each frame `test_image`, as a playlist blank's frames are, and a

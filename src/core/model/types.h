@@ -30,6 +30,10 @@ struct MediaInfo
     bool isImageSequence = false;
     int sequenceBegin = 0; // an image sequence's first file number (the path is its %0Nd pattern)
     bool isStillImage = false;
+    // The video has an alpha channel (ProRes 4444, VP9 alpha, QuickTime
+    // Animation, a PNG with alpha...): its edges need the engine's alpha
+    // pairing over other tracks. Set by the probe.
+    bool hasAlpha = false;
 
     // Still images/sequences and assets with no known length (0 = length
     // not yet probed, or a generator with no fixed duration) have no

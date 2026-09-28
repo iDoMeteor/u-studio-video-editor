@@ -217,6 +217,8 @@ void writeAssetProducer(xmlNodePtr mlt, const Asset &asset, const fs::path &proj
     if (info.isImageSequence)
         addProperty(producer, "ustudio:sequence_begin", std::to_string(info.sequenceBegin));
     addProperty(producer, "ustudio:is_still_image", info.isStillImage ? "1" : "0");
+    if (info.hasAlpha)
+        addProperty(producer, "ustudio:has_alpha", "1");
     // Read back directly (reader.cpp), not derived from the node's "out"
     // attribute below -- out=length-1 collapses both "boundless/unknown"
     // (length<=0) and "exactly 1 frame" to the same out="0", which is

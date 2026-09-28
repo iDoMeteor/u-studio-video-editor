@@ -112,6 +112,7 @@ core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length,
     asset.info.hasVideo = true;
     asset.info.hasAudio = probed.hasAudio;
     asset.info.isStillImage = probed.isStillImage;
+    asset.info.hasAlpha = probed.hasAlpha;
     asset.info.lengthInSequenceFrames = length;
     asset.info.fps = probed.fps;
     asset.info.width = probed.width;

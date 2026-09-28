@@ -26,8 +26,10 @@ constexpr const char *kProxySetting = "proxies"; // Project::settings: "always" 
 
 bool proxyable(const core::Asset &asset)
 {
-    return asset.info.hasVideo && !asset.info.isStillImage && asset.status != core::Asset::Status::Missing &&
-           asset.info.height > 0;
+    // Not with alpha: a proxy is H.264, which has none, so an overlay would
+    // preview on black.
+    return asset.info.hasVideo && !asset.info.isStillImage && !asset.info.hasAlpha &&
+           asset.status != core::Asset::Status::Missing && asset.info.height > 0;
 }
 
 } // namespace

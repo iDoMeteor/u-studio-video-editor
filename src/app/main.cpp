@@ -14,6 +14,7 @@
 #include "snap_env.h"
 #include "stall_monitor.h"
 #include "core/log.h"
+#include "core/trace.h"
 #include "engine/factory_policy.h"
 
 namespace ustudio::app {
@@ -63,8 +64,16 @@ void onActivate(GtkApplication *app, gpointer userData)
     // The Unicorn Tears palette (style.css) is dark-only: under a light
     // system theme libadwaita's own light cards and dialogs showed through
     // it (white Help/Settings lists, 2026-09-24).
-    adw_style_manager_set_color_scheme(adw_style_manager_get_default(), ADW_COLOR_SCHEME_FORCE_DARK);
-    applyStyle(app);
+    // Marked so the stall monitor names the first iteration's work, not
+    // whatever scope ran last (it said "refreshTimeline 0.0 ms").
+    {
+        {
+            core::trace::Scope trace("startup: dark scheme");
+            adw_style_manager_set_color_scheme(adw_style_manager_get_default(), ADW_COLOR_SCHEME_FORCE_DARK);
+        }
+        core::trace::Scope trace("startup: style");
+        applyStyle(app);
+    }
 
     // Leaked intentionally: the app has exactly one window for its whole
     // lifetime, and GTK owns/destroys the underlying widget tree on quit.
@@ -72,8 +81,13 @@ void onActivate(GtkApplication *app, gpointer userData)
     // PlaybackController and stop the Mlt::Consumer before Factory::close()
     // runs, and so the re-activation check above can find it.
     const auto *dropInHost = static_cast<const dropins::BasicDropInHost *>(userData);
-    auto *window = new AppWindow(app, dropInHost->shellExtensions());
+    AppWindow *window = nullptr;
+    {
+        core::trace::Scope trace("startup: build window");
+        window = new AppWindow(app, dropInHost->shellExtensions());
+    }
     g_object_set_data(G_OBJECT(app), "ustudio-window", window);
+    core::trace::Scope trace("startup: present window");
     gtk_window_present(GTK_WINDOW(window->widget()));
 }
 

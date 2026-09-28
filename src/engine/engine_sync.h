@@ -234,6 +234,7 @@ class EngineSync
         core::FrameIndex length = 0; // 0 if the path couldn't be opened
         bool isStillImage = false;
         bool hasAudio = false;
+        bool hasAlpha = false; // the video stream's pixel format has an alpha channel
         // 0/0 if unavailable (still images/generators never set these;
         // real media does, but only after a frame has actually been
         // decoded -- see probeMedia()'s comment).
