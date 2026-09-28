@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,12 +25,23 @@ constexpr int64_t kMaxMs = 24ll * 3600 * 1000;
 struct Cue
 {
     int64_t startMs = 0, endMs = 0;
-    // The words, UTF-8, lines joined with '\n'; styled with <b>, <i> and <u>
-    // only (what a tags="basic" text layer draws), entities decoded.
+    // The words, UTF-8, lines joined with '\n'; styled with <b>, <i>, <u>
+    // and <c.name> only (what a tags="basic" text layer draws), entities
+    // decoded.
     std::string text;
     std::string speaker; // VTT <v Speaker>
     int line = 0;        // where the cue starts in the file (1-based)
+    bool top = false;    // placed at the top (VTT line:, SRT {\an8}; T5.2)
 };
+
+// T5.2: WebVTT's eight default colour classes, the only colours a caption
+// keeps (as <c.name>...</c> in its words). The colour's "#rrggbb" for a
+// name, nullptr for anything else.
+const char *captionColourHex(std::string_view name);
+
+// `text` without the basic tags a caption keeps (<b>, <i>, <u>, <c.name>
+// and their ends): its words, for names and emptiness checks.
+std::string captionWords(const std::string &text);
 
 struct Parsed
 {
@@ -75,6 +87,7 @@ struct ExportCue
 {
     core::FrameIndex start = 0, end = 0; // end: the frame after the last
     std::string text, speaker;
+    bool top = false; // the clip's field placement=top
 };
 
 // The project's captions: every clip playing a title with a `caption`
@@ -101,7 +114,10 @@ std::string saveSubtitles(const std::vector<ExportCue> &cues, core::Rational fps
 class ImportCaptions : public core::Command
 {
   public:
-    ImportCaptions(core::Asset titleAsset, std::vector<Placed> placed, std::string name);
+    // `topTitleAsset`: the title top cues play (T5.2); without one they
+    // play `titleAsset`. Either way their clips get placement=top.
+    ImportCaptions(core::Asset titleAsset, std::vector<Placed> placed, std::string name,
+                   std::optional<core::Asset> topTitleAsset = std::nullopt);
     std::string label() const override
     {
         return "Import " + m_name;
@@ -125,6 +141,7 @@ class ImportCaptions : public core::Command
 
   private:
     core::Asset m_titleAsset;
+    std::optional<core::Asset> m_topTitleAsset;
     std::vector<Placed> m_placed;
     std::vector<Cue> m_cues; // owned copies (Placed points into them)
     std::string m_name;

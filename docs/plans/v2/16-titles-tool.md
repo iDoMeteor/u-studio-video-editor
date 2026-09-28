@@ -724,7 +724,7 @@ Acceptance:
       reopening shows no banner. (`titles-core`; the designer on a
       private Xvfb with a stale title: banner, Update, Ctrl+S, reopen.)
 
-#### T5.2 — Caption colour and top placement (planned 2026-09-28)
+#### T5.2 — Caption colour and top placement (landed 2026-09-28, 0.73.0-beta.1)
 
 The cheap subset of a subtitle file's own styling (Strategist: "if
 cheap"): colour by the names every player knows, and top or bottom.
@@ -752,15 +752,17 @@ cheap"): colour by the names every player knows, and top or bottom.
 
 Acceptance:
 
-- [ ] Each named colour, in `.vtt` and `.srt`, imports to the same
+- [x] Each named colour, in `.vtt` and `.srt`, imports to the same
       `<c.name>` run and exports back; other colours and classes are
       dropped, words kept.
-- [ ] The renderer draws a `<c.yellow>` run yellow and the rest in the
+- [x] The renderer draws a `<c.yellow>` run yellow and the rest in the
       layer's fill; a scrambled or animated-unit layer ignores colour
       runs as it does the others.
-- [ ] Top cues go on the top caption title with `placement=top`; a file
+- [x] Top cues go on the top caption title with `placement=top`; a file
       without any makes no second title; export then import keeps them
-      at the top in both formats.
+      at the top in both formats. (`titles-captions`, `titles-render`;
+      in the editor: a `.vtt` with a yellow top cue and a cyan bottom
+      one imported, shown in the preview, exported as `.srt` and `.vtt`.)
 
 ### Later
 

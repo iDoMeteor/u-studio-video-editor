@@ -82,7 +82,7 @@ TEST_CASE("SRT and VTT of the same cues read the same")
     CHECK(srt->warnings.empty());
 }
 
-TEST_CASE("tags: b, i and u kept; everything else dropped with its words kept")
+TEST_CASE("tags: b, i, u and named colours kept; everything else dropped with its words kept")
 {
     auto p = parse("1\n00:00:01,000 --> 00:00:02,000\n"
                    "{\\an8}<font color=\"#ff0000\">Red</font> <c.yellow>and</c> <00:00:01.500>timed "
@@ -90,7 +90,9 @@ TEST_CASE("tags: b, i and u kept; everything else dropped with its words kept")
                    "a < b, <i>unclosed\n\n"
                    "2\n00:00:03,000 --> 00:00:04,000\n&lt;b&gt; &#x263A; &#9731; &nbsp;x &bogus;\n");
     REQUIRE(p.has_value());
-    CHECK(p->cues[0].text == "Red and timed 漢kan\na < b, <i>unclosed</i>");
+    CHECK(p->cues[0].text == "<c.red>Red</c> <c.yellow>and</c> timed 漢kan\na < b, <i>unclosed</i>");
+    CHECK(p->cues[0].top); // {\an8}
+    CHECK_FALSE(p->cues[1].top);
     CHECK(p->cues[1].text == "<b> ☺ ☃  x &bogus;");
 }
 
@@ -373,4 +375,104 @@ TEST_CASE("export: the file name picks the format; saved whole, no temporary lef
     CHECK(!std::filesystem::exists(path + ".part"));
     CHECK(!saveSubtitles(cues, {25, 1}, (folder / "missing" / "out.srt").string()).empty());
     std::filesystem::remove_all(folder);
+}
+
+TEST_CASE("T5.2 colours: the eight names in both formats, other colours and classes dropped, words kept")
+{
+    for (const char *name : {"white", "lime", "cyan", "red", "yellow", "magenta", "blue", "black"}) {
+        CAPTURE(name);
+        const std::string hex = captionColourHex(name);
+        const std::string want = std::string("<c.") + name + ">Hi</c> there";
+        const std::string vtt =
+            std::string("WEBVTT\n\n00:01.000 --> 00:02.000\n<c.bg_black.") + name + ".loud>Hi</c> there\n";
+        const std::string srtName =
+            std::string("1\n00:00:01,000 --> 00:00:02,000\n<font color=\"") + name + "\">Hi</font> there\n";
+        const std::string srtHex =
+            std::string("1\n00:00:01,000 --> 00:00:02,000\n<FONT COLOR=") + hex + ">Hi</FONT> there\n";
+        for (const std::string &file : {vtt, srtName, srtHex}) {
+            auto p = parse(file);
+            REQUIRE(p.has_value());
+            CHECK(p->cues[0].text == want);
+        }
+        // And back out, and in again.
+        const std::vector<ExportCue> cues = {{25, 50, want, {}, false}};
+        for (Format format : {Format::Srt, Format::Vtt}) {
+            auto again = parse(writeSubtitles(cues, {25, 1}, format));
+            REQUIRE(again.has_value());
+            CHECK(again->cues[0].text == want);
+        }
+    }
+    CHECK(writeSubtitles({{25, 50, "<c.red>Hi</c>", {}, false}}, {25, 1}, Format::Srt)
+              .find("<font color=\"red\">Hi</font>") != std::string::npos);
+    auto other = parse("WEBVTT\n\n00:01.000 --> 00:02.000\n<c.orange>Hi</c> <font color=\"#123456\">you</font> "
+                       "<c.loud>there</c>\n");
+    REQUIRE(other.has_value());
+    CHECK(other->cues[0].text == "Hi you there");
+    CHECK(captionWords("<c.red>a</c> <b>b</b> <c.nope>c</c>") == "a b <c.nope>c");
+    CHECK(captionColourHex("orange") == nullptr);
+    // A colour-only cue still has words; tags alone don't.
+    CHECK_FALSE(parse("1\n00:00:01,000 --> 00:00:02,000\n<font color=red></font>\n").has_value());
+}
+
+TEST_CASE("T5.2 placement: VTT line: and SRT {\\an7-9} put a cue at the top; import and export keep it")
+{
+    auto vtt = parse("WEBVTT\n\n"
+                     "00:01.000 --> 00:02.000 line:0\nzero\n\n"
+                     "00:02.000 --> 00:03.000 line:10%,start align:left\nten\n\n"
+                     "00:03.000 --> 00:04.000 line:-1\nminus one\n\n"
+                     "00:04.000 --> 00:05.000 line:80%\neighty\n\n"
+                     "00:05.000 --> 00:06.000 position:10%\nnone\n\n"
+                     "00:06.000 --> 00:07.000 line:auto\nauto\n");
+    REQUIRE(vtt.has_value());
+    REQUIRE(vtt->cues.size() == 6);
+    CHECK(vtt->cues[0].top);
+    CHECK(vtt->cues[1].top);
+    CHECK_FALSE(vtt->cues[2].top);
+    CHECK_FALSE(vtt->cues[3].top);
+    CHECK_FALSE(vtt->cues[4].top);
+    CHECK_FALSE(vtt->cues[5].top);
+    auto srt = parse("1\n00:00:01,000 --> 00:00:02,000\n{\\an7}a\n\n2\n00:00:02,000 --> 00:00:03,000\n{\\an9}b\n\n"
+                     "3\n00:00:03,000 --> 00:00:04,000\n{\\an2}c\n");
+    REQUIRE(srt.has_value());
+    CHECK(srt->cues[0].top);
+    CHECK(srt->cues[1].top);
+    CHECK_FALSE(srt->cues[2].top);
+
+    // Import: top cues play the top title with placement=top; export and
+    // import again keep them there, in both formats.
+    core::Model model = core::Model::createEmpty();
+    core::Asset bottom, top;
+    bottom.path = "/p/talk captions.ustitle";
+    top.path = "/p/talk captions (top).ustitle";
+    for (core::Asset *a : {&bottom, &top}) {
+        a->info.hasVideo = true;
+        a->info.isStillImage = true;
+    }
+    ImportCaptions import(bottom, place(vtt->cues, {25, 1}), "talk.vtt", top);
+    REQUIRE(import.apply(model));
+    CHECK(model.project().bin.size() == 2);
+    const core::Clip &first = model.clip(import.clips()[0]);
+    CHECK(model.asset(first.asset).path == top.path);
+    CHECK(clipFieldValues(first).at("placement") == "top");
+    const core::Clip &third = model.clip(import.clips()[2]);
+    CHECK(model.asset(third.asset).path == bottom.path);
+    CHECK_FALSE(clipFieldValues(third).contains("placement"));
+    const auto cues = captionCues(model);
+    for (Format format : {Format::Srt, Format::Vtt}) {
+        auto again = parse(writeSubtitles(cues, {25, 1}, format));
+        REQUIRE(again.has_value());
+        REQUIRE(again->cues.size() == 6);
+        for (size_t i = 0; i < 6; ++i)
+            CHECK(again->cues[i].top == vtt->cues[i].top);
+    }
+    import.revert(model);
+    CHECK(model.project().bin.empty());
+
+    // No top cue: no second title.
+    core::Model plain = core::Model::createEmpty();
+    auto noTop = parse(kSrt);
+    REQUIRE(noTop.has_value());
+    ImportCaptions only(bottom, place(noTop->cues, {25, 1}), "show.srt", top);
+    REQUIRE(only.apply(plain));
+    CHECK(plain.project().bin.size() == 1);
 }

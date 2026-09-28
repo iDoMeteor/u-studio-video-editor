@@ -2,6 +2,7 @@
 
 #include "blur.h"
 #include "core/animation.h"
+#include "core/captions.h"
 #include "core/evaluate.h"
 #include "core/media/utf8_path.h"
 #include "platform/clock.h"
@@ -226,20 +227,41 @@ FontDescription describe(const Font &font, double size)
     return desc;
 }
 
-// A tags="basic" layer's <b>, <i> or <u>, by byte range in the text drawn.
+// A tags="basic" layer's <b>, <i>, <u> or <c.name> (kind 'c', T5.2), by
+// byte range in the text drawn.
 struct StyleRun
 {
     unsigned start = 0, end = 0;
     char kind = 'b';
+    Rgba colour; // kind 'c'
 };
 
-// `text` without its <b>, <i> and <u> (exactly those; anything else stays
-// literal text), and where they applied. An unclosed tag runs to the end.
+// `text` without its <b>, <i>, <u>, <c.name> and </c> (exactly those, the
+// name one of captions' eight; anything else stays literal text), and where
+// they applied. An unclosed tag runs to the end.
 std::string stripBasicTags(const std::string &text, std::vector<StyleRun> &runs)
 {
     std::string out;
     std::map<char, std::vector<unsigned>> open;
+    std::vector<std::pair<unsigned, Rgba>> colours;
     for (size_t i = 0; i < text.size(); ++i) {
+        if (text.compare(i, 3, "<c.") == 0) {
+            const size_t close = text.find('>', i);
+            const char *hex = close == std::string::npos
+                                  ? nullptr
+                                  : captions::captionColourHex(std::string_view(text).substr(i + 3, close - i - 3));
+            if (hex) {
+                colours.push_back({static_cast<unsigned>(out.size()), parseColor(hex).value_or(Rgba{})});
+                i = close;
+                continue;
+            }
+        }
+        if (text.compare(i, 4, "</c>") == 0 && !colours.empty()) {
+            runs.push_back({colours.back().first, static_cast<unsigned>(out.size()), 'c', colours.back().second});
+            colours.pop_back();
+            i += 3;
+            continue;
+        }
         if (text[i] == '<') {
             const bool closing = i + 1 < text.size() && text[i + 1] == '/';
             const size_t k = i + (closing ? 2 : 1);
@@ -249,7 +271,7 @@ std::string stripBasicTags(const std::string &text, std::vector<StyleRun> &runs)
                 if (!closing) {
                     open[kind].push_back(at);
                 } else if (!open[kind].empty()) {
-                    runs.push_back({open[kind].back(), at, kind});
+                    runs.push_back({open[kind].back(), at, kind, {}});
                     open[kind].pop_back();
                 }
                 i = k + 1;
@@ -260,8 +282,43 @@ std::string stripBasicTags(const std::string &text, std::vector<StyleRun> &runs)
     }
     for (auto &[kind, starts] : open)
         for (unsigned start : starts)
-            runs.push_back({start, static_cast<unsigned>(out.size()), kind});
+            runs.push_back({start, static_cast<unsigned>(out.size()), kind, {}});
+    for (const auto &[start, colour] : colours)
+        runs.push_back({start, static_cast<unsigned>(out.size()), 'c', colour});
     return out;
+}
+
+// Colour runs (T5.2): the layer's glyphs again, clipped to each run's
+// clusters and filled with its colour over the layer's own fill (whose
+// opacity it takes); the stroke under them stays the layer's.
+void paintColourRuns(cairo_t *cr, PangoLayout *layout, const std::vector<StyleRun> &runs, double originX,
+                     double originY, double opacity)
+{
+    for (const StyleRun &run : runs) {
+        if (run.kind != 'c' || run.end <= run.start)
+            continue;
+        cairo_save(cr);
+        cairo_new_path(cr);
+        PangoLayoutIter *iter = pango_layout_get_iter(layout);
+        do {
+            const auto index = static_cast<unsigned>(pango_layout_iter_get_index(iter));
+            if (index < run.start || index >= run.end)
+                continue;
+            PangoRectangle logical;
+            pango_layout_iter_get_cluster_extents(iter, nullptr, &logical);
+            cairo_rectangle(cr, originX + static_cast<double>(logical.x) / PANGO_SCALE,
+                            originY + static_cast<double>(logical.y) / PANGO_SCALE,
+                            static_cast<double>(logical.width) / PANGO_SCALE,
+                            static_cast<double>(logical.height) / PANGO_SCALE);
+        } while (pango_layout_iter_next_cluster(iter));
+        pango_layout_iter_free(iter);
+        cairo_clip(cr);
+        cairo_move_to(cr, originX, originY);
+        pango_cairo_layout_path(cr, layout);
+        cairo_set_source_rgba(cr, run.colour.r, run.colour.g, run.colour.b, run.colour.a * opacity);
+        cairo_fill(cr);
+        cairo_restore(cr);
+    }
 }
 
 void configure(PangoLayout *layout, const Layer &layer, const std::string &text, double size, double tracking,
@@ -275,6 +332,8 @@ void configure(PangoLayout *layout, const Layer &layer, const std::string &text,
         pango_attr_list_insert(
             attrs, pango_attr_letter_spacing_new(static_cast<int>(std::lround(tracking * size * PANGO_SCALE))));
     for (const StyleRun &run : runs) {
+        if (run.kind == 'c')
+            continue; // painted over the fill (paintColourRuns)
         PangoAttribute *style =
             run.kind == 'i' ? pango_attr_style_new(PANGO_STYLE_ITALIC)
             : run.kind == 'u'
@@ -732,9 +791,9 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
             return;
         box = imageBox(layer, state, image);
     }
+    std::vector<StyleRun> runs; // a text layer's basic tags
     if (layer.kind == LayerKind::Text) {
         std::string filled = substituteFields(layer.text, doc.fields, fields, clock);
-        std::vector<StyleRun> runs;
         if (layer.basicTags)
             filled = stripBasicTags(filled, runs);
         content = scrambledText(filled, expansion, titleFrame);
@@ -835,6 +894,7 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
                 cairo_move_to(cr.get(), text.originX, text.originY);
                 pango_cairo_layout_path(cr.get(), text.layout.get());
                 strokeAndFill(cr.get(), layer, fill, text.box, state.shift);
+                paintColourRuns(cr.get(), text.layout.get(), runs, text.originX, text.originY, fill.opacity);
             }
         } else if (layer.kind == LayerKind::Image) {
             cairo_save(cr.get());
