@@ -6,6 +6,15 @@ titles_test_core = executable(
 )
 test('titles-core', titles_test_core)
 
+# T5: subtitle files read into cues, placed on frames, imported as clips.
+titles_test_captions = executable(
+  'test_titles_captions',
+  files('test_captions.cpp'),
+  dependencies: [titles_doctest_dep, titles_core_dep],
+  install: false,
+)
+test('titles-captions', titles_test_captions)
+
 # T4b: the pack manifest, the validator against a corpus of malicious packs,
 # install and remove.
 titles_test_pack = executable(
@@ -83,7 +92,9 @@ titles_test_shell = executable(
         '../engine/title_export.cpp', '../engine/title_extension.cpp'),
   cpp_args: ['-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"',
              '-DTITLES_APP_INSTALL_DIR="' + get_option('prefix') / get_option('bindir') + '"',
-             '-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"'],
+             '-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"',
+             '-DTITLES_TEMPLATES_INSTALL_DIR="/nonexistent"',
+             '-DTITLES_TEMPLATES_SOURCE_DIR="' + meson.current_source_dir() / '..' / 'data' / 'templates' + '"'],
   include_directories: [src_inc, titles_inc],
   dependencies: [titles_doctest_dep, titles_core_dep, titles_package_dep, libustudio_engine_dep,
                  libustudio_platform_dep, gtk4_dep],

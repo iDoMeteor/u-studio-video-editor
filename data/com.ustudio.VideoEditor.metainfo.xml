@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.70.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.69.3-beta.1: captions. Import a subtitle file (.srt or .vtt) and every line becomes a caption on its own track at the top, all styled by one caption title you can restyle at once. Bold, italic, underline and WebVTT speakers are kept; unreadable lines are left out and reported.</p>
+        <p>Try importing a subtitle file from a video site or your captioning tool, restyle the caption title, and fix a line's words on the Title page. Known limits: captions can't be exported back to a subtitle file yet, and a file's own positions and colours are ignored.</p>
+      </description>
+    </release>
     <release version="0.69.3-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.67.1-beta.1, the last published beta:</p>

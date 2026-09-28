@@ -263,3 +263,24 @@ Cairo 1.18, fontconfig 2.17):
   owns.
 - **PKCE verifiers from the OS**: `std::random_device`, not GLib's
   `g_random_*`, which isn't cryptographic.
+
+## T5: captions
+
+- **One title, many clips.** An import makes one caption title and gives
+  each cue its own clip with the words in `field.caption` (and
+  `field.speaker`), so restyling is one edit and fixing words is the Title
+  page. `captions::ImportCaptions` is one command that runs AddAsset,
+  AddTrack, then InsertClip, SetClipFields and RenameClip per cue, taking
+  each id as it's made; redo re-applies the same steps, so ids come back.
+- **Frames at the exact rate, in integers.** A time becomes
+  `(2·ms·num + 1000·den) / (2000·den)`: the nearest frame at 30000/1001
+  without floating point, and in 64 bits (a day's milliseconds times a
+  rate's numerator stays far under 2^63; `__int128` isn't portable).
+  Cues that share a time in the file share the frame.
+- **`tags="basic"` is not markup.** The renderer still sets plain text;
+  for such a layer it takes out exactly `<b>`, `<i>` and `<u>` after the
+  fields are filled and adds Pango attributes over those byte ranges. A
+  scramble changes the letters, so a scrambled frame drops the styles.
+- **An import handler's own status stays.** The shell used to follow
+  every handler with "Imported <path>", hiding the captions report; it
+  now does so only when the handler said nothing (`m_statusCount`).

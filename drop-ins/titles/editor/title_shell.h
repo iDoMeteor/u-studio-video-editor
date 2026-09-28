@@ -20,6 +20,13 @@ std::expected<std::optional<core::FrameIndex>, std::string> importTitle(app::She
                                                                         std::optional<core::TrackId> track,
                                                                         std::optional<core::FrameIndex> position);
 
+// Captions (doc 16, T5): an .srt or .vtt as title clips, one per cue, all
+// playing one caption title copied from `templateId` (a built-in) beside
+// the project; overlapping cues on further tracks. One undo step; the
+// status says what was imported, skipped or guessed.
+std::expected<std::optional<core::FrameIndex>, std::string>
+importCaptions(app::ShellHost &host, const std::string &path, const std::string &templateId = "caption-plain");
+
 // New Title (doc 16, T4.2): a blank title file, at the playhead on the
 // active video track (else the first). The file goes in the project's folder
 // (host.projectFolder(): the saved project's, else Settings › Locations'

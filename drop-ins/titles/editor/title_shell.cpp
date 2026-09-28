@@ -4,6 +4,8 @@
 #include "core/commands/primitives.h"
 #include "core/media/fingerprint.h"
 #include "core/media/utf8_path.h"
+#include "core/captions.h"
+#include "core/template_library.h"
 #include "core/title_xml.h"
 #include "engine/backdrop.h"
 #include "jobs.h"
@@ -18,6 +20,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <list>
 #include <map>
 #include <memory>
@@ -314,17 +318,8 @@ class TitleClipClicks : public app::timeline::TimelineOverlayProvider
 
 } // namespace
 
-std::expected<std::optional<core::FrameIndex>, std::string> importTitle(app::ShellHost &host, const std::string &path,
-                                                                        std::optional<core::TrackId> track,
-                                                                        std::optional<core::FrameIndex> position)
+core::Asset titleAsset(const std::string &path, const TitleDocument &doc)
 {
-    auto read = readTitle(path);
-    if (!read)
-        return std::unexpected(read.error());
-    const TitleDocument &doc = read->document;
-    const core::Model &model = host.model();
-    const core::Rational fps = model.sequence().profile.fps;
-
     core::Asset asset;
     asset.path = path;
     asset.displayName = core::utf8String(core::pathFromUtf8(path).filename());
@@ -340,6 +335,81 @@ std::expected<std::optional<core::FrameIndex>, std::string> importTitle(app::She
     // keeps titles out of proxies and profile matching.
     asset.info.isStillImage = true;
     asset.info.container = "ustitle";
+    return asset;
+}
+
+std::string builtInTemplatesDir()
+{
+    std::error_code ec;
+    if (std::filesystem::is_directory(core::pathFromUtf8(TITLES_TEMPLATES_INSTALL_DIR), ec))
+        return TITLES_TEMPLATES_INSTALL_DIR;
+    return TITLES_TEMPLATES_SOURCE_DIR;
+}
+
+std::expected<std::optional<core::FrameIndex>, std::string>
+importCaptions(app::ShellHost &host, const std::string &path, const std::string &templateId)
+{
+    namespace fs = std::filesystem;
+    const fs::path file = core::pathFromUtf8(path);
+    std::error_code ec;
+    const auto size = fs::file_size(file, ec);
+    if (ec)
+        return std::unexpected("can't read " + path + " (" + ec.message() + ")");
+    if (size > captions::kMaxBytes)
+        return std::unexpected("the file is over " + std::to_string(captions::kMaxBytes >> 20) + " MB");
+    std::ifstream in(file, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    auto parsed = captions::parse(bytes);
+    if (!parsed)
+        return std::unexpected(parsed.error());
+
+    // The caption title: a copy of the caption template, beside the project.
+    const auto templates = listTemplates(builtInTemplatesDir(), true);
+    auto chosen =
+        std::find_if(templates.begin(), templates.end(), [&](const TemplateInfo &t) { return t.id == templateId; });
+    if (chosen == templates.end())
+        return std::unexpected("the caption template “" + templateId + "” isn't installed");
+    const fs::path folder = core::pathFromUtf8(newTitlePath(host.projectFolder())).parent_path();
+    const std::string stem = core::utf8String(file.stem());
+    fs::path titlePath = folder / core::pathFromUtf8(stem + " captions.ustitle");
+    for (int n = 2; fs::exists(titlePath, ec); ++n)
+        titlePath = folder / core::pathFromUtf8(stem + " captions " + std::to_string(n) + ".ustitle");
+    fs::create_directories(folder, ec);
+    auto made = newTitleFromTemplate(*chosen, core::utf8String(titlePath));
+    if (!made)
+        return std::unexpected(made.error());
+    auto doc = readTitle(core::utf8String(titlePath));
+    if (!doc)
+        return std::unexpected(doc.error());
+
+    const auto placed = captions::place(parsed->cues, host.model().sequence().profile.fps);
+    const std::string name = core::utf8String(file.filename());
+    if (!host.execute(std::make_unique<captions::ImportCaptions>(titleAsset(core::utf8String(titlePath), doc->document),
+                                                                 placed, name)))
+        return std::unexpected("couldn't add the captions to the timeline");
+    std::string status = "Imported " + std::to_string(parsed->cues.size()) + " captions from " + name +
+                         "; restyle them all by editing " + core::utf8String(titlePath.filename()) + ".";
+    if (parsed->skipped)
+        status += " Skipped " + std::to_string(parsed->skipped) + " unreadable " +
+                  (parsed->skipped == 1 ? "cue" : "cues") + " (the first at line " +
+                  std::to_string(parsed->firstSkippedLine) + ": " + parsed->firstSkippedWhy + ").";
+    for (const std::string &warning : parsed->warnings)
+        status += " The file was " + warning + ".";
+    host.showStatus(status);
+    return std::nullopt;
+}
+
+std::expected<std::optional<core::FrameIndex>, std::string> importTitle(app::ShellHost &host, const std::string &path,
+                                                                        std::optional<core::TrackId> track,
+                                                                        std::optional<core::FrameIndex> position)
+{
+    auto read = readTitle(path);
+    if (!read)
+        return std::unexpected(read.error());
+    const TitleDocument &doc = read->document;
+    const core::Model &model = host.model();
+    const core::Rational fps = model.sequence().profile.fps;
+    const core::Asset asset = titleAsset(path, doc);
 
     // The designed length, in sequence frames.
     const double seconds = static_cast<double>(doc.timing.length()) * doc.fpsDen / doc.fpsNum;
@@ -440,6 +510,10 @@ void extendShell(app::ShellHost &host)
 {
     host.addImportHandler({{"ustitle"}, "Titles", [&host](const std::string &path, auto track, auto position) {
                                return importTitle(host, path, track, position);
+                           }});
+    // Subtitle files (T5): captions as title clips, on tracks of their own.
+    host.addImportHandler({{"srt", "vtt"}, "Subtitles", [&host](const std::string &path, auto, auto) {
+                               return importCaptions(host, path);
                            }});
     host.addActions({{"titles-new", "New Title", "Titles", {"<Shift>t"}, &onNewTitle},
                      {"titles-edit", "Edit Title", "Titles", {"<Control><Shift>t"}, &onEditTitle},

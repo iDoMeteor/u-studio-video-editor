@@ -10,6 +10,7 @@
 #include "render/title_renderer.h"
 #include "core/media/utf8_path.h"
 #include "core/template_library.h"
+#include "core/captions.h"
 #include "core/title_xml.h"
 #include "core/xml/writer.h"
 #include "engine/engine_sync.h"
@@ -559,6 +560,46 @@ TEST_CASE("every built-in template plays in the engine exactly as the designer d
         titles::toStraightRgba(reference.frame, straight.data());
         CHECK(std::equal(straight.begin(), straight.end(), image));
     }
+}
+
+TEST_CASE("1,000 captions build into the engine's graph quickly and play (T5)")
+{
+    setUp();
+    const auto templates = titles::listTemplates(TITLES_TEMPLATES_DIR, true);
+    auto plain = std::find_if(templates.begin(), templates.end(),
+                              [](const titles::TemplateInfo &t) { return t.id == "caption-plain"; });
+    REQUIRE(plain != templates.end());
+    const std::string path = utf8String(scratch() / "captions.ustitle");
+    std::filesystem::remove(path);
+    REQUIRE(titles::newTitleFromTemplate(*plain, path).has_value());
+    std::vector<titles::captions::Cue> cues;
+    for (int i = 0; i < 1000; ++i)
+        cues.push_back({i * 2000, i * 2000 + 1800, "Caption number " + std::to_string(i), {}, i + 1});
+    Model model = Model::createEmpty();
+    model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset asset;
+    asset.path = path;
+    asset.displayName = "captions.ustitle";
+    asset.info.hasVideo = true;
+    asset.info.width = 1920;
+    asset.info.height = 1080;
+    asset.info.isStillImage = true;
+    asset.fileFingerprint = fileFingerprint(path);
+    titles::captions::ImportCaptions import(asset, titles::captions::place(cues, {30, 1}), "long.srt");
+    REQUIRE(import.apply(model));
+
+    const auto begin = std::chrono::steady_clock::now();
+    engine::EngineSync sync(model);
+    const auto built =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
+    MESSAGE("graph with 1,000 caption clips: " << built << " ms");
+    CHECK(built < 5000);
+    // Mid-way, a caption is on screen (bright text over the black).
+    const std::vector<uint8_t> frame = frameAt(sync, 500 * 60 + 30);
+    int bright = 0;
+    for (size_t i = 0; i < frame.size(); i += 4)
+        bright += frame[i] > 200 && frame[i + 1] > 200 && frame[i + 2] > 200;
+    CHECK(bright > 500);
 }
 
 TEST_CASE("--title-export: alpha formats keep the title's alpha; H.264 is flattened")

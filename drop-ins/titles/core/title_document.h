@@ -246,6 +246,10 @@ struct Layer
     Font font;
     Align align = Align::Left;
     Fit fit = Fit::None;
+    // tags="basic" (captions, T5): <b>, <i> and <u> in the text (after its
+    // fields are filled) are drawn as bold, italic and underline, and taken
+    // out. Nothing else is ever read as markup.
+    bool basicTags = false;
     // Shape
     ShapeKind shape = ShapeKind::Rect;
     double radius = 0.0; // RoundedRect

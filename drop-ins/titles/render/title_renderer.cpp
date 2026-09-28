@@ -16,6 +16,7 @@
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <numbers>
@@ -225,8 +226,46 @@ FontDescription describe(const Font &font, double size)
     return desc;
 }
 
+// A tags="basic" layer's <b>, <i> or <u>, by byte range in the text drawn.
+struct StyleRun
+{
+    unsigned start = 0, end = 0;
+    char kind = 'b';
+};
+
+// `text` without its <b>, <i> and <u> (exactly those; anything else stays
+// literal text), and where they applied. An unclosed tag runs to the end.
+std::string stripBasicTags(const std::string &text, std::vector<StyleRun> &runs)
+{
+    std::string out;
+    std::map<char, std::vector<unsigned>> open;
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '<') {
+            const bool closing = i + 1 < text.size() && text[i + 1] == '/';
+            const size_t k = i + (closing ? 2 : 1);
+            if (k + 1 < text.size() && text[k + 1] == '>' && (text[k] == 'b' || text[k] == 'i' || text[k] == 'u')) {
+                const char kind = text[k];
+                const auto at = static_cast<unsigned>(out.size());
+                if (!closing) {
+                    open[kind].push_back(at);
+                } else if (!open[kind].empty()) {
+                    runs.push_back({open[kind].back(), at, kind});
+                    open[kind].pop_back();
+                }
+                i = k + 1;
+                continue;
+            }
+        }
+        out += text[i];
+    }
+    for (auto &[kind, starts] : open)
+        for (unsigned start : starts)
+            runs.push_back({start, static_cast<unsigned>(out.size()), kind});
+    return out;
+}
+
 void configure(PangoLayout *layout, const Layer &layer, const std::string &text, double size, double tracking,
-               bool wrap)
+               bool wrap, const std::vector<StyleRun> &runs = {})
 {
     FontDescription desc = describe(layer.font, size);
     pango_layout_set_font_description(layout, desc.get());
@@ -235,6 +274,16 @@ void configure(PangoLayout *layout, const Layer &layer, const std::string &text,
     if (tracking != 0.0)
         pango_attr_list_insert(
             attrs, pango_attr_letter_spacing_new(static_cast<int>(std::lround(tracking * size * PANGO_SCALE))));
+    for (const StyleRun &run : runs) {
+        PangoAttribute *style =
+            run.kind == 'i' ? pango_attr_style_new(PANGO_STYLE_ITALIC)
+            : run.kind == 'u'
+                ? pango_attr_underline_new(PANGO_UNDERLINE_SINGLE)
+                : pango_attr_weight_new(layer.font.weight >= 600 ? PANGO_WEIGHT_ULTRABOLD : PANGO_WEIGHT_BOLD);
+        style->start_index = run.start;
+        style->end_index = run.end;
+        pango_attr_list_insert(attrs, style);
+    }
     pango_layout_set_attributes(layout, attrs);
     pango_attr_list_unref(attrs);
     if (layer.font.lineHeight != 1.0)
@@ -250,14 +299,14 @@ void configure(PangoLayout *layout, const Layer &layer, const std::string &text,
 }
 
 TextLayout layoutText(ThreadFonts &fonts, const Layer &layer, const LayerState &state, const std::string &text,
-                      std::set<std::string> &warnings)
+                      std::set<std::string> &warnings, const std::vector<StyleRun> &runs = {})
 {
     TextLayout out;
     out.layout.reset(pango_layout_new(fonts.context));
     PangoLayout *layout = out.layout.get();
     const bool wrap = layer.fit == Fit::Wrap && layer.w > 0.0;
     double size = layer.font.size;
-    configure(layout, layer, text, size, state.tracking, wrap);
+    configure(layout, layer, text, size, state.tracking, wrap, runs);
     checkFont(fonts, layer.font, pango_layout_get_font_description(layout), warnings);
 
     PangoRectangle logical;
@@ -275,7 +324,7 @@ TextLayout layoutText(ThreadFonts &fonts, const Layer &layer, const LayerState &
             if (ratio >= 1.0)
                 break;
             size *= attempt == 0 ? ratio : ratio * 0.98;
-            configure(layout, layer, text, size, state.tracking, false);
+            configure(layout, layer, text, size, state.tracking, false, runs);
             pango_layout_get_extents(layout, nullptr, &logical);
         }
     }
@@ -684,10 +733,16 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
         box = imageBox(layer, state, image);
     }
     if (layer.kind == LayerKind::Text) {
-        content = scrambledText(substituteFields(layer.text, doc.fields, fields, clock), expansion, titleFrame);
+        std::string filled = substituteFields(layer.text, doc.fields, fields, clock);
+        std::vector<StyleRun> runs;
+        if (layer.basicTags)
+            filled = stripBasicTags(filled, runs);
+        content = scrambledText(filled, expansion, titleFrame);
+        if (content != filled)
+            runs.clear(); // a scramble's letters: the styled ranges no longer line up
         if (content.empty())
             return;
-        text = layoutText(fonts, layer, state, content, warnings);
+        text = layoutText(fonts, layer, state, content, warnings, runs);
         box = text.box;
         // Ink can reach outside the logical box (italics, accents).
         PangoRectangle ink;
@@ -904,9 +959,12 @@ std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleF
         }
         if (layer.kind == LayerKind::Text) {
             std::string content = substituteFields(layer.text, doc.fields, fields, at);
+            std::vector<StyleRun> runs;
+            if (layer.basicTags)
+                content = stripBasicTags(content, runs);
             if (content.empty())
                 content = " "; // an empty text layer still has a line's height to grab
-            const TextLayout text = layoutText(fonts, layer, state, content, warnings);
+            const TextLayout text = layoutText(fonts, layer, state, content, warnings, runs);
             geometry.box = {text.box.x, text.box.y, text.box.w, text.box.h};
         }
         out.push_back(std::move(geometry));

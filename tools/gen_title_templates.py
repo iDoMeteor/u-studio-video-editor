@@ -35,8 +35,8 @@ def fill(color=None, opacity=None, gradient=None, frm=None, via=None, to=None, a
     return f"<fill{attrs(color=color, opacity=opacity)}/>"
 
 
-def beh(slot, id):
-    return f"<behavior{attrs(slot=slot, id=id)}/>"
+def beh(slot, id, duration=None):
+    return f"<behavior{attrs(slot=slot, id=id, duration=duration)}/>"
 
 
 def in_out(entrance, exit="fade"):
@@ -53,11 +53,13 @@ def shape(id, kind, x, y, w, h, fills, radius=None, extra="", stroke=None):
 
 
 def text(id, x, y, w, content, family=SANS, size=64, weight=None, fills=None, align=None, fit="shrink",
-         tracking=None, shadow=False, extra=""):
-    s = f"  <layer{attrs(id=id, kind='text', x=x, y=y, w=w, fit=fit, align=align)}>\n"
+         tracking=None, shadow=False, extra="", tags=None, stroke=None):
+    s = f"  <layer{attrs(id=id, kind='text', x=x, y=y, w=w, fit=fit, align=align, tags=tags)}>\n"
     s += f"    <text>{escape(content)}</text>\n"
     s += f"    <font{attrs(family=family, weight=weight, size=size, tracking=tracking)}/>\n"
     s += f"    {fills or fill(WHITE)}\n"
+    if stroke:
+        s += f"    <stroke{attrs(color=stroke[0], width=stroke[1])}/>\n"
     if shadow:
         s += f"    <shadow{attrs(dx=0, dy=4, blur=12, color='#000000', opacity=0.5)}/>\n"
     if extra:
@@ -260,6 +262,35 @@ title("sponsor", "Sponsor mention", LIVE, [("sponsor", "Sponsor", "Your sponsor"
     text("line", 1056, 816, 670, "{{line}}", size=40, fills=fill(PINKW), align="right", extra=in_out("fade")),
     text("sponsor", 1056, 876, 670, "{{sponsor}}", size=64, weight=700, align="right", extra=in_out("rise")),
 ])
+
+CAP = "Captions"
+FADE = beh("in", "fade", 4) + beh("out", "fade", 4)
+CAPTION_FIELDS = [("caption", "Caption", "Caption text"), ("speaker", "Speaker", "")]
+
+
+def caption_text(y, **kw):
+    # Up to three lines at 1080p, wrapping in a centred box; <b>, <i> and
+    # <u> from the subtitle file (tags="basic").
+    return text("caption", 160, y, 1600, "{{caption}}", size=56, weight=600, align="center", fit="wrap",
+                tags="basic", shadow=True, extra=FADE, **kw)
+
+
+title("caption-plain", "Caption, plain", CAP, CAPTION_FIELDS, [
+    text("speaker", 160, 770, 1600, "{{speaker}}", size=40, weight=700, align="center", fills=fill(CYAN),
+         shadow=True, stroke=("#000000", 3), extra=FADE),
+    caption_text(830, stroke=("#000000", 4)),
+], intro=4, hold=60, outro=4)
+title("caption-boxed", "Caption, boxed", CAP, CAPTION_FIELDS, [
+    shape("band", "rect", 0, 800, 1920, 230, fill(INK9, 0.72), extra=FADE),
+    text("speaker", 160, 808, 1600, "{{speaker}}", size=40, weight=700, align="center", fills=fill(CYAN),
+         extra=FADE),
+    caption_text(856),
+], intro=4, hold=60, outro=4)
+title("caption-top", "Caption, top", CAP, CAPTION_FIELDS, [
+    text("speaker", 160, 70, 1600, "{{speaker}}", size=40, weight=700, align="center", fills=fill(CYAN),
+         shadow=True, stroke=("#000000", 3), extra=FADE),
+    caption_text(126, stroke=("#000000", 4)),
+], intro=4, hold=60, outro=4)
 
 
 def main():
