@@ -7,7 +7,21 @@ M = os.environ['TOUR_MEDIA']
 WORK = os.path.join(os.environ['TOUR_OUT'], 'work')
 UPTO = int(os.environ.get('TOUR_UPTO', '99'))
 SHOTS = os.environ.get('TOUR_SHOTS', '1') == '1'
-RULER_Y = 740
+TL_X0 = 36          # the timeline's time zero, in screen x
+
+def seek_x(x):
+    """Move the playhead under timeline x (zoom-fit). The ruler takes no clicks,
+    so set the transport's Seek slider through AT-SPI."""
+    ends = [r[1] for row in range(4) for r in clips_in_row(752 + 60 * row + 38)]
+    end = max(ends) if ends else 1735
+    sl = find('Seek', roles=('slider',), timeout=3)
+    if not sl:
+        T.log('seek_x: no Seek slider'); return False
+    vi = sl.get_value_iface()
+    lo, hi = vi.get_minimum_value(), vi.get_maximum_value()
+    v = lo + (hi - lo) * max(0.0, min(1.0, (x - TL_X0) / (end - TL_X0)))
+    vi.set_current_value(v); T.log(f"seek_x {x}: {v:.1f} of {lo:.0f}..{hi:.0f}")
+    return True
 
 # A 3-second numbered PNG run for the image-sequence chapter, made from a staged clip.
 import subprocess
@@ -250,9 +264,10 @@ v3_end = max(r[1] for r in v3) if v3 else 200
 drop_x = v3_end + 40
 drag(70, 695, drop_x, YB(0), dur=1.6); pause(2); rest(); snap('c5c-dropped')   # the newest asset is the last row
 press('Show or hide the media browser'); pause(1)
-click(drop_x + 6, RULER_Y); pause(0.8)   # playhead onto the sequence
+seek_x(drop_x + 8); pause(0.8)   # playhead onto the sequence
+act('zoom-in', 4, gap=0.3); pause(1)
 act('play-pause'); pause(1.5); snap('c5c-playing'); pause(1.2); act('play-pause'); pause(0.8)
-act('undo'); pause(1); rest()   # keep the later chapters' timeline as it was
+act('undo'); pause(1); act('zoom-fit'); rest()   # keep the later chapters' timeline as it was
 
 # ---------------------------------------------------------------- 5d titles (U Stu Titles)
 def wait_status(prefixes, timeout):
@@ -282,7 +297,7 @@ step('Titles', 'New Title (Shift+T): a title clip at the playhead on the active 
 v3 = clips_in_row(YB(0))
 title_x = (max(r[1] for r in v3) if v3 else 300) + 60
 click(1500, YB(0)); pause(0.6)                 # the empty end of V3: make it the active track
-click(title_x, RULER_Y); pause(0.8)
+seek_x(title_x); pause(0.8)
 act('titles-new'); pause(5)
 titles_window(); snap('c5d-gallery')
 step('Template gallery', 'lower thirds, bugs and badges, cards, end screens, countdowns, live and social, and your own')
@@ -306,14 +321,20 @@ for _ in range(40):
 pause(1)
 press('Lower third, two lines', exact=True); pause(3); snap('c5d-template')
 step('Designing over the picture', 'the video at the playhead shows behind the title: layers on the left, the inspector on the right')
-n = find('{{name}}', roles=('label',), timeout=3)
-if n:
-    click(*centre_of(n)); pause(1.5)
+layer = find('{{name}}', roles=('label',), timeout=3)
+if layer:
+    click(*centre_of(layer)); pause(1.5)
 dump('c5d-layer'); snap('c5d-layer')
-step('Brand kit', 'the Unicorn Tears colours, gradients and fonts, one click each; Apply Brand restyles a whole title')
-a = find('Anton', roles=('label', 'button'), exact=True, timeout=2)
+step('Brand kit', 'the Unicorn Tears colours, gradients and fonts sit next to every colour and font; Apply Brand restyles a title')
+# The brand fonts aren't installed here (they fall back), so point at the kit
+# rather than click a font that would look unchanged.
+a = find('Anton', roles=('button',), exact=True, timeout=2)
 if a:
-    click(*centre_of(a)); pause(2)
+    ax, ay = centre_of(a)
+    move(ax, ay - 40); pause(0.8); move(ax, ay + 110, dur=1.2); pause(1)
+b = where('Apply Brand')
+if b:
+    move(*b, dur=1.0); pause(2)
 snap('c5d-brand')
 step('Animation', 'Add In…, Out… and Loop… show each behaviour on your own layer; the strip shows intro, hold and outro')
 press('Add In…', roles=TG, exact=True); pause(3)
@@ -337,9 +358,11 @@ keysym(ord('s'), mods=('ctrl',)); pause(2)
 press('Close', exact=True); pause(2)
 use_app(None)
 act('zoom-in', 4, gap=0.3); pause(1)
-act('step-forward-10', 4, gap=0.2); pause(1.5); snap('c5d-editor')
+# The playhead is at the title's first frame: step back one so the title is
+# the "next" clip on the active track, select it, then go into the hold.
+act('step-backward'); act('select-next-clip'); T.log(f"select title: {status()!r}")
+act('step-forward-10', 5, gap=0.2); pause(1.5); snap('c5d-editor')
 step('Title fields', 'the inspector’s Title page: one lower third for every guest, and the preview follows as you type')
-act('select-next-clip'); pause(0.8)
 click(*where('Inspector', roles=TG)); pause(2); dump('c5d-titlepage'); snap('c5d-titlepage')
 fields = [n for n in walk(app_node()) if info(n)[2] in ('text', 'entry') and extents(n)[0] > 1400]
 T.log(f"title fields: {[info(f)[0] for f in fields]}")
@@ -397,10 +420,11 @@ keysym(K_ESC); pause(1)
 # ---------------------------------------------------------------- 8 project frame rate
 step('Project format', 'click the format under the title: frame rate and background colour, each one undo step')
 press('unicorn-demo'); pause(1.5); snap('c8-dialog'); dump('c8-dialog')
-cb = find('The colour wherever', roles=('button', 'push button', 'toggle button'), timeout=2)
-T.log(f"colour button {info(cb) if cb else None}")
+# The Background row's colour chooser is its own window, which doesn't come up
+# on the WM-less Xvfb; the dialog's row is shown, not driven.
+cb = find('The colour wherever', roles=('button',), timeout=2)
 if cb:
-    click(*centre_of(cb)); pause(2); snap('c8-colours'); dump('c8-colours'); keysym(K_ESC); pause(1)
+    move(*centre_of(cb)); pause(2.5)
 click(960, 566); pause(1.2); snap('c8-list')
 keysym(0xff52); pause(0.4); keysym(0xff52); pause(0.4); keysym(K_RETURN); pause(1)
 press('Apply', exact=True); pause(2.5); T.log(f"fps status {status()!r}"); snap('c8-changed')
@@ -431,7 +455,7 @@ for pid in os.listdir('/proc'):
         cmd = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\0', b' ').decode(errors='replace')
     except Exception:
         continue
-    if ('DISPLAY=' + os.environ['DISPLAY']).encode() in env and b'TOUR_OUT=' not in env and not any(k in cmd for k in ('Xvfb', 'at-spi', 'dbus', 'ffmpeg', 'audiorec', 'python3', 'u-studio-video-editor', 'xdg-desktop-portal', 'goa', 'gvfs', 'dconf')):
+    if ('DISPLAY=' + os.environ['DISPLAY']).encode() in env and b'TOUR_OUT=' not in env and not any(k in cmd for k in ('Xvfb', 'at-spi', 'dbus', 'ffmpeg', 'audiorec', 'python3', 'u-studio-video-editor', 'xdg-', 'portal', 'goa', 'gvfs', 'dconf')):
         T.log(f"closing player {pid}: {cmd[:80]}"); os.kill(int(pid), 15)
 pause(1.5)
 

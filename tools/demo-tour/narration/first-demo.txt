@@ -1,0 +1,138 @@
+# Narration for the first demo (the redo of 2026-09-25's tour), voice cedar.
+# "## <chapter title>" starts a chapter's line; "#2" after a title means its
+# second occurrence. Plain language for users: no internal names.
+
+## U Stu Video Editor
+Welcome to U Stu Video Editor, a video editor made for the GNOME desktop. In this tour, we'll build a short edit from start to finish.
+
+## Import
+Let's start by importing some clips. Pick several files at once, and they land in order on the timeline. The project takes its size and frame rate from the first clip.
+
+## Clip tooltips
+Rest the pointer on any clip to see the frame under it, its timecode, and its details.
+
+## Mixed frame rates
+These clips are a different size, and run at twenty-five frames a second instead of thirty. That's fine: they join the project, and every frame lands at the right time.
+
+## Import a folder
+Import Folder brings in a whole folder at once. It's a single undo step, and anything that can't be opened is listed for you.
+
+## Media browser
+The media browser shows everything in your project, with its length, frame rate and format. Drag any item straight onto the timeline.
+
+## Split audio
+Here's the finished soundtrack for this video. Split Audio peels its sound onto an audio track of its own, so we can work with it separately.
+
+## Trim to fit
+Drag the end of the soundtrack back, and it snaps neatly to the end of the edit.
+
+## Playback
+Press play. Playback runs in real time, with sound, and the editor stays responsive the whole time.
+
+## Shuttle and step
+J, K and L shuttle backwards and forwards; press again to go faster. The arrow keys step one frame at a time, or ten at once.
+
+## Loop a range
+Set a loop in and out at the playhead, and playback goes round and round that range. Handy for fine-tuning a moment.
+
+## Edit on the timeline
+Now for some editing. We'll work on the unicorn clips on the bottom track, with an empty track on top.
+
+## Move
+Drag a clip anywhere you like, even onto another track.
+
+## Trim
+Drag a clip's edge to trim it. The gap it leaves is yours to fill.
+
+## Ripple trim (Alt+drag)
+Hold Alt while you trim, and the clips after it follow the edge, so no gap opens up.
+
+## Slip (Shift+drag)
+Hold Shift and drag to slip a clip: it keeps its place and length, but shows a different part of the source.
+
+## Dissolve
+Right-click a cut and choose Add Transition, for a smooth dissolve from one clip to the next.
+
+## Copy (Ctrl+drag)
+Hold Control while you drag, and you drop a copy instead of moving the clip.
+
+## Nudge
+Comma and period nudge the selection by a single frame. Add Shift to move ten frames at a time.
+
+## Split and ripple delete
+X splits the clip at the playhead. Shift and Delete removes a piece and closes the gap behind it.
+
+## Markers
+Press M to drop a marker at the playhead, so you can find that moment again later.
+
+## Rubber band select (Shift+drag)
+Hold Shift and drag across the timeline, and every clip the box touches is selected.
+
+## Ripple mode
+Press R for ripple mode. Now moving a clip closes the gap it leaves, and pushes later clips along.
+
+## Undo and redo
+Every edit is a single undo step. Control Z takes it back, and Shift Control Z brings it back again.
+
+## Save
+An untitled project asks where to save it. After that, Save writes straight to the same file.
+
+## Automatic backups
+And every save keeps the previous version as a backup next to your project, so a mistake is never final.
+
+## Save As
+Right-click the Save button when you want a copy under a new name.
+
+## Settings
+Settings has every preference in one place, grouped into pages.
+
+## Settings: Toggles
+Toggles switches everyday behaviours on and off: reopening your last project, snapping, following the playhead, thumbnails and waveforms.
+
+## Settings: Performance
+Performance is where you tune the preview, proxies, graphics acceleration and background work.
+
+## Settings: Locations
+Locations sets where your projects are saved, and where finished videos go.
+
+## Settings: Render
+Render holds your render profiles. High quality is the default.
+
+## Settings: Drop-ins
+Drop-ins lists optional add-ons, like titles, and lets you turn each one on or off.
+
+## Settings: Shortcuts
+And Shortcuts lists every action with its keyboard shortcut.
+
+## Project format
+Click the format under the project name to change the frame rate or the background colour. Every clip, marker and dissolve keeps its timing.
+
+## Render
+Time to render. The file is named for you and saved in your export folder, in high quality by default.
+
+## Queue another render
+Right-click the Render button to queue another version, like a quick draft.
+
+## Cancel or queue
+Clicking the Render button while it works lets you cancel the current render, and the next one in the queue carries on.
+
+## Render finished
+When the render is done, the button turns cyan. Click it to open your new video.
+
+## Quit while rendering
+If you quit in the middle of a render, the editor asks first, stops cleanly, and offers to finish the job next time.
+
+## Reopen
+Open the editor again, and your last project is right where you left it, with the unfinished render ready to restart.
+
+## Help
+Help explains every control and lists every shortcut, in sections that remember where you were.
+
+## Release notes
+Release notes show what's new in each version.
+
+## About and diagnostics
+And About has the version details. Copy Diagnostics puts everything a bug report needs on your clipboard.
+
+## U Stu Video Editor #2
+That's U Stu Video Editor. Thanks for watching!

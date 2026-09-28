@@ -29,7 +29,10 @@ if [ ! -f "$MEDIA/.complete" ]; then
 fi
 
 # 2. current main, built as release in this worktree (never in the owner's checkout)
-git -C "$REPO" fetch -q origin && git -C "$REPO" merge -q --no-edit origin/main
+# TOUR_NO_MERGE=1 records the build as it is (the one the dry run passed on).
+if [ "${TOUR_NO_MERGE:-0}" != 1 ]; then
+  git -C "$REPO" fetch -q origin && git -C "$REPO" merge -q --no-edit origin/main
+fi
 BUILD=$REPO/builddir
 [ -d "$BUILD" ] || meson setup "$BUILD" "$REPO" >/dev/null
 meson configure "$BUILD" -Dbuildtype=release -Ddropin_titles=builtin >/dev/null   # the titles chapters need the designer
