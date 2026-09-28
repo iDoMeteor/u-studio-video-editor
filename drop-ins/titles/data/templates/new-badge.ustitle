@@ -2,13 +2,13 @@
 <ustitle version="1" name="New badge" category="Bugs and badges" width="1920" height="1080" fps="30/1">
   <timing intro="18" hold="120" outro="15"/>
   <field name="label" label="Label" default="NEW"/>
-  <layer id="badge" kind="shape" shape="rounded-rect" x="1620" y="80" w="180" h="72" radius="12">
+  <layer id="badge" kind="shape" shape="rounded-rect" x="1580" y="70" w="220" h="90" radius="14">
     <fill color="#4dff5a"/>
     <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="label" kind="text" x="1630" y="88" w="160" fit="shrink" align="center">
+  <layer id="label" kind="text" x="1590" y="80" w="200" fit="shrink" align="center">
     <text>{{label}}</text>
-    <font family="Anton" size="48"/>
+    <font family="Anton" weight="700" size="60"/>
     <fill color="#07060d"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>

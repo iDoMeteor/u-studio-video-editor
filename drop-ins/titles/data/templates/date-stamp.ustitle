@@ -2,17 +2,17 @@
 <ustitle version="1" name="Date stamp" category="Live and social" width="1920" height="1080" fps="30/1">
   <timing intro="18" hold="120" outro="15"/>
   <field name="place" label="Place" default="Studio"/>
-  <layer id="date" kind="text" x="160" y="900" w="800" fit="shrink">
+  <layer id="date" kind="text" x="160" y="850" w="900" fit="shrink">
     <text>{{date:%d %B %Y}}</text>
-    <font family="JetBrains Mono" size="36"/>
-    <fill color="#ffffff" opacity="0.9"/>
+    <font family="JetBrains Mono" weight="700" size="52"/>
+    <fill color="#ffffff" opacity="0.95"/>
     <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
     <behavior slot="in" id="typewriter"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="place" kind="text" x="160" y="950" w="800" fit="shrink">
+  <layer id="place" kind="text" x="160" y="920" w="900" fit="shrink">
     <text>{{place}}</text>
-    <font family="Space Grotesk" size="30"/>
-    <fill color="#c9bdda"/>
+    <font family="Space Grotesk" size="42"/>
+    <fill color="#ffeffb"/>
     <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>

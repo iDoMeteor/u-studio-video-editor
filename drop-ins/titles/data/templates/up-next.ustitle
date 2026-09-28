@@ -2,19 +2,19 @@
 <ustitle version="1" name="Up next" category="End screens" width="1920" height="1080" fps="30/1">
   <timing intro="18" hold="150" outro="15"/>
   <field name="title" label="Title" default="The next episode"/>
-  <layer id="panel" kind="shape" shape="rounded-rect" x="1120" y="760" w="640" h="200" radius="16">
+  <layer id="panel" kind="shape" shape="rounded-rect" x="1040" y="720" w="720" h="250" radius="18">
     <fill color="#1b1230" opacity="0.92"/>
     <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="label" kind="text" x="1150" y="780" w="580" fit="shrink">
+  <layer id="label" kind="text" x="1076" y="742" w="650" fit="shrink">
     <text>UP NEXT</text>
-    <font family="Space Grotesk" weight="700" size="30" tracking="0.2"/>
+    <font family="Space Grotesk" weight="700" size="36" tracking="0.2"/>
     <fill color="#ff2bd6"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="title" kind="text" x="1150" y="830" w="580" fit="wrap">
+  <layer id="title" kind="text" x="1076" y="800" w="650" fit="wrap">
     <text>{{title}}</text>
-    <font family="Space Grotesk" weight="700" size="56"/>
+    <font family="Space Grotesk" weight="700" size="64"/>
     <fill color="#ffffff"/>
     <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
   </layer>

@@ -3,21 +3,22 @@
   <timing intro="18" hold="120" outro="15"/>
   <field name="name" label="Name" default="Jay Doe"/>
   <field name="role" label="Role" default="Guest"/>
-  <layer id="bar" kind="shape" shape="rect" x="160" y="830" w="760" h="120">
+  <layer id="bar" kind="shape" shape="rect" x="160" y="790" w="820" h="180">
     <fill gradient="linear" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0" opacity="0.95"/>
     <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="name" kind="text" x="196" y="842" w="700" fit="shrink">
+  <layer id="name" kind="text" x="200" y="804" w="750" fit="shrink">
     <text>{{name}}</text>
-    <font family="Space Grotesk" weight="700" size="54"/>
+    <font family="Space Grotesk" weight="700" size="70"/>
     <fill color="#ffffff"/>
     <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
     <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="role" kind="text" x="196" y="904" w="700" fit="shrink">
+  <layer id="role" kind="text" x="200" y="894" w="750" fit="shrink">
     <text>{{role}}</text>
-    <font family="Space Grotesk" size="30"/>
+    <font family="Space Grotesk" weight="500" size="46"/>
     <fill color="#ffeffb"/>
+    <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>
 </ustitle>

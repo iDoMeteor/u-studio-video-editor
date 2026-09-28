@@ -2,13 +2,13 @@
 <ustitle version="1" name="Social handle" category="Bugs and badges" width="1920" height="1080" fps="30/1">
   <timing intro="18" hold="120" outro="15"/>
   <field name="handle" label="Handle" default="unicorntears"/>
-  <layer id="pill" kind="shape" shape="rounded-rect" x="160" y="900" w="560" h="80" radius="40">
+  <layer id="pill" kind="shape" shape="rounded-rect" x="160" y="870" w="660" h="100" radius="50">
     <fill gradient="linear" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0"/>
     <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="handle" kind="text" x="190" y="912" w="500" fit="shrink" align="center">
+  <layer id="handle" kind="text" x="196" y="884" w="588" fit="shrink" align="center">
     <text>@{{handle}}</text>
-    <font family="Space Grotesk" weight="700" size="44"/>
+    <font family="Space Grotesk" weight="700" size="56"/>
     <fill color="#ffffff"/>
     <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
     <behavior slot="in" id="typewriter"/><behavior slot="out" id="fade"/>

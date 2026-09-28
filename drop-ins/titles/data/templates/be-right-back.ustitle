@@ -3,16 +3,16 @@
   <timing intro="18" hold="5400" outro="18"/>
   <background color="#120c1f"/>
   <field name="headline" label="Headline" default="Be right back"/>
-  <layer id="headline" kind="text" x="160" y="360" w="1600" fit="shrink" align="center">
+  <layer id="headline" kind="text" x="160" y="330" w="1600" fit="shrink" align="center">
     <text>{{headline}}</text>
-    <font family="Anton" size="120"/>
+    <font family="Anton" weight="700" size="130"/>
     <fill color="#ffffff"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/><behavior slot="loop" id="glow-breathe"/>
   </layer>
-  <layer id="time" kind="text" x="660" y="580" w="600" fit="shrink" align="center">
+  <layer id="time" kind="text" x="610" y="570" w="700" fit="shrink" align="center">
     <text>{{countdown:03:00}}</text>
-    <font family="JetBrains Mono" size="96"/>
-    <fill color="#c9bdda"/>
+    <font family="JetBrains Mono" size="110"/>
+    <fill color="#ffeffb"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>
 </ustitle>

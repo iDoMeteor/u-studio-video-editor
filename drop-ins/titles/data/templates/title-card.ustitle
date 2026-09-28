@@ -4,16 +4,16 @@
   <background gradient="radial" from="#342357" to="#07060d"/>
   <field name="title" label="Title" default="Unicorn Tears"/>
   <field name="subtitle" label="Subtitle" default="Episode 12"/>
-  <layer id="title" kind="text" x="160" y="400" w="1600" fit="shrink" align="center">
+  <layer id="title" kind="text" x="160" y="370" w="1600" fit="shrink" align="center">
     <text>{{title}}</text>
-    <font family="Anton" size="160"/>
+    <font family="Anton" weight="700" size="170"/>
     <fill gradient="linear" from="#ffffff" via="#66efff" to="#ff2bd6" angle="90"/>
     <behavior slot="in" id="kinetic-stack"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="subtitle" kind="text" x="360" y="640" w="1200" fit="shrink" align="center">
+  <layer id="subtitle" kind="text" x="360" y="630" w="1200" fit="shrink" align="center">
     <text>{{subtitle}}</text>
-    <font family="Space Grotesk" size="48"/>
-    <fill color="#c9bdda"/>
+    <font family="Space Grotesk" size="60"/>
+    <fill color="#ffeffb"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>
 </ustitle>

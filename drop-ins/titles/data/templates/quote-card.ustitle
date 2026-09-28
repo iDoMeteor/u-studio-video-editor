@@ -4,21 +4,21 @@
   <background color="#120c1f"/>
   <field name="quote" label="Quote" default="Make the thing you wish existed."/>
   <field name="author" label="Author" default="Jay Doe"/>
-  <layer id="mark" kind="text" x="240" y="220" w="200" fit="none">
+  <layer id="mark" kind="text" x="220" y="180" w="240" fit="none">
     <text>“</text>
-    <font family="Anton" size="260"/>
+    <font family="Anton" weight="700" size="300"/>
     <fill color="#ff2bd6" opacity="0.9"/>
     <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="quote" kind="text" x="320" y="380" w="1280" fit="wrap">
+  <layer id="quote" kind="text" x="320" y="360" w="1280" fit="wrap">
     <text>{{quote}}</text>
-    <font family="Space Grotesk" weight="500" size="72"/>
+    <font family="Space Grotesk" weight="500" size="84"/>
     <fill color="#ffffff"/>
     <behavior slot="in" id="word-by-word"/><behavior slot="out" id="fade"/>
   </layer>
   <layer id="author" kind="text" x="320" y="760" w="1280" fit="shrink">
     <text>— {{author}}</text>
-    <font family="Space Grotesk" size="40"/>
+    <font family="Space Grotesk" weight="500" size="52"/>
     <fill color="#19e3ff"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>

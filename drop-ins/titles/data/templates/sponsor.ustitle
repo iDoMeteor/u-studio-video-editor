@@ -3,19 +3,19 @@
   <timing intro="18" hold="120" outro="15"/>
   <field name="sponsor" label="Sponsor" default="Your sponsor"/>
   <field name="line" label="Line" default="Supported by"/>
-  <layer id="bar" kind="shape" shape="rounded-rect" x="1100" y="860" w="660" h="110" radius="14">
+  <layer id="bar" kind="shape" shape="rounded-rect" x="1020" y="800" w="740" h="170" radius="16">
     <fill color="#1b1230" opacity="0.92"/>
     <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="line" kind="text" x="1130" y="872" w="600" fit="shrink" align="right">
+  <layer id="line" kind="text" x="1056" y="816" w="670" fit="shrink" align="right">
     <text>{{line}}</text>
-    <font family="Space Grotesk" size="28"/>
-    <fill color="#c9bdda"/>
+    <font family="Space Grotesk" size="40"/>
+    <fill color="#ffeffb"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="sponsor" kind="text" x="1130" y="906" w="600" fit="shrink" align="right">
+  <layer id="sponsor" kind="text" x="1056" y="876" w="670" fit="shrink" align="right">
     <text>{{sponsor}}</text>
-    <font family="Space Grotesk" weight="700" size="44"/>
+    <font family="Space Grotesk" weight="700" size="64"/>
     <fill color="#ffffff"/>
     <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
   </layer>
