@@ -671,6 +671,97 @@ Acceptance:
 - [x] Only caption clips are exported; a project without any says so and
       writes nothing. (`titles-captions`, `titles-shell`.)
 
+#### T4.3 — Update from template (landed 2026-09-28, 0.72.0-beta.1)
+
+A title made from a template remembers which one, and which revision of
+it, so that when the template changes (a new app version's built-in, an
+updated pack, or the user editing their own template), U Stu Titles
+offers to bring the title up to date without losing its text.
+
+- **What's recorded.** Two root attributes of the `.ustitle`:
+  `template="builtin:<id>"`, `"user:<id>"` or `"pack:<pack folder>/<id>"`,
+  and `template-revision`, a 64-bit FNV-1a hex digest of the template's
+  design: its file as `writeTitle()` writes it with the name and category
+  cleared (so renaming a template isn't a change). Pictures are part of
+  the design only by file name: a picture replaced under the same name
+  isn't noticed. Set by `templateDocument()` (Use Template, New Title,
+  the editor's gallery); cleared by Save as Template and Duplicate (a
+  template doesn't point at a template). Titles made before T4.3 have
+  none, and are never offered an update. No format version bump: older
+  readers ignore unknown root attributes.
+- **Resolving.** `builtin:` in the built-ins folder, `user:` and `pack:`
+  in the template library. The reference comes from an untrusted file:
+  each part must be a plain name (letters, digits, `-`, `_`, `.`, not
+  starting with a dot), else it resolves to nothing. A template that's
+  gone (deleted, pack removed) offers nothing.
+- **The offer.** Opening a title whose template's revision differs from
+  the recorded one shows a banner: "Its template “<name>” has changed"
+  with **Update**. Nothing happens on its own.
+- **The merge.** The title becomes the template's current design
+  (layers, timing, background, size, fields), with the title's own
+  field default text kept for every field the template still has (by
+  name), and the new revision recorded. One undo step ("Update from
+  Template"), not saved until the user saves. The toast names any field
+  the template no longer has. Per-clip field values in the editor are on
+  the clips, keyed by field name, so they survive untouched. Direct
+  edits to the title's design (moved layers, text typed over a field)
+  are replaced: that's what updating means, and undo brings them back.
+
+Acceptance:
+
+- [x] A title made from a built-in, a user template and a pack's
+      template records the right reference and revision; Save as
+      Template and Duplicate record none; the attributes round-trip.
+- [x] Renaming a template doesn't change its revision; changing a
+      layer does.
+- [x] Hostile references (`user:../x`, `pack:a/../../b`, absolute
+      paths, empty parts) resolve to nothing.
+- [x] The merge keeps field text by name, takes the template's design,
+      reports dropped fields, and records the new revision; undo restores
+      the title exactly.
+- [x] In U Stu Titles: open a title, change its user template, reopen:
+      the banner shows; Update applies it; the banner goes; saving and
+      reopening shows no banner. (`titles-core`; the designer on a
+      private Xvfb with a stale title: banner, Update, Ctrl+S, reopen.)
+
+#### T5.2 — Caption colour and top placement (planned 2026-09-28)
+
+The cheap subset of a subtitle file's own styling (Strategist: "if
+cheap"): colour by the names every player knows, and top or bottom.
+
+- **Colour.** WebVTT's eight default colour classes, `<c.white>`,
+  `<c.lime>`, `<c.cyan>`, `<c.red>`, `<c.yellow>`, `<c.magenta>`,
+  `<c.blue>` and `<c.black>` (other classes on the same `<c>` are
+  ignored), and SRT's `<font color="…">` when it names one of them or
+  gives its exact hex (`#ffff00`). Kept in the caption's words as
+  `<c.yellow>…</c>`, a fourth basic tag: a `tags="basic"` layer draws
+  the run in that colour (the fill is clipped to the run's glyphs and
+  painted solid over the layer's own fill; the stroke and shadow stay
+  the layer's). Any other colour is dropped with its words kept, as now.
+  Export writes `<c.yellow>` in `.vtt` and `<font color="yellow">` in
+  `.srt`.
+- **Top or bottom.** A VTT cue with `line:` as a percentage under 50,
+  or as a line number 0 or more (counted from the top), and an SRT cue
+  starting `{\an7}`, `{\an8}` or `{\an9}`, goes at the top: its clip
+  gets the field `placement=top` and plays a second caption title made
+  from **Caption, top** (`<file name> captions (top).ustitle`), made
+  only when a cue needs it. Everything else stays at the bottom.
+  Horizontal position, size and alignment settings stay ignored. Export
+  writes `line:0` (`.vtt`) or `{\an8}` (`.srt`) for a clip with
+  `placement=top`.
+
+Acceptance:
+
+- [ ] Each named colour, in `.vtt` and `.srt`, imports to the same
+      `<c.name>` run and exports back; other colours and classes are
+      dropped, words kept.
+- [ ] The renderer draws a `<c.yellow>` run yellow and the rest in the
+      layer's fill; a scrambled or animated-unit layer ignores colour
+      runs as it does the others.
+- [ ] Top cues go on the top caption title with `placement=top`; a file
+      without any makes no second title; export then import keeps them
+      at the top in both formats.
+
 ### Later
 
 - **T6 Lottie:** import Lottie animations as layers via `rlottie` (not

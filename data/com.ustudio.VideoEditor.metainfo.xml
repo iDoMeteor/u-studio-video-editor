@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.72.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.71.1-beta.1: update from template. A title made from a template now remembers it; when you open the title in U Stu Titles after its template has changed, a bar offers Update, which takes the new design and keeps your field text. Ctrl+Z takes it back.</p>
+        <p>Try making a title from one of your templates, editing the template, then reopening the title. Known limit: titles made before this version aren't offered updates.</p>
+      </description>
+    </release>
     <release version="0.71.1-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.71.0-beta.1: GPU acceleration now starts off in this download, while a crash it can cause is being fixed. If you want it, turn it on in Settings › Performance › Hardware; your choice stays through updates.</p>

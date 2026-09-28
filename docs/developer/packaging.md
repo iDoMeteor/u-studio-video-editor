@@ -45,11 +45,13 @@ Two checks guard every package, Flatpak or Snap:
 - **The installed package works.** `tools/packaging-smoke/run.sh
   <flatpak|snap> <outdir> [--cleanup]` drives the installed app over
   AT-SPI on a private Xvfb display. The steps are:
-  1. Import H.264 video, a PNG and a JPEG.
-  2. Transform a picture on the preview (MLT's `affine`).
-  3. Play, and check the 440 Hz test tone through SDL's disk driver
+  1. A fresh Flatpak install reads GPU acceleration Off (the vendor
+     override); the run then switches it on for the GPU checks.
+  2. Import H.264 video, a PNG and a JPEG.
+  3. Transform a picture on the preview (MLT's `affine`).
+  4. Play, and check the 440 Hz test tone through SDL's disk driver
      (pitch and dropouts).
-  4. GPU (ADR-019):
+  5. GPU (ADR-019):
      - `--gpu-probe` passes in the sandbox, and fails cleanly without EGL;
      - the log shows the pipeline on;
      - Settings › Performance shows "On: <renderer>";
@@ -60,16 +62,16 @@ Two checks guard every package, Flatpak or Snap:
      `SMOKE_GPU=0` skips these on a machine without a usable GPU.
      The Flatpak starts with GPU acceleration off (below), so these
      checks switch it on first (the `gpu-acceleration` GSettings key).
-  5. Split, undo, redo, save; reopen the saved project.
-  6. Render with the High quality profile, and ffprobe the output.
-  7. Make a 4K proxy; import a 30-image sequence.
-  8. Titles, when the titles extension is installed in the same
+  6. Split, undo, redo, save; reopen the saved project.
+  7. Render with the High quality profile, and ffprobe the output.
+  8. Make a 4K proxy; import a 30-image sequence.
+  9. Titles, when the titles extension is installed in the same
      installation: the drop-in loads from the extension mount, a `.ustitle`
      imports, `u-studio-render --title-export` in the sandbox renders it
      with alpha, Edit Title starts U Stu Titles, and U Stu Titles
      installs a template pack made by `tools/make_test_pack.py` (fails on
      an extension built without libarchive; needs 0.68 or later).
-  9. Copy Diagnostics.
+  10. Copy Diagnostics.
 
   Along the way it checks that no Qt library is mapped. It prints
   PASS/FAIL per check and exits non-zero on any failure. Run it before

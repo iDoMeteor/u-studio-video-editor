@@ -342,6 +342,10 @@ void TitlesWindow::buildUi()
     adw_toast_overlay_set_child(m_toasts, panes);
     GtkWidget *view_ = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view_), header);
+    m_templateBanner = ADW_BANNER(adw_banner_new(""));
+    adw_banner_set_button_label(m_templateBanner, "Update");
+    g_signal_connect(m_templateBanner, "button-clicked", G_CALLBACK(&TitlesWindow::onTemplateBannerClicked), this);
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view_), GTK_WIDGET(m_templateBanner));
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(view_), GTK_WIDGET(m_toasts));
     adw_application_window_set_content(m_window, view_);
 }
@@ -418,6 +422,50 @@ void TitlesWindow::refresh()
         enable("undo", m_history.canUndo());
         enable("redo", m_history.canRedo());
     }
+    checkTemplate();
+}
+
+void TitlesWindow::checkTemplate()
+{
+    // Reads the template's file: only when the title's reference or
+    // revision changed (opened, updated, undone), not on every refresh.
+    const TitleDocument &doc = m_history.document();
+    const std::string key = doc.templateRef + "@" + doc.templateRevision;
+    if (!m_templateBanner || key == m_templateChecked)
+        return;
+    m_templateChecked = key;
+    m_changedTemplate = changedTemplate(doc, builtInTemplatesDir(), userTemplatesDir());
+    if (m_changedTemplate) {
+        const std::string text = "Its template “" + m_changedTemplate->name + "” has changed";
+        adw_banner_set_title(m_templateBanner, text.c_str());
+    }
+    adw_banner_set_revealed(m_templateBanner, m_changedTemplate.has_value());
+}
+
+void TitlesWindow::updateFromTemplate()
+{
+    if (!m_changedTemplate)
+        return;
+    auto update = titles::updateFromTemplate(m_history.document(), *m_changedTemplate, m_path);
+    if (!update) {
+        toast("Couldn't update from “" + m_changedTemplate->name + "”: " + update.error());
+        return;
+    }
+    const std::string name = m_changedTemplate->name;
+    edit("Update from Template", [&](TitleDocument &title) {
+        const std::string folder = title.baseDirectory;
+        title = std::move(update->document);
+        if (!m_path.empty())
+            title.baseDirectory = folder;
+        return true;
+    });
+    m_canvas->setSelection(std::nullopt);
+    refresh();
+    std::string dropped;
+    for (const std::string &field : update->droppedFields)
+        dropped += (dropped.empty() ? "" : ", ") + field;
+    toast(dropped.empty() ? "Updated from “" + name + "”; your field text is kept"
+                          : "Updated from “" + name + "”; it no longer has: " + dropped);
 }
 
 void TitlesWindow::toast(const std::string &text)
@@ -1081,6 +1129,11 @@ void TitlesWindow::onExportChosen(GtkButton *, gpointer data)
     const std::string format = index < formats.size() ? formats[index].name : formats.front().name;
     adw_dialog_close(choice->dialog);
     window->chooseExportPath(format, seconds);
+}
+
+void TitlesWindow::onTemplateBannerClicked(AdwBanner *, gpointer self)
+{
+    static_cast<TitlesWindow *>(self)->updateFromTemplate();
 }
 
 void TitlesWindow::onDestroy(GtkWidget *, gpointer self)

@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.72.0-beta.1
+
+- Titles: a title remembers its template, and U Stu Titles offers to
+  update it when the template changes, keeping the title's field text.
+
 ## 0.71.1-beta.1
 
 - The Flatpak starts with GPU acceleration off; switch it on in Settings ›
