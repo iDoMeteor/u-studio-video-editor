@@ -294,6 +294,10 @@ The titles extension is
   `lib/u-studio/mlt/libmltustudio.so` and `bin/u-studio-titles`. The
   drop-in finds its MLT module and the designer at its own install paths.
   The designer finds `u-studio-render` on `PATH` (`/app/bin`).
+- `-Dtitles_share=disabled`: `u-studio-share`, the template sharing
+  helper, needs network access, which the app's sandbox doesn't have. How
+  it ships (its own app ID) is an open question. Without it installed
+  beside the designer, U Stu Titles hides Browse Shared and Publish.
 - The designer's desktop entry, MIME type and AppStream file are left out,
   because an extension can't export them. U Stu Titles is reached only from
   the editor (Edit Title). A menu entry of its own would need a separate

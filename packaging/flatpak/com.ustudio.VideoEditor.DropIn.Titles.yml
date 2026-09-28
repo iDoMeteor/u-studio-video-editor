@@ -92,6 +92,10 @@ modules:
       - -Dtests=disabled
       - -Drender_tool=false
       - -Ddropin_titles=module
+      # u-studio-share needs the network, which the editor's sandbox (and
+      # so this extension) doesn't have. It ships as its own app, if at
+      # all, and without it the designer hides Browse Shared and Publish.
+      - -Dtitles_share=disabled
     sources:
       - type: dir
         path: ../..
