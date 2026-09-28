@@ -1,0 +1,419 @@
+{
+  "frei0r.3dflippo": {
+    "category": "Distort",
+    "name": "3D Flip",
+    "unstable": "writes out of bounds when a frame is read at a size other than the profile's (frei0r 2.5.6, MLT 7.40)"
+  },
+  "frei0r.aech0r": {
+    "category": "Time",
+    "name": "Echo"
+  },
+  "frei0r.alpha0ps": {
+    "category": "Keying and alpha",
+    "name": "Alpha Operations"
+  },
+  "frei0r.alpha0ps_alpha0ps": {
+    "hidden": true
+  },
+  "frei0r.alpha0ps_alphagrad": {
+    "hidden": true
+  },
+  "frei0r.alpha0ps_alphaspot": {
+    "hidden": true
+  },
+  "frei0r.alphagrad": {
+    "category": "Keying and alpha",
+    "name": "Alpha Gradient"
+  },
+  "frei0r.alphaspot": {
+    "category": "Keying and alpha",
+    "name": "Alpha Spot"
+  },
+  "frei0r.B": {
+    "category": "Colour",
+    "name": "Blue Channel"
+  },
+  "frei0r.balanc0r": {
+    "category": "Colour",
+    "name": "White Balance"
+  },
+  "frei0r.baltan": {
+    "category": "Time",
+    "name": "Baltan"
+  },
+  "frei0r.bgsubtract0r": {
+    "category": "Keying and alpha",
+    "name": "Background Subtract"
+  },
+  "frei0r.bluescreen0r": {
+    "category": "Keying and alpha",
+    "name": "Blue Screen",
+    "featured": true
+  },
+  "frei0r.brightness": {
+    "category": "Colour",
+    "name": "Brightness"
+  },
+  "frei0r.bw0r": {
+    "category": "Colour",
+    "name": "Black and White"
+  },
+  "frei0r.c0rners": {
+    "category": "Distort",
+    "name": "Corner Pin"
+  },
+  "frei0r.cartoon": {
+    "category": "Stylise",
+    "name": "Cartoon",
+    "featured": true
+  },
+  "frei0r.cluster": {
+    "category": "Stylise",
+    "name": "K-Means Clustering"
+  },
+  "frei0r.colgate": {
+    "category": "Colour",
+    "name": "White Balance (LMS)"
+  },
+  "frei0r.coloradj_RGB": {
+    "category": "Colour",
+    "name": "Colour Adjust (RGB)"
+  },
+  "frei0r.colordistance": {
+    "category": "Keying and alpha",
+    "name": "Colour Distance"
+  },
+  "frei0r.colorhalftone": {
+    "category": "Stylise",
+    "name": "Colour Halftone"
+  },
+  "frei0r.colorize": {
+    "category": "Colour",
+    "name": "Colourise"
+  },
+  "frei0r.colortap": {
+    "category": "Colour",
+    "name": "Colour Tap"
+  },
+  "frei0r.contrast0r": {
+    "category": "Colour",
+    "name": "Contrast"
+  },
+  "frei0r.curves": {
+    "category": "Colour",
+    "name": "Curves",
+    "featured": true
+  },
+  "frei0r.d90stairsteppingfix": {
+    "category": "Analysis",
+    "name": "Nikon D90 Stairstepping Fix"
+  },
+  "frei0r.defish0r": {
+    "category": "Distort",
+    "name": "Defish",
+    "featured": true
+  },
+  "frei0r.delay0r": {
+    "category": "Time",
+    "name": "Delay"
+  },
+  "frei0r.delaygrab": {
+    "category": "Time",
+    "name": "Delay Grab"
+  },
+  "frei0r.denoise_hqdn3d": {
+    "category": "Blur and sharpen",
+    "hidden": true
+  },
+  "frei0r.distort0r": {
+    "category": "Distort",
+    "name": "Distort"
+  },
+  "frei0r.dither": {
+    "category": "Stylise",
+    "name": "Dither"
+  },
+  "frei0r.edgeglow": {
+    "category": "Light",
+    "name": "Edge Glow"
+  },
+  "frei0r.elastic_scale": {
+    "category": "Distort",
+    "name": "Elastic Scale"
+  },
+  "frei0r.emboss": {
+    "category": "Stylise",
+    "name": "Emboss"
+  },
+  "frei0r.equaliz0r": {
+    "category": "Colour",
+    "name": "Equalise"
+  },
+  "frei0r.filmgrain": {
+    "category": "Stylise",
+    "name": "Film Grain",
+    "featured": true
+  },
+  "frei0r.flippo": {
+    "category": "Distort",
+    "name": "Flip"
+  },
+  "frei0r.G": {
+    "category": "Colour",
+    "name": "Green Channel"
+  },
+  "frei0r.gamma": {
+    "category": "Colour",
+    "name": "Gamma"
+  },
+  "frei0r.gateweave": {
+    "category": "Stylise",
+    "name": "Gate Weave"
+  },
+  "frei0r.glitch0r": {
+    "category": "Stylise",
+    "name": "Glitch",
+    "featured": true
+  },
+  "frei0r.glow": {
+    "category": "Light",
+    "name": "Glow",
+    "featured": true
+  },
+  "frei0r.heatmap0r": {
+    "category": "Colour",
+    "name": "Heat Map"
+  },
+  "frei0r.hqdn3d": {
+    "category": "Blur and sharpen",
+    "name": "Denoise"
+  },
+  "frei0r.hueshift0r": {
+    "category": "Colour",
+    "name": "Hue Shift",
+    "featured": true
+  },
+  "frei0r.IIRblur": {
+    "category": "Blur and sharpen",
+    "name": "Blur (IIR)",
+    "featured": true
+  },
+  "frei0r.invert0r": {
+    "category": "Colour",
+    "name": "Invert"
+  },
+  "frei0r.kaleid0sc0pe": {
+    "category": "Stylise",
+    "name": "Kaleidoscope",
+    "featured": true
+  },
+  "frei0r.keyspillm0pup": {
+    "category": "Keying and alpha",
+    "name": "Key Spill Mop-Up"
+  },
+  "frei0r.lenscorrection": {
+    "category": "Distort",
+    "name": "Lens Correction",
+    "featured": true
+  },
+  "frei0r.letterb0xed": {
+    "category": "Distort",
+    "name": "Letterbox"
+  },
+  "frei0r.levels": {
+    "category": "Colour",
+    "name": "Levels",
+    "featured": true
+  },
+  "frei0r.lightgraffiti": {
+    "category": "Light",
+    "name": "Light Graffiti"
+  },
+  "frei0r.luminance": {
+    "category": "Colour",
+    "name": "Luminance"
+  },
+  "frei0r.mask0mate": {
+    "category": "Keying and alpha",
+    "name": "Mask"
+  },
+  "frei0r.measure_pr0be": {
+    "category": "Analysis",
+    "hidden": true
+  },
+  "frei0r.measure_pr0file": {
+    "category": "Analysis",
+    "hidden": true
+  },
+  "frei0r.medians": {
+    "category": "Blur and sharpen",
+    "name": "Median"
+  },
+  "frei0r.mirr0r": {
+    "category": "Distort",
+    "name": "Mirror"
+  },
+  "frei0r.ndvi": {
+    "category": "Analysis",
+    "name": "NDVI"
+  },
+  "frei0r.nervous": {
+    "category": "Time",
+    "name": "Nervous"
+  },
+  "frei0r.normaliz0r": {
+    "category": "Colour",
+    "name": "Normalise"
+  },
+  "frei0r.nosync0r": {
+    "category": "Time",
+    "name": "No Sync"
+  },
+  "frei0r.ntsc": {
+    "category": "Stylise",
+    "name": "NTSC"
+  },
+  "frei0r.pixeliz0r": {
+    "category": "Stylise",
+    "name": "Pixelise"
+  },
+  "frei0r.pixs0r": {
+    "category": "Distort",
+    "name": "Pixel Sort"
+  },
+  "frei0r.posterize": {
+    "category": "Stylise",
+    "name": "Posterise"
+  },
+  "frei0r.pr0be": {
+    "category": "Analysis",
+    "name": "Probe"
+  },
+  "frei0r.pr0file": {
+    "category": "Analysis",
+    "name": "Profile"
+  },
+  "frei0r.premultiply": {
+    "category": "Keying and alpha",
+    "name": "Premultiply"
+  },
+  "frei0r.primaries": {
+    "category": "Colour",
+    "name": "Primaries"
+  },
+  "frei0r.R": {
+    "category": "Colour",
+    "name": "Red Channel"
+  },
+  "frei0r.rgbnoise": {
+    "category": "Stylise",
+    "name": "RGB Noise"
+  },
+  "frei0r.rgbparade": {
+    "category": "Analysis",
+    "name": "RGB Parade"
+  },
+  "frei0r.rgbsplit0r": {
+    "category": "Stylise",
+    "name": "RGB Split",
+    "featured": true
+  },
+  "frei0r.saturat0r": {
+    "category": "Colour",
+    "name": "Saturation",
+    "featured": true
+  },
+  "frei0r.scale0tilt": {
+    "category": "Distort",
+    "name": "Scale and Tilt"
+  },
+  "frei0r.scanline0r": {
+    "category": "Stylise",
+    "name": "Scanlines"
+  },
+  "frei0r.select0r": {
+    "category": "Keying and alpha",
+    "name": "Colour Select"
+  },
+  "frei0r.sharpness": {
+    "category": "Blur and sharpen",
+    "name": "Sharpen",
+    "featured": true
+  },
+  "frei0r.sigmoidaltransfer": {
+    "category": "Colour",
+    "name": "Sigmoidal Transfer"
+  },
+  "frei0r.sobel": {
+    "category": "Stylise",
+    "name": "Sobel Edges"
+  },
+  "frei0r.softglow": {
+    "category": "Light",
+    "name": "Soft Glow",
+    "featured": true
+  },
+  "frei0r.sopsat": {
+    "category": "Colour",
+    "name": "SOP / Saturation"
+  },
+  "frei0r.spillsupress": {
+    "category": "Keying and alpha",
+    "name": "Spill Suppress"
+  },
+  "frei0r.squareblur": {
+    "category": "Blur and sharpen",
+    "name": "Square Blur"
+  },
+  "frei0r.tehroxx0r": {
+    "category": "Time",
+    "name": "TehRoxx0r",
+    "hidden": true
+  },
+  "frei0r.tehRoxx0r": {
+    "category": "Time",
+    "name": "TehRoxx0r"
+  },
+  "frei0r.three_point_balance": {
+    "category": "Colour",
+    "name": "Three-Point Colour Balance",
+    "featured": true
+  },
+  "frei0r.threelay0r": {
+    "category": "Colour",
+    "name": "Three Layers"
+  },
+  "frei0r.threshold0r": {
+    "category": "Colour",
+    "name": "Threshold"
+  },
+  "frei0r.timeout": {
+    "category": "Analysis",
+    "name": "Timeout Indicator"
+  },
+  "frei0r.tint0r": {
+    "category": "Colour",
+    "name": "Tint"
+  },
+  "frei0r.transparency": {
+    "category": "Keying and alpha",
+    "name": "Transparency"
+  },
+  "frei0r.twolay0r": {
+    "category": "Colour",
+    "name": "Two Layers"
+  },
+  "frei0r.vectorscope": {
+    "category": "Analysis",
+    "name": "Vectorscope"
+  },
+  "frei0r.vertigo": {
+    "category": "Time",
+    "name": "Vertigo"
+  },
+  "frei0r.vignette": {
+    "category": "Light",
+    "name": "Vignette",
+    "featured": true
+  }
+}
