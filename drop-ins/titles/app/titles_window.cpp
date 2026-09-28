@@ -5,6 +5,7 @@
 #include "core/log.h"
 #include "core/media/utf8_path.h"
 #include "export.h"
+#include "gallery.h"
 
 #include "core/brand_kit.h"
 #include "core/export_formats.h"
@@ -32,6 +33,8 @@ struct ActionEntry
 // own key controller, so a text field never loses a keystroke to them.
 constexpr ActionEntry kActions[] = {
     {"new", "<Control>n"},
+    {"new-from-template", "<Control><Shift>n"},
+    {"save-as-template", nullptr},
     {"open", "<Control>o"},
     {"save", "<Control>s"},
     {"save-as", "<Control><Shift>s"},
@@ -231,7 +234,9 @@ void TitlesWindow::buildUi()
     GMenu *menu = g_menu_new();
     GMenu *file = g_menu_new();
     g_menu_append(file, "New Title", "win.new");
+    g_menu_append(file, "New from Template…", "win.new-from-template");
     g_menu_append(file, "Save As…", "win.save-as");
+    g_menu_append(file, "Save as Template…", "win.save-as-template");
     g_menu_append(file, "Export…", "win.export");
     g_menu_append_section(menu, nullptr, G_MENU_MODEL(file));
     GMenu *view = g_menu_new();
@@ -446,6 +451,58 @@ void TitlesWindow::open(const std::string &path)
     setFrame(static_cast<double>(m_history.document().timing.intro));
     for (const std::string &warning : read->warnings)
         toast(warning);
+}
+
+void TitlesWindow::showTemplates()
+{
+    GalleryCallbacks callbacks;
+    callbacks.use = [this](const TemplateInfo &info) { useTemplate(info); };
+    callbacks.edit = [this](const TemplateInfo &info) {
+        auto *other = new TitlesWindow(gtk_window_get_application(window()), info.path, {});
+        gtk_window_present(other->window());
+    };
+    callbacks.toast = [this](const std::string &text) { toast(text); };
+    showGallery(GTK_WIDGET(m_window), std::move(callbacks));
+}
+
+void TitlesWindow::useTemplate(const TemplateInfo &info)
+{
+    if (!m_history.document().layers.empty()) {
+        auto *other = new TitlesWindow(gtk_window_get_application(window()), {}, {});
+        gtk_window_present(other->window());
+        other->useTemplate(info);
+        return;
+    }
+    auto doc = templateDocument(info, m_path);
+    if (!doc) {
+        toast("Couldn't use “" + info.name + "”: " + doc.error());
+        return;
+    }
+    edit("Use Template", [&](TitleDocument &title) {
+        const std::string folder = title.baseDirectory;
+        title = std::move(*doc);
+        if (!m_path.empty())
+            title.baseDirectory = folder;
+        return true;
+    });
+    m_canvas->setSelection(std::nullopt);
+    refresh();
+    setFrame(static_cast<double>(m_history.document().timing.intro) +
+             std::min(45.0, static_cast<double>(m_history.document().timing.hold) / 2.0));
+}
+
+void TitlesWindow::saveAsTemplate()
+{
+    const TitleDocument &doc = m_history.document();
+    std::string name = doc.name;
+    if (name.empty() && !m_path.empty())
+        name = core::utf8String(core::pathFromUtf8(m_path).stem());
+    if (name.empty())
+        name = "My template";
+    askTemplateName(GTK_WIDGET(m_window), "Save as Template", name, [this](const std::string &chosen) {
+        auto saved = saveTemplate(m_history.document(), userTemplatesDir(), chosen);
+        toast(saved ? "Saved “" + chosen + "” to My Templates" : "Couldn't save the template: " + saved.error());
+    });
 }
 
 void TitlesWindow::save(const std::string &path)
@@ -1039,6 +1096,10 @@ void TitlesWindow::onAction(GSimpleAction *action, GVariant *, gpointer self)
     if (name == "new") {
         auto *other = new TitlesWindow(gtk_window_get_application(window->window()), {}, {});
         gtk_window_present(other->window());
+    } else if (name == "new-from-template") {
+        window->showTemplates();
+    } else if (name == "save-as-template") {
+        window->saveAsTemplate();
     } else if (name == "open") {
         window->chooseOpenPath();
     } else if (name == "save") {

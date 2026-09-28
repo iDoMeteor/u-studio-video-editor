@@ -20,4 +20,11 @@ std::expected<std::optional<core::FrameIndex>, std::string> importTitle(app::She
                                                                         std::optional<core::TrackId> track,
                                                                         std::optional<core::FrameIndex> position);
 
+// New Title (doc 16, T4.2): a blank title file, at the playhead on the
+// active video track (else the first). The file goes in the project's folder
+// (host.projectFolder()) under Titles/, else in the Videos folder under
+// "U Stu Titles/", as "Title <n>.ustitle", never an existing file.
+std::expected<core::ClipId, std::string> newTitle(app::ShellHost &host);
+std::string newTitlePath(const std::string &projectFolder);
+
 } // namespace ustudio::titles

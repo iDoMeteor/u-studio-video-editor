@@ -4,19 +4,19 @@
   <background gradient="radial" from="#342357" to="#07060d"/>
   <field name="headline" label="Headline" default="Thanks for watching"/>
   <field name="cta" label="Call to action" default="Subscribe for more"/>
-  <layer id="headline" kind="text" x="160" y="330" w="1600" fit="shrink" align="center">
+  <layer id="headline" kind="text" x="160" y="300" w="1600" fit="shrink" align="center">
     <text>{{headline}}</text>
-    <font family="Anton" size="130"/>
+    <font family="Anton" weight="700" size="140"/>
     <fill color="#ffffff"/>
     <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="button" kind="shape" shape="rounded-rect" x="660" y="580" w="600" h="100" radius="50">
+  <layer id="button" kind="shape" shape="rounded-rect" x="610" y="580" w="700" h="120" radius="60">
     <fill gradient="linear" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0"/>
     <behavior slot="in" id="pop"/><behavior slot="loop" id="pulse"/><behavior slot="out" id="fade"/>
   </layer>
-  <layer id="cta" kind="text" x="680" y="600" w="560" fit="shrink" align="center">
+  <layer id="cta" kind="text" x="640" y="604" w="640" fit="shrink" align="center">
     <text>{{cta}}</text>
-    <font family="Space Grotesk" weight="700" size="44"/>
+    <font family="Space Grotesk" weight="700" size="56"/>
     <fill color="#ffffff"/>
     <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
   </layer>

@@ -207,22 +207,37 @@ std::expected<void, std::string> removeTemplate(const TemplateInfo &info)
     return {};
 }
 
-std::expected<void, std::string> newTitleFromTemplate(const TemplateInfo &info, const std::string &destination)
+std::expected<TitleDocument, std::string> templateDocument(const TemplateInfo &info, const std::string &titlePath)
 {
     auto read = readTitle(info.path);
     if (!read)
         return std::unexpected(read.error());
-    TitleDocument doc = read->document;
+    TitleDocument doc = std::move(read->document);
     doc.name.clear();
     doc.category.clear();
-    const fs::path target = core::pathFromUtf8(destination);
-    std::error_code ec;
-    if (fs::exists(target, ec))
-        return std::unexpected(destination + " already exists");
+    if (titlePath.empty()) {
+        for (Layer &layer : doc.layers)
+            if (layer.kind == LayerKind::Image && !layer.src.empty() && core::pathFromUtf8(layer.src).is_relative())
+                layer.src = core::utf8String(core::pathFromUtf8(doc.baseDirectory) / core::pathFromUtf8(layer.src));
+        return doc;
+    }
+    const fs::path target = core::pathFromUtf8(titlePath);
     const std::string images = core::utf8String(target.stem()) + " images";
     if (auto taken = takePictures(doc, target.parent_path() / core::pathFromUtf8(images), images + "/"); !taken)
         return std::unexpected(taken.error());
-    if (const std::string error = saveTitle(doc, destination); !error.empty())
+    doc.baseDirectory = core::utf8String(target.parent_path());
+    return doc;
+}
+
+std::expected<void, std::string> newTitleFromTemplate(const TemplateInfo &info, const std::string &destination)
+{
+    std::error_code ec;
+    if (fs::exists(core::pathFromUtf8(destination), ec))
+        return std::unexpected(destination + " already exists");
+    auto doc = templateDocument(info, destination);
+    if (!doc)
+        return std::unexpected(doc.error());
+    if (const std::string error = saveTitle(*doc, destination); !error.empty())
         return std::unexpected(error);
     return {};
 }

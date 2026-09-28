@@ -68,6 +68,7 @@ a space, it doesn't play. Click the timeline or the preview to use them again.
 
 | Key | Action |
 |---|---|
+| `Shift+T` | New Title: a new title at the playhead, opened in U Stu Titles with the template gallery |
 | `Ctrl+Shift+T` | Edit Title: open the selected title clip in U Stu Titles (or double-click it) |
 
 ## U Stu Titles (the title designer)
@@ -78,6 +79,7 @@ it). Typing in a text box never triggers them.
 | Key | Action |
 |---|---|
 | `Ctrl+N` | New title (in a new window) |
+| `Ctrl+Shift+N` | New from Template: the template gallery |
 | `Ctrl+O` | Open a title |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
 | `Ctrl+E` | Export the title on its own (with alpha, or flattened) |

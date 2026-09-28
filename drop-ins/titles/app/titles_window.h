@@ -9,6 +9,7 @@
 #include "inspector.h"
 #include "layers_panel.h"
 
+#include "core/template_library.h"
 #include "core/title_edit.h"
 
 #include <adwaita.h>
@@ -34,6 +35,9 @@ class TitlesWindow
         return GTK_WINDOW(m_window);
     }
 
+    // The template gallery (doc 16, T4.2): what `--gallery` opens with.
+    void showTemplates();
+
   private:
     void buildUi();
     void refresh();
@@ -48,6 +52,10 @@ class TitlesWindow
 
     void open(const std::string &path);
     void save(const std::string &path);
+    // A template's design in this window (one undo step) when it's empty,
+    // else in a new untitled window.
+    void useTemplate(const TemplateInfo &info);
+    void saveAsTemplate();
     void chooseSavePath();
     void chooseOpenPath();
     void chooseBackdropColour();

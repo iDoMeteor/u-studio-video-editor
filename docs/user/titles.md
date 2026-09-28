@@ -7,12 +7,25 @@ chapter cards. They play over your video with transparency. Each title is a
 `.ustitle` file, and you use it on the timeline like any other clip.
 
 > **Early days.** Titles come with the *Titles* add-on, installed next to
-> the app ([Installing › Add-ons](installing.md#add-ons)). The title
-> designer below can place and arrange layers; styling, on-canvas typing,
-> animation presets and a template gallery are on the way
-> ([roadmap](../../README.md)).
+> the app ([Installing › Add-ons](installing.md#add-ons)).
 
 ## Putting a title on the timeline
+
+The quickest way: press **Shift+T** (New Title). A new title appears at the
+playhead on the active video track, five seconds long, and U Stu Titles
+opens on it with the template gallery. Pick a design, change the text, and
+save; the editor updates straight away. The file goes in a **Titles** folder
+next to your project (`Title 1.ustitle`, `Title 2.ustitle`, …). If the
+project isn't saved yet, it goes in your default project folder (Settings ›
+Locations), or, without one, in **U Stu Titles** in your Videos folder.
+Either way the clip keeps finding it after you save the project.
+
+The **T** button in the header bar opens U Stu Titles too: on the selected
+title clip's title, or, with none selected, on a new title with the
+template gallery (it isn't added to the timeline; save it and import it,
+or use Shift+T instead).
+
+To use a title file you already have:
 
 1. Click **Import…** (or press **Ctrl+I**) and pick a `.ustitle` file. The
    Import dialog's **Titles** filter shows just those.
@@ -62,6 +75,25 @@ gradient), timing and canvas size.
 **The brand kit** is next to every colour and font: the Unicorn Tears
 colours, gradients and fonts, one click each. **Apply Brand** (with nothing
 selected) restyles the whole title in the brand, keeping its layout.
+
+## Templates
+
+**New from Template…** in U Stu Titles' main menu (**Ctrl+Shift+N**)
+opens the gallery. The built-in templates come first, by kind: lower thirds,
+bugs and badges, cards, end screens, countdowns, and live and social. Your
+own are under **My Templates**. Click one to use it: in an empty title it
+fills that title, otherwise it opens in a new window.
+
+- **Save as Template…** (main menu) keeps the title you're working on in
+  My Templates, pictures included, under a name you choose.
+- Each template's **⋮** button: for yours, **Edit**, **Rename…**,
+  **Duplicate** and **Delete…**; for a built-in, **Edit a Copy**, which
+  puts a copy in My Templates and opens it. Built-ins never change.
+- A title made from a template is a copy: changing the template later
+  doesn't change titles already made from it.
+
+Most templates have fields (a name, a role, a handle), so the same design
+works for every guest: fill them in on the editor's **Title** page.
 
 ## Live text: clocks, countdowns and dates
 

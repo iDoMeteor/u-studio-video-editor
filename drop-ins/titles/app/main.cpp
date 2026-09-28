@@ -1,8 +1,10 @@
 // u-studio-titles (doc 16, ADR-012): the title designer. GTK4 and
 // libadwaita, titlerender for the canvas, no MLT.
 //
-//   u-studio-titles [FILE.ustitle...] [--backdrop PICTURE]
+//   u-studio-titles [FILE.ustitle...] [--backdrop PICTURE] [--gallery]
 //
+// --gallery opens each window with the template gallery (the editor's New
+// Title: it makes the file, then lets the user pick a design for it).
 // Each file opens in its own window; with none, an untitled title. The
 // editor launches it on a file with its frame at the playhead as the
 // backdrop.
@@ -21,6 +23,14 @@ namespace Log = ustudio::core::Log;
 using ustudio::titles::app::TitlesWindow;
 
 std::string g_backdrop; // --backdrop, for the windows this launch opens
+bool g_gallery = false; // --gallery, likewise
+
+void present(TitlesWindow *window)
+{
+    gtk_window_present(window->window());
+    if (g_gallery)
+        window->showTemplates();
+}
 
 void applyStyle()
 {
@@ -42,8 +52,7 @@ void onStartup(GApplication *, gpointer)
 // Windows delete themselves when destroyed (TitlesWindow::onDestroy).
 void onActivate(GApplication *app, gpointer)
 {
-    auto *window = new TitlesWindow(GTK_APPLICATION(app), {}, g_backdrop);
-    gtk_window_present(window->window());
+    present(new TitlesWindow(GTK_APPLICATION(app), {}, g_backdrop));
 }
 
 void onOpen(GApplication *app, GFile **files, gint count, const gchar *, gpointer)
@@ -56,8 +65,7 @@ void onOpen(GApplication *app, GFile **files, gint count, const gchar *, gpointe
         g_free(raw);
         if (path.empty())
             continue;
-        auto *window = new TitlesWindow(GTK_APPLICATION(app), path, g_backdrop);
-        gtk_window_present(window->window());
+        present(new TitlesWindow(GTK_APPLICATION(app), path, g_backdrop));
     }
 }
 
@@ -69,6 +77,9 @@ gint onLocalOptions(GApplication *, GVariantDict *options, gpointer)
         g_backdrop = utf8 ? utf8 : "";
         g_free(utf8);
     }
+    gboolean gallery = FALSE;
+    if (g_variant_dict_lookup(options, "gallery", "b", &gallery))
+        g_gallery = gallery;
     return -1; // carry on
 }
 
@@ -84,6 +95,8 @@ int main(int argc, char **argv)
         "com.ustudio.Titles", static_cast<GApplicationFlags>(G_APPLICATION_HANDLES_OPEN | G_APPLICATION_NON_UNIQUE));
     g_application_add_main_option(G_APPLICATION(app), "backdrop", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_FILENAME,
                                   "A picture to design over (the editor's frame)", "PICTURE");
+    g_application_add_main_option(G_APPLICATION(app), "gallery", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
+                                  "Open with the template gallery", nullptr);
     g_signal_connect(app, "startup", G_CALLBACK(onStartup), nullptr);
     g_signal_connect(app, "activate", G_CALLBACK(onActivate), nullptr);
     g_signal_connect(app, "open", G_CALLBACK(onOpen), nullptr);

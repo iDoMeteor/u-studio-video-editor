@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The titles drop-in's own resources in the editor (its header button's
+     icon), registered when the drop-in loads; extendShell() adds the
+     icons/ path to the icon theme. -->
+<gresources>
+  <gresource prefix="/com/ustudio/Titles/editor">
+    <file compressed="true" alias="icons/scalable/actions/ustudio-titles-symbolic.svg">icons/ustudio-titles-symbolic.svg</file>
+  </gresource>
+</gresources>

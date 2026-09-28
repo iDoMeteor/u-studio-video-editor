@@ -51,6 +51,12 @@ std::expected<TemplateInfo, std::string> duplicateTemplate(const TemplateInfo &i
 // Deletes a user template's folder. A built-in can't be removed.
 std::expected<void, std::string> removeTemplate(const TemplateInfo &info);
 
+// A template's document for a title at `titlePath`: its layers, timing and
+// fields, without the template's name, its pictures copied beside the
+// title ("<title name> images/"). With no path (an untitled title), the
+// pictures stay where they are, by absolute path.
+std::expected<TitleDocument, std::string> templateDocument(const TemplateInfo &info, const std::string &titlePath);
+
 // A new title at `destination` from a template: its layers, timing and
 // fields, without the template's name, and its pictures copied beside the
 // title ("<title name> images/"). Never overwrites a file.

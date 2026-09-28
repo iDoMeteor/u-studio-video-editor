@@ -19,6 +19,9 @@ titles_app_tokens_h = custom_target(
 # Export runs u-studio-render (the designer has no MLT): installed next to
 # it, else this build's (defined after drop-ins/, so named by path).
 titles_app_args = ['-DTITLES_RENDER_BUILD_PATH="' + meson.project_build_root() / 'src' / 'render' / 'u-studio-render' + '"']
+# The built-in templates: installed beside the program's share/, else this
+# source tree's (running from the build directory).
+titles_app_args += '-DTITLES_TEMPLATES_SOURCE_DIR="' + meson.current_source_dir() / '..' / 'data' / 'templates' + '"'
 if get_option('dropin_titles') == 'module'
   # An uninstalled render tool finds the module only through the
   # development override (ADR-014).
@@ -26,7 +29,7 @@ if get_option('dropin_titles') == 'module'
 endif
 titles_app_lib = static_library(
   'ustudio_titles_app',
-  files('animation_strip.cpp', 'behavior_drawer.cpp', 'canvas.cpp', 'export.cpp', 'inspector.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp',
+  files('animation_strip.cpp', 'behavior_drawer.cpp', 'canvas.cpp', 'export.cpp', 'gallery.cpp', 'inspector.cpp', 'layers_panel.cpp', 'render_worker.cpp', 'titles_window.cpp',
         'view_settings.cpp'),
   titles_app_tokens_h,
   include_directories: [src_inc, titles_inc],
