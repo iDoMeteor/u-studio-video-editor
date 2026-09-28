@@ -148,3 +148,19 @@ XDG_RUNTIME_DIR=<private dir>`, as `tools/titles-smoke/run.sh` does);
 otherwise the private session's document portal unmounts the desktop's
 `/run/user/<uid>/doc`. Reuse one scratch cache dir between runs, or every
 run pays the cold-cache first frame.
+
+## A floating inspector takes drops meant for the content
+
+`AdwOverlaySplitView`, collapsed and showing its sidebar, lays a shield
+over the content so that a click outside closes the sidebar. That shield
+is picked for every pointer event over the content, drags included, so a
+drop target stacked over the preview (the effects Browser's drop zone,
+even with `can-target` on) never gets the drop. Repro, 2026-09-28: a GTK4
+drag between two labels worked on the same Xvfb with the same synthetic
+drag, while every drag from the Browser onto the preview ended without a
+drop until the inspector docked. The inspector now docks beside the
+content when the window is at least 1280 px wide (an `AdwBreakpoint` on
+`collapsed`), and floats below that. A window with breakpoints no longer
+takes its minimum size from its content, so `addInspectorPage()` measures
+and pins the minimum first.
+

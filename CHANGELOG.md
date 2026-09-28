@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.71.1-beta.1
+
+- The Flatpak starts with GPU acceleration off; switch it on in Settings ›
+  Performance › Hardware, and it stays on through updates.
+
 ## 0.71.0-beta.1
 
 - Captions: Export Captions… writes the project's captions to an .srt or

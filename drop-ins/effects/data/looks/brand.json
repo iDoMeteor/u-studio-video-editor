@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "looks": [
+    {
+      "name": "Unicorn Glow",
+      "description": "A soft magenta-cyan bloom for the brand's look",
+      "effects": [
+        {
+          "service": "frei0r.glow",
+          "params": {
+            "0": 0.3
+          },
+          "mix": 0.8
+        },
+        {
+          "service": "frei0r.saturat0r",
+          "params": {
+            "0": 0.18
+          }
+        },
+        {
+          "service": "lift_gamma_gain",
+          "params": {
+            "gain_r": 1.05,
+            "gain_g": 0.97,
+            "gain_b": 1.08
+          }
+        }
+      ]
+    },
+    {
+      "name": "Neon Night",
+      "description": "Cool shadows, warm highlights, a glow and a vignette",
+      "effects": [
+        {
+          "service": "lift_gamma_gain",
+          "params": {
+            "lift_b": 0.04,
+            "gamma_r": 0.95,
+            "gamma_b": 1.1,
+            "gain_r": 1.08,
+            "gain_g": 0.95,
+            "gain_b": 1.1
+          }
+        },
+        {
+          "service": "frei0r.softglow",
+          "params": {
+            "0": 0.4,
+            "1": 0.7
+          }
+        },
+        {
+          "service": "frei0r.vignette",
+          "params": {
+            "0": 0.5,
+            "1": 0.2,
+            "2": 0.6
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stream Punch",
+      "description": "More contrast and colour for a flat webcam or capture",
+      "effects": [
+        {
+          "service": "frei0r.contrast0r",
+          "params": {
+            "0": 0.6
+          }
+        },
+        {
+          "service": "frei0r.saturat0r",
+          "params": {
+            "0": 0.16
+          }
+        },
+        {
+          "service": "frei0r.vignette",
+          "params": {
+            "1": 0.35,
+            "2": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pastel Dream",
+      "description": "Lifted, gentle colour with a light glow",
+      "effects": [
+        {
+          "service": "frei0r.saturat0r",
+          "params": {
+            "0": 0.1
+          }
+        },
+        {
+          "service": "lift_gamma_gain",
+          "params": {
+            "lift_r": 0.04,
+            "lift_g": 0.03,
+            "lift_b": 0.06
+          }
+        },
+        {
+          "service": "frei0r.glow",
+          "params": {
+            "0": 0.2
+          }
+        }
+      ]
+    },
+    {
+      "name": "Film Grain",
+      "description": "Fine grain and a little flicker",
+      "effects": [
+        {
+          "service": "frei0r.filmgrain",
+          "params": {
+            "0": 0.25,
+            "5": 0.05,
+            "6": 0.2
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -4,9 +4,11 @@
 
 #include "app/browser.h"
 #include "app/catalog.h"
+#include "app/compare.h"
 #include "app/health_scan.h"
 #include "app/rack.h"
 #include "core/health.h"
+#include "core/looks.h"
 #include "core/log.h"
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
@@ -15,6 +17,8 @@
 #include "engine/probe.h"
 #include "engine/registry.h"
 
+#include <fstream>
+#include <iterator>
 #include <set>
 #include <string>
 
@@ -66,9 +70,15 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         static bool scanning = false;
         addRack(shell, catalog);
         addBrowser(shell, catalog);
+        addCompare(shell, catalog);
         if (scanning)
             return; // one scan per process, however many windows
         scanning = true;
+        // Brand Looks (small; the drop-in's own data).
+        std::ifstream in(effectsDataDir() / "looks" / "brand.json");
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (std::optional<Json> json = parseJson(text))
+            catalog.setBrandLooks(looksFromJson(*json));
         // The badges of effects probed before (small; the registry itself
         // arrives from the scan's thread).
         for (const auto &[service, record] : loadHealthFile(healthFilePath()).records)

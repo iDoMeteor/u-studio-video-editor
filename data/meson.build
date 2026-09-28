@@ -17,6 +17,17 @@ install_data(
   'com.ustudio.VideoEditor.gschema.xml',
   install_dir: get_option('datadir') / 'glib-2.0/schemas',
 )
+# ADR-019: a packaged build that starts with GPU acceleration off installs a
+# vendor override next to the schema; glib-compile-schemas (post-install
+# below) folds it into the default. It lives in a subdirectory so the
+# uninstalled build's compile_schemas() (this directory only) leaves dev
+# builds on "auto".
+if get_option('gpu_acceleration_default') == 'off'
+  install_data(
+    'gsettings-overrides' / 'ustudio-gpu-off.gschema.override',
+    install_dir: get_option('datadir') / 'glib-2.0/schemas',
+  )
+endif
 
 # Compiles gschemas.compiled into THIS build subdir (builddir/data), for
 # running the app uninstalled -- glib-compile-schemas' own targetdir
