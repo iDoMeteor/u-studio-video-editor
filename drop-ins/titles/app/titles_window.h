@@ -70,6 +70,10 @@ class TitlesWindow
     void editTextOnCanvas(const std::string &id);
     void finishTextEdit(bool commit);
     void addLayerOf(Layer layer, const std::string &label);
+    // Update from template (T4.3): the banner when the title's template has
+    // changed since, and the update it offers.
+    void checkTemplate();
+    void updateFromTemplate();
     bool confirmClose();
 
     // Canvas requests.
@@ -80,6 +84,9 @@ class TitlesWindow
     AdwApplicationWindow *m_window = nullptr;
     AdwWindowTitle *m_title = nullptr;
     AdwToastOverlay *m_toasts = nullptr;
+    AdwBanner *m_templateBanner = nullptr;
+    std::optional<TemplateInfo> m_changedTemplate;
+    std::string m_templateChecked; // the reference and revision last checked
     GtkWidget *m_canvasOverlay = nullptr;
     // The text box while typing on the canvas, and the layer it edits.
     GtkWidget *m_textEditor = nullptr;
@@ -106,6 +113,7 @@ class TitlesWindow
     static gboolean onCloseRequest(GtkWindow *, gpointer self);
     static void onAction(GSimpleAction *action, GVariant *parameter, gpointer self);
     static void onDestroy(GtkWidget *, gpointer self);
+    static void onTemplateBannerClicked(AdwBanner *, gpointer self);
     static void onExportChosen(GtkButton *, gpointer data);
     static gboolean onTextEditorKey(GtkEventControllerKey *, guint keyval, guint, GdkModifierType state, gpointer self);
     static void onTextEditorFocusLeave(GtkEventControllerFocus *, gpointer self);

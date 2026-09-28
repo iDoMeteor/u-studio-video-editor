@@ -5,12 +5,27 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
-## 0.72.0-beta.1
+## 0.74.0-beta.1
 
 - Effects (the Effects add-on): add, try on the picture, keyframe and
   compare hundreds of effects on clips, tracks or the whole picture, with
   looks, copy and paste, and several clips at once; the inspector now sits
   beside the picture on wide windows.
+
+## 0.73.1-beta.1
+
+- With GPU acceleration on, pausing, seeking or playing around dissolves
+  no longer closes the editor when a frame runs late.
+
+## 0.73.0-beta.1
+
+- Captions: the eight standard caption colours and top placement come in
+  from .vtt and .srt files and go back out on export.
+
+## 0.72.0-beta.1
+
+- Titles: a title remembers its template, and U Stu Titles offers to
+  update it when the template changes, keeping the title's field text.
 
 ## 0.71.1-beta.1
 

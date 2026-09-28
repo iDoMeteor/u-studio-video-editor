@@ -215,6 +215,12 @@ void PlaybackController::setRenderThreadHooks(RenderThreadHook started, RenderTh
     m_renderStopped = std::move(stopped);
 }
 
+void PlaybackController::setFrameShowHooks(std::function<bool()> enter, std::function<void()> leave)
+{
+    m_frameShowEnter = std::move(enter);
+    m_frameShowLeave = std::move(leave);
+}
+
 void PlaybackController::play(double speed)
 {
     if (!m_tractor)
@@ -417,6 +423,21 @@ void PlaybackController::handleFrameShow(const Mlt::EventData &eventData)
     Mlt::Frame frame(eventData.to_frame());
     if (!frame.is_valid())
         return;
+
+    // The frame may not be rendered yet (skipped by the render thread, or
+    // forced after too many drops): get_image() renders it here, on the
+    // consumer's thread, which on the GPU pipeline needs a context current.
+    if (m_frameShowEnter && !m_frameShowEnter())
+        return;
+    struct Leave
+    {
+        const std::function<void()> &leave;
+        ~Leave()
+        {
+            if (leave)
+                leave();
+        }
+    } leaveGl{m_frameShowLeave};
 
     mlt_image_format format = mlt_image_rgba;
     int width = 0;

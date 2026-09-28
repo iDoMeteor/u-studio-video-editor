@@ -124,7 +124,13 @@ as for the titles smoke test.
 - **Playback soak**: `tests/engine/playback_soak.cpp` is a manual tool for
   long playback runs. `--gpu` plays on the GPU pipeline, `--hwdecode` adds
   VAAPI, `--no-rotation` leaves the transformed tracks unrotated
-  (ADR-019). Judge memory by its "RSS growth after warm-up" line, not
+  (ADR-019).
+- **GPU stress** (`engine-gpu-stress`, and the `gpu_stress` tool): a
+  tour-like project played through Engine on the GPU pipeline with random
+  play, pause, seek, steps, preview scale, proxies and dissolve edits; 45 s
+  with seed 1 in `meson test` (serial), for minutes by hand
+  (`SDL_AUDIODRIVER=dummy gpu_stress <seconds> [seed]`). Every action is
+  printed, so a crash replays; exit 77 skips on a machine without a GPU. Judge memory by its "RSS growth after warm-up" line, not
   by the first report: the first minute is warm-up (see the
   [playback notes](notes/playback-engine.md)).
 

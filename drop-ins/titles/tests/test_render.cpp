@@ -522,7 +522,7 @@ TEST_CASE("every built-in template reads cleanly, fills its fields, draws, and s
     CHECK(categories.size() >= 6);
 }
 
-TEST_CASE("tags=\"basic\": <b>, <i> and <u> style the text and leave it; nothing else is markup (T5)")
+TEST_CASE("tags=\"basic\": <b>, <i>, <u> and <c.name> style the text and leave it; nothing else is markup (T5)")
 {
     const auto frame = [](const std::string &text, bool basic, int weight = 400, const std::string &field = {}) {
         TitleDocument doc;
@@ -559,6 +559,40 @@ TEST_CASE("tags=\"basic\": <b>, <i> and <u> style the text and leave it; nothing
           frame("<span weight='bold'>Aa</span>", false));
     // A caption's own tags come through its field.
     CHECK(frame("{{caption}}", true, 400, "<b>Aa</b>") == frame("Aa", false, 700));
+
+    // T5.2: <c.name> paints its run in that colour over the white fill, the
+    // rest unchanged; an unknown name stays literal text.
+    const auto opaque = [](const std::vector<uint32_t> &pixels, auto test) {
+        int n = 0;
+        for (uint32_t px : pixels)
+            if ((px >> 24) == 0xFF && test((px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF))
+                ++n;
+        return n;
+    };
+    const auto yellowish = [](uint32_t r, uint32_t g, uint32_t b) { return r > 240 && g > 240 && b < 16; };
+    const auto whitish = [](uint32_t r, uint32_t g, uint32_t b) { return r > 240 && g > 240 && b > 240; };
+    const auto coloured = frame("<c.yellow>MM</c>MM", true);
+    const auto plain = frame("MMMM", true);
+    CHECK(opaque(plain, yellowish) == 0);
+    CHECK(opaque(coloured, yellowish) > 200);
+    CHECK(opaque(coloured, whitish) > 200); // the uncoloured half
+    CHECK(opaque(coloured, whitish) < opaque(plain, whitish));
+    CHECK(frame("{{caption}}", true, 400, "<c.yellow>MM</c>MM") == coloured);       // through a field
+    CHECK(frame("<c.orange>MM</c>MM", true) == frame("<c.orange>MM</c>MM", false)); // literal
+    // Every opaque yellow pixel lies left of every opaque white one: the run
+    // is the first two letters.
+    int maxYellowX = -1, minWhiteX = 1 << 20;
+    for (size_t i = 0; i < coloured.size(); ++i) {
+        const uint32_t px = coloured[i];
+        if ((px >> 24) != 0xFF)
+            continue;
+        const int x = static_cast<int>(i % 640);
+        if (yellowish((px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF))
+            maxYellowX = std::max(maxYellowX, x);
+        else if (whitish((px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF))
+            minWhiteX = std::min(minWhiteX, x);
+    }
+    CHECK(maxYellowX < minWhiteX);
 
     // The attribute survives a save.
     TitleDocument doc;

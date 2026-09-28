@@ -92,7 +92,15 @@ fills that title, otherwise it opens in a new window.
   **Duplicate** and **Delete…**; for a built-in, **Edit a Copy**, which
   puts a copy in My Templates and opens it. Built-ins never change.
 - A title made from a template is a copy: changing the template later
-  doesn't change titles already made from it.
+  doesn't change titles already made from it on its own. When you open
+  such a title in U Stu Titles and its template has changed since (you
+  edited your template, a pack was updated, or a new version of U Stu
+  changed a built-in), a bar says so. Click **Update** to take the
+  template's new design. Your field text is kept, and a message names
+  any field the template no longer has. Changes you made to the title's
+  own design are replaced; **Ctrl+Z** takes the update back, and nothing
+  is saved until you save. Titles made before version 0.72 don't know
+  their template and are never offered an update.
 
 Most templates have fields (a name, a role, a handle), so the same design
 works for every guest: fill them in on the editor's **Title** page.
@@ -140,8 +148,14 @@ couldn't be read and were left out.
   timeline names each caption by its first line.
 - Line breaks are kept. **Bold**, *italic* and underline from the file
   (`<b>`, `<i>`, `<u>`) show as such; a WebVTT speaker (`<v Name>`) shows
-  above the words. Colours, positions and other styling in the file are
-  ignored.
+  above the words.
+- Colours come through when the file uses one of the eight every player
+  knows: white, lime, cyan, red, yellow, magenta, blue and black. Other
+  colours are left out and the words stay.
+- A caption the file puts at the top of the picture (a WebVTT `line:`
+  near the top, or an `.srt` line starting `{\an8}`) goes at the top,
+  styled by a second caption title, `<file name> captions (top).ustitle`.
+  Other positions and sizes in the file are ignored.
 - One **Ctrl+Z** takes the whole import back.
 - Files in UTF-8 or UTF-16 read as they are; others are read as Windows
   text (Western European), and the status bar says so. A file with no
@@ -155,8 +169,8 @@ name the file. A name ending in `.vtt` makes a WebVTT file (for web players
 and YouTube); anything else makes an `.srt` file, the most widely read kind.
 Every caption in the project goes in, in time order, whichever track it's
 on, with its words as they are now: fix the words on the timeline, export,
-and the file has your fixes. Bold, italic, underline and speakers are
-written out, and importing the file again gives the same captions at the
+and the file has your fixes. Bold, italic, underline, colours, speakers and
+top placement are written out, and importing the file again gives the same captions at the
 same frames.
 
 ## Live text: clocks, countdowns and dates

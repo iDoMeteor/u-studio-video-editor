@@ -50,6 +50,16 @@ class GpuSession
     bool renderThreadStarted();
     void renderThreadStopped();
 
+    // Around rendering on the consumer's own thread (PlaybackController::
+    // setFrameShowHooks()). MLT's real-time consumer passes on a frame its
+    // render thread skipped (late), and marks one "rendered" for the
+    // consumer thread to render itself after too many drops
+    // (mlt_consumer.c, "forcing next frame"); get_image() then runs the
+    // whole movit graph on that thread, which needs a context of its own
+    // (the render thread holds the first). One thread at a time.
+    bool frameShowEnter();
+    void frameShowLeave();
+
     const std::string &renderer() const
     {
         return m_renderer;
@@ -71,6 +81,7 @@ class GpuSession
     std::string m_hardwareDecodeApi;
 
     std::unique_ptr<platform::GlContext> m_context;
+    std::unique_ptr<platform::GlContext> m_showContext; // same share group
     std::unique_ptr<Mlt::Filter> m_manager;
     std::string m_renderer;
 };

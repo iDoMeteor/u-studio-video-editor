@@ -671,10 +671,160 @@ Acceptance:
 - [x] Only caption clips are exported; a project without any says so and
       writes nothing. (`titles-captions`, `titles-shell`.)
 
+#### T4.3 — Update from template (landed 2026-09-28, 0.72.0-beta.1)
+
+A title made from a template remembers which one, and which revision of
+it, so that when the template changes (a new app version's built-in, an
+updated pack, or the user editing their own template), U Stu Titles
+offers to bring the title up to date without losing its text.
+
+- **What's recorded.** Two root attributes of the `.ustitle`:
+  `template="builtin:<id>"`, `"user:<id>"` or `"pack:<pack folder>/<id>"`,
+  and `template-revision`, a 64-bit FNV-1a hex digest of the template's
+  design: its file as `writeTitle()` writes it with the name and category
+  cleared (so renaming a template isn't a change). Pictures are part of
+  the design only by file name: a picture replaced under the same name
+  isn't noticed. Set by `templateDocument()` (Use Template, New Title,
+  the editor's gallery); cleared by Save as Template and Duplicate (a
+  template doesn't point at a template). Titles made before T4.3 have
+  none, and are never offered an update. No format version bump: older
+  readers ignore unknown root attributes.
+- **Resolving.** `builtin:` in the built-ins folder, `user:` and `pack:`
+  in the template library. The reference comes from an untrusted file:
+  each part must be a plain name (letters, digits, `-`, `_`, `.`, not
+  starting with a dot), else it resolves to nothing. A template that's
+  gone (deleted, pack removed) offers nothing.
+- **The offer.** Opening a title whose template's revision differs from
+  the recorded one shows a banner: "Its template “<name>” has changed"
+  with **Update**. Nothing happens on its own.
+- **The merge.** The title becomes the template's current design
+  (layers, timing, background, size, fields), with the title's own
+  field default text kept for every field the template still has (by
+  name), and the new revision recorded. One undo step ("Update from
+  Template"), not saved until the user saves. The toast names any field
+  the template no longer has. Per-clip field values in the editor are on
+  the clips, keyed by field name, so they survive untouched. Direct
+  edits to the title's design (moved layers, text typed over a field)
+  are replaced: that's what updating means, and undo brings them back.
+
+Acceptance:
+
+- [x] A title made from a built-in, a user template and a pack's
+      template records the right reference and revision; Save as
+      Template and Duplicate record none; the attributes round-trip.
+- [x] Renaming a template doesn't change its revision; changing a
+      layer does.
+- [x] Hostile references (`user:../x`, `pack:a/../../b`, absolute
+      paths, empty parts) resolve to nothing.
+- [x] The merge keeps field text by name, takes the template's design,
+      reports dropped fields, and records the new revision; undo restores
+      the title exactly.
+- [x] In U Stu Titles: open a title, change its user template, reopen:
+      the banner shows; Update applies it; the banner goes; saving and
+      reopening shows no banner. (`titles-core`; the designer on a
+      private Xvfb with a stale title: banner, Update, Ctrl+S, reopen.)
+
+#### T5.2 — Caption colour and top placement (landed 2026-09-28, 0.73.0-beta.1)
+
+The cheap subset of a subtitle file's own styling (Strategist: "if
+cheap"): colour by the names every player knows, and top or bottom.
+
+- **Colour.** WebVTT's eight default colour classes, `<c.white>`,
+  `<c.lime>`, `<c.cyan>`, `<c.red>`, `<c.yellow>`, `<c.magenta>`,
+  `<c.blue>` and `<c.black>` (other classes on the same `<c>` are
+  ignored), and SRT's `<font color="…">` when it names one of them or
+  gives its exact hex (`#ffff00`). Kept in the caption's words as
+  `<c.yellow>…</c>`, a fourth basic tag: a `tags="basic"` layer draws
+  the run in that colour (the fill is clipped to the run's glyphs and
+  painted solid over the layer's own fill; the stroke and shadow stay
+  the layer's). Any other colour is dropped with its words kept, as now.
+  Export writes `<c.yellow>` in `.vtt` and `<font color="yellow">` in
+  `.srt`.
+- **Top or bottom.** A VTT cue with `line:` as a percentage under 50,
+  or as a line number 0 or more (counted from the top), and an SRT cue
+  starting `{\an7}`, `{\an8}` or `{\an9}`, goes at the top: its clip
+  gets the field `placement=top` and plays a second caption title made
+  from **Caption, top** (`<file name> captions (top).ustitle`), made
+  only when a cue needs it. Everything else stays at the bottom.
+  Horizontal position, size and alignment settings stay ignored. Export
+  writes `line:0` (`.vtt`) or `{\an8}` (`.srt`) for a clip with
+  `placement=top`.
+
+Acceptance:
+
+- [x] Each named colour, in `.vtt` and `.srt`, imports to the same
+      `<c.name>` run and exports back; other colours and classes are
+      dropped, words kept.
+- [x] The renderer draws a `<c.yellow>` run yellow and the rest in the
+      layer's fill; a scrambled or animated-unit layer ignores colour
+      runs as it does the others.
+- [x] Top cues go on the top caption title with `placement=top`; a file
+      without any makes no second title; export then import keeps them
+      at the top in both formats. (`titles-captions`, `titles-render`;
+      in the editor: a `.vtt` with a yellow top cue and a cyan bottom
+      one imported, shown in the preview, exported as `.srt` and `.vtt`.)
+
+#### T6 — Lottie layers (planned 2026-09-28)
+
+Lottie animations as a layer of a title, drawn by ThorVG
+([ADR-021](adr/021-lottie-layers-via-thorvg.md), which owns the
+decisions: the validator's limits, timing, threads, format version,
+packs, packaging). Built in slices, each landed on its own:
+
+1. **Spikes (no product code).** Standalone repros against the system
+   `thorvg-devel`: render a generated Lottie at two sizes and aspects
+   (how `tvg_picture_set_size` fits), fractional `set_frame`, two threads
+   each with its own canvas (ADR-021 decision 6), and load from memory
+   with an empty resource path. Findings go into
+   `docs/developer/notes/titles.md`.
+2. **Core.** `core/lottie_check`: the std-only JSON scanner and
+   validator (ADR-021 decision 3), and the file's facts (size, `fr`,
+   `ip`, `op`, whether it has text layers). `Layer` gains
+   `LayerKind::Lottie` with `src`, `loop` (`loop`/`once`), `speed` and
+   `fit`; `.ustitle` format 2 read and written (written only with a
+   Lottie layer); `lottieFrame()`, the exact frame maths.
+3. **Render.** titlerender draws the layer through ThorVG with the
+   per-thread cache, composited like an image layer. Meson: ThorVG is an
+   optional dependency of the titles render library (`dependency('thorvg-1',
+   required: false)`), with `TITLES_HAVE_THORVG`. Without it the layer
+   draws nothing and warns.
+4. **Designer.** **Add Lottie…** (in the Add menu) picks a `.json`,
+   validates it, copies it beside the title, and adds a layer sized to the
+   animation and centred. The inspector has Loop/Once, Speed and Fit.
+   The animation strip shows the layer's run, and play and scrub move the
+   animation with the title. Refusals are toasts naming the reason.
+5. **Editor and packs.** Titles with Lottie layers play in the editor
+   (through the module) and bake. Packs accept `lottie/*.json` (ADR-021
+   decision 10). The generator gets one built-in template with a small
+   generated Lottie sting.
+6. **Packaging request.** The ThorVG module snippet for VE Installers
+   (ADR-021 decision 8); not built by Text.
+
+Acceptance:
+
+- [ ] The validator refuses every file in a hostile corpus (deep
+      nesting, a huge number, bad UTF-8, an external image, a font path,
+      `..`, an expression, a self-referencing precomposition, an
+      oversized or mis-typed embedded picture, a bad header, too long,
+      too many layers) with a reason, and accepts the good corpus; it
+      runs in under 50 ms on an 8 MB file.
+- [ ] `lottieFrame()` matches the formula at 23.976, 25, 29.97, 30 and
+      59.94 fps title rates, speeds 0.5, 1 and 2, looping and once.
+- [ ] The editor's producer and the designer's renderer give
+      byte-identical frames for a title with a Lottie layer, at several
+      frames and on two threads.
+- [ ] A title without Lottie is still written as format 1; one with it
+      as format 2, and it round-trips.
+- [ ] Add Lottie…, Loop/Once, Speed and Fit work in the designer; the
+      strip plays and scrubs it (checked on a private Xvfb with
+      screenshots).
+- [ ] A pack with a Lottie template installs; one with a hostile Lottie
+      file is refused whole.
+- [ ] Built and tested with and without ThorVG; docs: titles.md
+      (users), notes (findings), building.md (the optional dependency).
+
 ### Later
 
-- **T6 Lottie:** import Lottie animations as layers via `rlottie` (not
-  installed here; needs its own ADR).
 
 ## Decisions needed from the owner
 

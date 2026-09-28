@@ -8,6 +8,7 @@
 #include "core/media/utf8_path.h"
 #include "core/evaluate.h"
 #include "core/template_library.h"
+#include "core/title_edit.h"
 #include "core/title_xml.h"
 
 #include <chrono>
@@ -368,5 +369,105 @@ TEST_CASE("template library: save, list, rename, duplicate, delete, and a new ti
     CHECK_FALSE(fs::exists(saved->folder));
     CHECK(listTemplates(core::utf8String(library), false).size() == 2);
     CHECK(templateSlug("  ") == "template");
+    fs::remove_all(root);
+}
+
+TEST_CASE("update from template: a title records its template; a changed design is offered with field text kept")
+{
+    namespace fs = std::filesystem;
+    const fs::path root =
+        fs::temp_directory_path() /
+        ("ustudio-update-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const fs::path work = root / "work", library = root / "library", builtIns = root / "builtin";
+    fs::create_directories(work);
+    fs::create_directories(builtIns);
+    fs::create_directories(library / "packs" / "studio-pack" / "news-bar");
+    const std::string lib = core::utf8String(library), bin = core::utf8String(builtIns);
+
+    TitleDocument design = lowerThird();
+    design.name = "Guest";
+    REQUIRE(saveTitle(design, core::utf8String(builtIns / "guest.ustitle")).empty());
+    REQUIRE(saveTitle(design, core::utf8String(library / "packs" / "studio-pack" / "news-bar" / "template.ustitle"))
+                .empty());
+    auto mine = saveTemplate(design, lib, "My guest");
+    REQUIRE(mine.has_value());
+    const auto builtIn = listTemplates(bin, true).at(0);
+    const auto packed = listTemplates(core::utf8String(library / "packs" / "studio-pack"), false).at(0);
+
+    // The reference each kind records, and where it resolves.
+    CHECK(templateRef(builtIn) == "builtin:guest");
+    CHECK(templateRef(*mine) == "user:my-guest");
+    CHECK(templateRef(packed) == "pack:studio-pack/news-bar");
+    for (const TemplateInfo &info : {builtIn, *mine, packed}) {
+        auto resolved = resolveTemplate(templateRef(info), bin, lib);
+        REQUIRE(resolved.has_value());
+        CHECK(resolved->path == info.path);
+    }
+    for (const char *hostile : {"user:../work", "user:..", "pack:studio-pack/../../x", "pack:../studio-pack/news-bar",
+                                "user:/etc", "builtin:../guest", "user:", "pack:/news-bar", "pack:studio-pack/",
+                                "builtin:", "other:guest", "user:.hidden", "user:a/b"})
+        CHECK_MESSAGE(!resolveTemplate(hostile, bin, lib), hostile);
+
+    // A title from it records the reference and revision; they round-trip.
+    const fs::path titlePath = work / "Episode.ustitle";
+    REQUIRE(newTitleFromTemplate(*mine, core::utf8String(titlePath)).has_value());
+    auto title = readTitle(core::utf8String(titlePath));
+    REQUIRE(title.has_value());
+    CHECK(title->document.templateRef == "user:my-guest");
+    CHECK(title->document.templateRevision.size() == 16);
+    CHECK(title->document.templateRevision == templateRevision(readTitle(mine->path)->document));
+    CHECK_FALSE(changedTemplate(title->document, bin, lib)); // unchanged
+
+    // Save as Template and Duplicate record none.
+    auto again = saveTemplate(title->document, lib, "From a title");
+    REQUIRE(again.has_value());
+    CHECK(readTitle(again->path)->document.templateRef.empty());
+    auto dup = duplicateTemplate(builtIn, lib, "Dup");
+    REQUIRE(dup.has_value());
+    CHECK(readTitle(dup->path)->document.templateRevision.empty());
+
+    // Renaming isn't a change; a layer is.
+    REQUIRE(renameTemplate(*mine, "Renamed guest").has_value());
+    CHECK_FALSE(changedTemplate(title->document, bin, lib));
+    TitleDocument changed = readTitle(mine->path)->document;
+    changed.layers.front().x += 40;
+    changed.fields.pop_back(); // "role" goes
+    changed.fields.push_back({"topic", "Topic", "Today"});
+    REQUIRE(saveTitle(changed, mine->path).empty());
+    auto offered = changedTemplate(title->document, bin, lib);
+    REQUIRE(offered.has_value());
+    CHECK(offered->path == mine->path);
+
+    // The merge: the new design, the title's field text by name.
+    TitleDocument edited = title->document;
+    edited.fields[0].defaultValue = "Sam Lee";
+    edited.layers.front().y += 5; // a direct edit: replaced
+    auto update = updateFromTemplate(edited, *offered, core::utf8String(titlePath));
+    REQUIRE(update.has_value());
+    CHECK(update->droppedFields == std::vector<std::string>{"role"});
+    REQUIRE(update->document.fields.size() == 2);
+    CHECK(update->document.fields[0].defaultValue == "Sam Lee");
+    CHECK(update->document.fields[1].defaultValue == "Today");
+    CHECK(update->document.layers.front().x == changed.layers.front().x);
+    CHECK(update->document.layers.front().y == changed.layers.front().y);
+    CHECK(update->document.templateRevision == templateRevision(changed));
+    CHECK(update->document.name.empty());
+    CHECK_FALSE(changedTemplate(update->document, bin, lib));
+    // One undo step in the designer, and undo gives the title back exactly.
+    TitleHistory history;
+    history.reset(edited);
+    REQUIRE(history.apply("Update from Template", [&](TitleDocument &doc) {
+        doc = update->document;
+        return true;
+    }));
+    CHECK(history.document() == update->document);
+    REQUIRE(history.undo());
+    CHECK(history.document() == edited);
+
+    // A template that's gone offers nothing.
+    REQUIRE(removeTemplate(*offered).has_value());
+    CHECK_FALSE(changedTemplate(edited, bin, lib));
+    TitleDocument none = lowerThird();
+    CHECK_FALSE(changedTemplate(none, bin, lib));
     fs::remove_all(root);
 }

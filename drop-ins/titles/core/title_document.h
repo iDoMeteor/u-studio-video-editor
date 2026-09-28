@@ -294,6 +294,10 @@ struct TitleDocument
     // What the template gallery shows (doc 16, T4): "Lower third, two
     // lines" under "Lower thirds". Empty on an ordinary title.
     std::string name, category;
+    // The template a title was made from (T4.3), "builtin:<id>",
+    // "user:<id>" or "pack:<pack folder>/<id>", and that template's
+    // design revision then (templateRevision()). Empty: none.
+    std::string templateRef, templateRevision;
     int width = 1920, height = 1080;
     int fpsNum = 30, fpsDen = 1;
     Timing timing;

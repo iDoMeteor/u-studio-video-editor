@@ -5,6 +5,8 @@
 #include "core/media/utf8_path.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <cstdio>
 #include <cctype>
 #include <filesystem>
 #include <optional>
@@ -145,6 +147,8 @@ std::expected<TemplateInfo, std::string> saveTemplate(const TitleDocument &doc, 
         return std::unexpected("can't make " + core::utf8String(part) + " (" + ec.message() + ")");
     TitleDocument copy = doc;
     copy.name = name;
+    copy.templateRef.clear(); // a template doesn't point at a template
+    copy.templateRevision.clear();
     if (auto taken = takePictures(copy, part / "images", "images/"); !taken) {
         fs::remove_all(part, ec);
         return std::unexpected(taken.error());
@@ -213,6 +217,8 @@ std::expected<TitleDocument, std::string> templateDocument(const TemplateInfo &i
     if (!read)
         return std::unexpected(read.error());
     TitleDocument doc = std::move(read->document);
+    doc.templateRevision = templateRevision(doc);
+    doc.templateRef = templateRef(info);
     doc.name.clear();
     doc.category.clear();
     if (titlePath.empty()) {
@@ -238,6 +244,109 @@ std::expected<TitleDocument, std::string> templateDocument(const TemplateInfo &i
         return std::unexpected(taken.error());
     doc.baseDirectory = core::utf8String(target.parent_path());
     return doc;
+}
+
+std::string templateRef(const TemplateInfo &info)
+{
+    if (info.builtIn)
+        return "builtin:" + info.id;
+    const fs::path folder = core::pathFromUtf8(info.folder);
+    if (folder.parent_path().parent_path().filename() == "packs")
+        return "pack:" + core::utf8String(folder.parent_path().filename()) + "/" + info.id;
+    return "user:" + info.id;
+}
+
+std::string templateRevision(const TitleDocument &doc)
+{
+    TitleDocument design = doc;
+    design.name.clear();
+    design.category.clear();
+    design.templateRef.clear();
+    design.templateRevision.clear();
+    const std::string xml = writeTitle(design);
+    uint64_t hash = 14695981039346656037ull;
+    for (unsigned char c : xml) {
+        hash ^= c;
+        hash *= 1099511628211ull;
+    }
+    char text[17];
+    std::snprintf(text, sizeof text, "%016llx", static_cast<unsigned long long>(hash));
+    return text;
+}
+
+namespace {
+
+bool plainName(std::string_view part)
+{
+    if (part.empty() || part.front() == '.')
+        return false;
+    return std::all_of(part.begin(), part.end(), [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.';
+    });
+}
+
+} // namespace
+
+std::optional<TemplateInfo> resolveTemplate(const std::string &ref, const std::string &builtInDir,
+                                            const std::string &library)
+{
+    std::error_code ec;
+    auto found = [&](const fs::path &file, bool builtIn) -> std::optional<TemplateInfo> {
+        if (!fs::is_regular_file(file, ec))
+            return std::nullopt;
+        return infoFor(file, builtIn);
+    };
+    const std::string_view text = ref;
+    if (text.starts_with("builtin:") && plainName(text.substr(8)) && !builtInDir.empty())
+        return found(core::pathFromUtf8(builtInDir) / core::pathFromUtf8(ref.substr(8) + ".ustitle"), true);
+    if (library.empty())
+        return std::nullopt;
+    const fs::path root = core::pathFromUtf8(library);
+    if (text.starts_with("user:") && plainName(text.substr(5)))
+        return found(root / core::pathFromUtf8(ref.substr(5)) / kTemplateFile, false);
+    if (text.starts_with("pack:")) {
+        const std::string_view rest = text.substr(5);
+        const size_t slash = rest.find('/');
+        if (slash == std::string_view::npos || !plainName(rest.substr(0, slash)) || !plainName(rest.substr(slash + 1)))
+            return std::nullopt;
+        return found(root / "packs" / core::pathFromUtf8(std::string(rest.substr(0, slash))) /
+                         core::pathFromUtf8(std::string(rest.substr(slash + 1))) / kTemplateFile,
+                     false);
+    }
+    return std::nullopt;
+}
+
+std::optional<TemplateInfo> changedTemplate(const TitleDocument &title, const std::string &builtInDir,
+                                            const std::string &library)
+{
+    if (title.templateRef.empty())
+        return std::nullopt;
+    auto info = resolveTemplate(title.templateRef, builtInDir, library);
+    if (!info)
+        return std::nullopt;
+    auto read = readTitle(info->path);
+    if (!read || templateRevision(read->document) == title.templateRevision)
+        return std::nullopt;
+    return info;
+}
+
+std::expected<TemplateUpdate, std::string> updateFromTemplate(const TitleDocument &title, const TemplateInfo &info,
+                                                              const std::string &titlePath)
+{
+    auto doc = templateDocument(info, titlePath);
+    if (!doc)
+        return std::unexpected(doc.error());
+    TemplateUpdate update;
+    update.document = std::move(*doc);
+    for (const Field &old : title.fields) {
+        auto kept = std::find_if(update.document.fields.begin(), update.document.fields.end(),
+                                 [&](const Field &field) { return field.name == old.name; });
+        if (kept != update.document.fields.end())
+            kept->defaultValue = old.defaultValue;
+        else
+            update.droppedFields.push_back(old.name);
+    }
+    return update;
 }
 
 std::expected<void, std::string> newTitleFromTemplate(const TemplateInfo &info, const std::string &destination)
