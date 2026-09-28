@@ -116,6 +116,14 @@ void AppWindow::addInspectorPage(const InspectorPage &page)
     adw_view_stack_add_titled_with_icon(m_inspectorStack, page.widget, page.id, page.title, page.iconName);
 }
 
+void AppWindow::showInspectorPage(const char *id)
+{
+    if (!m_inspectorSplit || !adw_view_stack_get_child_by_name(m_inspectorStack, id))
+        return;
+    adw_view_stack_set_visible_child_name(m_inspectorStack, id);
+    adw_overlay_split_view_set_show_sidebar(m_inspectorSplit, TRUE);
+}
+
 void AppWindow::addActions(const std::vector<ActionSpec> &specs, gpointer target)
 {
     GtkApplication *app = gtk_window_get_application(GTK_WINDOW(m_window));
