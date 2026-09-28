@@ -64,7 +64,9 @@ Two checks guard every package, Flatpak or Snap:
   8. Titles, when the titles extension is installed in the same
      installation: the drop-in loads from the extension mount, a `.ustitle`
      imports, `u-studio-render --title-export` in the sandbox renders it
-     with alpha, and Edit Title starts U Stu Titles.
+     with alpha, Edit Title starts U Stu Titles, and U Stu Titles
+     installs a template pack made by `tools/make_test_pack.py` (fails on
+     an extension built without libarchive; needs 0.68 or later).
   9. Copy Diagnostics.
 
   Along the way it checks that no Qt library is mapped. It prints

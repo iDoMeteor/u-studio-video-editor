@@ -249,6 +249,15 @@ if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Ti
     d shot 08c-designer
     [ -n "$designer" ] && kill "$designer"
     d act clear-selection; d act save; sleep 1.5
+    # Template packs (ADR-020, from 0.68): the designer installs one without
+    # a window. A build without libarchive refuses every pack, which is the
+    # packaging mistake this catches. The repo holds no binary packs.
+    python3 "$H/../make_test_pack.py" "$M/smoke-pack.zip"
+    pack=$(flatpak run --user --no-documents-portal --command=/app/lib/u-studio/extensions/Titles/bin/u-studio-titles \
+        "$SMOKE_APP_ID" --install-pack "$M/smoke-pack.zip" 2>&1); rc=$?
+    echo "  install-pack (exit $rc): $pack"
+    check "U Stu Titles installs a template pack (libarchive in the extension)" \
+        sh -c "[ $rc = 0 ] && echo \"\$1\" | grep -q '^installed test/smoke-pack '" _ "$pack"
 fi
 
 # --- 9: Copy Diagnostics
