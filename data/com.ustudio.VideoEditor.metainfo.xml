@@ -28,6 +28,17 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.69.3-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.67.1-beta.1, the last published beta:</p>
+        <ul>
+          <li>A crash is fixed: with GPU acceleration on, pausing could close the editor when a clip and a copy of it played on different tracks at once (for example a rotated picture-in-picture over the original, in Half preview).</li>
+          <li>Template packs, in the Titles add-on: in U Stu Titles' template gallery, Save as Pack… shares your templates as one file, and Open Pack… installs someone else's.</li>
+          <li>New Title in a project you haven't saved yet keeps its title in your default project folder, your Videos folder or U Stu's data folder, never loose in your home folder.</li>
+        </ul>
+        <p>Try pausing over a copied or rotated picture-in-picture with GPU acceleration on, and saving and opening a template pack. Install the Titles add-on of this same version with the app. Known limits: U Stu Share, the helper for sharing packs online, isn't in this download, so Browse Shared and Publish don't appear.</p>
+      </description>
+    </release>
     <release version="0.69.2-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New Title in an unsaved project no longer creates a folder straight in your home folder: it uses your default project folder, your Videos folder, or U Stu's own data folder, in that order.</p>
