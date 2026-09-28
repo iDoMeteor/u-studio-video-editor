@@ -1601,6 +1601,16 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // both outlive it.
     std::shared_ptr<GpuSession> gpu = GpuSession::current();
     std::unique_ptr<platform::GlContext> gpuContext;
+    // A transition recipe (a wipe, dip or flash) plays only on the CPU
+    // pipeline until VE GPU verifies its shapes in a movit graph (see
+    // buildTransitionSubTractor()), so an export with one renders there
+    // rather than silently turning it into a dissolve.
+    const auto &transitions = renderModel.sequence().transitions;
+    if (gpu && std::any_of(transitions.begin(), transitions.end(),
+                           [](const core::Transition &t) { return !t.params.empty(); })) {
+        Log::info("[gpu] exporting on the CPU: the project has transition recipes");
+        gpu.reset();
+    }
     if (gpu) {
         std::string why;
         gpuContext = gpu->sharedContext(why);
