@@ -14,6 +14,7 @@
 #include "core/keyframes.h"
 #include "core/looks.h"
 #include "core/transitions.h"
+#include "core/blocks.h"
 #include "core/model/animation.h"
 #include "core/model/effect_native.h"
 #include "core/model/transition_native.h"
@@ -692,4 +693,116 @@ TEST_CASE("withRecording: repeated frames keep the last value; an empty recordin
     CHECK(keys[0].value == doctest::Approx(0.4));
     const std::vector<core::Keyframe> untouched{{3, 1.0, core::Easing::SmoothNatural}};
     CHECK(withRecording(untouched, {}, 0.01) == untouched);
+}
+
+// --- Adjustment blocks (FX4) ----------------------------------------------------
+
+namespace {
+
+core::Model modelWithTracks(int tracks)
+{
+    core::Model model = core::Model::createEmpty();
+    for (int i = 0; i < tracks; ++i)
+        model.addTrack(core::Track::Kind::Video, i, "V" + std::to_string(i + 1));
+    return model;
+}
+
+// Undo restores ids, but a restore still advances the id allocator
+// (Model::add*'s reuseId; the core tests' equalIgnoringIdAllocator()).
+bool sameIgnoringIdAllocator(const core::Model &a, const core::Model &b)
+{
+    core::Project x = a.project(), y = b.project();
+    x.nextId = y.nextId = 0;
+    return x == y;
+}
+
+core::Effect glowEffect(double mix = 1.0)
+{
+    core::Effect effect;
+    effect.service = "frei0r.glow";
+    effect.owner = kOwner;
+    effect.mix.value = mix;
+    return effect;
+}
+
+} // namespace
+
+TEST_CASE("Adjustment blocks: add, move, fade and remove, each one undo step; overlaps refused")
+{
+    core::Model model = modelWithTracks(2);
+    const core::Model empty = model;
+    core::UndoStack stack(model);
+    core::AdjustmentBlock block;
+    block.lane = 0;
+    block.start = 30;
+    block.length = 60;
+    block.effects = {glowEffect()};
+    auto add = std::make_unique<AddAdjustmentBlock>(block);
+    AddAdjustmentBlock *adding = add.get();
+    REQUIRE(stack.execute(std::move(add)));
+    const core::AdjustmentBlockId id = adding->id();
+    REQUIRE(model.hasAdjustmentBlock(id));
+    CHECK(model.adjustmentBlock(id).effects[0].id.isValid());
+    CHECK(model.check().empty());
+
+    // Overlapping on the same lane: refused; on another lane: fine.
+    core::AdjustmentBlock overlap = block;
+    overlap.start = 60;
+    CHECK_FALSE(stack.execute(std::make_unique<AddAdjustmentBlock>(overlap)));
+    overlap.lane = 1;
+    CHECK(stack.execute(std::make_unique<AddAdjustmentBlock>(overlap)));
+    stack.undo();
+    // Past the tracks: refused.
+    overlap.lane = 2;
+    CHECK_FALSE(stack.execute(std::make_unique<AddAdjustmentBlock>(overlap)));
+
+    // A drag: many moves, one step; fades shrink with the block.
+    const core::Model placed = model;
+    CHECK(stack.execute(std::make_unique<SetAdjustmentBlockFades>(id, core::FadeSpec{20}, core::FadeSpec{20})));
+    for (core::FrameIndex length : {50, 40, 10})
+        stack.execute(std::make_unique<SetAdjustmentBlockRange>(id, 0, 35, length, 9));
+    CHECK(model.adjustmentBlock(id).start == 35);
+    CHECK(model.adjustmentBlock(id).fadeIn->length == 10);
+    stack.undo();
+    CHECK(model.adjustmentBlock(id).length == 60);
+    CHECK(model.adjustmentBlock(id).fadeIn->length == 20);
+    stack.undo();
+    CHECK(sameIgnoringIdAllocator(model, placed));
+    CHECK_FALSE(stack.execute(std::make_unique<SetAdjustmentBlockFades>(id, core::FadeSpec{61}, std::nullopt)));
+
+    // Remove, undo: the same block, ids and all.
+    REQUIRE(stack.execute(std::make_unique<RemoveAdjustmentBlock>(id)));
+    CHECK_FALSE(model.hasAdjustmentBlock(id));
+    stack.undo();
+    CHECK(sameIgnoringIdAllocator(model, placed));
+    stack.undo();
+    CHECK(sameIgnoringIdAllocator(model, empty));
+    stack.redo();
+    CHECK(sameIgnoringIdAllocator(model, placed));
+}
+
+TEST_CASE("blockEffects: fades ramp each effect's mix in and out")
+{
+    core::AdjustmentBlock block;
+    block.length = 101;
+    block.effects = {glowEffect(0.8)};
+    CHECK(blockEffects(block)[0].mix.keyframes.empty()); // no fades: as it is
+
+    block.fadeIn = core::FadeSpec{20};
+    block.fadeOut = core::FadeSpec{40};
+    const std::vector<core::Keyframe> keys = blockEffects(block)[0].mix.keyframes;
+    auto at = [&](double frame) { return core::easedValue(keys, frame); };
+    CHECK(at(0) == doctest::Approx(0.0));
+    CHECK(at(10) == doctest::Approx(0.4));
+    CHECK(at(20) == doctest::Approx(0.8));
+    CHECK(at(50) == doctest::Approx(0.8));
+    CHECK(at(60) == doctest::Approx(0.8));
+    CHECK(at(80) == doctest::Approx(0.4));
+    CHECK(at(100) == doctest::Approx(0.0));
+
+    // An animated mix keeps its shape under the envelope.
+    block.effects[0].mix.keyframes = {{0, 0.5, core::Easing::Linear}, {100, 1.0, core::Easing::Linear}};
+    const std::vector<core::Keyframe> shaped = blockEffects(block)[0].mix.keyframes;
+    CHECK(core::easedValue(shaped, 50.0) == doctest::Approx(0.75));
+    CHECK(core::easedValue(shaped, 100.0) == doctest::Approx(0.0));
 }
