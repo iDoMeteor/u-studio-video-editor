@@ -177,7 +177,7 @@ def launch(env_args):
     if RUNNER == "flatpak":
         # fallback-x11 withholds X11 while the desktop's wayland-0 socket
         # exists, so the test grants X11 for the private Xvfb explicitly.
-        command = ["flatpak", "run", "--user", "--socket=x11", "--nosocket=wayland"] + \
+        command = ["flatpak", "run", "--user", "--no-documents-portal", "--socket=x11", "--nosocket=wayland"] + \
                   [a for a in env_args if a.startswith("--")] + \
                   [f"--env={p}" for p in pairs + ["USTUDIO_LOG_LEVEL=debug", "GDK_BACKEND=x11", "GTK_A11Y=atspi"]] + \
                   [APP_ID]
@@ -223,6 +223,9 @@ def main():
     elif cmd == "enter":
         keysym(0xFF0D)
         log("enter")
+    elif cmd == "keysym":  # keysym <X keysym, e.g. 0xff1b for Escape> [ctrl|shift|alt ...]
+        keysym(int(args[0], 0), tuple(args[1:]))
+        log(f"keysym {args}")
     elif cmd == "click":
         x, y = int(args[0]), int(args[1])
         mouse(x, y, "abs")
@@ -248,6 +251,21 @@ def main():
         log(f"shot {path}")
     elif cmd == "status":
         print(status())
+    elif cmd == "rowtext":  # a preferences row's title, description and label texts, on one line
+        end = time.time() + 8
+        while time.time() < end:
+            for node in walk(app_node()):
+                name, role = info(node)
+                if name == args[0]:
+                    try:
+                        description = node.get_description() or ""
+                    except Exception:
+                        description = ""
+                    labels = [info(child)[0] for child in walk(node) if info(child)[1] == "label" and info(child)[0]]
+                    print(" | ".join([name, description] + labels))
+                    return
+            time.sleep(0.3)
+        print("(row not found)")
     elif cmd == "waitlog":
         end = time.time() + (float(args[1]) if len(args) > 1 else 30)
         found = None

@@ -47,16 +47,36 @@ Two checks guard every package, Flatpak or Snap:
   AT-SPI on a private Xvfb display. The steps are:
   1. Import H.264 video, a PNG and a JPEG.
   2. Transform a picture on the preview (MLT's `affine`).
-  3. Play, and check the 440 Hz test tone through SDL's disk driver.
-  4. Split, undo, redo, save; reopen the saved project.
-  5. Render with the High quality profile, and ffprobe the output.
-  6. Make a 4K proxy.
-  7. Copy Diagnostics.
+  3. Play, and check the 440 Hz test tone through SDL's disk driver
+     (pitch and dropouts).
+  4. GPU (ADR-019):
+     - `--gpu-probe` passes in the sandbox, and fails cleanly without EGL;
+     - the log shows the pipeline on;
+     - Settings › Performance shows "On: <renderer>";
+     - RSS stays flat over a looped GPU playback (`SMOKE_GPU_SOAK`
+       seconds, default 180);
+     - the export runs without a CPU fallback.
+
+     `SMOKE_GPU=0` skips these on a machine without a usable GPU.
+  5. Split, undo, redo, save; reopen the saved project.
+  6. Render with the High quality profile, and ffprobe the output.
+  7. Make a 4K proxy; import a 30-image sequence.
+  8. Copy Diagnostics.
 
   Along the way it checks that no Qt library is mapped. It prints
-  PASS/FAIL per check and exits non-zero on any failure. Flatpak runs are
-  isolated from the user's own app data (a throwaway `HOME`); `--cleanup`
-  removes it. Run it before publishing any package.
+  PASS/FAIL per check and exits non-zero on any failure. Run it before
+  publishing any package. It keeps away from the user's own state:
+  - **App data:** Flatpak runs use a throwaway `HOME`, which `--cleanup`
+    removes.
+  - **Installation:** `SMOKE_FLATPAK_USER_DIR` points it at a separate
+    Flatpak installation. Test a new bundle there, never in the owner's
+    (it needs its own copy of the runtime).
+  - **The desktop's portals:** the private D-Bus session activates its
+    services (portals) with a temporary `XDG_RUNTIME_DIR`, the method in
+    [Testing](testing.md). Otherwise a private `xdg-document-portal`
+    mounts over the desktop's `/run/user/<uid>/doc` and leaves it
+    unmounted on exit (2026-09-27). The run checks that mount before and
+    after, and fails if it changed.
 
 ## Flathub submission
 
@@ -157,11 +177,23 @@ aren't installed (owner question), and the snap name isn't registered.
   plus the extension's `desktop`, `wayland`, `x11` and `opengl`.
 - x264, FFmpeg and MLT are parts, built as in the Flatpak with the same
   pinned sources and MLT modules.
-- **Not yet in the draft: movit (ADR-019).** The Snap needs Eigen (build
-  only) and movit 1.7.2 parts, and `-DMOD_MOVIT=ON`, matching the Flatpak.
-  core24's archive has `libfftw3-dev`, `libepoxy-dev` and Eigen, and the
-  gnome extension's `gpu-2404` interface supplies Mesa. The parts go in
-  when the Snap is first built, with the GL side done in VE GPU's stage G5.
+- **Not yet in the draft: the GPU pieces (ADR-019).** To match the
+  Flatpak as tested in stage G5 (2026-09-27), the Snap needs:
+  - Eigen (build only) and movit 1.7.2 parts, and `-DMOD_MOVIT=ON`.
+    core24's archive has `libfftw3-dev`, `libepoxy-dev` and Eigen.
+  - `-DMOD_XINE=ON` for the loader's `deinterlace` normaliser (see the
+    Flatpak README for why).
+  - The movit.convert leak patch, applied in the mlt part's
+    `override-build` (`patch -p1 <
+    $CRAFT_PROJECT_DIR/packaging/flatpak/patches/mlt-movit-convert-input-leak.patch`);
+    snapcraft has no patch source type.
+  - GL: the gnome extension adds the `gpu-2404` content interface (Mesa
+    from the `mesa-2404` snap) and its `gpu-2404-wrapper` command-chain.
+    The `opengl` plug opens the render node the probe's surfaceless EGL
+    context needs. Check with `u-studio-render --gpu-probe` inside the snap,
+    as the smoke test does for the Flatpak.
+
+  The parts go in when the Snap is first built.
 - The app bakes MLT's module directory in at build time. Snap layouts bind
   the snap's copies to `/usr/lib/x86_64-linux-gnu/mlt-7` and
   `/usr/share/mlt-7`, so FactoryPolicy's curated directory (ADR-007) works
