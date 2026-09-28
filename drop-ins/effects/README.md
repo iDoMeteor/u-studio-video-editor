@@ -90,6 +90,11 @@ meson test -C builddir effects-core effects-engine effects-scan
 ./builddir/src/render/u-studio-render --probe-effect frei0r.glow
 ```
 
+As a module it links its own copy of `src/platform` (stateless): the
+programs link core, engine and dropins whole but not platform, so a
+platform function the program itself never calls would otherwise be
+missing when the module loads.
+
 The tests need `frei0r-plugins` installed; `effects-engine`'s `melt` check
 needs `melt-7` and is skipped without it. Both `builtin` and `module` must
 pass the whole suite (ADR-013): `just dropins-builtin` and

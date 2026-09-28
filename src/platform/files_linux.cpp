@@ -2,7 +2,6 @@
 
 #include <cerrno>
 #include <cstdlib>
-#include <cstring>
 #include <system_error>
 #include <vector>
 
@@ -18,7 +17,7 @@ std::filesystem::path makePrivateDirectory(const std::filesystem::path &base, co
     buffer.push_back('\0');
     if (!::mkdtemp(buffer.data())) {
         if (error)
-            *error = std::strerror(errno);
+            *error = std::error_code(errno, std::generic_category()).message(); // strerror isn't thread-safe
         return {};
     }
     return std::filesystem::path(buffer.data());
