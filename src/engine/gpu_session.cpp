@@ -61,6 +61,11 @@ std::unique_ptr<GpuSession> GpuSession::start(std::string &error)
         return nullptr;
     }
     session->m_renderer = session->m_context->renderer();
+    session->m_showContext = platform::GlContext::create(session->m_context.get(), error);
+    if (!session->m_showContext) {
+        session->m_context->release();
+        return nullptr;
+    }
     // The manager's profile is irrelevant: it renders nothing itself.
     Mlt::Profile profile;
     session->m_manager = std::make_unique<Mlt::Filter>(profile, "glsl.manager");
@@ -112,6 +117,19 @@ bool GpuSession::renderThreadStarted()
 void GpuSession::renderThreadStopped()
 {
     m_context->release();
+}
+
+bool GpuSession::frameShowEnter()
+{
+    if (m_showContext->makeCurrent())
+        return true;
+    Log::error("[gpu] the consumer thread couldn't make its GL context current");
+    return false;
+}
+
+void GpuSession::frameShowLeave()
+{
+    m_showContext->release();
 }
 
 } // namespace ustudio::engine

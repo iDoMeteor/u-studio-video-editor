@@ -240,9 +240,12 @@ int main(int argc, char **argv)
         if (previous >= 0 && position > previous + 1)
             skipped += position - previous - 1;
     });
-    if (gpuSession)
+    if (gpuSession) {
         controller.setRenderThreadHooks([&] { gpuSession->renderThreadStarted(); },
                                         [&] { gpuSession->renderThreadStopped(); });
+        controller.setFrameShowHooks([&] { return gpuSession->frameShowEnter(); },
+                                     [&] { gpuSession->frameShowLeave(); });
+    }
     controller.setTractor(sync.tractorPtr());
     if (startFrame > 0) {
         controller.seek(startFrame);

@@ -63,6 +63,12 @@ class PlaybackController
     // the next consumer start (setTractor()).
     using RenderThreadHook = std::function<void()>;
     void setRenderThreadHooks(RenderThreadHook started, RenderThreadHook stopped);
+    // ADR-019: called on the consumer's own thread around each frame's
+    // get_image() in the frame-show handler, which renders the frame there
+    // when the render thread didn't (a skipped or forced frame): the GPU
+    // pipeline makes a GL context current. `enter` returning false skips the
+    // frame. Empty: none. Set while no consumer runs.
+    void setFrameShowHooks(std::function<bool()> enter, std::function<void()> leave);
 
     // speed: 1.0 = normal forward. J/K/L shuttle uses {-8,-4,-2,-1,-0.5,
     // -0.25, 0.25, 0.5, 1, 2, 4, 8}; sdl2_audio/rtaudio handle reverse and
@@ -181,6 +187,8 @@ class PlaybackController
     std::unique_ptr<Mlt::Event> m_frameShowEvent;
     std::unique_ptr<Mlt::Event> m_renderStartedEvent, m_renderStoppedEvent;
     RenderThreadHook m_renderStarted, m_renderStopped;
+    std::function<bool()> m_frameShowEnter;
+    std::function<void()> m_frameShowLeave;
 
     std::string m_backendName;
     int m_consumerRestartCount = 0;

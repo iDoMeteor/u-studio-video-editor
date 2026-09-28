@@ -234,6 +234,19 @@ executable(
   install: false,
 )
 
+# ADR-019: GPU pipeline stress (random play/pause/seek/scale/proxies/
+# dissolves through Engine and the real consumer): 45 s with a fixed seed
+# in meson test, serial (it needs the machine); for minutes, by hand:
+#   SDL_AUDIODRIVER=dummy build/tests/engine/gpu_stress <seconds> [seed]
+gpu_stress_exe = executable(
+  'gpu_stress',
+  files('gpu_stress.cpp'),
+  dependencies: [libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep, glib_dep],
+  install: false,
+)
+test('engine-gpu-stress', gpu_stress_exe, args: ['45', '1'], timeout: 240, is_parallel: false,
+     env: ['SDL_AUDIODRIVER=dummy'])
+
 # doc 19 MT2 piece 0b: chunked track playlists against the flat graph --
 # frames, audio, verify(), paused seeks/steps, loops and a render.
 test_chunked_playlist_exe = executable(
