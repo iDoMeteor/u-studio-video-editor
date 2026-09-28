@@ -117,6 +117,11 @@ class RecordingShell : public app::ShellHost
     {
         changedOnDisk.push_back(asset);
     }
+    std::string projectFolder() const override
+    {
+        return folder;
+    }
+    std::string folder;
     std::vector<core::AssetId> changedOnDisk;
 
     core::TrackId video, audio;

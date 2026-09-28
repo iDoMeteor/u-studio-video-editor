@@ -50,14 +50,14 @@ std::string titlesAppPath()
 }
 
 namespace {
-std::function<std::string(const std::string &, GdkTexture *)> &testLauncher()
+TitlesLauncher &testLauncher()
 {
-    static std::function<std::string(const std::string &, GdkTexture *)> launcher;
+    static TitlesLauncher launcher;
     return launcher;
 }
 } // namespace
 
-void setTitlesLauncherForTesting(std::function<std::string(const std::string &, GdkTexture *)> launcher)
+void setTitlesLauncherForTesting(TitlesLauncher launcher)
 {
     testLauncher() = std::move(launcher);
 }
@@ -67,14 +67,16 @@ bool titlesLauncherIsForTesting()
     return static_cast<bool>(testLauncher());
 }
 
-std::string launchTitlesApp(const std::string &title, GdkTexture *backdrop)
+std::string launchTitlesApp(const std::string &title, GdkTexture *backdrop, bool gallery)
 {
     if (testLauncher())
-        return testLauncher()(title, backdrop);
+        return testLauncher()(title, backdrop, gallery);
     const std::string app = titlesAppPath();
     if (app.empty())
         return "U Stu Titles isn't installed";
     std::vector<std::string> args = {app, title};
+    if (gallery)
+        args.push_back("--gallery");
     if (backdrop) {
         const std::string png = saveBackdrop(backdrop);
         if (!png.empty()) {

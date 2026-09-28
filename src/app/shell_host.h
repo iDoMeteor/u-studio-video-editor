@@ -96,7 +96,9 @@ class ShellHost
     virtual void addInspectorPage(const InspectorPage &page) = 0;
 
     // Actions ("win.<name>") with default shortcuts, listed in Help under
-    // their category (action_registry.h's contributeActions()).
+    // their category (action_registry.h's contributeActions()). A shortcut
+    // without Ctrl, Alt or Super (Shift+T) is off while a text field has
+    // focus, like the editor's own single keys.
     virtual void addActions(const std::vector<ActionSpec> &specs, gpointer target) = 0;
     // Tooltips and Help's Controls tab (ui_hints.h's registerHints()), and
     // a widget's tooltip from them. Through the host, like everything
@@ -122,6 +124,11 @@ class ShellHost
     // engine rebuilds what plays it, as when missing media is found again.
     // Not an edit: no undo step, and the project isn't marked changed.
     virtual void assetChangedOnDisk(core::AssetId asset) = 0;
+
+    // Where files made for this project go (titles' New Title): the saved
+    // project's folder, else Settings › Locations' default project folder
+    // when it exists, else "".
+    virtual std::string projectFolder() const = 0;
 };
 
 } // namespace ustudio::app

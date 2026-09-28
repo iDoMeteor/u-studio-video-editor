@@ -1724,6 +1724,9 @@ void AppWindow::applyTransportActionsEnabled()
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
         g_simple_action_set_enabled(G_SIMPLE_ACTION(action), enabled);
     }
+    for (const std::string &name : m_typingKeyActions)
+        if (GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name.c_str()))
+            g_simple_action_set_enabled(G_SIMPLE_ACTION(action), enabled);
 }
 
 namespace {

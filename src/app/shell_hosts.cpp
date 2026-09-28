@@ -120,6 +120,16 @@ void AppWindow::addActions(const std::vector<ActionSpec> &specs, gpointer target
         g_object_unref(simple);
         if (app)
             setAccelsForAction(app, action.spec.name, action.spec.accels);
+        // A shortcut with no Ctrl, Alt or Super would type in a text field.
+        for (const char *accel : action.spec.accels) {
+            guint key = 0;
+            GdkModifierType mods{};
+            if (gtk_accelerator_parse(accel, &key, &mods) &&
+                !(mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK))) {
+                m_typingKeyActions.push_back(action.spec.name);
+                break;
+            }
+        }
     }
 }
 
@@ -187,6 +197,17 @@ bool AppWindow::overlayClaimsPress(double x, double y, int nPress)
         }
     }
     return false;
+}
+
+std::string AppWindow::projectFolder() const
+{
+    std::error_code ec;
+    if (!m_currentProjectPath.empty())
+        return core::utf8String(core::pathFromUtf8(m_currentProjectPath).parent_path());
+    const std::string folder = m_settings->defaultProjectFolder();
+    if (!folder.empty() && std::filesystem::is_directory(core::pathFromUtf8(folder), ec))
+        return folder;
+    return {};
 }
 
 void AppWindow::assetChangedOnDisk(core::AssetId id)

@@ -17,13 +17,15 @@ namespace ustudio::titles {
 // none is found.
 std::string titlesAppPath();
 
-// Starts the designer on `title` with `backdrop` (may be null) behind it.
-// Empty on success, else why not.
-std::string launchTitlesApp(const std::string &title, GdkTexture *backdrop);
+// Starts the designer on `title` with `backdrop` (may be null) behind it,
+// and with its template gallery open when `gallery` (New Title). Empty on
+// success, else why not.
+std::string launchTitlesApp(const std::string &title, GdkTexture *backdrop, bool gallery = false);
 
 // Tests only: what launchTitlesApp() does instead (null: the real launch).
 // While one is set, Edit Title skips rendering the backdrop.
-void setTitlesLauncherForTesting(std::function<std::string(const std::string &, GdkTexture *)> launcher);
+using TitlesLauncher = std::function<std::string(const std::string &title, GdkTexture *backdrop, bool gallery)>;
+void setTitlesLauncherForTesting(TitlesLauncher launcher);
 bool titlesLauncherIsForTesting();
 
 } // namespace ustudio::titles

@@ -6,6 +6,8 @@
 #include "doctest.h"
 
 #include "core/commands/primitives.h"
+#include "core/xml/reader.h"
+#include "core/xml/writer.h"
 #include "core/commands/undo_stack.h"
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
@@ -93,6 +95,11 @@ class FakeShell : public app::ShellHost
     {
         changedOnDisk.push_back(asset);
     }
+    std::string projectFolder() const override
+    {
+        return folder;
+    }
+    std::string folder;
 
     core::TrackId video;
     std::string status;
@@ -263,7 +270,7 @@ TEST_CASE("Edit Title: the action and a double-click open a title clip, and noth
     if (!haveGtk())
         return;
     std::vector<std::string> launched;
-    titles::setTitlesLauncherForTesting([&](const std::string &path, GdkTexture *) {
+    titles::setTitlesLauncherForTesting([&](const std::string &path, GdkTexture *, bool) {
         launched.push_back(path);
         return std::string();
     });
@@ -271,19 +278,20 @@ TEST_CASE("Edit Title: the action and a double-click open a title clip, and noth
     FakeShell shell(profile);
     titles::extendShell(shell);
     REQUIRE(shell.overlays.size() == 1);
-    REQUIRE(shell.actions.size() == 2); // Edit Title, Bake Title
-    CHECK(std::string(shell.actions[1].first.name) == "titles-bake");
-    CHECK(std::string(shell.actions[0].first.name) == "titles-edit");
+    REQUIRE(shell.actions.size() == 3); // New Title, Edit Title, Bake Title
+    CHECK(std::string(shell.actions[0].first.name) == "titles-new");
+    CHECK(std::string(shell.actions[2].first.name) == "titles-bake");
+    CHECK(std::string(shell.actions[1].first.name) == "titles-edit");
     const std::string path = saveTitle("edit-me.ustitle");
     REQUIRE(titles::importTitle(shell, path, shell.video, 100).has_value()); // frames 100..192
     const core::ClipId clip = shell.model().track(shell.video).clips.front();
 
     // The action: nothing selected, then the title clip.
-    shell.actions[0].first.activated(nullptr, nullptr, shell.actions[0].second);
+    shell.actions[1].first.activated(nullptr, nullptr, shell.actions[1].second);
     CHECK(launched.empty());
     CHECK(shell.status == "Select a title clip to edit it.");
     shell.selection.clips = {clip};
-    shell.actions[0].first.activated(nullptr, nullptr, shell.actions[0].second);
+    shell.actions[1].first.activated(nullptr, nullptr, shell.actions[1].second);
     REQUIRE(launched.size() == 1);
     CHECK(launched[0] == path);
 
@@ -423,4 +431,84 @@ TEST_CASE("Export Title from the editor: the clip's title on its own, at the cli
         count += entry.path().extension() == ".png";
     CHECK(count == static_cast<size_t>(shell.model().clip(clip).length()));
     CHECK(shell.model().project() == before);
+}
+
+TEST_CASE("New Title: a blank title in the project's Titles folder, at the playhead, opened with the gallery")
+{
+    if (!haveGtk())
+        return;
+    std::vector<std::pair<std::string, bool>> launched;
+    titles::setTitlesLauncherForTesting([&](const std::string &path, GdkTexture *, bool gallery) {
+        launched.push_back({path, gallery});
+        return std::string();
+    });
+    core::Profile profile;
+    profile.fps = {25, 1};
+    FakeShell shell(profile);
+    const fs::path project = scratch() / "new-title-project";
+    fs::remove_all(project);
+    fs::create_directories(project);
+    shell.folder = core::utf8String(project);
+    titles::extendShell(shell);
+    REQUIRE(std::string(shell.actions[0].first.name) == "titles-new");
+    shell.actions[0].first.activated(nullptr, nullptr, shell.actions[0].second);
+
+    const fs::path first = project / "Titles" / "Title 1.ustitle";
+    REQUIRE(fs::exists(first));
+    REQUIRE(launched.size() == 1);
+    CHECK(launched[0] == std::pair<std::string, bool>{core::utf8String(first), true});
+    const auto &clips = shell.model().track(shell.video).clips;
+    REQUIRE(clips.size() == 1);
+    const core::Clip &clip = shell.model().clip(clips.front());
+    CHECK(clip.position == 0);   // the playhead
+    CHECK(clip.length() == 125); // five seconds at the sequence's 25 fps
+    auto read = titles::readTitle(core::utf8String(first));
+    REQUIRE(read.has_value());
+    CHECK(read->document.fpsNum == 25);
+    CHECK(read->document.layers.empty());
+
+    // The next one never overwrites it.
+    CHECK(titles::newTitlePath(core::utf8String(project)) == core::utf8String(project / "Titles" / "Title 2.ustitle"));
+    // No project folder: the Videos folder's "U Stu Titles".
+    CHECK(titles::newTitlePath("").find("U Stu Titles") != std::string::npos);
+    titles::setTitlesLauncherForTesting(nullptr);
+}
+
+TEST_CASE("New Title in an unsaved project: the link survives saving the project there and moving the folder, or "
+          "saving it elsewhere")
+{
+    if (!haveGtk())
+        return;
+    titles::setTitlesLauncherForTesting([](const std::string &, GdkTexture *, bool) { return std::string(); });
+    core::Profile profile;
+    FakeShell shell(profile);
+    const fs::path home = scratch() / "unsaved-home";
+    fs::remove_all(home);
+    fs::remove_all(scratch() / "unsaved-home-moved");
+    fs::remove_all(scratch() / "elsewhere");
+    fs::create_directories(home);
+    shell.folder = core::utf8String(home); // Settings › Locations' default, the project not saved yet
+    auto made = titles::newTitle(shell);
+    REQUIRE_MESSAGE(made.has_value(), (made ? "" : made.error()));
+    const std::string titlePath = shell.model().asset(shell.model().clip(*made).asset).path;
+
+    // Saved elsewhere: the title's path stays absolute and still opens.
+    fs::create_directories(scratch() / "elsewhere");
+    const std::string other = core::utf8String(scratch() / "elsewhere" / "show.ustudio");
+    REQUIRE(core::saveProject(shell.model(), other).empty());
+    auto again = core::loadProject(other);
+    REQUIRE(again.has_value());
+    CHECK(again->asset(again->clip(*made).asset).path == titlePath);
+
+    // Saved in the folder it was made for, then the folder moved: the title
+    // travels with it.
+    const std::string there = core::utf8String(home / "show.ustudio");
+    REQUIRE(core::saveProject(shell.model(), there).empty());
+    fs::rename(home, scratch() / "unsaved-home-moved");
+    auto moved = core::loadProject(core::utf8String(scratch() / "unsaved-home-moved" / "show.ustudio"));
+    REQUIRE(moved.has_value());
+    const std::string relinked = moved->asset(moved->clip(*made).asset).path;
+    CHECK(relinked == core::utf8String(scratch() / "unsaved-home-moved" / "Titles" / "Title 1.ustitle"));
+    CHECK(fs::exists(core::pathFromUtf8(relinked)));
+    titles::setTitlesLauncherForTesting(nullptr);
 }
