@@ -8,7 +8,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "left",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -22,7 +23,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "right",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -36,7 +38,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "down",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -50,7 +53,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "up",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -64,7 +68,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "down-right",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -78,7 +83,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "down-left",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -92,7 +98,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "up-right",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -106,7 +113,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "up-left",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -120,7 +128,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "radial",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -134,7 +143,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "iris-out",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -148,7 +158,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "clock",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -162,7 +173,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "diamond",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -176,7 +188,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "barn-door-open",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -190,7 +203,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "barn-door-close",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -204,7 +218,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "blinds",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -218,7 +233,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "checker",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -232,7 +248,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "blocks",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -246,7 +263,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "star",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -260,7 +278,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "sparkle",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
@@ -274,7 +293,8 @@
       "params": {
         "video.service": "luma",
         "video.luma": "horn",
-        "video.softness": 0.1
+        "video.softness": 0.1,
+        "video.reverse": false
       },
       "exposed": [
         "video.softness",
