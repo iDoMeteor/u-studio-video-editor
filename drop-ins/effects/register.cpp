@@ -5,6 +5,7 @@
 #include "app/browser.h"
 #include "app/catalog.h"
 #include "app/compare.h"
+#include "app/curve_lanes.h"
 #include "app/health_scan.h"
 #include "app/rack.h"
 #include "app/transitions_page.h"
@@ -85,6 +86,7 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         addRack(shell, catalog);
         addBrowser(shell, catalog);
         addCompare(shell, catalog);
+        addCurveLanes(shell, catalog);
         // FX3: the transition styles (small; the drop-in's own data).
         static const std::vector<TransitionRecipe> recipes = loadRecipes((effectsDataDir() / "transitions").string());
         addTransitions(shell, recipes);

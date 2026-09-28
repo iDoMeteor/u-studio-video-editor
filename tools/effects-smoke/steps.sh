@@ -215,6 +215,32 @@ print(best)
 sys.exit(0 if best and best[0] * 2 < best[1] else 1)
 PY
 
+
+# Curve lanes (FX4): C under the selected clip shows its animated values.
+d act effects-curve-lanes; sleep 1.5
+shot 17-curve-lanes
+check "C shows curve lanes" grep -q "curve lanes shown: [1-9]" "$OUT/app.log"
+# Drag the last keyframe right and down: same number of keys, one moved.
+d act save; sleep 2
+BEFORE=$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)
+KEY=$(python3 "$SMOKE_HERE/keydot.py" "$OUT/17-curve-lanes.png" 2>>"$OUT/helpers.err")
+echo "key at $KEY" >>"$OUT/steps.log"
+if [ -n "$KEY" ]; then
+    set -- $KEY
+    python3 "$SMOKE_HERE/drag.py" "$1" "$2" "$(($1 + 40))" "$(($2 + 14))" 2>>"$OUT/helpers.err"
+fi
+sleep 1.5
+shot 18-key-dragged
+d act save; sleep 2
+AFTER=$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)
+echo "before $BEFORE" >>"$OUT/steps.log"; echo "after  $AFTER" >>"$OUT/steps.log"
+count() { echo "$1" | tr -cd ';' | wc -c; }
+moved() { [ -n "$AFTER" ] && [ "$BEFORE" != "$AFTER" ] && [ "$(count "$BEFORE")" = "$(count "$AFTER")" ]; }
+check "a dragged keyframe moves (same number of keys)" moved
+d act undo; sleep 1
+d act save; sleep 2
+check "the drag is one undo step" [ "$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)" = "$BEFORE" ]
+
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
 echo "RESULT: $FAILED failed"

@@ -86,6 +86,17 @@ moves to the next point: **Linear** (steady), **Smooth**, **Ease in**,
 **Ease out**, **Snap**, **Bounce**, **Elastic**, or **Hold** (it stays put,
 then jumps), plus every other curve in the list.
 
+### Seeing and shaping the curve (curve lanes)
+
+Select a clip and press **C**: a lane opens under it on the timeline for
+each value that changes over time, showing its curve, with a dot for each
+keyframe.
+
+- **Drag a dot** left or right to move the keyframe in time, up or down to
+  change its value. The whole drag is one undo step.
+- **Double-click** a lane to add a keyframe there, on the curve.
+- Press **C** again to close the lanes.
+
 ### Recording a change as you play (touch-record)
 
 For a change that follows the music or the action, perform it instead of

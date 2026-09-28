@@ -98,7 +98,10 @@ dissolve between them, the first wipe's tile (Wipe Right) on the
 Transitions page is clicked, and the saved project must name `wipe.left`
 and its map `ustudio-wipes/v1/left.pgm` (written beside it); undo takes it back. Last it arms the first clip's Blur for touch-record,
 ramps it in 40 quick changes while playing (`ramp.py`), and checks that one
-performance was recorded and saved as fewer keys than frames. It also checks an audition leaves the live graph's rebuild
+performance was recorded and saved as fewer keys than frames; then **C**
+opens the clip's curve lanes, the last keyframe's dot (found on the
+screenshot, `keydot.py`) is dragged, and the saved curve must have moved
+one key and come back with one undo. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
 `value.py`, `ramp.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
