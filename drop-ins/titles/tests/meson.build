@@ -6,6 +6,15 @@ titles_test_core = executable(
 )
 test('titles-core', titles_test_core)
 
+# T5: subtitle files read into cues, placed on frames, imported as clips.
+titles_test_captions = executable(
+  'test_titles_captions',
+  files('test_captions.cpp'),
+  dependencies: [titles_doctest_dep, titles_core_dep],
+  install: false,
+)
+test('titles-captions', titles_test_captions)
+
 # T4b: the pack manifest, the validator against a corpus of malicious packs,
 # install and remove.
 titles_test_pack = executable(
