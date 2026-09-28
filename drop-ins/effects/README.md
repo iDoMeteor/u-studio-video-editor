@@ -80,6 +80,15 @@ the GPU engine's help: until then they're for the CPU pipeline only.
   the system directories, unless one must be left out: it names a Qt
   library (ADR-007) or the health scan quarantined it. Then `FREI0R_PATH`
   is a private directory of links to the rest.
+- **A package's own frei0r.** When the drop-in is packaged apart from an
+  MLT without frei0r (the Flatpak extension, ADR-014), the package installs
+  MLT's frei0r module to `<prefix>/<libdir>/u-studio/mlt` and the plugins to
+  `<prefix>/<libdir>/frei0r-1`. When those folders exist the module joins
+  FactoryPolicy's curated directory (through its denylist; a system frei0r
+  module keeps its name) and the plugins come first in the search order.
+  The frei0r module's data (`blacklist.txt`, `not_thread_safe.txt`,
+  `resolution_scale.yml`, ...) is read from `MLT_DATA/frei0r/`, which the
+  core package ships.
 - **The scan.** Once the window exists, on a thread of its own (forking a
   child from the editor blocks for tens of milliseconds), the editor gets
   the registry from

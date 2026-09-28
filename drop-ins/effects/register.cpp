@@ -19,6 +19,8 @@
 #include "engine/probe.h"
 #include "engine/registry.h"
 
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <set>
@@ -32,6 +34,16 @@ using namespace ustudio::effects;
 // may load (engine/plugins.h), and the quarantine the last health scan left.
 void contributeFactoryPaths(ustudio::dropins::FactoryPaths *paths)
 {
+    // A package's own MLT frei0r module (the Flatpak extension; the core
+    // app's MLT has none): FactoryPolicy links it into the curated module
+    // directory, through the denylist, after MLT's own (a system frei0r
+    // module keeps its name). Titles installs its module to the same folder
+    // in a plain install: listed once.
+    std::error_code ec;
+    if (std::filesystem::is_directory(EFFECTS_MLT_INSTALL_DIR, ec) &&
+        std::find(paths->mltModuleDirs.begin(), paths->mltModuleDirs.end(), EFFECTS_MLT_INSTALL_DIR) ==
+            paths->mltModuleDirs.end())
+        paths->mltModuleDirs.push_back(EFFECTS_MLT_INSTALL_DIR);
     rememberFrei0rSearchPath();
     HealthFile health = loadHealthFile(healthFilePath());
     // Results for another plugin set or MLT describe other files: ignore
