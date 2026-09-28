@@ -137,6 +137,8 @@ void AppWindow::addActions(const std::vector<ActionSpec> &specs, gpointer target
 
 void AppWindow::addHeaderButton(GtkWidget *button)
 {
+    // Shell extensions run after buildUi(); before it, this is a misuse.
+    g_return_if_fail(m_appHeaderGroup && m_settingsButton);
     gtk_box_insert_child_after(GTK_BOX(m_appHeaderGroup), button, gtk_widget_get_prev_sibling(m_settingsButton));
 }
 
