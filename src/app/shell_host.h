@@ -60,7 +60,9 @@ struct InspectorPage
 // .ustitle, doc 16). Runs on the main thread when the file is imported, so
 // it must be quick: parse, then execute a command. A handler that reports
 // its outcome with showStatus() keeps that message; otherwise the shell
-// says "Imported <path>".
+// says "Imported <path>". (Counted by showStatus() calls during the import,
+// so a projectChanged() listener that reports would count too; nothing
+// does. An explicit "reported" flag in the result would be sturdier.)
 struct ImportHandler
 {
     std::vector<std::string> extensions; // lowercase, no dot: {"ustitle"}
