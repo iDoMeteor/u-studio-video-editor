@@ -724,7 +724,7 @@ Acceptance:
       reopening shows no banner. (`titles-core`; the designer on a
       private Xvfb with a stale title: banner, Update, Ctrl+S, reopen.)
 
-#### T5.2 — Caption colour and top placement (planned 2026-09-28)
+#### T5.2 — Caption colour and top placement (landed 2026-09-28, 0.73.0-beta.1)
 
 The cheap subset of a subtitle file's own styling (Strategist: "if
 cheap"): colour by the names every player knows, and top or bottom.
@@ -752,20 +752,79 @@ cheap"): colour by the names every player knows, and top or bottom.
 
 Acceptance:
 
-- [ ] Each named colour, in `.vtt` and `.srt`, imports to the same
+- [x] Each named colour, in `.vtt` and `.srt`, imports to the same
       `<c.name>` run and exports back; other colours and classes are
       dropped, words kept.
-- [ ] The renderer draws a `<c.yellow>` run yellow and the rest in the
+- [x] The renderer draws a `<c.yellow>` run yellow and the rest in the
       layer's fill; a scrambled or animated-unit layer ignores colour
       runs as it does the others.
-- [ ] Top cues go on the top caption title with `placement=top`; a file
+- [x] Top cues go on the top caption title with `placement=top`; a file
       without any makes no second title; export then import keeps them
-      at the top in both formats.
+      at the top in both formats. (`titles-captions`, `titles-render`;
+      in the editor: a `.vtt` with a yellow top cue and a cyan bottom
+      one imported, shown in the preview, exported as `.srt` and `.vtt`.)
+
+#### T6 — Lottie layers (planned 2026-09-28)
+
+Lottie animations as a layer of a title, drawn by ThorVG
+([ADR-021](adr/021-lottie-layers-via-thorvg.md), which owns the
+decisions: the validator's limits, timing, threads, format version,
+packs, packaging). Built in slices, each landed on its own:
+
+1. **Spikes (no product code).** Standalone repros against the system
+   `thorvg-devel`: render a generated Lottie at two sizes and aspects
+   (how `tvg_picture_set_size` fits), fractional `set_frame`, two threads
+   each with its own canvas (ADR-021 decision 6), and load from memory
+   with an empty resource path. Findings go into
+   `docs/developer/notes/titles.md`.
+2. **Core.** `core/lottie_check`: the std-only JSON scanner and
+   validator (ADR-021 decision 3), and the file's facts (size, `fr`,
+   `ip`, `op`, whether it has text layers). `Layer` gains
+   `LayerKind::Lottie` with `src`, `loop` (`loop`/`once`), `speed` and
+   `fit`; `.ustitle` format 2 read and written (written only with a
+   Lottie layer); `lottieFrame()`, the exact frame maths.
+3. **Render.** titlerender draws the layer through ThorVG with the
+   per-thread cache, composited like an image layer. Meson: ThorVG is an
+   optional dependency of the titles render library (`dependency('thorvg-1',
+   required: false)`), with `TITLES_HAVE_THORVG`. Without it the layer
+   draws nothing and warns.
+4. **Designer.** **Add Lottie…** (in the Add menu) picks a `.json`,
+   validates it, copies it beside the title, and adds a layer sized to the
+   animation and centred. The inspector has Loop/Once, Speed and Fit.
+   The animation strip shows the layer's run, and play and scrub move the
+   animation with the title. Refusals are toasts naming the reason.
+5. **Editor and packs.** Titles with Lottie layers play in the editor
+   (through the module) and bake. Packs accept `lottie/*.json` (ADR-021
+   decision 10). The generator gets one built-in template with a small
+   generated Lottie sting.
+6. **Packaging request.** The ThorVG module snippet for VE Installers
+   (ADR-021 decision 8); not built by Text.
+
+Acceptance:
+
+- [ ] The validator refuses every file in a hostile corpus (deep
+      nesting, a huge number, bad UTF-8, an external image, a font path,
+      `..`, an expression, a self-referencing precomposition, an
+      oversized or mis-typed embedded picture, a bad header, too long,
+      too many layers) with a reason, and accepts the good corpus; it
+      runs in under 50 ms on an 8 MB file.
+- [ ] `lottieFrame()` matches the formula at 23.976, 25, 29.97, 30 and
+      59.94 fps title rates, speeds 0.5, 1 and 2, looping and once.
+- [ ] The editor's producer and the designer's renderer give
+      byte-identical frames for a title with a Lottie layer, at several
+      frames and on two threads.
+- [ ] A title without Lottie is still written as format 1; one with it
+      as format 2, and it round-trips.
+- [ ] Add Lottie…, Loop/Once, Speed and Fit work in the designer; the
+      strip plays and scrubs it (checked on a private Xvfb with
+      screenshots).
+- [ ] A pack with a Lottie template installs; one with a hostile Lottie
+      file is refused whole.
+- [ ] Built and tested with and without ThorVG; docs: titles.md
+      (users), notes (findings), building.md (the optional dependency).
 
 ### Later
 
-- **T6 Lottie:** import Lottie animations as layers via `rlottie` (not
-  installed here; needs its own ADR).
 
 ## Decisions needed from the owner
 

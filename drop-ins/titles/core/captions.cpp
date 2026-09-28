@@ -133,6 +133,41 @@ std::optional<int64_t> timestamp(std::string_view t)
     return total > kMaxMs ? std::nullopt : std::optional<int64_t>(total);
 }
 
+constexpr std::pair<std::string_view, const char *> kColours[] = {
+    {"white", "#ffffff"},  {"lime", "#00ff00"},    {"cyan", "#00ffff"}, {"red", "#ff0000"},
+    {"yellow", "#ffff00"}, {"magenta", "#ff00ff"}, {"blue", "#0000ff"}, {"black", "#000000"}};
+
+// A colour name or "#rrggbb" (any case) as one of kColours' names.
+std::string colourName(std::string value)
+{
+    for (char &c : value)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (const auto &[name, hex] : kColours)
+        if (value == name || value == hex)
+            return std::string(name);
+    return {};
+}
+
+// A VTT cue's settings put it at the top: line: as a percentage under 50,
+// or a line number counted from the top (0 or more).
+bool topSetting(const std::string &timingLine)
+{
+    const size_t at = timingLine.find("line:");
+    if (at == std::string::npos || (at > 0 && !std::isspace(static_cast<unsigned char>(timingLine[at - 1]))))
+        return false;
+    std::string value = timingLine.substr(at + 5);
+    value = value.substr(0, value.find_first_of(" \t,"));
+    if (value.empty())
+        return false;
+    char *end = nullptr;
+    const double number = std::strtod(value.c_str(), &end);
+    if (end == value.c_str())
+        return false;
+    if (*end == '%')
+        return number < 50.0;
+    return *end == '\0' && number >= 0.0;
+}
+
 // "START --> END [settings]"
 std::optional<std::pair<int64_t, int64_t>> timing(const std::string &line)
 {
@@ -195,6 +230,7 @@ std::string cleanText(const std::string &raw, std::string &speaker)
 {
     std::string out;
     std::map<char, int> open;
+    std::vector<bool> colours, fonts; // each open <c> / <font>: whether it wrote a <c.name>
     for (size_t i = 0; i < raw.size(); ++i) {
         if (raw[i] == '{' && i + 1 < raw.size() && raw[i + 1] == '\\') {
             const size_t close = raw.find('}', i);
@@ -238,6 +274,43 @@ std::string cleanText(const std::string &raw, std::string &speaker)
             } else {
                 ++open[kind];
                 out += std::string("<") + kind + ">";
+            }
+        } else if (name == "c" || name == "font") {
+            // T5.2: a named colour, kept as <c.name>; other classes and
+            // colours go, their words stay.
+            std::vector<bool> &stack = name == "c" ? colours : fonts;
+            if (closing) {
+                if (!stack.empty()) {
+                    if (stack.back()) {
+                        out += "</c>";
+                        --open['c'];
+                    }
+                    stack.pop_back();
+                }
+            } else {
+                std::string colour;
+                if (name == "c") {
+                    for (size_t dot = tag.find('.'); dot != std::string::npos && colour.empty();
+                         dot = tag.find('.', dot + 1))
+                        colour = colourName(tag.substr(dot + 1, tag.find_first_of(". ", dot + 1) - dot - 1));
+                } else {
+                    std::string lower = tag;
+                    for (char &ch : lower)
+                        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                    if (const size_t at = lower.find("color="); at != std::string::npos) {
+                        std::string value = tag.substr(at + 6);
+                        if (!value.empty() && (value[0] == '"' || value[0] == '\''))
+                            value = value.substr(1, value.find(value[0], 1) - 1);
+                        else
+                            value = value.substr(0, value.find(' '));
+                        colour = colourName(value);
+                    }
+                }
+                stack.push_back(!colour.empty());
+                if (!colour.empty()) {
+                    out += "<c." + colour + ">";
+                    ++open['c'];
+                }
             }
         } else if (name == "v" && !closing && speaker.empty()) {
             const size_t space = tag.find(' ');
@@ -289,6 +362,46 @@ std::vector<std::string> splitLines(const std::string &text)
 }
 
 } // namespace
+
+const char *captionColourHex(std::string_view name)
+{
+    for (const auto &[colour, hex] : kColours)
+        if (name == colour)
+            return hex;
+    return nullptr;
+}
+
+namespace {
+
+// The length of the basic tag at `text[i]` (<b>, </b>, ..., <c.name>, </c>),
+// or 0 when there's none.
+size_t basicTagAt(std::string_view text, size_t i)
+{
+    for (std::string_view tag : {"<b>", "</b>", "<i>", "</i>", "<u>", "</u>", "</c>"})
+        if (text.substr(i, tag.size()) == tag)
+            return tag.size();
+    if (text.substr(i, 3) == "<c.") {
+        const size_t close = text.find('>', i);
+        if (close != std::string_view::npos && captionColourHex(text.substr(i + 3, close - i - 3)))
+            return close - i + 1;
+    }
+    return 0;
+}
+
+} // namespace
+
+std::string captionWords(const std::string &text)
+{
+    std::string out;
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (const size_t n = basicTagAt(text, i)) {
+            i += n - 1;
+            continue;
+        }
+        out += text[i];
+    }
+    return out;
+}
 
 std::string toUtf8(std::string_view bytes, std::string &warning, std::string &error)
 {
@@ -399,12 +512,10 @@ std::expected<Parsed, std::string> parse(std::string_view bytes)
         cue.startMs = times->first;
         cue.endMs = times->second;
         cue.line = lineNo;
+        cue.top = (vtt && topSetting(block[t])) || raw.find("{\\an7}") != std::string::npos ||
+                  raw.find("{\\an8}") != std::string::npos || raw.find("{\\an9}") != std::string::npos;
         cue.text = cleanText(raw, cue.speaker);
-        std::string words = cue.text;
-        for (const char *tag : {"<b>", "</b>", "<i>", "</i>", "<u>", "</u>"})
-            for (size_t at; (at = words.find(tag)) != std::string::npos;)
-                words.erase(at, std::string_view(tag).size());
-        if (trim(words).empty()) {
+        if (trim(captionWords(cue.text)).empty()) {
             skip(lineNo, "it has no words");
             continue;
         }
@@ -476,6 +587,8 @@ std::vector<ExportCue> captionCues(const core::Model &model)
             cue.text = caption->second;
             if (auto speaker = fields.find("speaker"); speaker != fields.end())
                 cue.speaker = speaker->second;
+            if (auto placement = fields.find("placement"); placement != fields.end())
+                cue.top = placement->second == "top";
             ordered.push_back({t, std::move(cue)});
         }
     }
@@ -507,23 +620,37 @@ std::string clock(int64_t ms, char separator)
     return text;
 }
 
-// WebVTT: our <b>, <i> and <u> kept, any other &, < and > escaped.
+// WebVTT: our basic tags kept, any other &, < and > escaped.
 std::string escapeVtt(const std::string &text)
 {
     std::string out;
     for (size_t i = 0; i < text.size(); ++i) {
-        bool tag = false;
-        for (std::string_view t : {"<b>", "</b>", "<i>", "</i>", "<u>", "</u>"})
-            if (std::string_view(text).substr(i, t.size()) == t) {
-                out += t;
-                i += t.size() - 1;
-                tag = true;
-                break;
-            }
-        if (tag)
+        if (const size_t n = basicTagAt(text, i)) {
+            out += text.substr(i, n);
+            i += n - 1;
             continue;
+        }
         const char c = text[i];
         out += c == '&' ? "&amp;" : c == '<' ? "&lt;" : c == '>' ? "&gt;" : std::string(1, c);
+    }
+    return out;
+}
+
+// SRT: a colour as <font color="name">, the form SRT players read.
+std::string srtColours(const std::string &text)
+{
+    std::string out;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const size_t n = basicTagAt(text, i);
+        if (n && text.compare(i, 3, "<c.") == 0) {
+            out += "<font color=\"" + text.substr(i + 3, n - 4) + "\">";
+            i += n - 1;
+        } else if (n && text.compare(i, 4, "</c>") == 0) {
+            out += "</font>";
+            i += 3;
+        } else {
+            out += text[i];
+        }
     }
     return out;
 }
@@ -539,11 +666,14 @@ std::string writeSubtitles(const std::vector<ExportCue> &cues, core::Rational fp
         if (!vtt)
             out += std::to_string(++index) + "\n";
         const char sep = vtt ? '.' : ',';
-        out += clock(msAt(cue.start, fps), sep) + " --> " + clock(msAt(cue.end, fps), sep) + "\n";
-        std::string text = vtt ? escapeVtt(cue.text) : cue.text;
+        out += clock(msAt(cue.start, fps), sep) + " --> " + clock(msAt(cue.end, fps), sep) +
+               (vtt && cue.top ? " line:0" : "") + "\n";
+        std::string text = vtt ? escapeVtt(cue.text) : srtColours(cue.text);
         // A speaker: WebVTT's voice span (read back by our import in both).
         if (!cue.speaker.empty())
             text = "<v " + (vtt ? escapeVtt(cue.speaker) : cue.speaker) + ">" + text;
+        if (!vtt && cue.top)
+            text = "{\\an8}" + text; // the placement tag most SRT players read
         // A blank line ends a cue in both formats: drop any inside the words.
         std::string lines;
         size_t from = 0;
@@ -591,8 +721,9 @@ std::string saveSubtitles(const std::vector<ExportCue> &cues, core::Rational fps
     return {};
 }
 
-ImportCaptions::ImportCaptions(core::Asset titleAsset, std::vector<Placed> placed, std::string name)
-    : m_titleAsset(std::move(titleAsset)), m_name(std::move(name))
+ImportCaptions::ImportCaptions(core::Asset titleAsset, std::vector<Placed> placed, std::string name,
+                               std::optional<core::Asset> topTitleAsset)
+    : m_titleAsset(std::move(titleAsset)), m_topTitleAsset(std::move(topTitleAsset)), m_name(std::move(name))
 {
     // Own the cues, so the command outlives the parse.
     m_cues.reserve(placed.size());
@@ -635,6 +766,14 @@ bool ImportCaptions::apply(core::Model &model)
     if (!asset)
         return fail();
     m_asset = asset->assetId();
+    core::AssetId topAsset = m_asset;
+    const bool anyTop = std::any_of(m_placed.begin(), m_placed.end(), [](const Placed &p) { return p.cue->top; });
+    if (anyTop && m_topTitleAsset) {
+        auto *top = static_cast<core::AddAsset *>(run(std::make_unique<core::AddAsset>(*m_topTitleAsset)));
+        if (!top)
+            return fail();
+        topAsset = top->assetId();
+    }
     size_t lanes = 0;
     for (const Placed &p : m_placed)
         lanes = std::max(lanes, p.lane + 1);
@@ -649,21 +788,21 @@ bool ImportCaptions::apply(core::Model &model)
         m_tracks[lane] = track->trackId();
     }
     for (const Placed &p : m_placed) {
-        auto *insert = static_cast<core::InsertClip *>(
-            run(std::make_unique<core::InsertClip>(m_tracks[p.lane], m_asset, p.position, 0, p.length - 1)));
+        auto *insert = static_cast<core::InsertClip *>(run(std::make_unique<core::InsertClip>(
+            m_tracks[p.lane], p.cue->top ? topAsset : m_asset, p.position, 0, p.length - 1)));
         if (!insert)
             return fail();
         m_clips.push_back(insert->clipId());
         std::map<std::string, std::string> fields = {{"caption", p.cue->text}};
         if (!p.cue->speaker.empty())
             fields["speaker"] = p.cue->speaker;
+        if (p.cue->top)
+            fields["placement"] = "top";
         if (!run(std::make_unique<SetClipFields>(insert->clipId(), std::move(fields))))
             return fail();
         // Named by its words, so the timeline reads like the script.
-        std::string name = p.cue->text.substr(0, p.cue->text.find('\n'));
-        for (const char *tag : {"<b>", "</b>", "<i>", "</i>", "<u>", "</u>"})
-            for (size_t at; (at = name.find(tag)) != std::string::npos;)
-                name.erase(at, std::string_view(tag).size());
+        const std::string words = captionWords(p.cue->text);
+        const std::string name = words.substr(0, words.find('\n'));
         if (!run(std::make_unique<core::RenameClip>(insert->clipId(), name)))
             return fail();
     }

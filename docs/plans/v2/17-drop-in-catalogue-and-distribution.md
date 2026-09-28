@@ -36,7 +36,7 @@ frei0r present.
 | Looks and LUTs | tracked in doc 15 | avfilter `lut3d`, `lift_gamma_gain` | yes | none | part of FX2 and FX5 |
 | Audio plugin packs | tracked in doc 15 | LADSPA (LSP, SWH, Calf) | base `ladspa` only | runtime packages only | part of FX5 |
 | OpenFX packs | tracked in doc 15 | MLT `openfx` host (experimental) | host only | runtime packages only | FX5 |
-| Lottie animations | tracked in doc 16 | `rlottie` | no | `rlottie` (ADR needed) | titles T6 |
+| Lottie animations | tracked in doc 16 | ThorVG | no | ThorVG ([ADR-021](adr/021-lottie-layers-via-thorvg.md)) | titles T6 |
 
 Rejected (doc 15 has the reasons): G'MIC, ML background removal, movit.
 
@@ -226,7 +226,7 @@ removable.
 ## Decisions needed from the owner
 
 1. ~~Effects and titles in core or opt-in~~: decided, opt-in (2026-09-24).
-2. ADRs for `whisper-cpp` (auto-captions) and `rlottie` (Lottie), when
-   those drop-ins are pulled.
+2. ADRs for `whisper-cpp` (auto-captions) and Lottie, when those
+   drop-ins are pulled. Lottie: decided, ThorVG (ADR-021, 2026-09-28).
 3. ~~Individually or as one "extras" bundle~~: decided, **individually**,
    one Flatpak extension per drop-in (owner, 2026-09-24).

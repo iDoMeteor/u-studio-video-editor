@@ -125,7 +125,8 @@ builddir/                 meson build output — gitignored, per-worktree
   (ADR-019); MLT's `movit` module (movit, FFTW) is bundled in packages and
   loaded by MLT, never included by our code (ADR-019). `libarchive` in the
   titles drop-in only, and libsoup 3, json-glib and libsecret in the
-  `u-studio-share` helper only (ADR-020). `frei0r-plugins` is a
+  `u-studio-share` helper only (ADR-020). ThorVG (Lottie layers) in the
+  titles drop-in only, behind our own validator (ADR-021). `frei0r-plugins` is a
   dependency of the effects drop-in only,
   never of the core editor (ADR-011, ADR-014). **Anything else needs
   an ADR** and the owner's sign-off.
