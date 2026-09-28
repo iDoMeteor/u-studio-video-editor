@@ -35,6 +35,11 @@ def chapter_end(i):
     return ch[i + 1][0] if i + 1 < len(ch) else dur
 
 if part:
+    # A part names chapters by title; a title the tour uses twice would pull in
+    # the wrong footage (2026-09-28: the titles run's own "Save"). Refuse.
+    dupes = sorted({c[1] for c in ch if c[1] in part['chapters'] and sum(d[1] == c[1] for d in ch) > 1})
+    if dupes:
+        sys.exit(f"post: part chapters used more than once in the tour: {dupes}; make their titles unique")
     keep = []
     for i, (t, title, sub, key) in enumerate(ch):
         if title in part['chapters']:

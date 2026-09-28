@@ -35,5 +35,23 @@
       "Ripple mode",
       "Undo and redo"
     ]
+  },
+  "basics-3": {
+    "title": "Basics 3",
+    "subtitle": "Saving, settings and the project format",
+    "narration": "narration/basics-3.txt",
+    "chapters": [
+      "Save",
+      "Automatic backups",
+      "Save As",
+      "Settings",
+      "Settings: Toggles",
+      "Settings: Performance",
+      "Settings: Locations",
+      "Settings: Render",
+      "Settings: Drop-ins",
+      "Settings: Shortcuts",
+      "Project format"
+    ]
   }
 }

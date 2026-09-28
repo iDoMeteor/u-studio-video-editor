@@ -1,0 +1,40 @@
+# Basics 3: saving, settings and the project format. Voice cedar.
+
+## intro
+Welcome to part three. Our edit is taking shape, so let's keep it safe: we'll save the project, see the automatic backups, look around the settings, and change the project's format.
+
+## Save
+An untitled project asks where to save it. After that, Save writes straight to the same file.
+
+## Automatic backups
+And every save keeps the previous version as a backup next to your project, so a mistake is never final.
+
+## Save As
+Right-click the Save button when you want a copy under a new name.
+
+## Settings
+Settings has every preference in one place, grouped into pages.
+
+## Settings: Toggles
+Toggles switches everyday behaviours on and off: reopening your last project, snapping, following the playhead, thumbnails and waveforms.
+
+## Settings: Performance
+Performance is where you tune the preview, proxies for heavy footage, graphics acceleration, and how much work runs in the background.
+
+## Settings: Locations
+Locations sets where your projects are saved, and where finished videos go.
+
+## Settings: Render
+Render holds your render profiles. High quality is the default.
+
+## Settings: Drop-ins
+Drop-ins lists optional add-ons, like titles, and lets you turn each one on or off.
+
+## Settings: Shortcuts
+And Shortcuts is where you'll soon be able to change the keys. For now, Help lists every shortcut.
+
+## Project format
+Click the format under the project name to change the frame rate, or the background colour that shows wherever no clip covers the picture. Every clip, marker and dissolve keeps its timing, and each change is one undo step.
+
+## outro
+That's part three. Next time, we'll render our finished video, and see what happens if you quit in the middle. Thanks for watching!

@@ -357,7 +357,7 @@ press('Play the intro'); pause(5); snap('c5d-playing'); press('Play the intro');
 step('Export for OBS', 'Ctrl+E: ProRes 4444, WebM or a PNG sequence with transparency, or H.264, at any length')
 keysym(ord('e'), mods=('ctrl',)); pause(2); snap('c5d-export'); dump('c5d-export')
 keysym(K_ESC); pause(1)
-step('Save', 'Ctrl+S: the editor picks it up at once, with clean transparent edges over the video')
+step('Save the title', 'Ctrl+S: the editor picks it up at once, with clean transparent edges over the video')
 keysym(ord('s'), mods=('ctrl',)); pause(2)
 press('Close', exact=True); pause(2)
 use_app(None)
@@ -378,7 +378,9 @@ if press('Bake…'):
     ff_start(); st = wait_status(('Baked', "Couldn't bake"), 180); ff_end(); T.log(f"bake status {st!r}")
 pause(2); snap('c5d-baked')
 act('undo'); pause(1.5)
-click(*where('Inspector', roles=TG)); pause(1)
+insp = find('Inspector', roles=TG, timeout=2)
+if insp and insp.get_state_set().contains(Atspi.StateType.CHECKED):
+    click(*centre_of(insp)); pause(1)      # close it only if it's open
 act('zoom-fit'); pause(1)
 
 # ---------------------------------------------------------------- 6 save
@@ -396,6 +398,7 @@ os.makedirs(os.path.join(WORK, 'footage'), exist_ok=True); os.makedirs(os.path.j
 EXTRA = os.path.join(WORK, 'footage', 'zizzle-extra.mp4')
 shutil.copy(os.path.join(M, 'zizzle', 'chunk_003.mp4'), EXTRA)
 act('import'); center_dialogs(1.0); set_location(EXTRA); keysym(K_RETURN); pause(4); rest()
+act('zoom-fit'); act('seek-home'); act('step-forward-10', 45, gap=0.05); pause(1)   # a picture in the preview
 step('Save', 'an untitled project asks where; after that Save writes in place')
 press('Save project'); center_dialogs(1.2)
 T.log(f"name entry: {name_entry_set(PROJECT)}"); pause(1.2)
@@ -416,7 +419,7 @@ for tab, sub in [('Toggles', 'reopen the last project, snapping, follow playhead
                  ('Locations', 'default project and export folders'),
                  ('Render', 'render profiles (High quality is the default) and render threads'),
                  ('Drop-ins', 'optional effects, titles and more, installed separately'),
-                 ('Shortcuts', 'every action and its key')]:
+                 ('Shortcuts', 'custom keys are coming; Help lists every shortcut today')]:
     step(f'Settings: {tab}', sub)
     click(TABS[tab], 776); pause(3.2); snap(f'c7-{tab.lower()}')
 keysym(K_ESC); pause(1)
