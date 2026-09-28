@@ -92,7 +92,15 @@ fills that title, otherwise it opens in a new window.
   **Duplicate** and **Delete…**; for a built-in, **Edit a Copy**, which
   puts a copy in My Templates and opens it. Built-ins never change.
 - A title made from a template is a copy: changing the template later
-  doesn't change titles already made from it.
+  doesn't change titles already made from it on its own. When you open
+  such a title in U Stu Titles and its template has changed since (you
+  edited your template, a pack was updated, or a new version of U Stu
+  changed a built-in), a bar says so. Click **Update** to take the
+  template's new design. Your field text is kept, and a message names
+  any field the template no longer has. Changes you made to the title's
+  own design are replaced; **Ctrl+Z** takes the update back, and nothing
+  is saved until you save. Titles made before version 0.72 don't know
+  their template and are never offered an update.
 
 Most templates have fields (a name, a role, a handle), so the same design
 works for every guest: fill them in on the editor's **Title** page.

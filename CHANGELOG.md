@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.72.0-beta.1
+
+- Titles: a title remembers its template, and U Stu Titles offers to
+  update it when the template changes, keeping the title's field text.
+
 ## 0.71.0-beta.1
 
 - Captions: Export Captions… writes the project's captions to an .srt or

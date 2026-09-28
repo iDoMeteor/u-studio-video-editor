@@ -671,7 +671,7 @@ Acceptance:
 - [x] Only caption clips are exported; a project without any says so and
       writes nothing. (`titles-captions`, `titles-shell`.)
 
-#### T4.3 — Update from template (planned 2026-09-28)
+#### T4.3 — Update from template (landed 2026-09-28, 0.72.0-beta.1)
 
 A title made from a template remembers which one, and which revision of
 it, so that when the template changes (a new app version's built-in, an
@@ -709,19 +709,20 @@ offers to bring the title up to date without losing its text.
 
 Acceptance:
 
-- [ ] A title made from a built-in, a user template and a pack's
+- [x] A title made from a built-in, a user template and a pack's
       template records the right reference and revision; Save as
       Template and Duplicate record none; the attributes round-trip.
-- [ ] Renaming a template doesn't change its revision; changing a
+- [x] Renaming a template doesn't change its revision; changing a
       layer does.
-- [ ] Hostile references (`user:../x`, `pack:a/../../b`, absolute
+- [x] Hostile references (`user:../x`, `pack:a/../../b`, absolute
       paths, empty parts) resolve to nothing.
-- [ ] The merge keeps field text by name, takes the template's design,
+- [x] The merge keeps field text by name, takes the template's design,
       reports dropped fields, and records the new revision; undo restores
       the title exactly.
-- [ ] In U Stu Titles: open a title, change its user template, reopen:
+- [x] In U Stu Titles: open a title, change its user template, reopen:
       the banner shows; Update applies it; the banner goes; saving and
-      reopening shows no banner.
+      reopening shows no banner. (`titles-core`; the designer on a
+      private Xvfb with a stale title: banner, Update, Ctrl+S, reopen.)
 
 ### Later
 
