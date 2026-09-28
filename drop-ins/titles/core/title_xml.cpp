@@ -301,6 +301,16 @@ std::optional<Layer> readLayer(const xmlNode *node, std::string &error, std::set
     } else if (kind == "image") {
         layer.kind = LayerKind::Image;
         layer.src = attr(node, "src").value_or("");
+    } else if (kind == "lottie") {
+        layer.kind = LayerKind::Lottie;
+        layer.src = attr(node, "src").value_or("");
+        if (auto loop = attr(node, "loop")) {
+            if (*loop == "once")
+                layer.loop = false;
+            else if (*loop != "loop")
+                a.fail("loop", *loop);
+        }
+        a.number("speed", layer.speed, 0.25, 4.0);
     } else {
         warnings.insert("\"" + kind + "\" layers aren't supported yet");
         return std::nullopt;
@@ -575,7 +585,9 @@ std::string writeTitle(const TitleDocument &title)
     std::unique_ptr<xmlDoc, DocFree> doc(xmlNewDoc(BAD_CAST "1.0"));
     xmlNode *root = xmlNewNode(nullptr, BAD_CAST "ustitle");
     xmlDocSetRootElement(doc.get(), root);
-    setAttr(root, "version", std::to_string(kTitleFormatVersion));
+    const bool animated = std::any_of(title.layers.begin(), title.layers.end(),
+                                      [](const Layer &layer) { return layer.kind == LayerKind::Lottie; });
+    setAttr(root, "version", animated ? "2" : "1");
     if (!title.name.empty())
         setAttr(root, "name", title.name);
     if (!title.category.empty())
@@ -611,12 +623,18 @@ std::string writeTitle(const TitleDocument &title)
     for (const Layer &layer : title.layers) {
         xmlNode *node = xmlNewChild(root, nullptr, BAD_CAST "layer", nullptr);
         setAttr(node, "id", layer.id);
-        static constexpr const char *kKinds[] = {"text", "shape", "image"};
+        static constexpr const char *kKinds[] = {"text", "shape", "image", "lottie"};
         setAttr(node, "kind", kKinds[static_cast<size_t>(layer.kind)]);
         if (layer.kind == LayerKind::Shape)
             setAttr(node, "shape", kShapes[static_cast<size_t>(layer.shape)]);
-        if (layer.kind == LayerKind::Image)
+        if (layer.kind == LayerKind::Image || layer.kind == LayerKind::Lottie)
             setAttr(node, "src", layer.src);
+        if (layer.kind == LayerKind::Lottie) {
+            if (!layer.loop)
+                setAttr(node, "loop", "once");
+            if (layer.speed != 1.0)
+                setAttr(node, "speed", num(layer.speed));
+        }
         setAttr(node, "x", num(layer.x));
         setAttr(node, "y", num(layer.y));
         setAttr(node, "w", num(layer.w));
@@ -653,7 +671,7 @@ std::string writeTitle(const TitleDocument &title)
             if (layer.font.lineHeight != 1.0)
                 setAttr(font, "line-height", num(layer.font.lineHeight));
         }
-        if (layer.kind != LayerKind::Image)
+        if (layer.kind != LayerKind::Image && layer.kind != LayerKind::Lottie)
             writeFill(node, layer.fill);
         if (layer.stroke.width > 0.0) {
             xmlNode *stroke = xmlNewChild(node, nullptr, BAD_CAST "stroke", nullptr);

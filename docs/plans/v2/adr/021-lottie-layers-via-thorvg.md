@@ -81,15 +81,16 @@ the libraries' sources):
    added, and so moved, packed and templated like one. dotLottie
    (`.lottie`, a zip) and Telegram's `.tgs` (gzip) aren't read in T6.
 5. **Timing is frame-exact and deterministic.** At title frame `t`, a
-   title rate `num/den`, a layer `speed` `s` (0.25 to 4, stored as a
-   decimal and read as an exact fraction), and the animation's `ip`, `op`
-   and `fr`, the frame shown is `ip + t · den · s · fr / num`, worked out
-   in exact integer arithmetic and passed to `tvg_animation_set_frame()`
-   as the nearest float. With `loop="loop"` it wraps within `[ip, op)`;
-   with `loop="once"` it holds the last frame after the end. The same
-   inputs give the same frame on every thread and in every process, so
-   the editor's producer, the designer, the bake and the render tool draw
-   the same pixels. That's tested byte for byte.
+   title rate `num/den`, a layer `speed` `s` (0.25 to 4), and the
+   animation's `ip`, `op` and `fr`, the frame shown is
+   `ip + t · den · fr · s / num`: one double-precision expression,
+   evaluated in that order by `lottie::frameAt()`. With `loop="loop"` it
+   wraps within `[ip, op)`; with `loop="once"` it holds the last frame
+   (`op − 1`) after the end. ThorVG interpolates the fractional frame.
+   Every caller (the editor's producer, the designer, the bake, the
+   render tool) goes through the same function in the same library, so
+   the same inputs give the same frame and the same pixels. That's tested
+   byte for byte.
 6. **Threads: one process-wide lock.** ThorVG is initialised once per
    process with `tvg_engine_init(0)`, so it runs no worker threads of its
    own; titlerender already runs on its own threads (ADR-016). The
@@ -103,11 +104,13 @@ the libraries' sources):
    size), so a cached frame costs one draw under the lock, not a parse.
    Revisit when a ThorVG release
    documents thread safety and the repro passes without the lock.
-7. **Size, fit, colour.** The layer has a box like an image layer and
-   the same `fit` choices. The animation is rendered at the box's device
-   pixel size (`tvg_picture_set_size`), so it stays sharp at any scale.
-   Its pixels are premultiplied sRGB, composited like an image layer,
-   with the layer's opacity, transform, reveal, blur and shadow.
+7. **Size and colour.** The layer has a box like an image layer, and
+   the animation keeps its own aspect inside it, centred. ThorVG's
+   `tvg_picture_set_size` stretches to whatever it's given (slice 1), so
+   titlerender works out the uniformly scaled size itself. The animation
+   is rendered at that size in device pixels, so it stays sharp at any
+   scale. Its pixels are premultiplied sRGB, composited like an image
+   layer, with the layer's opacity, transform, reveal, blur and shadow.
 8. **Packaging.** ThorVG isn't in the GNOME Flatpak runtime, so the
    manifest gets a module that builds 1.0.6 from its release tarball
    with meson and

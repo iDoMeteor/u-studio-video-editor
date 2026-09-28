@@ -777,20 +777,23 @@ packs, packaging). Built in slices, each landed on its own:
    each with its own canvas (ADR-021 decision 6), and load from memory
    with an empty resource path. Findings go into
    `docs/developer/notes/titles.md`.
-2. **Core.** `core/lottie_check`: the std-only JSON scanner and
-   validator (ADR-021 decision 3), and the file's facts (size, `fr`,
-   `ip`, `op`, whether it has text layers). `Layer` gains
-   `LayerKind::Lottie` with `src`, `loop` (`loop`/`once`), `speed` and
-   `fit`; `.ustitle` format 2 read and written (written only with a
-   Lottie layer); `lottieFrame()`, the exact frame maths.
+2. **Core** (landed 2026-09-28). `core/lottie_check`: the std-only JSON
+   scanner and validator (ADR-021 decision 3), and the file's facts
+   (size, `fr`, `ip`, `op`, whether it has text layers). `Layer` gains
+   `LayerKind::Lottie` with `src`, `loop` (`loop`/`once`) and `speed`;
+   `.ustitle` format 2 read and written (written only with a Lottie
+   layer); `lottie::frameAt()`, the frame maths. Until slice 3 the
+   renderer draws an animated layer as nothing, with a warning.
 3. **Render.** titlerender draws the layer through ThorVG with the
    per-thread cache, composited like an image layer. Meson: ThorVG is an
    optional dependency of the titles render library (`dependency('thorvg-1',
    required: false)`), with `TITLES_HAVE_THORVG`. Without it the layer
    draws nothing and warns.
-4. **Designer.** **Add Lottie…** (in the Add menu) picks a `.json`,
-   validates it, copies it beside the title, and adds a layer sized to the
-   animation and centred. The inspector has Loop/Once, Speed and Fit.
+4. **Designer.** **Add Animation…** (in the Add menu; the UI says
+   "animated layer" and names Lottie only as the file type, owner
+   2026-09-28) picks a `.json`, validates it, copies it beside the title,
+   and adds a layer sized to the animation and centred. The inspector has
+   Loop/Once and Speed; the animation keeps its aspect in the layer's box.
    The animation strip shows the layer's run, and play and scrub move the
    animation with the title. Refusals are toasts naming the reason.
 5. **Editor and packs.** Titles with Lottie layers play in the editor
@@ -802,19 +805,22 @@ packs, packaging). Built in slices, each landed on its own:
 
 Acceptance:
 
-- [ ] The validator refuses every file in a hostile corpus (deep
+- [x] The validator refuses every file in a hostile corpus (deep
       nesting, a huge number, bad UTF-8, an external image, a font path,
       `..`, an expression, a self-referencing precomposition, an
       oversized or mis-typed embedded picture, a bad header, too long,
-      too many layers) with a reason, and accepts the good corpus; it
-      runs in under 50 ms on an 8 MB file.
-- [ ] `lottieFrame()` matches the formula at 23.976, 25, 29.97, 30 and
-      59.94 fps title rates, speeds 0.5, 1 and 2, looping and once.
+      too many layers) with a reason, and accepts the good corpus; its
+      time grows linearly with the file (load-proof: 7.5 MB against 1 MB;
+      about 250 ms for 7.5 MB in a debug build). (`titles-lottie`, 40
+      hostile files.)
+- [x] `lottie::frameAt()` matches the formula at 23.976, 25, 29.97, 30
+      and 59.94 fps title rates, speeds 0.5, 1 and 2, looping and once.
+      (`titles-lottie`.)
 - [ ] The editor's producer and the designer's renderer give
       byte-identical frames for a title with a Lottie layer, at several
       frames and on two threads.
-- [ ] A title without Lottie is still written as format 1; one with it
-      as format 2, and it round-trips.
+- [x] A title without Lottie is still written as format 1; one with it
+      as format 2, and it round-trips. (`titles-lottie`.)
 - [ ] Add Lottie…, Loop/Once, Speed and Fit work in the designer; the
       strip plays and scrubs it (checked on a private Xvfb with
       screenshots).

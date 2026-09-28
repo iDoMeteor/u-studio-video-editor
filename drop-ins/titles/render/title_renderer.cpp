@@ -785,6 +785,11 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
         layer.kind == LayerKind::Text && (!animatedUnits(layer, expansion).empty() || expansion.cursor.has_value());
     // Room for units to move beyond the text's own box.
     double unitReach = 0.0;
+    if (layer.kind == LayerKind::Lottie) {
+        // Drawn by ThorVG from T6 slice 3 (ADR-021); until then, nothing.
+        warnings.insert("animated layers aren't drawn yet");
+        return;
+    }
     if (layer.kind == LayerKind::Image) {
         image = layerImage(doc, layer, warnings);
         if (!image)
