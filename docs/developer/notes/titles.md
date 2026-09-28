@@ -284,3 +284,42 @@ Cairo 1.18, fontconfig 2.17):
 - **An import handler's own status stays.** The shell used to follow
   every handler with "Imported <path>", hiding the captions report; it
   now does so only when the handler said nothing (`m_statusCount`).
+
+## T6: ThorVG (Lottie), slice 1 spikes
+
+Measured 2026-09-28 against Fedora 44's `thorvg-devel` 1.0.6 (built with
+`-Dthreads=true`, `extra` at its default, `-Dloaders=all`), with a
+standalone repro rendering a generated 200 × 100, 30 fps, 30-frame Lottie
+(a red square keyframed from x = 50 to 150) through the C API. ADR-021
+builds on these.
+
+- **Size.** `tvg_picture_get_size` gives the file's `w` and `h`.
+  `tvg_picture_set_size(w, h)` stretches to exactly that size, not
+  uniformly: at 400 × 100 the square was twice as wide and no taller.
+  Contain and cover fits are ours to work out (a uniformly scaled size,
+  then a translate).
+- **Frames.** `tvg_animation_get_total_frame` is `op − ip` (30);
+  `get_duration` is that over `fr` (1 s). `tvg_animation_set_frame`
+  takes fractional frames and interpolates (15.5 lies between 15 and 16).
+  Frames at or past `op` clamp to the last frame, `op − 1`.
+- **Threads: not safe, even with separate objects.** Four threads, each
+  with its own canvas, animation and picture, crashed in 6 of 10 runs
+  (SIGSEGV in `LottieLoader::~LottieLoader` from `LoaderMgr::retrieve`,
+  while another thread was in `rasterShape`). Giving each thread
+  different bytes (so no loader could be shared) still crashed in 6 of
+  10. With one process-wide mutex around every ThorVG call: 10 of 10
+  clean, and every frame byte-identical to a single-threaded reference.
+  titlerender therefore serialises ThorVG behind one mutex (ADR-021
+  decision 6).
+- **Loading from memory.** `tvg_picture_load_data(..., copy=false)`
+  caches by the data's address, process-wide; we always pass
+  `copy=true`.
+- **Expressions run** in Fedora's build: an `"x"` expression on the
+  position (`$bm_rt = [20, 50]`) moved the square off its keyframes. The
+  validator must refuse expressions (ADR-021 decision 3).
+- **External images are read from disk, from the root.** With an empty
+  resource path, an image asset's `u` + `p` is opened as `"/" + u + p`:
+  `p = "../../../../etc/hostname"` opened `/../../../../etc/hostname`,
+  that is `/etc/hostname`. Nothing but our validator stops that in a
+  build with file access (Fedora's); the Flatpak's ThorVG is built with
+  `-Dfile=false` as a second guard (ADR-021 decision 8).

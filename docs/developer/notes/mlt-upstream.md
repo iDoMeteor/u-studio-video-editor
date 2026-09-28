@@ -3,9 +3,10 @@
 [Docs home](../../README.md) › [Developer docs](../README.md) › [Implementation notes](README.md) › MLT upstream candidates
 
 MLT behaviour we work around that looks like a bug upstream. Each entry
-names the source, what we do instead, and where the repro lives. Nothing
-here has been filed; reports are drafted from this list later (VE Core's
-queue), one repro each against the MLT version in use (7.40).
+names the source, what we do instead, and where the repro lives. The
+standalone repros filed upstream are in
+[`tools/upstream-repros/mlt/`](../../../tools/upstream-repros/README.md),
+one folder per report.
 
 | Behaviour | Source | Our workaround | Repro |
 |---|---|---|---|

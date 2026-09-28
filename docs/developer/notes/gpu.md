@@ -234,17 +234,37 @@ to two decoders per asset per track instead of one per asset.
 ## Frames rendered on the consumer's own thread (0.71.x crash)
 
 I had assumed the consumer's render thread renders every frame, so only it
-needed a GL context. It doesn't. MLT's real-time consumer passes a frame its
-render thread skipped for lateness on unrendered, and after too many drops
-it marks one `rendered` for the consumer thread to render itself
-(`mlt_consumer.c`, "forcing next frame"). Our `consumer-frame-show` handler
-(`PlaybackController::handleFrameShow()`) then calls `get_image()`, which
-runs the whole movit graph on sdl2's consumer thread. With no context
+needed a GL context. It doesn't. At `real_time=1`, MLT's read-ahead thread
+(`consumer_read_ahead_thread()`, `mlt_consumer.c`) skips `get_image()` for a
+frame it judges late (`skip_next`) and passes the frame on unrendered
+(`rendered` unset). sdl2_audio (`consumer_sdl2_audio.c`) then fires
+`consumer-frame-show` without checking that flag in three places:
+- the paused refresh: `consumer_thread()` shows each frame it pulls at
+  speed 0 directly (line 630);
+- the stop path: `video_thread()` "spits out all the frames" still queued
+  (lines 531, 537), and `consumer_thread()` shows its last frame (line 664).
+  A stop happens on every rebuild, since `setTractor()` restarts the
+  consumer.
+
+Our handler (`PlaybackController::handleFrameShow()`) calls `get_image()`,
+which then runs the whole movit graph on sdl2's thread. With no context
 current there, every framebuffer is incomplete, and movit asserts in
-`create_fbo` or `EffectChain::render`. It happens only when a frame is
-late, so it was intermittent and got likelier under load: while
-recording, while other sessions used the GPU, and around rebuilds.
-`engine-gpu-engine` hit it one run in two to four.
+`create_fbo` or `EffectChain::render`. It needs a late frame, so it was
+intermittent and got likelier under load: while recording, while other
+sessions used the GPU, and around rebuilds. `engine-gpu-engine` hit it
+one run in two to four.
+
+Measured with frame-show instrumented (`rendered`, the image data,
+`_speed`, whether `shutdown()` was stopping the consumer) over `gpu_stress`:
+- 2 minutes: 164 frames arrived rendered, and 4 unrendered, all during a
+  stop.
+- 2.5 minutes under 4 parallel x264 encodes: 349 rendered, 1 unrendered
+  during a stop, and 1 unrendered at speed 0 while not stopping (the paused
+  refresh). The two crash reports came right after a pause.
+
+An earlier version of this note blamed `mlt_consumer.c`'s "forcing next
+frame". That branch is in `worker_get_frame()`, which runs only for
+`|real_time| > 1`; VE Bugs pointed it out (2026-09-28).
 
 Fix: the session has a second context in the same share group, which
 `handleFrameShow()` makes current around `get_image()` on the GPU pipeline

@@ -35,6 +35,12 @@ The short version:
 - **Sanitizers** (`just asan`, `just tsan`) are required for thread and
   MLT-lifetime changes, in the tiers CLAUDE.md sets out. See
   [Building](building.md#sanitizers).
+- **No fixed time limits in tests.** A loaded machine (other suites, a
+  Flatpak build) fails any absolute limit. A test times its work against a
+  yardstick measured under the same load (as `engine-thread` and
+  `titles-captions` do), and absolute times are benchmarks, run with
+  `meson test -C builddir --benchmark` (`core-snapshot`,
+  `titles-captions-bench`).
 
 ## The titles designer's smoke test
 
@@ -107,6 +113,10 @@ as for the titles smoke test.
   this one test: about 43 s alone, so it has its own 180 s timeout and
   `core` keeps 30 s): 10,000 random commands, undo them all,
   and the model must equal the start.
+- **Bulk edits scale** (`core`, "bulk inserts, ripples and their undo
+  scale near-linearly"): n and 10n clips inserted in order, rippled and
+  undone; 10n must take under 30x as long (about 12x; quadratic was
+  about 100x). A ratio, never a fixed time limit.
 - **`EngineSync::verify()`** (`engine-sync`): after each of the first 500
   commands of that same stream, and each undo, the MLT graph must match
   the model.

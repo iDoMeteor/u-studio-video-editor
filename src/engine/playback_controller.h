@@ -65,7 +65,8 @@ class PlaybackController
     void setRenderThreadHooks(RenderThreadHook started, RenderThreadHook stopped);
     // ADR-019: called on the consumer's own thread around each frame's
     // get_image() in the frame-show handler, which renders the frame there
-    // when the render thread didn't (a skipped or forced frame): the GPU
+    // when the render thread skipped it (sdl2_audio shows such frames at a
+    // pause and while stopping): the GPU
     // pipeline makes a GL context current. `enter` returning false skips the
     // frame. Empty: none. Set while no consumer runs.
     void setFrameShowHooks(std::function<bool()> enter, std::function<void()> leave);
