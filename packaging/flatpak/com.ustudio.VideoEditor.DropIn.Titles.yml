@@ -32,6 +32,12 @@ separate-locales: false
 appstream-compose: false
 build-options:
   prefix: /app/lib/u-studio/extensions/Titles
+  # flatpak-builder splits debug info into a .Debug extension only for
+  # /app itself, not for an extension's own prefix: without this the
+  # binaries shipped with full debug info (19 MB bundle at 0.73.1, about
+  # two thirds of it .debug_*). Stripping keeps .dynsym, which the drop-in
+  # loader and the editor's exported symbols need.
+  strip: true
   prepend-pkg-config-path: /app/lib/u-studio/extensions/Titles/lib/pkgconfig
 
 modules:
