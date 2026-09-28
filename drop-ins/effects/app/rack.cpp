@@ -5,6 +5,7 @@
 #include "core/commands.h"
 #include "core/descriptor.h"
 #include "core/keyframes.h"
+#include "core/log.h"
 #include "core/model/animation.h"
 
 #include <gtk/gtk.h>
@@ -13,6 +14,8 @@
 #include <string_view>
 #include <cmath>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -88,6 +91,7 @@ struct Control
     // the key-at-playhead's feel.
     bool animatable = false;
     GtkWidget *pin = nullptr, *previous = nullptr, *next = nullptr, *feel = nullptr;
+    GtkWidget *arm = nullptr; // touch-record
     std::vector<core::Easing> feelEasings; // the feel drop-down's entries, in order
 };
 
@@ -129,6 +133,10 @@ class Rack
             {"effects.key-feel", "Effects", "Feel",
              "How the value moves from this keyframe to the next: steady, smooth, easing in or out, bouncing, "
              "or holding still until the next",
+             nullptr, nullptr},
+            {"effects.key-arm", "Effects", "Touch-record",
+             "Armed, moving this value records it as you go (play, then move it); when you let go, just enough "
+             "keyframes are kept to follow what you did",
              nullptr, nullptr},
             {"effects.rack-menu", "Effects", "Effects menu", "Copy, paste, and save as a look", nullptr, nullptr},
             {"effects.card-cost", "Effects", "Cost",
@@ -203,6 +211,10 @@ class Rack
         }
         if (control.animatable)
             m_lastControl = std::make_pair(control.effect, control.param);
+        if (control.animatable && isArmed(control)) {
+            record(control);
+            return;
+        }
         // Animated: the change is the key at the playhead (set, or added).
         const std::vector<core::Keyframe> keys = keysOf(control);
         if (!keys.empty()) {
@@ -218,6 +230,99 @@ class Rack
         core::Param param = currentParam(model.effect(control.effect), control.param, control.kind);
         param.value = readControl(control);
         m_host.execute(std::make_unique<SetParam>(control.effect, param, control.gesture));
+    }
+
+    // --- Touch-record (doc 15, "Keyframes that feel musical") --------------
+    //
+    // An armed control records what it's set to at each frame while it's
+    // moved (playing or not), and a key at the playhead follows it live so
+    // the picture does. When the gesture ends (no change for a moment) the
+    // recording replaces the keys over its range, thinned (withRecording()),
+    // in the same undo step. While it records, the playhead doesn't move
+    // the control (updateValues()), or it would fight the hand.
+
+    using ControlKey = std::pair<uint64_t, std::string>;
+    struct Recording
+    {
+        ControlKey key;
+        std::vector<std::pair<core::FrameIndex, double>> performed;
+        uint64_t gesture = 0;
+        double minimum = 0.0, maximum = 1.0;
+        guint timer = 0;
+    };
+
+    static ControlKey keyOf(const Control &control)
+    {
+        return {control.effect.value, control.param};
+    }
+
+    bool isArmed(const Control &control) const
+    {
+        return m_armed.contains(keyOf(control));
+    }
+
+    bool isRecording(const Control &control) const
+    {
+        return m_recording && m_recording->key == keyOf(control);
+    }
+
+    void onArmToggled(Control &control)
+    {
+        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(control.arm)))
+            m_armed.insert(keyOf(control));
+        else
+            m_armed.erase(keyOf(control));
+    }
+
+    void record(Control &control)
+    {
+        if (m_recording && m_recording->key != keyOf(control))
+            finishRecording();
+        if (!m_recording) {
+            m_recording = Recording{keyOf(control), {}, control.gesture};
+            const double scale = control.param.empty() ? 100.0 : 1.0; // the mix shows percent
+            m_recording->minimum = gtk_adjustment_get_lower(control.adjustment) / scale;
+            m_recording->maximum = gtk_adjustment_get_upper(control.adjustment) / scale;
+            core::Log::debug("[effects] touch-record: started");
+        }
+        const core::FrameIndex at = ownerFrame(control.effect);
+        const double value = numberOf(control);
+        m_recording->performed.emplace_back(at, value);
+        applyKeys(control, withKeyAt(keysOf(control), at, value), m_recording->gesture);
+        if (m_recording->timer)
+            g_source_remove(m_recording->timer);
+        m_recording->timer = g_timeout_add(static_cast<guint>(kGestureGapUs / 1000), &onRecordingIdleTrampoline, this);
+    }
+
+    void finishRecording()
+    {
+        if (!m_recording)
+            return;
+        Recording recording = std::move(*m_recording);
+        m_recording.reset();
+        if (recording.timer)
+            g_source_remove(recording.timer);
+        const core::Model &model = m_host.model();
+        const core::EffectId id{recording.key.first};
+        if (!model.hasEffect(id))
+            return;
+        const core::Effect &effect = model.effect(id);
+        const double tolerance = recordingTolerance(recording.minimum, recording.maximum);
+        if (recording.key.second.empty()) {
+            core::KeyframedValue mix = effect.mix;
+            mix.keyframes = withRecording(mix.keyframes, recording.performed, tolerance);
+            m_host.execute(std::make_unique<SetMix>(id, mix, recording.gesture));
+        } else {
+            auto param = std::find_if(effect.params.begin(), effect.params.end(),
+                                      [&](const core::Param &p) { return p.name == recording.key.second; });
+            if (param == effect.params.end())
+                return;
+            core::Param updated = *param;
+            updated.keyframes = withRecording(updated.keyframes, recording.performed, tolerance);
+            m_host.execute(std::make_unique<SetParam>(id, updated, recording.gesture));
+        }
+        core::Log::debug("[effects] touch-record: " + std::to_string(recording.performed.size()) + " values recorded");
+        m_host.showStatus("Recorded: the keyframes follow what you did");
     }
 
     // --- Keyframes ---------------------------------------------------------
@@ -1168,6 +1273,17 @@ class Rack
         control.previous = button("go-previous-symbolic", "effects.key-previous", G_CALLBACK(&onKeyPreviousTrampoline));
         control.pin = button("non-starred-symbolic", "effects.key-pin", G_CALLBACK(&onKeyPinTrampoline));
         control.next = button("go-next-symbolic", "effects.key-next", G_CALLBACK(&onKeyNextTrampoline));
+        if (control.adjustment) {
+            control.arm = gtk_toggle_button_new();
+            gtk_button_set_icon_name(GTK_BUTTON(control.arm), "media-record-symbolic");
+            gtk_widget_add_css_class(control.arm, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(control.arm), GTK_ACCESSIBLE_PROPERTY_LABEL, "Touch-record",
+                                           -1);
+            m_host.setTooltip(control.arm, "effects.key-arm");
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(control.arm), isArmed(control));
+            g_signal_connect(control.arm, "toggled", G_CALLBACK(&onArmTrampoline), &control);
+            gtk_box_append(GTK_BOX(keys), control.arm);
+        }
         gtk_grid_attach(GTK_GRID(grid), keys, 2, row, 1, 1);
 
         std::vector<std::string> names;
@@ -1296,7 +1412,7 @@ class Rack
         const core::Model &model = m_host.model();
         m_updating = true;
         for (const std::unique_ptr<Control> &control : m_controls) {
-            if (!model.hasEffect(control->effect))
+            if (!model.hasEffect(control->effect) || isRecording(*control))
                 continue;
             const core::Effect &effect = model.effect(control->effect);
             const std::vector<core::Keyframe> keys = keysOf(*control);
@@ -1371,6 +1487,18 @@ class Rack
     static void onPinActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
     {
         static_cast<Rack *>(self)->onPinAction();
+    }
+    static void onArmTrampoline(GtkToggleButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onArmToggled(*c);
+    }
+    static gboolean onRecordingIdleTrampoline(gpointer self)
+    {
+        auto *rack = static_cast<Rack *>(self);
+        rack->m_recording->timer = 0; // this source ends here
+        rack->finishRecording();
+        return G_SOURCE_REMOVE;
     }
     static void onKeyPinTrampoline(GtkButton *, gpointer control)
     {
@@ -1450,6 +1578,8 @@ class Rack
     // cards (the value becomes animated).
     std::optional<std::pair<core::EffectId, std::string>> m_lastControl;
     uint64_t m_nextGesture = 0;
+    std::set<ControlKey> m_armed;
+    std::optional<Recording> m_recording;
 };
 
 } // namespace

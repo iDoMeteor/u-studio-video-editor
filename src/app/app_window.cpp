@@ -3885,6 +3885,9 @@ void AppWindow::onTrackDragUpdate(double offsetX, double offsetY)
     applyTimelineOutcome(outcome);
 }
 
+// A provider's drag gets pointer positions as press + gesture offset; if the
+// timeline ever autoscrolls at its edges, that scroll must be forwarded to
+// the provider mid-drag (or kept off), or its offsets drift from the view.
 void AppWindow::cancelOverlayDrag()
 {
     if (timeline::TimelineOverlayProvider *overlay = std::exchange(m_overlayDrag, nullptr)) {
