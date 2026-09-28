@@ -51,6 +51,18 @@ measurements: doc 05, "Preview scale". Leave the `avformat` producer's
 `threads` unset: unset already decodes with about one thread per CPU, and
 explicit values measured no better.
 
+**Memory on the CPU path settles; it doesn't leak (2026-09-27).** Three
+transformed 1080p tracks at Half: RSS climbs about 35 MB in the first
+minute (decoders, frame queues, malloc's per-thread arenas), then stays
+within 370–380 MB for the next four minutes. The first consumer restart
+(an edit while playing) adds about 60 MB once. After that, 200 edits and
+135 restarts left it flat at 420 MB. A one-minute soak under ASan/LSan
+(the `just asan` suppressions) reports no leak. The "20 MB/min" seen
+earlier compared the first report with RSS read after `shutdown()`, which
+stopping the consumer raises by about 50 MB. `playback_soak` now reports
+growth after warm-up and the post-shutdown figure separately.
+`MALLOC_ARENA_MAX=2` makes it worse (a slow creep), so don't set it.
+
 **SDL signal handlers are disabled.** MLT's `sdl2_audio` consumer
 initialises SDL, and by default SDL turns SIGINT/SIGTERM into an
 `SDL_QUIT` event that nothing in a GTK app reads, so `kill`, Ctrl+C and

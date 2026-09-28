@@ -269,6 +269,9 @@ int main(int argc, char **argv)
         double maxStallMs = 0;
         std::atomic<long> *delivered, *skipped;
         GMainLoop *loop;
+        // The first report at or after 60 s (past warm-up), and the latest.
+        long rssWarm = 0, rssLast = 0;
+        double warmT = 0, lastT = 0;
     } state{&controller, fps,      std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), 0, 0, 0, 0, 0,
             &delivered,  &skipped, g_main_loop_new(nullptr, FALSE)};
 
@@ -294,6 +297,12 @@ int main(int argc, char **argv)
             long rss = rssKb();
             if (st->rssStart == 0)
                 st->rssStart = rss;
+            if (st->rssWarm == 0 && t >= 59.0) {
+                st->rssWarm = rss;
+                st->warmT = t;
+            }
+            st->rssLast = rss;
+            st->lastT = t;
             long shown = st->controller->frameShowCount(), deliv = st->delivered->load(), skip = st->skipped->load();
             std::printf("%5.0f %8d %8ld %6ld %6ld %6ld %5ld %6.0f %7.1f %5.1f %5.0f %6.0f\n", t, playhead, expected,
                         shown - st->shownPrev, deliv - st->deliveredPrev, skip - st->skippedPrev, expected - playhead,
@@ -321,7 +330,17 @@ int main(int argc, char **argv)
     controller.shutdown();
     std::printf("totals: shown %ld, delivered %ld, skipped positions %ld, last frame %dx%d\n",
                 controller.frameShowCount(), delivered.load(), skipped.load(), lastWidth.load(), lastHeight.load());
-    std::printf("RSS first report -> end: %.1f -> %.1f MB\n", static_cast<double>(rssStart) / 1024.0,
-                static_cast<double>(rssKb()) / 1024.0);
+    // Growth is judged between reports while playing. The first minute is
+    // warm-up (decoders, frame caches, malloc arenas: 335 -> 370 MB for
+    // three transformed 1080p tracks, then flat), and the value after
+    // shutdown() includes what stopping the consumer leaves resident
+    // (+50 MB), so neither counts (2026-09-27).
+    std::printf("RSS first report -> last report: %.1f -> %.1f MB\n", static_cast<double>(rssStart) / 1024.0,
+                static_cast<double>(state.rssLast) / 1024.0);
+    if (state.rssWarm > 0 && state.lastT > state.warmT + 30)
+        std::printf("RSS growth after warm-up: %.1f MB/min (%.0f s -> %.0f s)\n",
+                    static_cast<double>(state.rssLast - state.rssWarm) / 1024.0 / ((state.lastT - state.warmT) / 60.0),
+                    state.warmT, state.lastT);
+    std::printf("RSS after shutdown: %.1f MB\n", static_cast<double>(rssKb()) / 1024.0);
     return 0;
 }
