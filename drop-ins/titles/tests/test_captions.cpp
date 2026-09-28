@@ -302,6 +302,7 @@ TEST_CASE("export: SRT and VTT round-trip with import at the common rates")
             for (size_t i = 0; i < first.size(); ++i) {
                 CHECK(first[i].position == second[i].position);
                 CHECK(first[i].length == second[i].length);
+                CHECK(first[i].lane == second[i].lane);
                 CHECK(first[i].cue->text == second[i].cue->text);
                 CHECK(first[i].cue->speaker == second[i].cue->speaker);
             }
@@ -347,8 +348,7 @@ TEST_CASE("export: only caption clips, by start then track; none is an empty lis
     CHECK(captionCues(model).empty());
 
     const core::Model withCaptions = imported(
-        {{2000, 3000, "second", {}, 1}, {1000, 2500, "first", {}, 2}, {2000, 2600, "second, lane 2", {}, 3}},
-        {25, 1});
+        {{2000, 3000, "second", {}, 1}, {1000, 2500, "first", {}, 2}, {2000, 2600, "second, lane 2", {}, 3}}, {25, 1});
     const auto cues = captionCues(withCaptions);
     REQUIRE(cues.size() == 3);
     CHECK(cues[0].text == "first");

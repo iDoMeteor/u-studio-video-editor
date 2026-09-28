@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.71.0-beta.1
+
+- Captions: Export Captions… writes the project's captions to an .srt or
+  .vtt file that imports back to the same captions.
+
 ## 0.70.0-beta.1
 
 - Captions: import .srt and .vtt subtitle files as caption clips on their

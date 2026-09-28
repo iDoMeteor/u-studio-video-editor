@@ -297,8 +297,8 @@ void onExportCaptionsChosen(GObject *source, GAsyncResult *result, gpointer targ
     }
     const std::string error = captions::saveSubtitles(cues, host.model().sequence().profile.fps, path);
     const std::string name = core::utf8String(core::pathFromUtf8(path).filename());
-    host.showStatus(error.empty() ? "Exported " + std::to_string(cues.size()) + (cues.size() == 1 ? " caption" : " captions") +
-                                        " to " + name + "."
+    host.showStatus(error.empty() ? "Exported " + std::to_string(cues.size()) +
+                                        (cues.size() == 1 ? " caption" : " captions") + " to " + name + "."
                                   : "Couldn't export the captions: " + error);
 }
 

@@ -640,9 +640,10 @@ Acceptance:
 Not in T5: exporting subtitles back out, word-level (karaoke) timing, and
 per-cue positions from VTT settings.
 
-#### T5.1 — Subtitle export (planned 2026-09-28)
+#### T5.1 — Subtitle export (landed 2026-09-28, 0.71.0-beta.1)
 
-**Export Captions…** (Titles) writes the project's captions to an `.srt` or
+**Export Captions…** (the `titles-export-captions` action, a button on a
+caption's Title page) writes the project's captions to an `.srt` or
 `.vtt`, chosen by the file name. Captions are the clips that play a title
 with a `caption` field, on any track, in time order (overlapping ones as
 overlapping cues, which both formats allow; importing puts them back on
@@ -660,14 +661,15 @@ lanes).
 
 Acceptance:
 
-- [ ] Export then import gives the same captions (positions, lengths,
+- [x] Export then import gives the same captions (positions, lengths,
       words, speakers, lanes) at 23.976, 25, 29.97, 30 and 59.94 fps, in
-      both formats.
-- [ ] A `.vtt` starts with `WEBVTT` and uses `HH:MM:SS.mmm`; an `.srt`
+      both formats. (`titles-captions`; and in the editor: an imported
+      `.srt` exported as `.srt` and `.vtt`, identical cues.)
+- [x] A `.vtt` starts with `WEBVTT` and uses `HH:MM:SS.mmm`; an `.srt`
       numbers its cues and uses `HH:MM:SS,mmm`.
-- [ ] Words with a literal `<`, `&` or `>` survive a `.vtt` round trip.
-- [ ] Only caption clips are exported; a project without any says so and
-      writes nothing.
+- [x] Words with a literal `<`, `&` or `>` survive a `.vtt` round trip.
+- [x] Only caption clips are exported; a project without any says so and
+      writes nothing. (`titles-captions`, `titles-shell`.)
 
 ### Later
 

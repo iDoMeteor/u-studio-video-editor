@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.71.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.70.0-beta.1: caption export. Select a caption and click Export Captions… on the Title page; name the file .srt or .vtt. Every caption goes in, in time order, with your fixes to the words, bold, italic, underline and speakers.</p>
+        <p>Try importing a subtitle file, fixing a few lines, exporting it, and loading the new file in a video player or re-importing it. Known limit: a file's own positions and colours are still ignored on import.</p>
+      </description>
+    </release>
     <release version="0.70.0-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.69.3-beta.1: captions. Import a subtitle file (.srt or .vtt) and every line becomes a caption on its own track at the top, all styled by one caption title you can restyle at once. Bold, italic, underline and WebVTT speakers are kept; unreadable lines are left out and reported.</p>
