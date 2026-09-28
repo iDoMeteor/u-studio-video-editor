@@ -73,11 +73,24 @@ Terminals inside the VS Code snap set `XDG_DATA_HOME` to a private folder,
 so `flatpak --user` installs somewhere your desktop can't see. Install from
 a normal terminal, or run `env -u XDG_DATA_HOME flatpak install …`.
 
+### An effect is missing or turned off
+
+With the Effects add-on, U Stu checks every effect in the background the
+first time (and after new effects are installed). One that crashed, hung
+or ruined the picture in that check is turned off: it's hidden from the
+**Add** page, and a project that uses it plays without it; its card on the
+**Effects** page says why. Tick **Unstable** on the **Add** page to see
+them; they may take the editor down. An effect whose tile says
+**checking…** hasn't been checked yet: wait a few minutes. An effect card
+that says **Not available on this computer** was saved on a machine with
+effects this one doesn't have ([Effects](effects.md#unstable-effects)).
+
 ## Known limitations
 
 These are planned; see the [roadmap](../../README.md#roadmap).
 
-- No effects or colour correction yet. They're coming as a drop-in.
+- Effects (the Effects add-on) can't draw masks yet, and there are no
+  wipes or other transitions beyond dissolves yet.
 - Titles (the Titles drop-in, not yet in the packages) have no template
   gallery yet, and a moved title can't be relinked yet ([Titles](titles.md)).
 - Renders are MP4 (H.264 + AAC) only.

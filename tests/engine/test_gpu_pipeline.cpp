@@ -416,6 +416,57 @@ TEST_CASE("GPU pipeline: an export while the preview is on the GPU matches the p
     CHECK(compare(preview, exported).mean <= 2.0);
 }
 
+// FX3: transition recipes are CPU-only until verified in a movit graph. On
+// the GPU a wipe previews as the plain dissolve, and an export made while
+// the preview is on the GPU renders on the CPU, so it keeps the wipe.
+TEST_CASE("GPU pipeline: a wipe previews as a dissolve and exports as the wipe")
+{
+    sharedFactoryPolicy();
+    Scene scene(utf8String(generate("blue.mp4", 1920, 1080, "color:#2040c0")), 1920, 1080);
+    scene.model.resizeClip(scene.clip, 0, 39, 0);
+    Asset green;
+    green.path = utf8String(generate("green.mp4", 1920, 1080, "color:#20c040"));
+    green.info.hasVideo = true;
+    green.info.width = 1920;
+    green.info.height = 1080;
+    green.info.lengthInSequenceFrames = 60;
+    const ClipId next = scene.model.insertClip(scene.upper, scene.model.addAsset(green), 40, 10, 49);
+    const TransitionId wipe = scene.model.addTransition(scene.upper, scene.clip, next, 10, 10);
+    REQUIRE(wipe.value != 0);
+    scene.model.setTransitionRecipe(wipe, "wipe.left",
+                                    {{"video.service", std::string("luma"), {}},
+                                     {"video.luma", std::string("left"), {}},
+                                     {"video.softness", 0.1, {}}});
+    REQUIRE(scene.model.check().empty());
+    Image cpu, gpu;
+    if (!renderBoth(scene.model, 40, cpu, gpu))
+        return;
+    INFO("cpu left " << pixel(cpu, 100, 540) << " right " << pixel(cpu, 1820, 540) << "; gpu left "
+                     << pixel(gpu, 100, 540) << " right " << pixel(gpu, 1820, 540));
+    // CPU: green on the left already, blue still on the right.
+    CHECK(at(cpu, 100, 540)[1] > 150);
+    CHECK(at(cpu, 1820, 540)[2] > 150);
+    // GPU: one dissolve colour across the frame.
+    for (size_t c = 0; c < 3; ++c)
+        CHECK(std::abs(at(gpu, 100, 540)[c] - at(gpu, 1820, 540)[c]) <= 3);
+
+    std::string error;
+    std::shared_ptr<GpuSession> session = GpuSession::acquire(error); // the preview's
+    REQUIRE(session);
+    const fs::path out = scratch() / "export-wipe.mp4";
+    bool ok = false;
+    std::thread worker([&] { ok = renderProject(scene.model, utf8String(out), error); });
+    worker.join();
+    INFO(error);
+    REQUIRE(ok);
+    session.reset();
+    const Image exported = exportedFrame(out, 40);
+    for (size_t c = 0; c < 3; ++c) {
+        CHECK(std::abs(at(exported, 100, 540)[c] - at(cpu, 100, 540)[c]) <= 6);
+        CHECK(std::abs(at(exported, 1820, 540)[c] - at(cpu, 1820, 540)[c]) <= 6);
+    }
+}
+
 TEST_CASE("GPU pipeline: the preview leaving the GPU mid-export doesn't stop the export")
 {
     sharedFactoryPolicy();

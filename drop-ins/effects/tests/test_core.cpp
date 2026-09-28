@@ -13,12 +13,15 @@
 #include "core/json.h"
 #include "core/keyframes.h"
 #include "core/looks.h"
+#include "core/transitions.h"
 #include "core/model/animation.h"
 #include "core/model/effect_native.h"
+#include "core/model/transition_native.h"
 
 #include <fstream>
 #include <iterator>
 #include <random>
+#include <set>
 
 using namespace ustudio;
 using namespace ustudio::effects;
@@ -542,4 +545,111 @@ TEST_CASE("Brand looks: the shipped file parses; bad entries are skipped")
     std::optional<Json> brand = parseJson(text);
     REQUIRE(brand);
     CHECK(looksFromJson(*brand).size() == 5);
+}
+
+// --- Transition recipes (FX3) ------------------------------------------------
+
+namespace {
+
+// Two clips joined by a dissolve, and its id.
+std::pair<core::Model, core::TransitionId> modelWithDissolve()
+{
+    core::Model model = core::Model::createEmpty();
+    core::TrackId track = model.addTrack(core::Track::Kind::Video, 0, "V1");
+    core::Asset asset;
+    asset.path = "color:red";
+    asset.info.hasVideo = true;
+    asset.info.lengthInSequenceFrames = 100'000;
+    core::AssetId id = model.addAsset(asset);
+    core::ClipId a = model.insertClip(track, id, 0, 0, 49);
+    core::ClipId b = model.insertClip(track, id, 50, 10, 59);
+    core::TransitionId t = model.addTransition(track, a, b, 5, 5);
+    return {std::move(model), t};
+}
+
+} // namespace
+
+TEST_CASE("Transition recipes: the shipped set loads, 20 or more, the plain dissolve first")
+{
+    const std::vector<TransitionRecipe> recipes = loadRecipes(EFFECTS_DATA_SOURCE_DIR "/transitions");
+    REQUIRE(recipes.size() >= 20);
+    CHECK(recipes.front().id == kDefaultRecipe);
+    CHECK(recipes.front().params.empty());
+    std::set<std::string> ids;
+    for (const TransitionRecipe &recipe : recipes) {
+        CHECK(ids.insert(recipe.id).second);
+        CHECK_FALSE(recipe.name.empty());
+        CHECK_FALSE(recipe.category.empty());
+        // Every wipe names a map the generator makes.
+        for (const core::Param &param : recipe.params)
+            if (param.name == "video.luma") {
+                const auto &names = core::lumaMapNames();
+                CHECK(std::find(names.begin(), names.end(), std::get<std::string>(param.value)) != names.end());
+            }
+    }
+}
+
+TEST_CASE("Transition recipes: a recipe naming a service outside the allowlist is skipped")
+{
+    std::optional<Json> json = parseJson(R"({"version":1,"recipes":[
+        {"id":"ok","name":"Ok","params":{"video.softness":0.2},"exposed":["video.softness","video.missing"]},
+        {"id":"evil","name":"Evil","params":{"video.service":"qtblend"}},
+        {"id":"file","name":"File","params":{"video.resource":"/etc/passwd"}},
+        {"name":"No id"}]})");
+    REQUIRE(json);
+    const std::vector<TransitionRecipe> recipes = recipesFromJson(*json);
+    REQUIRE(recipes.size() == 1);
+    CHECK(recipes[0].id == "ok");
+    CHECK(recipes[0].exposed == std::vector<std::string>{"video.softness"});
+}
+
+TEST_CASE("SetTransitionRecipe: one undo step, refused on a locked track or a hostile service")
+{
+    auto [model, id] = modelWithDissolve();
+    const core::Model before = model;
+    core::UndoStack stack(model);
+    const std::vector<core::Param> wipe{{"video.luma", std::string("radial"), {}}, {"video.softness", 0.1, {}}};
+    REQUIRE(stack.execute(std::make_unique<SetTransitionRecipe>(id, "wipe.radial", wipe)));
+    CHECK(model.transition(id).recipe == "wipe.radial");
+    CHECK(model.transition(id).params == wipe);
+    stack.undo();
+    CHECK(model == before);
+    stack.redo();
+    CHECK(model.transition(id).recipe == "wipe.radial");
+
+    // A softness drag is one step, and one that ends where it began is none.
+    for (double softness : {0.2, 0.3, 0.4})
+        stack.execute(std::make_unique<SetTransitionRecipe>(
+            id, "wipe.radial", withParam(wipe, {"video.softness", softness, {}}), 7));
+    stack.undo();
+    CHECK(model.transition(id).params == wipe);
+    stack.undo();
+    CHECK(model == before);
+    stack.redo();
+    const core::UndoStack::State wiped = stack.state();
+    for (double softness : {0.5, 0.1})
+        stack.execute(std::make_unique<SetTransitionRecipe>(
+            id, "wipe.radial", withParam(wipe, {"video.softness", softness, {}}), 8));
+    CHECK(stack.state() == wiped);
+
+    CHECK_FALSE(stack.execute(
+        std::make_unique<SetTransitionRecipe>(id, "evil", std::vector<core::Param>{{"video.service", std::string("qtblend"), {}}})));
+    CHECK(model.transition(id).recipe == "wipe.radial");
+    const core::Transition &t = model.transition(id);
+    model.setTrackFlags(t.track, false, false, true);
+    CHECK_FALSE(stack.execute(std::make_unique<SetTransitionRecipe>(id, kDefaultRecipe, std::vector<core::Param>{})));
+}
+
+TEST_CASE("recipeIndexOf: a transition's recipe, the dissolve for none or an unknown one")
+{
+    std::vector<TransitionRecipe> recipes(2);
+    recipes[0].id = kDefaultRecipe;
+    recipes[1].id = "wipe.left";
+    core::Transition t;
+    CHECK(recipeIndexOf(recipes, t) == 0);
+    t.recipe = "wipe.left";
+    CHECK(recipeIndexOf(recipes, t) == 1);
+    t.recipe = "from.a.newer.version";
+    CHECK(recipeIndexOf(recipes, t) == 0);
+    CHECK(recipeIndexOf({}, t) == -1);
 }

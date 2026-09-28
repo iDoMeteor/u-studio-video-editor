@@ -262,6 +262,40 @@ is thread-safe.
 - Exports are unaffected: at `real_time=-1` the consumer waits for the
   render thread to render each frame.
 
+## Wipes on the GPU pipeline (FX3, 2026-09-28)
+
+A wipe (a luma transition with a gradient map) on the GPU pipeline should
+be MLT's CPU `luma` inside the GPU graph, not `movit.luma_mix`.
+
+- **Repro:** 1080p30, a 20-frame wipe between two H.264 clips (solid
+  `#2040c0` and `#20c040`, BT.709-tagged), map `wipe16.pgm`: 640×360, P5,
+  maxval 65535, a left-to-right ramp (big-endian 16-bit samples),
+  softness 0.1. The graph is EngineSync's dissolve shape: black on track 0,
+  a sub-tractor holding the tail and head cuts joined by the transition
+  (in/out 0–19), composited by `composite` (CPU) or `movit.overlay` (GPU).
+  Each of the 20 frames is pulled as RGBA, and the wipe edge is the first x
+  on row 540 whose green falls below 128.
+- **CPU `luma` inside the GPU graph:** the edge tracks the all-CPU wipe
+  within ~9 px on every frame, so progress is linear. The map keeps 16 bits
+  (`transition_luma.c` reads `.pgm` itself with `mlt_luma_map_from_pgm()`),
+  there's no banding, and preview equals export (exports take the preview's
+  pipeline). It costs ~140–155 ms a 1080p frame pulled one at a time (two
+  downloads, the CPU blend, one upload), against ~60 all-CPU, so a wipe drops
+  frames at Full preview while it plays.
+- **`movit.luma_mix`:** the edge stays at x=0 for frames 0–3, then catches
+  up (edge 53 at frame 4 against the CPU's 362, 1880 at frame 19): it
+  squares the progress (`transition_movit_luma.cpp`: `mix = pow(mix, 2.0)`)
+  to look even in linear light. It also opens the map through a producer
+  (`mlt_factory_producer(profile, nullptr, resource)`, line 149), so the
+  gradient reaches movit at 8 bits. Matching the CPU would take an MLT patch
+  to both.
+- Keep wipe maps `.pgm`: for other formats the CPU `luma` opens the map
+  through the default loader (`transition_luma.c`, line 822), which gives
+  movit normalisers while a GPU session lives (the loader section above).
+- A standalone repro's CPU baseline needs VE Core's background re-tag
+  (`attachProfileColorspace()`), or its colours come out BT.601-shifted and
+  look like a GPU error.
+
 ## Exports (G4)
 
 - `renderProject()` checks `GpuSession::current()` once, at the start: with

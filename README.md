@@ -23,7 +23,7 @@ original files.
   [MLT](https://www.mltframework.org/) engine. No Qt, no KDE.
 
 > **Status: public beta (0.50).** Cutting, audio sync, picture placement
-> and MP4 export work today. Effects and titles are next
+> and MP4 export work today, with effects and titles as add-ons
 > ([roadmap](#roadmap)).
 
 ## Install
@@ -94,11 +94,16 @@ permissions · [Getting started](docs/user/getting-started.md)
   → [Settings and Help](docs/user/settings-and-help.md)
 - Project files are plain MLT XML, so `melt` can play them.
 
+- Effects (an [add-on](docs/user/installing.md#add-ons)): hundreds of
+  colour, light, blur, keying and audio effects on clips, tracks or the
+  whole picture, tried on your picture before you add them, with
+  keyframes, looks, copy and paste, and before/after compare.
+  → [Effects](docs/user/effects.md)
 - Titles and captions (an [add-on](docs/user/installing.md#add-ons)): a
   title designer with templates, and `.srt`/`.vtt` captions in and out.
   → [Titles](docs/user/titles.md)
 
-**Not yet:** effects and colour, formats other than MP4, named
+**Not yet:** wipes and other transitions beyond dissolves, formats other than MP4, named
 markers, rebindable shortcuts. → [Known limitations](docs/user/troubleshooting.md#known-limitations)
 
 ## Roadmap
@@ -110,8 +115,9 @@ relinking and clip transforms (M4, shipped as the 0.50 beta).
 
 **Next:**
 
-- **Effects, keyframes and transitions** (M5): colour, blur and other
-  effects, keyframed parameters, and wipes, delivered as a drop-in
+- **Effects, keyframes and transitions** (M5): effects with keyframes and
+  looks are in (FX1, FX2); next the transitions library (wipes, motion,
+  blend), the FX lane and curve lanes, delivered as a drop-in
   add-on. → [doc 15](docs/plans/v2/15-effects-and-transitions.md),
   [ADR-013](docs/plans/v2/adr/013-effects-and-titles-as-drop-in-modules.md)
 - **Titles**: a companion title designer with animation and reusable

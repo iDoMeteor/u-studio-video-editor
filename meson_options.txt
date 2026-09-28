@@ -14,7 +14,7 @@ option('gpu_acceleration_default', type: 'combo', choices: ['auto', 'off'], valu
 # Drop-ins (ADR-014): each builds into the app, as a loadable module
 # (libustudio-dropin-<name>.so, installed to $libdir/u-studio/drop-ins/), or
 # not at all.
-option('dropin_effects', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'disabled',
+option('dropin_effects', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'builtin',
        description: 'The effects and transitions drop-in (doc 15)')
 option('dropin_titles', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'disabled',
        description: 'The titles drop-in (doc 16)')

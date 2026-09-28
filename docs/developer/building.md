@@ -24,6 +24,13 @@ comes in with MLT anyway.
   ([Playback engine notes](notes/playback-engine.md)).
 - **No Qt, no KDE Frameworks**, not even at run time
   ([ADR-007](../plans/v2/adr/007-mlt-module-load-policy.md)).
+- **frei0r-plugins** (`sudo dnf install frei0r-plugins`) for the effects
+  drop-in, built in by default in development builds
+  (`-Ddropin_effects=builtin`; [ADR-011](../plans/v2/adr/011-frei0r-required-and-effect-families.md),
+  the drop-in only). It's needed at run time and by the effects tests, not
+  to compile; without it the frei0r effects are simply absent. `melt-7`
+  (the `mlt` package) lets one effects test check a saved project in stock
+  melt. The core Flatpak pins `-Ddropin_effects=disabled`.
 - **libarchive** (`sudo dnf install libarchive-devel`) for the titles
   drop-in's template packs ([ADR-020](../plans/v2/adr/020-template-packages-and-sharing.md);
   the drop-in only). Without its headers the drop-in still builds, and

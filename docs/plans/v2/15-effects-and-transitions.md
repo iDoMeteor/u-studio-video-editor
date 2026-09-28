@@ -814,10 +814,23 @@ bypass-hold and paused split compare, cost badges.
 
 Acceptance:
 
-- [ ] Any frei0r effect can be found, auditioned, applied, keyframed and
+- [x] Any frei0r effect can be found, auditioned, applied, keyframed and
       undone without touching a dialog.
-- [ ] Audition never rebuilds the live tractor.
-- [ ] Brand Looks ship and apply in one drag.
+- [x] Audition never rebuilds the live tractor.
+- [x] Brand Looks ship and apply in one drag.
+
+**FX2 as built (VE Effects, 2026-09-28):** the Effects page (the Rack) and
+the Add page (the Browser) in the inspector, which docks beside the
+preview on wide windows ([user guide](../../user/effects.md),
+[drop-in README](../../../drop-ins/effects/README.md)). `tools/effects-smoke`
+checks each acceptance item in the real editor over AT-SPI: E, search,
+audition (its rebuild count unchanged), Enter adds, undo, a keyframed
+parameter saved, a brand Look on two clips, a Look dragged onto the
+picture, compare and a held `\` (12/12). `dropin_effects` now defaults to
+`builtin` for development; the core Flatpak pins `disabled` (ADR-014), so
+the effects Flatpak extension is VE Installers' next step.
+
+> REVIEW: VE Effects, 2026-09-28: differences from the plan. Masks and their on-picture drawing are FX4's (with the preview handles). The Browser's tiles and audition render the clip's frame alone, not the composited picture (off the live graph, from the clip's media), and only for effects the health scan has passed, since they run in the editor's process. A preview drop goes to the topmost clip at the playhead, not under the pointer. Looks are filter stacks without LUT files (the LUT library is FX5's). Touch-record and curve lanes are FX4's, as planned. Bypass is a held key over a rendered frame, not a graph change, so it shows the frame the playhead was on while playing.
 
 ### FX3 — Transitions library (about 2 weeks)
 

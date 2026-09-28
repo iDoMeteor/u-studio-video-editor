@@ -5,6 +5,13 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.74.0-beta.1
+
+- Effects (the Effects add-on): add, try on the picture, keyframe and
+  compare hundreds of effects on clips, tracks or the whole picture, with
+  looks, copy and paste, and several clips at once; the inspector now sits
+  beside the picture on wide windows.
+
 ## 0.73.1-beta.1
 
 - With GPU acceleration on, pausing, seeking or playing around dissolves
