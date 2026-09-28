@@ -95,6 +95,9 @@ endif
 # metadata (drafts until the owner's new logos; Icon= is a placeholder).
 install_data('data/com.ustudio.Titles.desktop', install_dir: get_option('datadir') / 'applications')
 install_data('data/com.ustudio.Titles.metainfo.xml', install_dir: get_option('datadir') / 'metainfo')
+# The built-in templates (doc 16, T4.2), found by u-studio-titles at
+# <prefix>/share/u-studio/titles/templates.
+install_subdir('data/templates', install_dir: get_option('datadir') / 'u-studio' / 'titles')
 install_data('data/com.ustudio.Titles.mime.xml', install_dir: get_option('datadir') / 'mime' / 'packages',
              rename: 'com.ustudio.Titles.xml')
 
