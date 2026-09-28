@@ -2,7 +2,9 @@
 // in, it exports ustudio_dropin_effects_describe() (listed in the generated
 // drop_ins.h); as a module, ustudio_drop_in_describe().
 
+#include "app/catalog.h"
 #include "app/health_scan.h"
+#include "app/rack.h"
 #include "core/health.h"
 #include "core/log.h"
 #include "dropins/api.h"
@@ -56,9 +58,26 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         {"probe-effect", "Health and cost of one effect; one JSON line (the effects scan)", &runProbeEffect});
     host->addRenderSubcommand(
         {"effects-registry", "Every effect MLT offers, as one JSON line (the effects scan)", &runEffectsRegistry});
-    // IP5: once the window exists, the background health scan (the render
-    // tool never calls this).
-    host->addShellExtension([](ustudio::app::ShellHost &) { startEditorHealthScan(); });
+    // IP5: once the window exists, the Rack and the background health scan
+    // (the render tool never calls this).
+    host->addShellExtension([](ustudio::app::ShellHost &shell) {
+        static Catalog catalog;
+        static bool scanning = false;
+        addRack(shell, catalog);
+        if (scanning)
+            return; // one scan per process, however many windows
+        scanning = true;
+        // The badges of effects probed before (small; the registry itself
+        // arrives from the scan's thread).
+        for (const auto &[service, record] : loadHealthFile(healthFilePath()).records)
+            catalog.setHealth(service, record);
+        startEditorHealthScan(
+            [](const std::string &service, const HealthRecord &record, bool finished) {
+                if (!finished)
+                    catalog.setHealth(service, record);
+            },
+            [](std::shared_ptr<const EffectRegistry> registry) { catalog.setRegistry(std::move(registry)); });
+    });
 }
 
 const UStudioDropInDescription kDescription = {
