@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Chat highlight" category="Live and social" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="180" outro="15"/>
+  <field name="user" label="User" default="viewer42"/>
+  <field name="message" label="Message" default="This is the best stream!"/>
+  <layer id="panel" kind="shape" shape="rounded-rect" x="160" y="780" w="860" h="180" radius="16">
+    <fill color="#1b1230" opacity="0.92"/>
+    <stroke color="#9d4eff" width="2"/>
+    <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="user" kind="text" x="196" y="800" w="790" fit="shrink">
+    <text>{{user}}</text>
+    <font family="Space Grotesk" weight="700" size="34"/>
+    <fill color="#ff2bd6"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="message" kind="text" x="196" y="850" w="790" fit="wrap">
+    <text>{{message}}</text>
+    <font family="Space Grotesk" size="44"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="typewriter"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>
