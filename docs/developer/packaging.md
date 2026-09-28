@@ -243,6 +243,13 @@ logos. The designer exports through `u-studio-render`, found next to it.
 Tests `titles-desktop-file` and `titles-metainfo` validate the drafts when
 `desktop-file-validate` and `appstreamcli` are installed.
 
+`u-studio-share`, the template sharing helper (ADR-020, T7), is the one
+program with network access and ships as its own app (`com.ustudio.Share`,
+with `--share=network`), never inside the editor's bundle. A package that
+can't give it the network builds with `-Dtitles_share=disabled` (the
+Titles extension). How the designer, in the editor's sandbox, starts it is
+open; the gallery only offers it where it's installed beside the designer.
+
 The built-in templates install to `$datadir/u-studio/titles/templates/`
 (29 `.ustitle` files, no pictures). The designer finds them at
 `<its bindir>/../share/u-studio/titles/templates`, so a package that

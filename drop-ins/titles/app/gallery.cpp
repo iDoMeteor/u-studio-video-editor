@@ -327,12 +327,22 @@ void Gallery::rebuild()
     // are made available first, for the thumbnails and the canvas.
     for (const pack::InstalledPack &installed : pack::installedPacks(userTemplatesDir())) {
         addFontDirectory(core::utf8String(core::pathFromUtf8(installed.folder) / "fonts"));
+        GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        if (shareAvailable()) {
+            GtkWidget *publishButton = gtk_button_new_with_label("Publish…");
+            gtk_widget_add_css_class(publishButton, "flat");
+            gtk_widget_set_tooltip_text(publishButton, "Share this pack with everyone (opens U Stu Share)");
+            const std::string folder = installed.folder;
+            connectClick(publishButton, [this, folder] { publishPack(folder, callbacks.toast); });
+            gtk_box_append(GTK_BOX(actions), publishButton);
+        }
         GtkWidget *removeButton = gtk_button_new_with_label("Remove Pack…");
         gtk_widget_add_css_class(removeButton, "flat");
         gtk_widget_set_tooltip_text(removeButton, "Remove this pack and its templates from My Templates");
         connectClick(removeButton, [this, installed] { confirmRemovePack(this, installed); });
+        gtk_box_append(GTK_BOX(actions), removeButton);
         const std::string heading = installed.manifest.title + " (pack " + installed.manifest.version + ")";
-        addSection(heading, listTemplates(installed.folder, false), jobs, true, removeButton);
+        addSection(heading, listTemplates(installed.folder, false), jobs, true, actions);
     }
 
     // Thumbnails mid-hold, on a worker, delivered one by one.
@@ -437,6 +447,12 @@ void showGallery(GtkWidget *parent, GalleryCallbacks callbacks)
     gtk_widget_set_tooltip_text(savePack, "Make a template pack from My Templates, to share");
     connectClick(savePack, [gallery] { savePackage(GTK_WIDGET(gallery->dialog), gallery->callbacks.toast); });
     adw_header_bar_pack_start(ADW_HEADER_BAR(header), savePack);
+    if (shareAvailable()) {
+        GtkWidget *browse = gtk_button_new_with_label("Browse Shared…");
+        gtk_widget_set_tooltip_text(browse, "Find template packs others have shared (opens U Stu Share)");
+        connectClick(browse, [gallery] { browseShared(gallery->callbacks.toast); });
+        adw_header_bar_pack_end(ADW_HEADER_BAR(header), browse);
+    }
     GtkWidget *view = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view), header);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(view), scroller);

@@ -28,6 +28,11 @@ comes in with MLT anyway.
   drop-in's template packs ([ADR-020](../plans/v2/adr/020-template-packages-and-sharing.md);
   the drop-in only). Without its headers the drop-in still builds, and
   opening or saving a pack says it can't.
+- **libsoup 3, json-glib, libsecret** (`sudo dnf install libsoup3-devel
+  json-glib-devel libsecret-devel`) for `u-studio-share`, the titles
+  drop-in's sharing helper (ADR-020; the helper only). Meson option
+  `titles_share` (auto): without libsoup or json-glib the helper isn't
+  built; without libsecret, sign-in isn't remembered.
 - Anything else needs an ADR and the owner's sign-off
   ([CLAUDE.md](../../CLAUDE.md), "Language & build standards").
 

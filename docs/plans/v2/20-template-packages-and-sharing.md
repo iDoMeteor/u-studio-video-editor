@@ -118,12 +118,30 @@ The hand-off follows ADR-015:
     (through signed URLs), sign-in (system browser, OAuth PKCE) and
     publish; the hand-off actions; a local mock of doc 21's API for tests.
   - Acceptance:
-    - [ ] The editor and titles Flatpak still have no network permission
-          and link no network library.
-    - [ ] A download is verified again client-side, even when the service
-          says it's clean.
-    - [ ] Nothing reaches the network without a user action (checked with
-          the mock's request log).
+    - [x] The editor and titles Flatpak still have no network permission
+          and link no network library. (`titles-no-network`: no network
+          library in what the editor, the render tool's MLT module and
+          U Stu Titles link, no libsoup in anything they load, and no
+          `--share=network` in the editor's manifest; the helper does link
+          libsoup. Note: Fedora's libadwaita itself links libappstream,
+          which links libcurl, so every libadwaita program maps libcurl
+          without using it; our link lines have none, 0.69.0.)
+    - [x] A download is verified again client-side, even when the service
+          says it's clean. (`titles-share`: size, SHA-256 and the whole
+          validator; a tampered download refused, nothing left.)
+    - [x] Nothing reaches the network without a user action (checked with
+          the mock's request log). (`titles-share`: a client alone sends
+          nothing; live: `--publish` open with no request until clicked,
+          browsing sends exactly the requests of each pick.)
+
+> REVIEW (VE Text, 2026-09-28): T7 is built against `tools/share_mock.py`
+> (doc 21's first-version API, local). Until the owner picks the domain
+> (question 1) the helper's default service is a `.invalid` placeholder,
+> so it can't reach anything real; `USTUDIO_SHARE_URL` points it at a
+> service. Packaging open: the helper as its own Flatpak app
+> (`com.ustudio.Share`, `--share=network`) and how the designer, inside
+> the editor's sandbox, starts it; until then the gallery shows Browse
+> Shared and Publish only where the helper is installed next to it.
 
 ## Open questions (owner)
 

@@ -57,6 +57,14 @@ exit status 0 and "installed test/smoke-pack V in …", or 1 and
 "refused: …" (the same or an older version, or a pack that fails
 validation). Test `titles-install-pack` runs that round trip.
 
+**The sharing service, locally**: `tools/share_mock.py [--seed DIR]
+[--log FILE] [--corrupt]` serves doc 21's first-version API on
+127.0.0.1 (signed, expiring download and upload URLs; OAuth code + PKCE
+that really checks the verifier). `--log` records every request, for "no
+request without a user action"; `--corrupt` serves tampered downloads.
+Test `titles-share` runs the client against it; point `u-studio-share` at
+it with `USTUDIO_SHARE_URL`.
+
 **Any harness with a private D-Bus session** (`dbus-run-session`) must keep
 the services that session activates out of the desktop's runtime dir. With
 the real `XDG_RUNTIME_DIR`, the private session's `xdg-document-portal`

@@ -239,3 +239,27 @@ Cairo 1.18, fontconfig 2.17):
   producer looks.
 - **Save as Pack validates its own output** before writing, so what we
   send out is what another copy accepts.
+
+## T7: sharing
+
+- **libadwaita maps libcurl.** Fedora's libadwaita links libappstream (for
+  the About dialog's release notes), and libappstream links libcurl, so
+  the editor and U Stu Titles map libcurl without calling it. "No network
+  library" is checked on our own link lines (`readelf` NEEDED) plus
+  libsoup anywhere loaded (`titles-no-network`); the Flatpak's missing
+  `--share=network` is what keeps the editor offline.
+- **The hand-off is a D-Bus action.** The titles drop-in registers
+  `app.install-template-pack(s)` on the editor's GApplication; the helper
+  asks whether `com.ustudio.VideoEditor` has an owner first and calls with
+  `NO_AUTO_START`, so it never starts the editor. Any program in the
+  user's session may call it: the pack is validated in full before a byte
+  is written, as for Open Pack. Without a running editor the helper
+  installs into `pack::templatesLibrary()` itself.
+- **Tests must not reach the real library or editor.** GLib caches the
+  XDG directories at first use, so setting `XDG_DATA_HOME` inside a test
+  process does nothing; a first version of the hand-off test installed
+  into the shell's data directory. `handOff()` takes the library and the
+  editor's bus name, and the test passes a scratch one and a name nobody
+  owns.
+- **PKCE verifiers from the OS**: `std::random_device`, not GLib's
+  `g_random_*`, which isn't cryptographic.

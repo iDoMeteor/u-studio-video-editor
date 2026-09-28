@@ -110,6 +110,12 @@ or move it to another computer.
 - A pack's templates are read-only: use **Edit a Copy** to change one.
   **Remove Pack…** next to a pack's name removes it; titles you made from
   it keep working, with its fonts and pictures beside them.
+- **Sharing online** (coming): with **U Stu Share** installed, the
+  gallery has **Browse Shared…** (find packs others have shared, download
+  and install one) and **Publish…** on each pack (it shows every file it
+  would upload, and the licence, before you sign in and send it). U Stu
+  itself never goes online; U Stu Share does, and only when you ask. The
+  shared catalogue isn't online yet.
 - U Stu checks every pack before installing anything: a damaged or
   unsafe pack (files outside the pack, links, fonts it may not share,
   anything that isn't a picture, font or title) is refused, and the

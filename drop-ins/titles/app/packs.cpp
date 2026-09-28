@@ -6,6 +6,7 @@
 #include "core/template_library.h"
 #include "core/title_xml.h"
 #include "package/archive.h"
+#include "platform/process.h"
 #include "render/title_renderer.h"
 
 #include <adwaita.h>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <vector>
 
@@ -122,7 +124,95 @@ cairo_status_t appendPng(void *closure, const unsigned char *data, unsigned int 
     return CAIRO_STATUS_SUCCESS;
 }
 
+std::string shareToolPath()
+{
+    const std::string name = std::string("u-studio-share") + platform::executableSuffix();
+    const std::filesystem::path self = platform::executablePath();
+    std::error_code ec;
+    if (!self.empty() && std::filesystem::is_regular_file(self.parent_path() / name, ec))
+        return core::utf8String(self.parent_path() / name);
+#ifdef TITLES_SHARE_BUILD_PATH
+    if (std::filesystem::is_regular_file(core::pathFromUtf8(TITLES_SHARE_BUILD_PATH), ec))
+        return TITLES_SHARE_BUILD_PATH;
+#endif
+    gchar *found = g_find_program_in_path(name.c_str());
+    const std::string out = found ? found : "";
+    g_free(found);
+    return out;
+}
+
+bool launchShare(const std::vector<std::string> &args, const std::function<void(const std::string &)> &toast)
+{
+    const std::string tool = shareToolPath();
+    if (tool.empty()) {
+        toast("Sharing templates needs U Stu Share, which isn't installed (it's a separate download, with the "
+              "network access this app doesn't have)");
+        return false;
+    }
+    std::vector<const char *> argv = {tool.c_str()};
+    for (const std::string &arg : args)
+        argv.push_back(arg.c_str());
+    argv.push_back(nullptr);
+    GError *error = nullptr;
+    GSubprocess *process = g_subprocess_newv(argv.data(), G_SUBPROCESS_FLAGS_NONE, &error);
+    if (!process) {
+        toast(std::string("Couldn't start U Stu Share: ") + (error ? error->message : "?"));
+        g_clear_error(&error);
+        return false;
+    }
+    g_object_unref(process);
+    return true;
+}
+
 } // namespace
+
+bool shareAvailable()
+{
+    return !shareToolPath().empty();
+}
+
+void browseShared(std::function<void(const std::string &)> toast)
+{
+    launchShare({}, toast);
+}
+
+void publishPack(const std::string &folder, std::function<void(const std::string &)> toast)
+{
+    namespace fs = std::filesystem;
+    const fs::path root = core::pathFromUtf8(folder);
+    std::ifstream in(root / "pack.xml", std::ios::binary);
+    const std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    auto manifest = pack::parseManifest(xml);
+    if (!manifest) {
+        toast("Couldn't read the pack: " + manifest.error());
+        return;
+    }
+    std::vector<pack::PackTemplate> templates;
+    for (const TemplateInfo &info : listTemplates(folder, false)) {
+        std::string png;
+        if (!info.preview.empty()) {
+            std::ifstream preview(core::pathFromUtf8(info.preview), std::ios::binary);
+            png.assign(std::istreambuf_iterator<char>(preview), std::istreambuf_iterator<char>());
+        } else {
+            png = previewPng(info.path);
+        }
+        templates.push_back({info.folder, png});
+    }
+    auto entries = pack::build(*manifest, templates);
+    if (!entries) {
+        toast("Couldn't make the pack to publish: " + entries.error());
+        return;
+    }
+    const fs::path out = core::pathFromUtf8(g_get_user_cache_dir()) / "ustudio-titles" / "publish" /
+                         core::pathFromUtf8(templateSlug(manifest->id) + "-" + manifest->version + ".zip");
+    std::error_code ec;
+    fs::create_directories(out.parent_path(), ec);
+    if (auto written = pack::writeArchive(*entries, core::utf8String(out)); !written) {
+        toast("Couldn't make the pack to publish: " + written.error());
+        return;
+    }
+    launchShare({"--publish", core::utf8String(out)}, toast);
+}
 
 std::string previewPng(const std::string &templatePath, int width, int height)
 {

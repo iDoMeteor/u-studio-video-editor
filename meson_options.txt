@@ -13,6 +13,11 @@ option('dropin_effects', type: 'combo', choices: ['disabled', 'builtin', 'module
        description: 'The effects and transitions drop-in (doc 15)')
 option('dropin_titles', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'disabled',
        description: 'The titles drop-in (doc 16)')
+# u-studio-share, the titles drop-in's sharing helper (ADR-020, T7): the one
+# program with network access, packaged as its own app. Off for a package
+# that can't give it the network (the editor's Titles extension).
+option('titles_share', type: 'feature', value: 'auto',
+       description: 'Build u-studio-share, the template sharing helper (needs libsoup 3, json-glib)')
 # A Flatpak extension point for separately packaged drop-ins (ADR-014, doc
 # 17), relative to the prefix, e.g. 'lib/u-studio/extensions'. Each
 # subdirectory is one drop-in's extension prefix, whose

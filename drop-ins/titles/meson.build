@@ -65,10 +65,12 @@ titles_package_dep = declare_dependency(
 
 # share/ (ADR-020, T7): u-studio-share, the only code with network access,
 # in a program of its own (never linked into the editor or u-studio-titles).
-titles_soup_dep = dependency('libsoup-3.0', required: false)
-titles_json_dep = dependency('json-glib-1.0', required: false)
+titles_share_option = get_option('titles_share')
+titles_soup_dep = dependency('libsoup-3.0', required: titles_share_option)
+titles_json_dep = dependency('json-glib-1.0', required: titles_share_option)
 titles_secret_dep = dependency('libsecret-1', required: false)
-titles_share_enabled = titles_soup_dep.found() and titles_json_dep.found() and titles_archive_dep.found()
+titles_share_enabled = titles_share_option.allowed() and titles_soup_dep.found() and titles_json_dep.found() and \
+                       titles_archive_dep.found()
 if titles_share_enabled
   titles_share_args = titles_secret_dep.found() ? ['-DTITLES_HAVE_LIBSECRET'] : []
   titles_share = static_library(

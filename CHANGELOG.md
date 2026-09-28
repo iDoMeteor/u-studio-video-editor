@@ -5,6 +5,12 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.69.0-beta.1
+
+- U Stu Share: a separate helper to browse, install and publish template
+  packs online (the catalogue isn't online yet). U Stu itself stays
+  offline.
+
 ## 0.68.0-beta.1
 
 - Template packs: save templates as a .zip or .tar.gz and open packs from

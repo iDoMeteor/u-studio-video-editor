@@ -21,6 +21,11 @@ titles_app_tokens_h = custom_target(
 titles_app_args = ['-DTITLES_RENDER_BUILD_PATH="' + meson.project_build_root() / 'src' / 'render' / 'u-studio-render' + '"']
 # The built-in templates: installed beside the program's share/, else this
 # source tree's (running from the build directory).
+# u-studio-share (T7), when built: next to the designer when installed, else
+# this build's.
+if titles_share_enabled
+  titles_app_args += '-DTITLES_SHARE_BUILD_PATH="' + titles_share_exe.full_path() + '"'
+endif
 titles_app_args += '-DTITLES_TEMPLATES_SOURCE_DIR="' + meson.current_source_dir() / '..' / 'data' / 'templates' + '"'
 if get_option('dropin_titles') == 'module'
   # An uninstalled render tool finds the module only through the

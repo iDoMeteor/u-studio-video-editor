@@ -142,3 +142,15 @@ if titles_share_enabled
   )
   test('titles-share', titles_test_share, timeout: 120)
 endif
+
+# ADR-020: no network library in the editor, the render tool or U Stu Titles
+# (and what this build loads into them); the helper alone has one.
+titles_no_network_args = [meson.current_source_dir() / 'no_network.sh', meson.project_source_root(),
+                          titles_app_exe, titles_mlt_module,
+                          meson.project_build_root() / 'src' / 'app' / 'u-studio-video-editor']
+titles_no_network_depends = [titles_app_exe, titles_mlt_module]
+if titles_share_enabled
+  titles_no_network_args += ['--', titles_share_exe]
+  titles_no_network_depends += titles_share_exe
+endif
+test('titles-no-network', find_program('sh'), args: titles_no_network_args, depends: titles_no_network_depends)

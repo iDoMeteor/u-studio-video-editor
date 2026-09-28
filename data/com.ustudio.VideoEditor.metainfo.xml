@@ -28,6 +28,11 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.69.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.68.0-beta.1: U Stu Share, a separate helper for sharing template packs online (browse and install packs, publish your own). It's the only U Stu program that goes online, and only when you ask. The shared catalogue isn't online yet, so this beta can't reach it; U Stu Titles shows Browse Shared and Publish only where the helper is installed.</p>
+      </description>
+    </release>
     <release version="0.68.0-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.67.1-beta.1:</p>
