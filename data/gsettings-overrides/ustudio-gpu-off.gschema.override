@@ -1,0 +1,6 @@
+# Installed only with -Dgpu_acceleration_default=off (the Flatpak, owner
+# decision 2026-09-28): GPU acceleration starts off. A vendor override
+# changes the default only; a value the user has saved (dconf) still wins,
+# so someone who switched it on keeps it on across upgrades (ADR-019).
+[com.ustudio.VideoEditor]
+gpu-acceleration=false

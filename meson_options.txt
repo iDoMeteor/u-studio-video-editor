@@ -2,6 +2,11 @@ option('tests', type: 'feature', value: 'enabled',
        description: 'Build the doctest-based test suites under tests/')
 option('render_tool', type: 'boolean', value: true,
        description: 'Build the u-studio-render out-of-process render CLI')
+# ADR-019: whether GPU acceleration starts on where the startup check passes
+# (auto) or off (a GSettings vendor override; the user can still switch it
+# on, and a saved choice wins). The Flatpak sets off (owner, 2026-09-28).
+option('gpu_acceleration_default', type: 'combo', choices: ['auto', 'off'], value: 'auto',
+       description: 'GPU acceleration default: on where the startup check passes (auto), or off')
 # NOTE: -Dwerror is meson's own built-in option (reserved name, can't be
 # redeclared here) -- CI passes it directly; local dev builds leave it at
 # meson's default (false).

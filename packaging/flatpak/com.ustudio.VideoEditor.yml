@@ -80,6 +80,9 @@ modules:
       - -Dbuildtype=release
       - -Dtests=disabled
       - -Drender_tool=true
+      # GPU acceleration starts off in the Flatpak (owner, 2026-09-28); a
+      # user who switches it on keeps it on (ADR-019, docs/developer/packaging.md).
+      - -Dgpu_acceleration_default=off
       # The extension point above: the loader scans it, and the programs
       # export the symbols a drop-in module resolves against them.
       - -Ddropin_extension_dir=lib/u-studio/extensions
