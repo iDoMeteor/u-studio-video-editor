@@ -371,7 +371,12 @@ class EngineSync
     // the old one (master producers, the black master, the tractor); shared
     // by reset() and setPreviewScale().
     void rebuildOnNewProfile();
-    Mlt::Producer &masterProducerFor(core::AssetId, bool videoEnabled, bool audioEnabled);
+    Mlt::Producer &masterProducerFor(core::AssetId, bool videoEnabled, bool audioEnabled, uint32_t lane = 0);
+    // Which of an asset's masters a clip cuts from: 0 (shared) on the CPU
+    // pipeline, one per track and alternating clip on the GPU's.
+    uint32_t masterLane(const core::Clip &clip) const;
+    // Every cached master of `asset`, all lanes and stream switches.
+    void dropMastersOf(core::AssetId asset);
     void rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playlist &playlist);
 
     // What each playlist entry is -- core/model/track_segments.h, shared

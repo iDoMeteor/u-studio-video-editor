@@ -207,6 +207,30 @@ It also costs a CPU conversion per frame. `engine-factory-policy` now
 requires the `deinterlace` filter. The module has no dependencies of its
 own.
 
+## One master producer, one input per frame (0.69.x crash)
+
+MLT's movit keys a chain's inputs by producer: `build_movit_chain()` and
+`set_movit_parameters()` look them up as `chain->inputs[producer]`, where
+`producer` is the frame's cut parent (`filter_movit_convert.cpp`). If one
+master feeds two inputs of the same frame, both land on one `MltInput`, and
+when they differ in size or format, movit uploads one's pixels with the
+other's dimensions. That happens with a copy of a clip on another track, or
+a dissolve between two clips of the same file. VE Demos hit it in 0.67.1:
+V3's rotated, flipped picture-in-picture was a copy of a V1 clip, and V2
+had 1344×768 clips. At Half, the rotated CPU island arrives as RGBA at the
+profile's size while V1's cut is YUV at the source's, and the paused
+refresh aborted in movit's `create_fbo` (`status == GL_FRAMEBUFFER_COMPLETE`).
+Our repro segfaulted instead, in `glTexSubImage2D` under
+`YCbCrInput::set_gl_state`, in about one run in six (Fedora's movit has no
+asserts).
+
+On the GPU pipeline each track now has its own masters, alternating
+between neighbouring clips so a dissolve's two sides differ
+(`EngineSync::masterLane()`). `test_gpu_pipeline` checks that structurally
+(no master shared between tracks or across a same-file dissolve) and renders
+the tour's four-track graph frame by frame at Full and Half. The cost is up
+to two decoders per asset per track instead of one per asset.
+
 ## Exports (G4)
 
 - `renderProject()` checks `GpuSession::current()` once, at the start: with
