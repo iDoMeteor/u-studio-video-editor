@@ -109,6 +109,11 @@ class AppWindow : public ShellHost
         return m_shellProjectChanged;
     }
     core::FrameIndex currentFrame() const override;
+    void seek(core::FrameIndex frame) override;
+    core::Signal<> &playheadMoved() override
+    {
+        return m_shellPlayheadMoved;
+    }
     void showStatus(const std::string &text) override;
     ShellSelection currentSelection() const override;
     core::Signal<> &selectionChanged() override
@@ -958,6 +963,7 @@ class AppWindow : public ShellHost
     std::vector<ImportHandler> m_importHandlers;
     core::Signal<> m_shellProjectChanged;
     core::Signal<> m_shellSelectionChanged;
+    core::Signal<> m_shellPlayheadMoved;
     ShellSelection m_lastShellSelection;
     guint m_shellSelectionIdleId = 0;
     bool m_hasShellExtensions = false;

@@ -53,6 +53,11 @@ class FakeShell : public app::ShellHost
     {
         return 0;
     }
+    void seek(core::FrameIndex) override {}
+    core::Signal<> &playheadMoved() override
+    {
+        return m_playheadMoved;
+    }
     void showStatus(const std::string &text) override
     {
         status = text;
@@ -129,7 +134,7 @@ class FakeShell : public app::ShellHost
   private:
     core::Model m_model;
     core::UndoStack m_undo{m_model};
-    core::Signal<> m_projectChanged, m_selectionChanged;
+    core::Signal<> m_projectChanged, m_selectionChanged, m_playheadMoved;
 };
 
 // extendShell() builds the Title page's widgets, which need a display.
