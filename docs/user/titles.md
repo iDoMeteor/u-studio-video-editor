@@ -148,6 +148,17 @@ couldn't be read and were left out.
   captions, one that isn't text, or one over 10 MB or 20,000 captions is
   refused, and nothing is added.
 
+### Exporting captions
+
+Select a caption and click **Export Captions…** on the **Title** page, then
+name the file. A name ending in `.vtt` makes a WebVTT file (for web players
+and YouTube); anything else makes an `.srt` file, the most widely read kind.
+Every caption in the project goes in, in time order, whichever track it's
+on, with its words as they are now: fix the words on the timeline, export,
+and the file has your fixes. Bold, italic, underline and speakers are
+written out, and importing the file again gives the same captions at the
+same frames.
+
 ## Live text: clocks, countdowns and dates
 
 Type one of these into a text layer and it changes as the video plays:
@@ -288,6 +299,8 @@ file.
 - **Rendering a project with titles in another program.** Other programs
   (including stock `melt`) can't play `.ustitle` files. Render from U Stu,
   or **Bake** the title clips first.
+- **"No captions to export".** Only captions from an imported subtitle file
+  are exported; import a `.srt` or `.vtt` file first.
 - **"Couldn't bake …".** The message says why: usually the folder next to
   the title can't be written to. Move the title somewhere you can write to
   and try again.

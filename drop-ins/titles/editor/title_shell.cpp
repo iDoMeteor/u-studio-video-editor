@@ -273,6 +273,68 @@ void onBakeTitle(GSimpleAction *, GVariant *, gpointer target)
     host.showStatus("Select a title clip to bake it.");
 }
 
+void onExportCaptionsChosen(GObject *source, GAsyncResult *result, gpointer target)
+{
+    auto &host = *static_cast<app::ShellHost *>(target);
+    GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source), result, nullptr);
+    if (!file)
+        return; // cancelled
+    char *chosen = g_file_get_path(file);
+    g_object_unref(file);
+    if (!chosen) {
+        host.showStatus("Couldn't export the captions: pick a local file.");
+        return;
+    }
+    std::string path = chosen;
+    g_free(chosen);
+    // No extension: SRT, and the name says so.
+    if (core::pathFromUtf8(path).extension().empty())
+        path += ".srt";
+    const auto cues = captions::captionCues(host.model());
+    if (cues.empty()) {
+        host.showStatus("No captions to export.");
+        return;
+    }
+    const std::string error = captions::saveSubtitles(cues, host.model().sequence().profile.fps, path);
+    const std::string name = core::utf8String(core::pathFromUtf8(path).filename());
+    host.showStatus(error.empty() ? "Exported " + std::to_string(cues.size()) +
+                                        (cues.size() == 1 ? " caption" : " captions") + " to " + name + "."
+                                  : "Couldn't export the captions: " + error);
+}
+
+// Export Captions… (T5.1): the project's captions to a .srt or .vtt, the
+// format by the name chosen. Read from the model when the file is picked, so
+// an edit made while the dialog is open is in the file.
+void onExportCaptions(GSimpleAction *, GVariant *, gpointer target)
+{
+    auto &host = *static_cast<app::ShellHost *>(target);
+    if (captions::captionCues(host.model()).empty()) {
+        host.showStatus("No captions to export: import a .srt or .vtt file first.");
+        return;
+    }
+    GtkFileDialog *chooser = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(chooser, "Export Captions");
+    gtk_file_dialog_set_initial_name(chooser, "Captions.srt");
+    if (const std::string folder = host.projectFolder(); !folder.empty()) {
+        GFile *initial = g_file_new_for_path(folder.c_str());
+        gtk_file_dialog_set_initial_folder(chooser, initial);
+        g_object_unref(initial);
+    }
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    GtkFileFilter *subtitles = gtk_file_filter_new();
+    gtk_file_filter_set_name(subtitles, "Subtitles (.srt, .vtt)");
+    gtk_file_filter_add_suffix(subtitles, "srt");
+    gtk_file_filter_add_suffix(subtitles, "vtt");
+    g_list_store_append(filters, subtitles);
+    g_object_unref(subtitles);
+    gtk_file_dialog_set_filters(chooser, G_LIST_MODEL(filters));
+    g_object_unref(filters);
+    GtkApplication *application = GTK_APPLICATION(g_application_get_default());
+    gtk_file_dialog_save(chooser, application ? gtk_application_get_active_window(application) : nullptr, nullptr,
+                         &onExportCaptionsChosen, &host);
+    g_object_unref(chooser);
+}
+
 // A double-click on a title clip opens it (anywhere but the track's name
 // strip, which still renames the track). Paints nothing.
 class TitleClipClicks : public app::timeline::TimelineOverlayProvider
@@ -518,7 +580,8 @@ void extendShell(app::ShellHost &host)
     host.addActions({{"titles-new", "New Title", "Titles", {"<Shift>t"}, &onNewTitle},
                      {"titles-edit", "Edit Title", "Titles", {"<Control><Shift>t"}, &onEditTitle},
                      {"titles-bake", "Bake Title", "Titles", {}, &onBakeTitle},
-                     {"titles-open", "Open U Stu Titles", "Titles", {}, &onOpenTitles}},
+                     {"titles-open", "Open U Stu Titles", "Titles", {}, &onOpenTitles},
+                     {"titles-export-captions", "Export Captions…", "Titles", {}, &onExportCaptions}},
                     &host);
     host.addHints(
         {{"titles.open", "Header bar", "Open U Stu Titles, the title designer",
@@ -531,7 +594,10 @@ void extendShell(app::ShellHost &host)
          {"titles.bake", "Titles", "Bake title",
           "Render the clip to a video file with transparency, for tools without U Stu's titles; undo "
           "brings the live title back",
-          "titles-bake", nullptr}});
+          "titles-bake", nullptr},
+         {"titles.export-captions", "Titles", "Export captions",
+          "Write the project's captions to a subtitle file: .srt, or .vtt when the name ends in .vtt",
+          "titles-export-captions", nullptr}});
     // For the process, as the host requires; bound to this window.
     static TitleClipClicks clicks;
     clicks.bind(host);

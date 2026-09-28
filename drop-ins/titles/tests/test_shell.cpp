@@ -290,8 +290,13 @@ TEST_CASE("Edit Title: the action and a double-click open a title clip, and noth
     FakeShell shell(profile);
     titles::extendShell(shell);
     REQUIRE(shell.overlays.size() == 1);
-    REQUIRE(shell.actions.size() == 4); // New Title, Edit Title, Bake Title, Open U Stu Titles
+    // New Title, Edit Title, Bake Title, Open U Stu Titles, Export Captions…
+    REQUIRE(shell.actions.size() == 5);
     CHECK(std::string(shell.actions[3].first.name) == "titles-open");
+    CHECK(std::string(shell.actions[4].first.name) == "titles-export-captions");
+    // Export Captions… without captions: says so, and opens no dialog.
+    shell.actions[4].first.activated(nullptr, nullptr, shell.actions[4].second);
+    CHECK(shell.status == "No captions to export: import a .srt or .vtt file first.");
     REQUIRE(shell.headerButtons.size() == 1); // the header's "T"
     CHECK(std::string(gtk_actionable_get_action_name(GTK_ACTIONABLE(shell.headerButtons[0]))) == "win.titles-open");
     // Its icon is in the drop-in's own resources, on the icon theme's path.

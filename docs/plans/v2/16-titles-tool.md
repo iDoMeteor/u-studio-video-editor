@@ -640,6 +640,37 @@ Acceptance:
 Not in T5: exporting subtitles back out, word-level (karaoke) timing, and
 per-cue positions from VTT settings.
 
+#### T5.1 — Subtitle export (landed 2026-09-28, 0.71.0-beta.1)
+
+**Export Captions…** (the `titles-export-captions` action, a button on a
+caption's Title page) writes the project's captions to an `.srt` or
+`.vtt`, chosen by the file name. Captions are the clips that play a title
+with a `caption` field, on any track, in time order (overlapping ones as
+overlapping cues, which both formats allow; importing puts them back on
+lanes).
+
+- Times: a clip's first frame and the frame after its last, as
+  milliseconds rounded to the nearest (a frame is at least 16 ms, so
+  importing gives the same frames back).
+- Words: the `caption` field. `<b>`, `<i>` and `<u>` stay. In `.vtt`, a
+  literal `&`, `<` or `>` is escaped; `.srt` is written as it is.
+- Speaker: `.vtt`'s `<v Name>`. `.srt` has no speaker, so it gets the same
+  `<v Name>` (our import reads it; players that don't know it skip the
+  tag or show it).
+- UTF-8, `\n` line ends, written to a temporary file and renamed.
+
+Acceptance:
+
+- [x] Export then import gives the same captions (positions, lengths,
+      words, speakers, lanes) at 23.976, 25, 29.97, 30 and 59.94 fps, in
+      both formats. (`titles-captions`; and in the editor: an imported
+      `.srt` exported as `.srt` and `.vtt`, identical cues.)
+- [x] A `.vtt` starts with `WEBVTT` and uses `HH:MM:SS.mmm`; an `.srt`
+      numbers its cues and uses `HH:MM:SS,mmm`.
+- [x] Words with a literal `<`, `&` or `>` survive a `.vtt` round trip.
+- [x] Only caption clips are exported; a project without any says so and
+      writes nothing. (`titles-captions`, `titles-shell`.)
+
 ### Later
 
 - **T6 Lottie:** import Lottie animations as layers via `rlottie` (not
