@@ -487,7 +487,12 @@ Rack, New Title and insert-at-playhead over D-Bus, Bake title.
 > T4.2 (templates), so the names don't collide with doc 20's T4b. T4.1 is
 > done in 0.59.1–0.65.0: the editor's text-entry shortcut guard, dynamic
 > fields, the Title inspector page (fields per clip), Bake Title, and
-> Export Title from the editor. New Title and the gallery are T4.2.
+> Export Title from the editor. T4.2 is done in 0.66.0: the template
+> library and gallery, 29 built-ins, and New Title, which makes the file
+> first and opens the designer with its gallery (approved deviation from
+> "save sends it back"). "Update from template" is left for later: a
+> title doesn't record its template, and merging a changed design into
+> edited text isn't cheap.
 
 **User templates and a bigger gallery** (owner request, 2026-09-27):
 
@@ -515,11 +520,15 @@ Acceptance:
       `titles-engine` "a bake: ... stock melt plays it with its alpha".
       Over video, a baked file needs VE Core's `MediaInfo::hasAlpha`
       pairing to avoid the 4:2:2 fringe; until then it's a known limit.)
-- [ ] A user template survives an app restart and appears in New Title.
-- [ ] Editing a built-in leaves it unchanged and adds a copy to My
-      Templates.
-- [ ] Every built-in renders identically in the titles app, the editor's
-      preview and export, and passes the render tests.
+- [x] A user template survives an app restart and appears in New Title.
+      (My Templates are folders on disk, listed afresh each time the
+      gallery opens; `titles-core` "template library", live on Xvfb.)
+- [x] Editing a built-in leaves it unchanged and adds a copy to My
+      Templates. (Edit a Copy; `titles-core` and live on Xvfb.)
+- [x] Every built-in renders identically in the titles app, the editor's
+      preview and export, and passes the render tests. (`titles-render`
+      and `titles-engine`: 29 built-ins, the producer's frames byte for
+      byte the renderer's.)
 
 ### T4b — Template packages, and T7 — sharing
 

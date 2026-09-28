@@ -9,6 +9,7 @@
 #include "core/media/fingerprint.h"
 #include "render/title_renderer.h"
 #include "core/media/utf8_path.h"
+#include "core/template_library.h"
 #include "core/title_xml.h"
 #include "core/xml/writer.h"
 #include "engine/engine_sync.h"
@@ -18,6 +19,7 @@
 #include "engine/title_export.h"
 #include "engine/title_extension.h"
 #include "engine/title_frames.h"
+#include "platform/clock.h"
 #include "platform/process.h"
 
 #include <cairo.h>
@@ -518,6 +520,45 @@ TEST_CASE("a bake: the sequence's rate and length, and stock melt plays it with 
 #else
     MESSAGE("no melt: its check skipped");
 #endif
+}
+
+TEST_CASE("every built-in template plays in the engine exactly as the designer draws it (T4.2)")
+{
+    // The designer, the editor's preview and exports all draw with
+    // renderTitle(); the producer's frames must be its bytes.
+    setUp();
+    const auto templates = titles::listTemplates(TITLES_TEMPLATES_DIR, true);
+    REQUIRE(templates.size() >= 28);
+    // At the templates' own size: at another, MLT's normalisers scale the
+    // producer's picture (as the preview does), which the renderer doesn't.
+    Mlt::Profile profile;
+    profile.set_width(1920);
+    profile.set_height(1080);
+    profile.set_sample_aspect(1, 1);
+    profile.set_display_aspect(16, 9);
+    profile.set_frame_rate(30, 1);
+    for (const titles::TemplateInfo &info : templates) {
+        CAPTURE(info.id);
+        auto doc = titles::readTitle(info.path);
+        REQUIRE(doc.has_value());
+        const int length = static_cast<int>(doc->document.timing.length());
+        auto producer = titles::makeTitleProducer(profile, info.path, length, {});
+        REQUIRE(producer);
+        const int f = static_cast<int>(doc->document.timing.intro) + 10;
+        producer->seek(f);
+        std::unique_ptr<Mlt::Frame> frame(producer->get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 1920, h = 1080;
+        const uint8_t *image = frame->get_image(format, w, h);
+        titles::FieldClock clock;
+        clock.clipFrame = clock.timelineFrame = f;
+        clock.fps = 30;
+        clock.localTime = platform::localTime(std::time(nullptr));
+        const titles::RenderResult reference = titles::renderTitle(doc->document, f, {}, 1920, 1080, &clock);
+        std::vector<uint8_t> straight(1920 * 1080 * 4);
+        titles::toStraightRgba(reference.frame, straight.data());
+        CHECK(std::equal(straight.begin(), straight.end(), image));
+    }
 }
 
 TEST_CASE("--title-export: alpha formats keep the title's alpha; H.264 is flattened")

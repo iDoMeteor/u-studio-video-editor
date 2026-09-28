@@ -5,6 +5,12 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.66.0-beta.1
+
+- Title templates: New Title (Shift+T) puts a title at the playhead and
+  opens U Stu Titles with a gallery of 29 built-in designs; save your own
+  as templates, and rename, duplicate or delete them in My Templates.
+
 ## 0.65.0-beta.1
 
 - Export a title clip on its own from the editor (Title page › Export on

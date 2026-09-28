@@ -117,7 +117,6 @@ void AppWindow::addActions(const std::vector<ActionSpec> &specs, gpointer target
         GSimpleAction *simple = g_simple_action_new(action.spec.name, nullptr);
         g_signal_connect(simple, "activate", G_CALLBACK(action.spec.activated), action.target);
         g_action_map_add_action(G_ACTION_MAP(m_window), G_ACTION(simple));
-        g_object_unref(simple);
         if (app)
             setAccelsForAction(app, action.spec.name, action.spec.accels);
         // A shortcut with no Ctrl, Alt or Super would type in a text field.
@@ -127,9 +126,12 @@ void AppWindow::addActions(const std::vector<ActionSpec> &specs, gpointer target
             if (gtk_accelerator_parse(accel, &key, &mods) &&
                 !(mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK))) {
                 m_typingKeyActions.push_back(action.spec.name);
+                // Registered while a text field has focus: off until it leaves.
+                g_simple_action_set_enabled(simple, m_transportActionsEnabled);
                 break;
             }
         }
+        g_object_unref(simple);
     }
 }
 

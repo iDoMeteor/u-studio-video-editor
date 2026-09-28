@@ -237,6 +237,13 @@ logos. The designer exports through `u-studio-render`, found next to it.
 Tests `titles-desktop-file` and `titles-metainfo` validate the drafts when
 `desktop-file-validate` and `appstreamcli` are installed.
 
+The built-in templates install to `$datadir/u-studio/titles/templates/`
+(29 `.ustitle` files, no pictures). The designer finds them at
+`<its bindir>/../share/u-studio/titles/templates`, so a package that
+installs the designer under another prefix (the Flatpak extension) must
+install them under the same prefix. Users' own templates live in
+`$XDG_DATA_HOME/ustudio/titles/templates/`.
+
 ## Releases
 
 - Everyday version bumps go in [`CHANGELOG.md`](../../CHANGELOG.md).

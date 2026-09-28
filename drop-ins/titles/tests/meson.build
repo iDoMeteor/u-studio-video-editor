@@ -19,7 +19,8 @@ test('titles-render', titles_test_render, timeout: 120)
 # IP3/IP4/IP6: the producer module in real graphs, and u-studio-render's
 # --title-frames (defined after drop-ins/, so named by path; `meson test`
 # builds everything first).
-titles_engine_args = ['-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"']
+titles_engine_args = ['-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"',
+                      '-DTITLES_TEMPLATES_DIR="' + meson.current_source_dir() / '..' / 'data' / 'templates' + '"']
 # Stock melt, for "a baked title plays in stock melt" (doc 16 T4); skipped
 # without it.
 titles_melt = find_program('melt-7', 'melt', required: false)

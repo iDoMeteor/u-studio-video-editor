@@ -175,3 +175,39 @@ Cairo 1.18, fontconfig 2.17):
 - **Shimmer on a solid fill** turns it into a colour/highlight/colour
   gradient for the Shift loop to slide; on white the highlight is
   invisible, which is expected.
+
+## T4.2: templates
+
+- **The library is folders.** A user template is
+  `<library>/<id>/template.ustitle`, with its pictures copied into
+  `images/` and referenced relatively, so it moves as one folder. That is
+  the shape a template in a doc 20 pack has, so T4b installs packs into it.
+  Built-ins are flat files and read-only; "Edit a Copy" duplicates one.
+  `core/template_library.cpp`; tests in `titles-core`.
+- **The built-ins are generated.** `tools/gen_title_templates.py` writes
+  all of them; edit it and rerun rather than editing the files. Sizes at
+  1080p: a primary line at least 60 px, a secondary at least 40, a tag
+  at least 30 (owner review, 2026-09-28). `titles-render` checks each one
+  reads cleanly, fills every field, draws, and stays on the canvas;
+  `titles-engine` checks the producer's frame equals the renderer's, byte
+  for byte, for each.
+- **Compare producer and renderer at the title's own size.** At another
+  profile size, the loader's normalisers have the producer draw at its
+  native size and scale it with swscale, so the bytes differ from
+  `renderTitle()` at the target size (every 1920x1080 built-in differed at
+  640x360; all match at 1920x1080). One renderer copy renders a variable
+  font (Space Grotesk) identically on several threads; checked with a
+  standalone two-thread repro.
+- **Gallery thumbnails** render mid-hold on a worker, as the behaviour
+  drawer's do, and are never cached on disk: there are no preview images
+  in the repository.
+- **New Title makes the file first**, then opens the designer with
+  `--gallery` (the owner-approved deviation from doc 16's "save sends it
+  back"): the clip is on the timeline at once, and the file watch brings
+  the picked design back. `ShellHost::projectFolder()` (IP5, API 7) says
+  where. An unsaved project's title stays linked after the project is
+  saved: saved in that folder, the writer stores it relative and it moves
+  with the folder; saved elsewhere, it stays absolute.
+- **A drop-in's shortcut without Ctrl, Alt or Super** (Shift+T) joins the
+  editor's single-key guard, so it never fires while a text field has
+  focus.
