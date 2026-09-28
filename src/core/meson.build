@@ -8,6 +8,7 @@ libustudio_core_sources = files(
   'model/profile_match.cpp',
   'model/retime.cpp',
   'model/animation.cpp',
+  'model/effect_native.cpp',
   'model/transform.cpp',
   'commands/primitives.cpp',
   'commands/undo_stack.cpp',

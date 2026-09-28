@@ -1,0 +1,36 @@
+#include "platform/files.h"
+
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <system_error>
+#include <vector>
+
+namespace ustudio::platform {
+
+std::filesystem::path makePrivateDirectory(const std::filesystem::path &base, const std::string &prefix,
+                                           std::string *error)
+{
+    // mkdtemp(): atomic, mode 0700, a random name (engine/factory_policy.cpp
+    // says why a guessable one would be a hole).
+    const std::string pattern = (base / (prefix + "XXXXXX")).string();
+    std::vector<char> buffer(pattern.begin(), pattern.end());
+    buffer.push_back('\0');
+    if (!::mkdtemp(buffer.data())) {
+        if (error)
+            *error = std::strerror(errno);
+        return {};
+    }
+    return std::filesystem::path(buffer.data());
+}
+
+bool linkFile(const std::filesystem::path &target, const std::filesystem::path &link, std::string *error)
+{
+    std::error_code ec;
+    std::filesystem::create_symlink(target, link, ec);
+    if (ec && error)
+        *error = ec.message();
+    return !ec;
+}
+
+} // namespace ustudio::platform

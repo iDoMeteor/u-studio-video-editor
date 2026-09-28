@@ -37,10 +37,13 @@ asan_ffmpeg := "/lib64/libavutil.so.60 /lib64/libavcodec.so.62 /lib64/libavforma
 # The same for MLT's movit module (ADR-019), so its glsl.manager, which MLT
 # never frees (docs/developer/notes/gpu.md), can be suppressed by name.
 asan_movit := "/usr/lib64/mlt-7/libmltmovit.so"
+# The same for the avformat and frei0r modules' own leaks (the effects
+# drop-in's tests; tests/sanitizers/lsan.supp).
+asan_modules := "/usr/lib64/mlt-7/libmltavformat.so /usr/lib64/mlt-7/libmltfrei0r.so"
 asan *tests:
     [ -d builddir-asan ] || meson setup builddir-asan -Db_sanitize=address,undefined -Db_lundef=false -Dtests=enabled
     meson compile -C builddir-asan
-    LD_PRELOAD="{{asan_ffmpeg}} {{asan_movit}}" \
+    LD_PRELOAD="{{asan_ffmpeg}} {{asan_movit}} {{asan_modules}}" \
     ASAN_OPTIONS=detect_leaks=1:fast_unwind_on_malloc=0:verify_asan_link_order=0:detect_stack_use_after_return=1:halt_on_error=1 \
     UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
     LSAN_OPTIONS=suppressions={{justfile_directory()}}/tests/sanitizers/lsan.supp \
@@ -174,8 +177,10 @@ publish artifact:
 # landed needs `meson configure` or deleting.
 dropins-builtin:
     [ -d builddir-dropins-builtin ] || meson setup builddir-dropins-builtin -Dtests=enabled $(for d in drop-ins/*/meson.build; do d=${d#drop-ins/}; printf -- '-Ddropin_%s=builtin ' "${d%/meson.build}"; done)
+    meson compile -C builddir-dropins-builtin  # meson test builds only the tests' own dependencies, not u-studio-render
     meson test -C builddir-dropins-builtin --print-errorlogs
 
 dropins-module:
     [ -d builddir-dropins-module ] || meson setup builddir-dropins-module -Dtests=enabled $(for d in drop-ins/*/meson.build; do d=${d#drop-ins/}; printf -- '-Ddropin_%s=module ' "${d%/meson.build}"; done)
+    meson compile -C builddir-dropins-module  # meson test builds only the tests' own dependencies, not u-studio-render
     meson test -C builddir-dropins-module --print-errorlogs

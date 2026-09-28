@@ -1,11 +1,13 @@
-# Effects (M5 FX0 spikes)
+# Effects
 
 [Docs home](../../README.md) › [Developer docs](../README.md) › [Implementation notes](README.md) › Effects
 
-The FX0 spikes of [doc 15](../../plans/v2/15-effects-and-transitions.md),
-run 2026-09-27 against MLT 7.40 and frei0r-plugins 2.5.6 (Fedora 44), each a
-standalone repro at 320×180. Nothing here is wired into `src/`; the effects
-drop-in (ADR-011, ADR-014) is where it will be used.
+What the effects drop-in ([doc 15](../../plans/v2/15-effects-and-transitions.md),
+[`drop-ins/effects/`](../../../drop-ins/effects/README.md)) relies on about MLT
+7.40 and frei0r-plugins 2.5.6 (Fedora 44). Every row was a standalone repro
+first.
+
+## FX0 spikes (2026-09-27, VE Core, 320×180)
 
 | # | Question | Answer |
 |---|---|---|
@@ -19,3 +21,24 @@ drop-in (ADR-011, ADR-014) is where it will be used.
 | 8 | Is `decorateTractor()` enough for adjustment blocks? | **Only for a lane on top.** A filter on the whole tractor affects every track, so a top FX lane works with `decorateTractor()` alone. A lane in the middle of the stack needs the tracks beneath it grouped into a sub-tractor that the filter attaches to: a structural hook, not a decoration. |
 | 9 | In-place property set on a live filter while playing | **Yes**, done in IP3 (`EngineExtension::applyInPlace()`) and used by clip transforms (ADR-018): no rebuild, no consumer restart. |
 | 10 | `<filter>` inside `<entry>` through MLT's `xml` producer | **Yes**, done in IP3 (the writer puts the cut's in/out on it; `tests/dropins/test_dropin_engine`). |
+
+FX0 row 1's "leave the `not_thread_safe.txt` plugins out" turned out
+unnecessary: see "Not-thread-safe frei0r plugins" below.
+
+## FX1 findings (2026-09-28, VE Effects)
+
+| Finding | Detail | Where it's used |
+|---|---|---|
+| Mix transition: `frei0r.cairoblend` | Inside `mask_apply`, `cairoblend`'s `"0"` (opacity) at 0.5 over brightness level 2 on grey 128 gave 192, for about 6 ms a 1080p frame over the plain effect. `affine`'s `rect` with a fifth value (`… 50%`) gave 191 for 14 ms. `composite` ignored its `geometry` opacity there (255) and cost 32 ms. | `core::nativeFilters()`; `affine` is the fallback without frei0r |
+| A transition inside `mask_apply` can't animate on a cut in a playlist | `mask_apply` runs its transition when the image is fetched, and by then the playlist has set the frame's position to the timeline's; the transition subtracts the cut's source `in` and reads a negative position. `transition.0 = "0=0;80=1"` animated on a bare cut (128 → 64 → 0) and stayed at the first value in a playlist (128 throughout). A **filter's** animation position is fixed when the frame is processed, so a `brightness` filter with `level=1` and an animated `alpha` between `mask_start` and `mask_apply` animates in both (128 → 64 → 0), with the transition opaque. | A keyframed mix is `mask_start`, `brightness alpha=…`, `mask_apply`; a constant one is the transition's opacity |
+| The filters' in/out must still be the cut's | Without them, neither the transition nor the alpha filter animates on a cut (`engine::attachToCut()` sets them; the writer does too). | Every cut filter |
+| Not-thread-safe frei0r plugins | MLT's frei0r module already serialises them: one shared instance, the service lock held across `f0r_update`, no slicing (`frei0r_helper.c`, lines 144, 176 and 325). They're safe with frame threads, just slower. So they're offered, flagged `notThreadSafe`, not left out. | `EffectRegistry` |
+| `brightness` works on YUV luma unless `rgb_only=1` | Level 0.5 on grey 128 reads 54 with the default, 64 with `rgb_only=1` (`filter_brightness.yml`). | Tests set `rgb_only` |
+| frei0r's `3dflippo` writes out of bounds | It crashes whenever a frame is read at a size other than the profile's: 64×36 up to 960×540 in a 1080p profile, never at 1920×1080 or in a matching profile. Heap corruption doesn't always crash (the probe's noise source ran on). Marked `unstable` in the overlay, so it's quarantined from the start. | `data/overlays/frei0r.json` |
+| frei0r's `defish0r` reports a NaN default | Its "Non-Linear scale" (`"9"`) default is `nan`; set, it blacks out the picture. The health probe caught it. A non-finite default counts as none. | `normaliseParam()` |
+| frei0r's `pixs0r` runs for minutes at its maximums | Pixel sort at 1080p with every number at its maximum didn't finish in 2 minutes. The render tool catches SIGTERM for a clean cancel and a probe inside a plugin never checks, so the scan stops a child with SIGKILL at its deadline. | `HealthScan` |
+| Services are registered as data | `mlt_repository_transitions()`'s entries hold data, not strings: `get("frei0r.cairoblend")` is null even when it exists. Ask `property_exists()`. | `EffectsExtension` |
+| MLT's frei0r search order | `factory.c` walks FREI0R_PATH from its **last** directory and keeps the first registration of a name, so a later directory wins. It dlopens every plugin at init to read its info, then again when a filter is created. | `findFrei0rPlugins()` |
+| Stock `melt` and `.ustudio` | `melt project.ustudio` fails to load it; `melt xml:project.ustudio` plays it (the loader picks by extension). | The melt test |
+| Spawning from the editor costs 17–27 ms | `g_subprocess_launcher_spawnv()` from the editor's process blocked the main loop 17–27 ms per child (a 60 s run: about 40 stalls of 40–50 ms), and parsing the 1 MB registry JSON about 200 ms. The scan runs on its own thread around its own `GMainContext`; afterwards a 25 s run showed no stall from it. | `HealthScan` |
+| Metadata cost | All 628 filters' metadata: about 0.2 s. Reading it beside a running graph isn't safe, so the editor gets the registry from `u-studio-render --effects-registry` (0.38 s in a child) and caches it. | `HealthScan` |

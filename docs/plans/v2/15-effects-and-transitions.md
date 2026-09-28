@@ -751,12 +751,52 @@ keyframe offset rule, Mix and mask, the no-rebuild parameter path, format v4.
 
 Acceptance:
 
-- [ ] Every installed frei0r service is either usable or quarantined with a
+- [x] Every installed frei0r service is either usable or quarantined with a
       reason, and the probe never crashes the editor.
-- [ ] Preview-equals-export hash test passes.
-- [ ] Dragging a parameter slider does not restart the consumer (log shows
+- [x] Preview-equals-export hash test passes.
+- [x] Dragging a parameter slider does not restart the consumer (log shows
       no `restart #` lines during the drag).
-- [ ] `melt` renders a saved project with clip, track and master effects.
+- [x] `melt` renders a saved project with clip, track and master effects.
+
+**FX1 as built (VE Effects, 2026-09-28):** `drop-ins/effects/`
+([README](../../../drop-ins/effects/README.md)).
+
+- The filters an effect becomes live in `src/core/model/effect_native.h`
+  (`core::nativeFilters()`), used by the project writer and the engine
+  extension alike, so the file `melt` plays and the editor's graph can't
+  drift. It also closes IP2's open item: the writer now emits the mix.
+- `EffectRegistry` normalises every MLT filter but `movit.*` (599 on the dev
+  machine, 545 shown) and applies `data/overlays/*.json`. Overlays can also
+  give a default MLT doesn't (brightness's `level`) and mark a plugin
+  `unstable`.
+- IP4 curation, the extension (clip cuts including dissolve tails and heads,
+  tracks, master; the mix; in place for values), `--probe-effect` and
+  `--effects-registry` (IP6), and the editor's health scan (IP5, a shell
+  extension with no UI).
+- Acceptance, how it was checked:
+  - **frei0r usable or quarantined.** All 102 frei0r services probed
+    through the render tool: 101 ok, and `pixs0r` still running at the
+    20-second deadline, so it's quarantined as timed out. `defish0r` had been
+    black at a NaN default, now treated as none. `3dflippo` probes ok but is
+    quarantined by its overlay (it corrupts memory at other read sizes). `effects-scan` shows a plugin
+    that crashes and one that hangs quarantined while the host keeps
+    running.
+  - **Preview equals export.** `effects-engine` compares frames from the
+    live graph, one built the way `renderProject()` builds its own, and the
+    saved file through MLT's `xml` producer, across a dissolve with clip,
+    track and master effects and a mixed frei0r effect. Export's H.264
+    output is lossy, so the graphs are compared, not the file.
+  - **No restart.** 30 slider steps through `SetParam` gave 30 in-place
+    applies, no `rebuilt`, one undo step. FX2 checks the same in the app
+    with a real drag.
+  - **`melt`.** Stock `melt-7` renders the saved project (`xml:` prefix:
+    melt picks a loader by extension).
+
+> REVIEW: VE Effects, 2026-09-28: FX0's plan change (b) is dropped. MLT's frei0r module already serialises the `not_thread_safe.txt` plugins (one shared instance, the service lock held across `f0r_update`), so they're offered and flagged, not left out; only MLT's blacklist, Qt-linking plugins and quarantined ones stay out of `FREI0R_PATH` ([effects notes](../../developer/notes/effects.md)).
+
+> REVIEW: VE Effects, 2026-09-28: "Mix and masks" is implemented for the mix only. A constant mix is `frei0r.cairoblend`'s opacity inside `mask_apply` (`affine` without frei0r), because `cairoblend` costs 6 ms a 1080p frame against 14 for `affine`. A keyframed mix can't animate a transition there: on a cut in a playlist the transition reads the timeline position. So it's a `brightness` filter with an animated `alpha` between the pair. Masks stay in the model only, for FX2 with the mask UI (FX0 row 4).
+
+> REVIEW: VE Effects, 2026-09-28: the editor doesn't read MLT metadata in its own process (not safe beside a running graph). The registry comes from `u-studio-render --effects-registry` and is cached, keyed by the plugin set, MLT's version and the overlays. The curation is the drop-in's `contributeFactoryPaths()` (IP4), not new code in `FactoryPolicy`. There's no `Point` kind yet, because no installed family reports one; keyframes animate `Scalar` parameters only (`core::Keyframe` is a number).
 
 ### FX2 — Rack, Browser and keyframes in the inspector (about 2 weeks)
 
