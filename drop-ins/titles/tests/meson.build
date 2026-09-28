@@ -52,6 +52,7 @@ titles_test_shell = executable(
   files('test_shell.cpp', '../editor/jobs.cpp', '../editor/title_bake.cpp', '../editor/title_shell.cpp', '../editor/title_launch.cpp', '../editor/title_page.cpp', '../engine/backdrop.cpp',
         '../engine/title_export.cpp', '../engine/title_extension.cpp'),
   cpp_args: ['-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"',
+             '-DTITLES_APP_INSTALL_DIR="' + get_option('prefix') / get_option('bindir') + '"',
              '-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"'],
   include_directories: [src_inc, titles_inc],
   dependencies: [titles_doctest_dep, titles_core_dep, libustudio_engine_dep, libustudio_platform_dep, gtk4_dep],

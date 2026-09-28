@@ -28,6 +28,13 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.65.1-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New in this beta: titles, as an add-on. Install the Titles add-on file next to the app (see Installing in the docs; it needs this exact app version), then restart U Stu. Settings › Drop-ins lists it, and a Title page appears for title clips.</p>
+        <p>Things to try: import a title (.ustitle file) onto a track above your video, fill in its fields on the Title page, open it with Edit Title (Ctrl+Shift+T) to change it in U Stu Titles, Bake it into a video file, and Export it on its own with transparency for OBS.</p>
+        <p>Known limits: the template gallery and New Title are still coming, so you start from an existing .ustitle file. U Stu Titles opens from the editor only; it has no app menu entry of its own yet.</p>
+      </description>
+    </release>
     <release version="0.65.0-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New in this beta:</p>

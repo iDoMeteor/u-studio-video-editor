@@ -220,6 +220,37 @@ check "import a 30-image sequence" sh -c "echo \"\$1\" | grep -qE '^Imported .*:
 d shot 08b-sequence
 d act save; sleep 1.5
 
+# --- 8c: the titles add-on (a Flatpak extension of the app), when it's
+# installed in the same installation. A built-in template from the source
+# tree stands in for a user's title.
+if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Titles" >/dev/null 2>&1; then
+    check "titles drop-in loaded from its extension" \
+        grep -q "\[drop-ins\] Loaded titles from /app/lib/u-studio/extensions/Titles/" "$OUT/app.log"
+    cp "$H/../../drop-ins/titles/data/templates/lower-third-two-lines.ustitle" "$M/lower-third.ustitle"
+    d press "Add track"; sleep 1; d act clear-selection; d act active-track-top; d act seek-home
+    import_file "$M/lower-third.ustitle"
+    title_status=$(status); echo "  status: $title_status"
+    check "import a title" sh -c "echo \"\$1\" | grep -q '^Imported'" _ "$title_status"
+    for _ in 1 2 3; do d act step-forward-10 >/dev/null; done
+    sleep 1; d shot 08c-title
+    # Rendered by the sandbox's u-studio-render, which loads the drop-in and
+    # its MLT module from the extension: the title must have visible alpha.
+    flatpak run --user --no-documents-portal --command=u-studio-render "$SMOKE_APP_ID" \
+        --title-export "$M/lower-third.ustitle" "$M/lower-third.mov" prores --seconds 2 >"$OUT/title-export.log" 2>&1
+    pix=$(ffprobe -v error -select_streams v -show_entries stream=pix_fmt -of csv=p=0 "$M/lower-third.mov" 2>/dev/null)
+    # metadata=print logs at info level, so not -v error.
+    alpha=$(ffmpeg -v info -ss 1.5 -i "$M/lower-third.mov" -frames:v 1 -vf alphaextract,signalstats,metadata=print:key=lavfi.signalstats.YMAX \
+        -f null - 2>&1 | sed -n 's/.*YMAX=\([0-9]*\).*/\1/p' | tail -1)
+    echo "  title export: pix_fmt $pix, alpha max ${alpha:-none}"
+    check "title renders with alpha in the sandbox" sh -c "echo '$pix' | grep -q yuva && [ '${alpha:-0}' -gt 0 ]"
+    d act select-all; d act titles-edit; sleep 4
+    designer=$(ours u-studio-titles)
+    check "Edit Title opens U Stu Titles in the sandbox" test -n "$designer"
+    d shot 08c-designer
+    [ -n "$designer" ] && kill "$designer"
+    d act clear-selection; d act save; sleep 1.5
+fi
+
 # --- 9: Copy Diagnostics
 d act copy-diagnostics; sleep 1
 python3 "$H/clipboard.py" > "$OUT/diagnostics.txt"

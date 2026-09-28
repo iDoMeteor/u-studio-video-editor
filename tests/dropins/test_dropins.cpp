@@ -7,6 +7,9 @@
 #include "dropins/registry.h"
 
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -131,6 +134,31 @@ TEST_CASE("drop-ins: a module can't take a built-in's name")
     REQUIRE(registry.entries().size() == 1);
     CHECK(registry.entries()[0].path.empty()); // the built-in kept it
     CHECK(anyContains(registry.refusals(), "already registered"));
+}
+
+TEST_CASE("drop-ins: each extension under the extension point is a trusted prefix")
+{
+    namespace fs = std::filesystem;
+    CHECK(DropInRegistry::extensionDirectories("").empty());
+    const fs::path point =
+        fs::temp_directory_path() / ("ustudio-test-extensions-" + std::to_string(std::random_device{}()));
+    CHECK(DropInRegistry::extensionDirectories(point.string()).empty()); // not there yet
+    fs::create_directories(point / "Titles" / "lib" / "u-studio" / "drop-ins");
+    fs::create_directories(point / "Effects");
+    fs::copy_file(fs::path(TEST_MODULE_DIR) / "libustudio-dropin-moduledropin.so",
+                  point / "Titles" / "lib" / "u-studio" / "drop-ins" / "libustudio-dropin-moduledropin.so");
+    std::ofstream(point / "stray-file").close();
+
+    const std::vector<std::string> dirs = DropInRegistry::extensionDirectories(point.string());
+    CHECK(dirs == std::vector<std::string>{(point / "Effects" / "lib" / "u-studio" / "drop-ins").string(),
+                                           (point / "Titles" / "lib" / "u-studio" / "drop-ins").string()});
+    // An extension without drop-ins is skipped; the module in the other loads.
+    DropInRegistry registry;
+    registry.loadModules(dirs);
+    REQUIRE(registry.entries().size() == 1);
+    CHECK(registry.entries()[0].name == "moduledropin");
+    CHECK(registry.refusals().empty());
+    fs::remove_all(point);
 }
 
 TEST_CASE("drop-ins: only trusted directories, unless the development override is set")

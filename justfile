@@ -89,6 +89,26 @@ flatpak:
     @ls -lh build-flatpak/u-studio-video-editor-{{version}}.flatpak
     just dist build-flatpak/u-studio-video-editor-{{version}}.flatpak
 
+# The titles drop-in's Flatpak extension (packaging/flatpak/
+# com.ustudio.VideoEditor.DropIn.Titles.yml), bundled as
+# build-flatpak/u-studio-video-editor-dropin-titles-<version>.flatpak. It
+# builds against the app, so the app bundle from `just flatpak` (this same
+# version) must be installed in the installation flatpak-builder uses: set
+# FLATPAK_USER_DIR to build against a scratch installation instead of your
+# own. It installs nothing: `just flatpak` has already installed the SDK,
+# and --install-deps-from would try to update the app from its origin.
+flatpak-titles:
+    flatpak-builder --user --force-clean --state-dir=build-flatpak/state \
+        build-flatpak/titles packaging/flatpak/com.ustudio.VideoEditor.DropIn.Titles.yml
+    python3 tools/check_bundle_clean.py build-flatpak/titles/files
+    flatpak-builder --user --export-only --state-dir=build-flatpak/state --repo=build-flatpak/repo \
+        build-flatpak/titles packaging/flatpak/com.ustudio.VideoEditor.DropIn.Titles.yml
+    flatpak build-bundle --runtime --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+        build-flatpak/repo build-flatpak/u-studio-video-editor-dropin-titles-{{version}}.flatpak \
+        com.ustudio.VideoEditor.DropIn.Titles
+    @ls -lh build-flatpak/u-studio-video-editor-dropin-titles-{{version}}.flatpak
+    just dist build-flatpak/u-studio-video-editor-dropin-titles-{{version}}.flatpak
+
 # Copies a packaged artifact into the distribution folder with a .sha256
 # sidecar. Never overwrites: an existing name gets -2, -3, ... before the
 # extension (owner's rule, 2026-09-25). `just flatpak` runs it; set

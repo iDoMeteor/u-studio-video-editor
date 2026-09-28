@@ -61,7 +61,11 @@ Two checks guard every package, Flatpak or Snap:
   5. Split, undo, redo, save; reopen the saved project.
   6. Render with the High quality profile, and ffprobe the output.
   7. Make a 4K proxy; import a 30-image sequence.
-  8. Copy Diagnostics.
+  8. Titles, when the titles extension is installed in the same
+     installation: the drop-in loads from the extension mount, a `.ustitle`
+     imports, `u-studio-render --title-export` in the sandbox renders it
+     with alpha, and Edit Title starts U Stu Titles.
+  9. Copy Diagnostics.
 
   Along the way it checks that no Qt library is mapped. It prints
   PASS/FAIL per check and exits non-zero on any failure. Run it before
@@ -236,6 +240,53 @@ drop-in; they're drafts with a placeholder icon name until the owner's new
 logos. The designer exports through `u-studio-render`, found next to it.
 Tests `titles-desktop-file` and `titles-metainfo` validate the drafts when
 `desktop-file-validate` and `appstreamcli` are installed.
+
+### Drop-ins as Flatpak extensions
+
+The app declares the extension point `com.ustudio.VideoEditor.DropIn`
+(`add-extensions` in the app manifest: `directory: lib/u-studio/extensions`,
+`subdirectories`, `no-autodownload`, `autodelete`). Each drop-in is an
+extension `com.ustudio.VideoEditor.DropIn.<Name>`, which Flatpak mounts at
+`/app/lib/u-studio/extensions/<Name>` and which is an install prefix of
+its own.
+
+The app is built with `-Ddropin_extension_dir=lib/u-studio/extensions`
+(relative to the prefix; empty by default). That does two things:
+
+- the loader trusts `<point>/<Name>/lib/u-studio/drop-ins/` for every
+  subdirectory of the point, after `$libdir/u-studio/drop-ins/`
+  (`DropInRegistry::extensionDirectories()`);
+- the editor and `u-studio-render` export their symbols (`export_dynamic`
+  plus `link_whole`), as for any module build, because a module resolves
+  core, engine and host symbols against the program.
+
+The titles extension is
+`packaging/flatpak/com.ustudio.VideoEditor.DropIn.Titles.yml`, built with
+`just flatpak-titles` after `just flatpak`:
+
+- It builds against the installed app (`runtime: com.ustudio.VideoEditor`,
+  `build-extension: true`), so the app bundle of the same version must be
+  installed in the installation flatpak-builder uses. Set
+  `FLATPAK_USER_DIR` to build against a scratch installation.
+- The app strips MLT's headers and `.pc` files, so the extension first
+  builds MLT's framework and mlt++ alone (every module off, same release)
+  and removes them afterwards. The drop-in's libraries link against the
+  app's MLT at run time through the same sonames.
+- It ships `lib/u-studio/drop-ins/libustudio-dropin-titles.so`,
+  `lib/u-studio/mlt/libmltustudio.so` and `bin/u-studio-titles`. The
+  drop-in finds its MLT module and the designer at its own install paths.
+  The designer finds `u-studio-render` on `PATH` (`/app/bin`).
+- The designer's desktop entry, MIME type and AppStream file are left out,
+  because an extension can't export them. U Stu Titles is reached only from
+  the editor (Edit Title). A menu entry of its own would need a separate
+  app ID.
+- The built-in templates install to `share/u-studio/titles/templates/`
+  from 0.66 (T4.2), beside `bin/`, where the designer looks for them. The
+  manifest keeps `share/u-studio/`.
+- The bundle is a runtime bundle
+  (`u-studio-video-editor-dropin-titles-<version>.flatpak`), and
+  `just dist` copies it with a `.sha256`. Modules must match the app release
+  exactly, so the app and its extensions ship as a pair.
 
 ## Releases
 

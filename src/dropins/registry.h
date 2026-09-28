@@ -28,10 +28,14 @@ class DropInRegistry
         bool enabled = true; // false: listed, but no factory paths and no registration
     };
 
-    // $libdir/u-studio/drop-ins/ (baked in at build time). The Flatpak
-    // extension mount joins this list in M7 (doc 17). Never the project's
-    // folder or the user's home.
+    // $libdir/u-studio/drop-ins/ (baked in at build time), then, when the
+    // build has a dropin_extension_dir (the Flatpak extension point, doc
+    // 17), <that dir>/<extension>/lib/u-studio/drop-ins/ for each installed
+    // extension. Never the project's folder or the user's home.
     static std::vector<std::string> trustedDirectories();
+    // <extensionPoint>/<extension>/lib/u-studio/drop-ins/ for each
+    // subdirectory of extensionPoint, sorted; none if it's "" or missing.
+    static std::vector<std::string> extensionDirectories(const std::string &extensionPoint);
     // Where loadModules() looks: USTUDIO_DROPIN_PATH (colon-separated, a
     // development override that logs a warning) if set, else the trusted
     // directories.

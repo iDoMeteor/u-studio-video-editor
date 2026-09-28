@@ -5,6 +5,12 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.65.1-beta.1
+
+- Titles come as a Flatpak add-on, installed next to the app: import
+  titles, fill their fields, edit them in U Stu Titles, bake them and
+  export them for OBS.
+
 ## 0.65.0-beta.1
 
 - Export a title clip on its own from the editor (Title page › Export on

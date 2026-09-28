@@ -41,6 +41,11 @@ std::string titlesAppPath()
     const std::filesystem::path self = platform::executablePath();
     if (!self.empty() && isFile(self.parent_path() / name))
         return core::utf8String(self.parent_path() / name);
+    // Installed with this drop-in, when it's packaged apart from the editor
+    // (a Flatpak extension has its own prefix, doc 17).
+    const std::filesystem::path installed = core::pathFromUtf8(TITLES_APP_INSTALL_DIR) / name;
+    if (isFile(installed))
+        return core::utf8String(installed);
     if (isFile(core::pathFromUtf8(TITLES_APP_BUILD_PATH)))
         return TITLES_APP_BUILD_PATH;
     char *found = g_find_program_in_path(name.c_str());

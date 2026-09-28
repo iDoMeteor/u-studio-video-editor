@@ -38,6 +38,19 @@ finish-args:
   - --filesystem=/run/media
   - --filesystem=/mnt
 
+# Drop-ins ship as opt-in extensions of this point (ADR-014, doc 17): one
+# per drop-in, com.ustudio.VideoEditor.DropIn.<Name>, mounted at
+# /app/lib/u-studio/extensions/<Name> (subdirectories). The editor loads
+# <Name>/lib/u-studio/drop-ins/ from each (-Ddropin_extension_dir below).
+# Never downloaded with the app; each needs this exact app version.
+# Keys per flatpak-manifest(5) and flatpak-metadata(5).
+add-extensions:
+  com.ustudio.VideoEditor.DropIn:
+    directory: lib/u-studio/extensions
+    subdirectories: true
+    no-autodownload: true
+    autodelete: true
+
 cleanup:
   - /include
   - /lib/pkgconfig
@@ -67,6 +80,12 @@ modules:
       - -Dbuildtype=release
       - -Dtests=disabled
       - -Drender_tool=true
+      # The extension point above: the loader scans it, and the programs
+      # export the symbols a drop-in module resolves against them.
+      - -Ddropin_extension_dir=lib/u-studio/extensions
+    # The extension point's mount directory must exist in the app.
+    post-install:
+      - install -d /app/lib/u-studio/extensions
     sources:
       - type: dir
         path: ../..

@@ -31,6 +31,22 @@ just flatpak
   into a second, private installation there. Run `just flatpak` from a
   normal terminal, or with `env -u XDG_DATA_HOME`.
 
+### Drop-in extensions
+
+`com.ustudio.VideoEditor.DropIn.Titles.yml` builds the titles drop-in as an
+extension of the app's `com.ustudio.VideoEditor.DropIn` extension point:
+
+```sh
+just flatpak                                # the app first, same version
+flatpak install --user build-flatpak/u-studio-video-editor-<version>.flatpak
+just flatpak-titles
+```
+
+It builds against the installed app, so install that version first (into a
+scratch `FLATPAK_USER_DIR` if you don't want to replace your own). How the
+extension point works and what the extension carries:
+[packaging docs](../../docs/developer/packaging.md#drop-ins-as-flatpak-extensions).
+
 ## What's in it, and why
 
 Every dependency is a module file under `modules/`, shared with the
