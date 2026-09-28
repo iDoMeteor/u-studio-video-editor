@@ -4,6 +4,7 @@
 
 #include "app/browser.h"
 #include "app/catalog.h"
+#include "app/compare.h"
 #include "app/health_scan.h"
 #include "app/rack.h"
 #include "core/health.h"
@@ -69,6 +70,7 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         static bool scanning = false;
         addRack(shell, catalog);
         addBrowser(shell, catalog);
+        addCompare(shell, catalog);
         if (scanning)
             return; // one scan per process, however many windows
         scanning = true;
