@@ -111,6 +111,9 @@ class AppWindow : public ShellHost
     core::FrameIndex currentFrame() const override;
     void seek(core::FrameIndex frame) override;
     void showInspectorPage(const char *id) override;
+    // The docking inspector's window minimum (shell_hosts.cpp): measured on
+    // the content and pinned; again after every change that can widen it.
+    std::pair<int, int> pinInspectorMinimum();
     core::Signal<> &playheadMoved() override
     {
         return m_shellPlayheadMoved;

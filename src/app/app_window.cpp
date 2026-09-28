@@ -323,6 +323,10 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
     m_hasShellExtensions = !shellExtensions.empty();
     for (const dropins::ShellExtension &extension : shellExtensions)
         extension(*this);
+    // Every extension has added its widgets: the docking inspector's
+    // minimum covers them all (shell_hosts.cpp).
+    if (m_inspectorSplit)
+        pinInspectorMinimum();
     g_signal_connect(m_window, "notify::is-active", G_CALLBACK(&AppWindow::windowActiveChangedTrampoline), this);
     g_signal_connect(m_window, "notify::focus-widget", G_CALLBACK(&AppWindow::focusWidgetChangedTrampoline), this);
     g_signal_connect(m_window, "close-request", G_CALLBACK(&AppWindow::closeRequestTrampoline), this);
