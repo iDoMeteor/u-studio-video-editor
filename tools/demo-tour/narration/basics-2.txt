@@ -1,0 +1,55 @@
+# Basics 2: playback and editing on the timeline. Voice cedar.
+
+## intro
+Welcome back. In part two, we'll play our edit, find our way around it, and then get hands-on with the timeline: moving, trimming, slipping, and more.
+
+## Playback
+Press play. Playback runs in real time, with sound, and the editor stays responsive the whole time.
+
+## Shuttle and step
+J, K and L shuttle backwards and forwards; press again to go faster. The arrow keys step one frame at a time, or ten at once.
+
+## Loop a range
+Set a loop in and out at the playhead, and playback goes round and round that range. Handy for fine-tuning a moment.
+
+## Edit on the timeline
+Now for some editing. We'll work on the unicorn clips on the bottom track, with an empty track on top.
+
+## Move
+Drag a clip anywhere you like, even onto another track.
+
+## Trim
+Drag a clip's edge to trim it. The gap it leaves is yours to fill.
+
+## Ripple trim (Alt+drag)
+Hold Alt while you trim, and the clips after it follow the edge, so no gap opens up.
+
+## Slip (Shift+drag)
+Hold Shift and drag to slip a clip: it keeps its place and length, but shows a different part of the source.
+
+## Dissolve
+Right-click a cut and choose Add Transition, for a smooth dissolve from one clip to the next.
+
+## Copy (Ctrl+drag)
+Hold Control while you drag, and you drop a copy instead of moving the clip.
+
+## Nudge
+Comma and period nudge the selection by a single frame. Add Shift to move ten frames at a time.
+
+## Split and ripple delete
+X splits the clip at the playhead. Shift and Delete removes a piece and closes the gap behind it.
+
+## Markers
+Press M to drop a marker at the playhead, so you can find that moment again later.
+
+## Rubber band select (Shift+drag)
+Hold Shift and drag across the timeline, and every clip the box touches is selected.
+
+## Ripple mode
+Press R for ripple mode. Now moving a clip closes the gap it leaves, and pushes later clips along.
+
+## Undo and redo
+Every edit is a single undo step. Control Z takes it back, and Shift Control Z brings it back again.
+
+## outro
+That's part two. Next time, we'll save our work, look through the settings, and change the project's format. See you then!

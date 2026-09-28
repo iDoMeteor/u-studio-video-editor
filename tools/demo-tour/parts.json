@@ -3,7 +3,37 @@
     "title": "Basics 1",
     "subtitle": "Importing, mixed frame rates and the media browser",
     "narration": "narration/basics-1.txt",
-    "chapters": ["Import", "Clip tooltips", "Mixed frame rates", "Import a folder", "Media browser",
-                 "Split audio", "Trim to fit"]
+    "chapters": [
+      "Import",
+      "Clip tooltips",
+      "Mixed frame rates",
+      "Import a folder",
+      "Media browser",
+      "Split audio",
+      "Trim to fit"
+    ]
+  },
+  "basics-2": {
+    "title": "Basics 2",
+    "subtitle": "Playback and editing on the timeline",
+    "narration": "narration/basics-2.txt",
+    "chapters": [
+      "Playback",
+      "Shuttle and step",
+      "Loop a range",
+      "Edit on the timeline",
+      "Move",
+      "Trim",
+      "Ripple trim (Alt+drag)",
+      "Slip (Shift+drag)",
+      "Dissolve",
+      "Copy (Ctrl+drag)",
+      "Nudge",
+      "Split and ripple delete",
+      "Markers",
+      "Rubber band select (Shift+drag)",
+      "Ripple mode",
+      "Undo and redo"
+    ]
   }
 }

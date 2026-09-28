@@ -51,7 +51,19 @@ if [ -n "$PART" ]; then
   NAME=$NAME-$PART
 fi
 TOUR_STOP_AFTER="$STOP" TOUR_MEDIA="$MEDIA" TOUR_BIN="$BUILD/src/app/u-studio-video-editor" "$HERE/run_tour.sh" "$WORK" 1
-TOUR_PART="$PART" TOUR_VERSION="$VERSION" python3 "$HERE/post.py" "$WORK" "$WORK/demo.mp4"
+# Only a complete run is saved: videos in $DEST can never be removed, so a crash
+# or a failed step must stop here (2026-09-28: a GPU abort cut a part short).
+FAIL=
+grep -q "Traceback" "$WORK/run.log" && FAIL="the tour script failed"
+grep -q "Assertion .* failed" "$WORK/app.stderr" && FAIL="the editor aborted (see app.stderr)"
+if [ -n "$PART" ]; then
+  grep -q "=== (end)" "$WORK/tour.log" || FAIL="${FAIL:-the part did not reach its end}"
+fi
+if [ -n "$FAIL" ]; then
+  echo "NOT SAVED: $FAIL; run folder: $WORK"
+  exit 1
+fi
+TOUR_PART="$PART" TOUR_VERSION="$VERSION" python3 "$HERE/post.py" "$WORK" "$WORK/demo.mp4" || { echo "NOT SAVED: post.py failed; run folder: $WORK"; exit 1; }
 
 # 4. save, never overwrite
 mkdir -p "$DEST"

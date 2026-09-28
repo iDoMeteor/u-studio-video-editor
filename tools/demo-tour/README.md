@@ -91,7 +91,7 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | Part | Topic | Recorded |
 |---|---|---|
 | basics-1 | Importing, mixed frame rates, the media browser, split audio | 2026-09-28 (0.70.0-beta.1) |
-| basics-2 | Playback, shuttle, loop, timeline editing | |
+| basics-2 | Playback, shuttle, loop, timeline editing | 2026-09-28 (0.71.0-beta.1, GPU off; file -2) |
 | basics-3 | Save and backups, settings, the project format | |
 | basics-4 | Rendering, the queue, quit while rendering and restart | |
 | titles-1 | New Title, the template gallery, editing text, the brand kit | |
