@@ -17,10 +17,12 @@ Settings are saved automatically.
 
 ### GPU acceleration
 
-Settings › Performance › Hardware. On by default: when U Stu starts, it
-checks in the background that your graphics card can do the work, and if
-it can, the preview composites your tracks and places, scales, crops and
-flips your clips on the graphics card. The processor is then free, so
+Settings › Performance › Hardware. **Off by default in the Flatpak**; turn
+it on here, and it stays on through updates (a build you compile yourself
+starts with it on). When it's on and U Stu starts, it checks in the
+background that your graphics card can do the work, and if it can, the
+preview composites your tracks and places, scales, crops and flips your
+clips on the graphics card. The processor is then free, so
 several moved or scaled tracks play smoothly at full size. The row shows
 what it's using ("On: …"), or why it isn't ("Not available here: …").
 
