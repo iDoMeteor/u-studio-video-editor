@@ -100,7 +100,8 @@ permissions · [Getting started](docs/user/getting-started.md)
   keyframes, looks, copy and paste, and before/after compare.
   → [Effects](docs/user/effects.md)
 - Titles and captions (an [add-on](docs/user/installing.md#add-ons)): a
-  title designer with templates, and `.srt`/`.vtt` captions in and out.
+  title designer with templates and animated (Lottie) layers, and
+  `.srt`/`.vtt` captions in and out.
   → [Titles](docs/user/titles.md)
 
 **Not yet:** wipes and other transitions beyond dissolves, formats other than MP4, named

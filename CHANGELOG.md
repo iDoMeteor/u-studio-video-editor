@@ -5,6 +5,12 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.75.0-beta.1
+
+- Titles: animated layers. Add a Lottie animation (a logo sting, a
+  sticker) to a title; it plays in the designer, the editor and exports,
+  and travels in templates and template packs.
+
 ## 0.74.0-beta.1
 
 - Effects (the Effects add-on): add, try on the picture, keyframe and

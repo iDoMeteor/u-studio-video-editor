@@ -455,6 +455,19 @@ void Inspector::buildLayer(const Layer &layer)
             layer.src.find_last_of("/\\") == std::string::npos ? 0 : layer.src.find_last_of("/\\") + 1);
         add(g, actionRow(name.empty() ? "No picture" : name.c_str(), replace));
         gtk_box_append(GTK_BOX(m_box), g);
+    } else if (layer.kind == LayerKind::Lottie) {
+        // "Animated layer", not "Animation": the behaviours below are that.
+        GtkWidget *g = group("Animated layer");
+        const std::string name = layer.src.substr(
+            layer.src.find_last_of("/\\") == std::string::npos ? 0 : layer.src.find_last_of("/\\") + 1);
+        GtkWidget *file = adw_action_row_new();
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(file), name.empty() ? "No animation" : name.c_str());
+        add(g, file);
+        add(g, comboRow("Plays", {"Over and over", "Once, then holds"}, layer.loop ? 0 : 1,
+                        [set](size_t i) { set("Animation Plays", "loop", [i](Layer &l) { l.loop = i == 0; }); }));
+        add(g, spinRow("Speed (%)", layer.speed * 100, 25, 400, 25, 0,
+                       [set](double v) { set("Animation Speed", "speed", [v](Layer &l) { l.speed = v / 100; }); }));
+        gtk_box_append(GTK_BOX(m_box), g);
     } else {
         GtkWidget *g = group("Shape");
         add(g, comboRow("Shape", {"Rectangle", "Rounded rectangle", "Ellipse", "Line"},
@@ -468,7 +481,8 @@ void Inspector::buildLayer(const Layer &layer)
         gtk_box_append(GTK_BOX(m_box), g);
     }
 
-    if (layer.kind != LayerKind::Image && !(layer.kind == LayerKind::Shape && layer.shape == ShapeKind::Line)) {
+    if (layer.kind != LayerKind::Image && layer.kind != LayerKind::Lottie &&
+        !(layer.kind == LayerKind::Shape && layer.shape == ShapeKind::Line)) {
         auto editLayerFill = m_callbacks.editLayer;
         gtk_box_append(GTK_BOX(m_box), fillGroup("Fill", layer.fill, layer.kind == LayerKind::Shape,
                                                  [editLayerFill, id](const std::function<void(Fill &)> &change,
@@ -479,14 +493,17 @@ void Inspector::buildLayer(const Layer &layer)
                                                  }));
     }
 
-    GtkWidget *outline = group("Outline");
-    add(outline, spinRow("Width", layer.stroke.width, 0, 200, 1, 1, [set](double v) {
-            set("Outline Width", "stroke-width", [v](Layer &l) { l.stroke.width = v; });
-        }));
-    add(outline, actionRow("Colour", colourButton(layer.stroke.color, true, [set](const Rgba &c) {
-                               set("Outline Colour", "stroke-colour", [c](Layer &l) { l.stroke.color = c; });
-                           })));
-    gtk_box_append(GTK_BOX(m_box), outline);
+    // An animated layer draws its own outlines, if any.
+    if (layer.kind != LayerKind::Lottie) {
+        GtkWidget *outline = group("Outline");
+        add(outline, spinRow("Width", layer.stroke.width, 0, 200, 1, 1, [set](double v) {
+                set("Outline Width", "stroke-width", [v](Layer &l) { l.stroke.width = v; });
+            }));
+        add(outline, actionRow("Colour", colourButton(layer.stroke.color, true, [set](const Rgba &c) {
+                                   set("Outline Colour", "stroke-colour", [c](Layer &l) { l.stroke.color = c; });
+                               })));
+        gtk_box_append(GTK_BOX(m_box), outline);
+    }
 
     GtkWidget *shadow = group("Shadow");
     add(shadow, switchRow("Shadow", layer.shadow.enabled, [set, this](bool on) {

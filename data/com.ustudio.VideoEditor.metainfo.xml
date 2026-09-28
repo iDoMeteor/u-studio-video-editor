@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.75.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.74.0-beta.1: animated layers in titles. In U Stu Titles, open + and choose Animation… to add a Lottie animation (the .json files LottieFiles and After Effects export). It plays in the designer, on the editor's timeline and in exports, once or over and over, at the speed you choose, and it travels in templates and template packs.</p>
+        <p>Try a free animated sticker or logo sting from LottieFiles in a lower third. Known issues: files that use expressions are refused (export them with expressions baked into keyframes); in the Flatpak download, animated layers show nothing until the next package includes the animation library.</p>
+      </description>
+    </release>
     <release version="0.74.0-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.73.1-beta.1: effects, in the Effects add-on. Open the inspector (the round button at the picture's top right) and press E: every effect is a tile showing your clip with it on. Point at one to try it on the picture, click to add it, then change it on the Effects page. Pin values at the playhead to make them change over time, save a set of effects as a look (five brand looks come with it), copy and paste effects between clips, and hold \ or press Compare to see before and after.</p>

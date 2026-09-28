@@ -226,6 +226,37 @@ keyframes you can adjust one by one.
 Keyframes set in the outro stay with the outro, so making the hold longer
 never moves the way a title leaves.
 
+### Animated layers
+
+An **animated layer** plays a ready-made animation (a logo sting, an
+animated sticker or icon) inside the title, as sharp at 4K as at 720p. In
+U Stu Titles, open **+** and choose **Animation…**, then pick a **Lottie**
+file (`.json`), the kind LottieFiles, After Effects (with Bodymovin) and
+many design tools export.
+
+- It's added at its own size, centred; move and resize it like a picture.
+  It always keeps its own shape inside the layer's box.
+- In the inspector, **Plays** is **Over and over** (from the start again
+  at its end) or **Once, then holds** (it stops on its last frame), and
+  **Speed** makes it faster or slower (25% to 400%).
+- It plays from the start of the title, and the canvas, the editor and
+  your exports all show the same frame at the same moment.
+- Opacity, position, rotation, scale, behaviours, blur and shadow work as
+  on any layer.
+- The file is kept with the title like a picture: it travels with a title
+  saved elsewhere, made into a template, or shared in a template pack.
+
+Some files can't be used, and U Stu says why when you add one:
+
+- files that use **expressions** (small scripts); export them again with
+  expressions baked into keyframes (Bodymovin has an option for it);
+- files that load a picture or font from outside themselves (pictures
+  must be embedded, as PNG or JPEG);
+- files over 8 MB, over ten minutes long, or too complex to be safe.
+
+Text inside an animation is drawn in your system's fonts, so it may look
+a little different from the file's own.
+
 ## Exporting a title on its own
 
 To use a title outside U Stu (in OBS, say), use **Export…** in the
@@ -313,6 +344,12 @@ file.
 - **Rendering a project with titles in another program.** Other programs
   (including stock `melt`) can't play `.ustitle` files. Render from U Stu,
   or **Bake** the title clips first.
+- **"Couldn't add the animation: …".** The message says why; see
+  [Animated layers](#animated-layers) for what can't be used. For a file
+  with expressions, export it again with them baked into keyframes.
+- **An animated layer shows nothing.** The animation file was moved or
+  deleted (the message names it), or this build of U Stu has no animation
+  support; builds from source need ThorVG (see the developer docs).
 - **"No captions to export".** Only captions from an imported subtitle file
   are exported; import a `.srt` or `.vtt` file first.
 - **"Couldn't bake …".** The message says why: usually the folder next to
