@@ -91,3 +91,13 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   format goes through the default loader (transition_luma.c:822), the gap on
   a live GPU session. Tests: test_gpu_pipeline "a wipe plays as the CPU's,
   frame by frame" and "a dip to black is black in the middle".
+- **Motion recipes** (slide, push) are MLT's `affine` transition with an
+  animated `rect` ("X% Y% W% H%", every field a percentage, transition_
+  affine.yml) as the video transition, and for a push an `affine` filter
+  on the outgoing cut with `transition.rect` (filter_affine.yml passes
+  `transition.*` on) moving it out. With the filter's in/out the cut's
+  (attachToCut()), both move linearly over the transition: standalone
+  repro, a 25-frame red/blue pair sampled at x=100/640/1180 (scratchpad
+  `motion_repro.cpp`, `push_repro.cpp`), and engine-xml-playback's "A
+  saved push …" (the edge frame by frame, preview equal to melt). A ramp
+  of rects separates them with `|`, since a rect has spaces.

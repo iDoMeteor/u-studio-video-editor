@@ -498,6 +498,38 @@ TEST_CASE("GPU pipeline: a dip to black is black in the middle")
     CHECK(at(gpuAfter, 960, 540)[1] > 100);
 }
 
+// FX3 motion: a push (the affine transition, and the affine filter on the
+// outgoing cut) plays on the GPU as the CPU's does, a CPU island in the
+// movit graph (VE GPU's repro, 2026-09-28).
+TEST_CASE("GPU pipeline: a push plays as the CPU's, frame by frame")
+{
+    sharedFactoryPolicy();
+    TwoClipScene two;
+    REQUIRE(two.transition.value != 0);
+    two.scene.model.setTransitionRecipe(
+        two.transition, "push.left",
+        {{"video.service", std::string("affine"), {}},
+         {"video.rect", std::string("ramp:100% 0% 100% 100%|0% 0% 100% 100%"), {}},
+         {"a.0.service", std::string("affine"), {}},
+         {"a.0.transition.rect", std::string("ramp:0% 0% 100% 100%|-100% 0% 100% 100%"), {}}});
+    REQUIRE(two.scene.model.check().empty());
+    // Where the incoming green starts from the left on the middle row.
+    auto greenEdge = [](const Image &image) {
+        for (int x = 0; x < 1920; x += 2)
+            if (at(image, x, 540)[1] > at(image, x, 540)[2])
+                return x;
+        return -1;
+    };
+    for (int position = 32; position < 50; position += 4) {
+        Image cpu, gpu;
+        if (!renderBoth(two.scene.model, position, cpu, gpu))
+            return;
+        INFO("frame " << position << ": cpu edge " << greenEdge(cpu) << ", gpu edge " << greenEdge(gpu));
+        CHECK(std::abs(greenEdge(cpu) - greenEdge(gpu)) <= 8);
+        CHECK(greenEdge(gpu) > 0);
+    }
+}
+
 TEST_CASE("GPU pipeline: the preview leaving the GPU mid-export doesn't stop the export")
 {
     sharedFactoryPolicy();

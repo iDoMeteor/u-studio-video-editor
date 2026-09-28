@@ -98,13 +98,13 @@ permissions · [Getting started](docs/user/getting-started.md)
   colour, light, blur, keying and audio effects on clips, tracks or the
   whole picture, tried on your picture before you add them, with
   keyframes, looks, copy and paste, before/after compare, and dissolves
-  that dip, flash or wipe.
+  that dip, flash, slide, push or wipe.
   → [Effects](docs/user/effects.md)
 - Titles and captions (an [add-on](docs/user/installing.md#add-ons)): a
   title designer with templates, and `.srt`/`.vtt` captions in and out.
   → [Titles](docs/user/titles.md)
 
-**Not yet:** motion and blend transitions, formats other than MP4, named
+**Not yet:** zoom and blend transitions, formats other than MP4, named
 markers, rebindable shortcuts. → [Known limitations](docs/user/troubleshooting.md#known-limitations)
 
 ## Roadmap
@@ -118,7 +118,7 @@ relinking and clip transforms (M4, shipped as the 0.50 beta).
 
 - **Effects, keyframes and transitions** (M5): effects with keyframes and
   looks are in (FX1, FX2), and the transitions library has begun (dips,
-  flashes, wipes); next motion and blend transitions, the FX lane and curve lanes, delivered as a drop-in
+  flashes, slides, pushes, wipes); next zoom and blend transitions, the FX lane and curve lanes, delivered as a drop-in
   add-on. → [doc 15](docs/plans/v2/15-effects-and-transitions.md),
   [ADR-013](docs/plans/v2/adr/013-effects-and-titles-as-drop-in-modules.md)
 - **Titles**: a companion title designer with animation and reusable

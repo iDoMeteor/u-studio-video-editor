@@ -117,9 +117,11 @@ effect.
 ## Transition styles
 
 With the add-on, a dissolve between two clips can play in another style:
-a **dip to black**, a **flash**, or one of 20 **wipes** (left, right, up,
-down and the diagonals, circle, clock, diamond, barn doors, blinds,
-checkerboard, blocks, star, sparkle and the unicorn horn).
+a **dip to black**, a **flash**, a **slide** or **push** (the next clip
+slides in over this one, or pushes it out, from any side), or one of 20
+**wipes** (left, right, up, down and the diagonals, circle, clock,
+diamond, barn doors, blinds, checkerboard, blocks, star, sparkle and the
+unicorn horn).
 
 1. Put the playhead on a dissolve, or double-click one on the timeline.
    Or press **T** to add a dissolve at the cut nearest the playhead on the

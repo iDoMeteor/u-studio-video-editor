@@ -8,7 +8,7 @@ docs-only changes are not listed (CLAUDE.md).
 ## 0.75.0-beta.1
 
 - Transition styles (the Effects add-on): a dissolve can dip to black,
-  flash or wipe (20 shapes) from the Transitions page; T adds one at the
+  flash, slide, push or wipe (20 shapes) from the Transitions page; T adds one at the
   nearest cut, and a double-click on one opens its styles.
 
 ## 0.74.0-beta.1

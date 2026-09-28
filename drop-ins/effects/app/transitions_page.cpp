@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <memory>
@@ -56,9 +57,39 @@ std::optional<tokens::Rgb> parseSwatch(const std::string &text)
                        static_cast<float>((value >> 8) & 0xFF) / 255.0f, static_cast<float>(value & 0xFF) / 255.0f};
 }
 
+// A motion recipe's incoming picture half-way through, in 0-1 of the frame:
+// the middle of its "ramp:x% y% w% h%|x% y% w% h%" video.rect. Nullopt for
+// anything else.
+struct Box
+{
+    double x = 0, y = 0, w = 1, h = 1;
+};
+std::optional<Box> halfwayRect(const TransitionRecipe &recipe)
+{
+    const core::Param *param = findParam(recipe.params, "video.rect");
+    const auto *text = param ? std::get_if<std::string>(&param->value) : nullptr;
+    if (!text || !text->starts_with("ramp:"))
+        return std::nullopt;
+    const std::string body = text->substr(5);
+    const size_t bar = body.find('|');
+    if (bar == std::string::npos)
+        return std::nullopt;
+    auto parse = [](const std::string &rect) -> std::optional<Box> {
+        double v[4];
+        if (std::sscanf(rect.c_str(), "%lf%% %lf%% %lf%% %lf%%", &v[0], &v[1], &v[2], &v[3]) != 4)
+            return std::nullopt;
+        return Box{v[0] / 100, v[1] / 100, v[2] / 100, v[3] / 100};
+    };
+    const std::optional<Box> from = parse(body.substr(0, bar)), to = parse(body.substr(bar + 1));
+    if (!from || !to)
+        return std::nullopt;
+    return Box{(from->x + to->x) / 2, (from->y + to->y) / 2, (from->w + to->w) / 2, (from->h + to->h) / 2};
+}
+
 // A tile's picture: the outgoing clip (magenta) and the incoming one (cyan)
-// half-way through the recipe. A wipe shows its map's shape; a dissolve the
-// two blended; a dip or flash its swatch between them.
+// half-way through the recipe. A wipe shows its map's shape; a motion
+// recipe the incoming picture where it is half-way; a dissolve the two
+// blended; a dip or flash its swatch between them.
 GdkTexture *tileTexture(const TransitionRecipe &recipe)
 {
     const tokens::Rgb a = tokens::kBrandMagenta, b = tokens::kBrandCyan;
@@ -69,6 +100,7 @@ GdkTexture *tileTexture(const TransitionRecipe &recipe)
             luma = *name;
     const std::vector<uint16_t> map = luma.empty() ? std::vector<uint16_t>{} : core::lumaMapPixels(luma, kTileWidth, kTileHeight);
     const std::optional<tokens::Rgb> swatch = parseSwatch(recipe.swatch);
+    const std::optional<Box> moving = halfwayRect(recipe);
     for (int y = 0; y < kTileHeight; ++y)
         for (int x = 0; x < kTileWidth; ++x) {
             const size_t i = static_cast<size_t>(y * kTileWidth + x);
@@ -80,6 +112,14 @@ GdkTexture *tileTexture(const TransitionRecipe &recipe)
                 r = a.r + (b.r - a.r) * w;
                 g = a.g + (b.g - a.g) * w;
                 bl = a.b + (b.b - a.b) * w;
+            } else if (moving) {
+                const double u = (x + 0.5) / kTileWidth, v = (y + 0.5) / kTileHeight;
+                const bool inside = u >= moving->x && u < moving->x + moving->w && v >= moving->y &&
+                                    v < moving->y + moving->h;
+                const tokens::Rgb &side = inside ? b : a;
+                r = side.r;
+                g = side.g;
+                bl = side.b;
             } else if (swatch && x >= kTileWidth / 3 && x < kTileWidth * 2 / 3) {
                 r = swatch->r;
                 g = swatch->g;

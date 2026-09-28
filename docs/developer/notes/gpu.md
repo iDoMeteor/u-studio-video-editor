@@ -296,6 +296,8 @@ be MLT's CPU `luma` inside the GPU graph, not `movit.luma_mix`.
   (`attachProfileColorspace()`), or its colours come out BT.601-shifted and
   look like a GPU error.
 
+Motion transitions (slide, push) need no GPU variant: MLT's `affine` transition in the dissolve sub-tractor (slide), plus an `affine` filter on the tail cut (push), play as CPU islands inside the GPU graph exactly as on the CPU. Repro at 1080p30, a 25-frame transition between H.264 clips, the sub-tractor composited over black by `composite` or `movit.overlay`: the incoming clip's edge on row 540 is at the same x on both pipelines at every sampled frame (1680, 1440, … 0: linear, 80 px a frame), with no gap between the pictures. A 1080p frame pulled on its own costs about 40 ms for a slide on the GPU pipeline (64 on the CPU) and 66 for a push (67): the island is cheap here because the compositing around it runs on the GPU, unlike a wipe's two downloads and an upload. Not checked: the outgoing picture's own movement during a push (solid colours can't show it); the CPU recipe's own repro covers it.
+
 ## Exports (G4)
 
 - `renderProject()` checks `GpuSession::current()` once, at the start: with

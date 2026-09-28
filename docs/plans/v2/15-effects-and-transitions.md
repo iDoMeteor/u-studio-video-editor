@@ -849,17 +849,17 @@ Acceptance:
 - [x] Swapping a recipe is one undo step and survives save and reload.
 - [x] `melt` renders a saved project's transitions like the editor does.
 
-> REVIEW: VE Effects, 2026-09-28: landed as 0.75.0-beta.1 with 23 recipes
-> (dissolve, dip to black, flash, 20 generated wipes), the Transitions
+> REVIEW: VE Effects, 2026-09-28: landed as 0.75.0-beta.1 with 31 recipes
+> (dissolve, dip to black, flash, 4 slides, 4 pushes, 20 generated wipes), the Transitions
 > inspector page (tiles drawn from each recipe's shape, softness and
 > reverse), `T`, and double-click to open; the acceptance is met. Recipes
 > are `Transition::params` resolved by `core::nativeTransition()` for the
 > engine and the writer alike, not an IP3 `makeTransitionSegment()` (it
 > stays for recipes that need a whole segment). Still to come in FX3
-> follow-ups: motion (push, slide, zoom), blend and audio-curve recipes,
+> follow-ups: zoom and spin motion, blend and audio-curve recipes,
 > live animated previews on the tiles and scroll-to-cycle on the seam,
-> and blend-mode track compositing. On the GPU pipeline a wipe plays as a
-> CPU luma island (VE GPU's repro; developer/notes/effects.md).
+> and blend-mode track compositing. On the GPU pipeline wipes, slides and
+> pushes play as CPU islands (VE GPU's repros; developer/notes/gpu.md).
 
 ### FX4 — Timeline and preview manipulation (about 2–3 weeks, needs M3)
 
