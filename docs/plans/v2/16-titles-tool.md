@@ -547,12 +547,93 @@ Planned in [doc 20](20-template-packages-and-sharing.md) and
 [doc 21](21-template-sharing-backend.md). T4b (local packages) follows
 T4; T7 (the `u-studio-share` helper) follows T4b.
 
+### T5 — Captions (planned 2026-09-28, VE Text)
+
+Import a subtitle file (`.srt`, `.vtt`) as title clips: one clip per cue,
+all playing **one caption title** made for the import from a caption
+template, the cue's text in the clip's `{{caption}}` field. Restyling that
+one title (Edit Title) restyles every caption; fixing a cue's words is the
+Title page's field, like any lower third.
+
+**Import.** Import… (or a drop) takes `.srt` and `.vtt` through the titles
+drop-in's import handler. One undoable step:
+
+- the caption title: a copy of the caption template (the last one used,
+  else "Caption, boxed"), sized and timed to the sequence, written to the
+  project's `Titles/` folder as `<subtitle name> captions.ustitle` (the
+  New Title folder rules when the project isn't saved);
+- a new video track, "Captions", above the others, with a clip per cue at
+  the cue's time from the sequence's start;
+- cues that overlap in time go on a second track, "Captions 2" (and so on),
+  since a track never overlaps.
+
+**Caption templates.** Built-ins in a new category, Captions: "Caption,
+boxed" (a bar behind the text, bottom centre), "Caption, plain" (text with
+an outline and shadow, bottom centre) and "Caption, top". Each has a
+`caption` field (wrapping text box, up to three lines at 1080p sizes) and
+a `speaker` field shown only when a cue has one. A short fade in and out
+(4 frames each), so a cue of any length plays (elastic timing; one shorter
+than both fades plays them faster). Any title with a `{{caption}}` field
+can be a caption template.
+
+**Timing.** A cue's start and end become sequence frames by rounding to
+the nearest frame at the sequence's exact rate (for example 30000/1001,
+not 29.97). Every clip is at least one frame. Rounding never makes two
+adjacent cues overlap or leave a one-frame gap: when neighbouring cues
+share a boundary in the file, they share it on the timeline. Cues that
+really overlap move to the next captions track.
+
+**Text.**
+
+- Line breaks within a cue are kept; the caption box wraps long lines.
+- `<b>`, `<i>` and `<u>` (SRT and VTT) keep their style. The renderer never
+  takes Pango markup from text (a field could hold anything); a text layer
+  with `tags="basic"` has exactly these three tags turned into Pango
+  attributes by our own code, and everything else stays literal text.
+  Caption templates' text layers set it.
+- VTT `<v Speaker>` fills the clip's `speaker` field. Other tags (`<font>`,
+  `<c.class>`, `<ruby>`, `<lang>`, timestamps inside cues) are dropped,
+  keeping their text. VTT cue settings (position, align, line) and
+  `STYLE`, `NOTE` and `REGION` blocks are ignored.
+- Entities `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&nbsp;` are decoded.
+
+**Malformed files.** A subtitle file is untrusted input.
+
+- Text: UTF-8 (with or without a byte-order mark); UTF-16 with a BOM is
+  converted; anything else is read as Windows-1252 with a warning.
+- A cue with a bad timestamp, an end before its start, or no text is
+  skipped. The import still happens, and the status says how many cues
+  were skipped and the first one's line.
+- The file is refused, with the reason, when it has no usable cue, has a
+  NUL byte (not text), is over 10 MB, or has over 20,000 cues. Nothing is
+  imported then.
+- Times past 24 hours are refused per cue; an SRT index that isn't a
+  number, or out of order, is ignored (only the timing line counts).
+
+Acceptance:
+
+- [ ] An `.srt` and a `.vtt` with the same cues import to the same clips:
+      same tracks, positions, lengths and field values.
+- [ ] At 23.976, 25, 29.97, 30 and 59.94 fps every cue starts on the frame
+      nearest its time, no clip is shorter than a frame, and cues that
+      touch in the file touch on the timeline (no rounding gaps or
+      overlaps).
+- [ ] Overlapping cues go to a second captions track; no track overlaps.
+- [ ] Line breaks survive; `<b>`, `<i>` and `<u>` render bold, italic and
+      underlined; `<v Speaker>` fills the speaker field; other tags and
+      VTT settings disappear without losing words; markup-like text in a
+      field that isn't one of those three stays literal.
+- [ ] One caption title per import: restyling it restyles every cue.
+- [ ] A file with some bad cues imports the rest and reports them; a
+      file with none, binary content, or over the limits is refused with
+      a reason and imports nothing; an import is one undo step.
+- [ ] A 1,000-cue file imports in under two seconds and plays.
+
+Not in T5: exporting subtitles back out, word-level (karaoke) timing, and
+per-cue positions from VTT settings.
+
 ### Later
 
-- **T5 Captions:** SRT/VTT import into title clips using a caption
-  template. MLT's `subtitle` producer and filter can serve as a stop-gap
-  meanwhile (T0 checks whether its internal text renderer falls back to
-  `pango` when `qtext` is excluded; the library contains both names).
 - **T6 Lottie:** import Lottie animations as layers via `rlottie` (not
   installed here; needs its own ADR).
 
