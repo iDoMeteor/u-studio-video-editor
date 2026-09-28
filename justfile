@@ -74,6 +74,7 @@ check-qt: build
 # runtime.
 version := `sed -n "s/^  version: '\(.*\)',$/\1/p" meson.build`
 flatpak:
+    python3 tools/check_release_notes.py
     flatpak-builder --user --force-clean --install-deps-from=flathub \
         --state-dir=build-flatpak/state \
         build-flatpak/app packaging/flatpak/com.ustudio.VideoEditor.yml
@@ -99,6 +100,7 @@ flatpak:
 # from its origin; `just flatpak` has already installed the SDK).
 # The titles extension bundle, built against the installed app.
 flatpak-titles:
+    python3 tools/check_release_notes.py
     flatpak-builder --user --force-clean --state-dir=build-flatpak/state \
         build-flatpak/titles packaging/flatpak/com.ustudio.VideoEditor.DropIn.Titles.yml
     python3 tools/check_bundle_clean.py build-flatpak/titles/files

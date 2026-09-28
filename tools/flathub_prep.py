@@ -19,6 +19,8 @@ import shutil
 import subprocess
 import sys
 
+import check_release_notes
+
 # USTUDIO_FLATHUB_REPO points the tag lookup (and the generated source) at
 # another repository, e.g. a local clone with a test tag.
 REPO_URL = os.environ.get("USTUDIO_FLATHUB_REPO", "https://github.com/iDoMeteor/u-studio-video-editor.git")
@@ -36,12 +38,13 @@ def main() -> int:
         print(__doc__, file=sys.stderr)
         return 2
     tag = sys.argv[1]
-    manifests = sorted(PACKAGING.glob("*.yml"))
-    if len(manifests) != 1:
-        print(f"expected one manifest in {PACKAGING}, found {len(manifests)}", file=sys.stderr)
+    if problem := check_release_notes.check():
+        print(problem, file=sys.stderr)
         return 1
-    manifest = manifests[0]
-    app_id = manifest.stem
+    # The app's manifest; the drop-in extensions' manifests beside it
+    # (com.ustudio.VideoEditor.DropIn.*.yml) aren't part of this submission.
+    app_id = "com.ustudio.VideoEditor"
+    manifest = PACKAGING / f"{app_id}.yml"
 
     remote = subprocess.run(["git", "ls-remote", "--tags", REPO_URL, f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"],
                             capture_output=True, text=True, check=True).stdout.split("\n")

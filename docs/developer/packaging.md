@@ -324,7 +324,11 @@ wget) with 403, so check a published URL with a browser User-Agent:
 - Everyday version bumps go in [`CHANGELOG.md`](../../CHANGELOG.md).
 - A releasable build (a tagged beta or release) also gets a `<release>`
   entry in `data/com.ustudio.VideoEditor.metainfo.xml`, written for
-  testers: what's new, what to try, known issues. A release meant for
+  testers: what's new, what to try, known issues. Every packaged build is
+  releasable, so `just flatpak`, `just flatpak-titles` and
+  `tools/flathub_prep.py` first run `tools/check_release_notes.py`, which
+  fails when `meson.build`'s version has no entry. Without one, Flatpak
+  and Help › Release notes show the newest entry's version instead. A release meant for
   Flathub needs `type="stable"` (the default), not `development`.
 - The first stable release, `2.0.0`, is milestone M7
   ([roadmap](../plans/v2/12-roadmap-and-milestones.md)).
