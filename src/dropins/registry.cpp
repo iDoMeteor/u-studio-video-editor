@@ -30,7 +30,26 @@ void DropInRegistry::setCurrent(const DropInRegistry *registry)
 
 std::vector<std::string> DropInRegistry::trustedDirectories()
 {
-    return {USTUDIO_DROPIN_DIR};
+    std::vector<std::string> dirs{USTUDIO_DROPIN_DIR};
+    const std::vector<std::string> extensions = extensionDirectories(USTUDIO_DROPIN_EXTENSION_DIR);
+    dirs.insert(dirs.end(), extensions.begin(), extensions.end());
+    return dirs;
+}
+
+std::vector<std::string> DropInRegistry::extensionDirectories(const std::string &extensionPoint)
+{
+    // One subdirectory per installed extension (Flatpak mounts
+    // com.ustudio.VideoEditor.DropIn.<Name> at <extension point>/<Name>),
+    // each an install prefix of its own. Sorted, so the load order is stable.
+    std::vector<std::string> dirs;
+    std::error_code ec;
+    if (extensionPoint.empty() || !fs::is_directory(extensionPoint, ec))
+        return dirs;
+    for (const fs::directory_entry &entry : fs::directory_iterator(extensionPoint, ec))
+        if (entry.is_directory(ec))
+            dirs.push_back((entry.path() / "lib" / "u-studio" / "drop-ins").string());
+    std::sort(dirs.begin(), dirs.end());
+    return dirs;
 }
 
 std::vector<std::string> DropInRegistry::searchDirectories()

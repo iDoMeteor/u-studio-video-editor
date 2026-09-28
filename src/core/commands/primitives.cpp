@@ -72,6 +72,31 @@ void AddAsset::revert(Model &model)
 
 RemoveAsset::RemoveAsset(AssetId asset) : m_asset(asset) {}
 
+SetClipAsset::SetClipAsset(ClipId clip, AssetId asset, std::vector<Param> params, std::string label)
+    : m_clip(clip), m_asset(asset), m_params(std::move(params)), m_label(std::move(label))
+{}
+
+bool SetClipAsset::apply(Model &model)
+{
+    if (!model.hasClip(m_clip) || !model.hasAsset(m_asset))
+        return false;
+    const Clip &clip = model.clip(m_clip);
+    if (model.track(clip.track).locked)
+        return false;
+    const MediaInfo &info = model.asset(m_asset).info;
+    if (!info.isBoundless() && clip.out >= info.lengthInSequenceFrames)
+        return false;
+    m_oldAsset = clip.asset;
+    m_oldParams = clip.sourceParams;
+    model.setClipSource(m_clip, m_asset, m_params);
+    return true;
+}
+
+void SetClipAsset::revert(Model &model)
+{
+    model.setClipSource(m_clip, m_oldAsset, m_oldParams);
+}
+
 SetClipTransform::SetClipTransform(ClipId clip, Transform transform, uint64_t gesture)
     : m_clip(clip), m_transform(std::move(transform)), m_gesture(gesture)
 {}
@@ -99,8 +124,8 @@ bool SetClipTransform::mergeWith(const Command &next)
     return true;
 }
 
-RelinkAsset::RelinkAsset(AssetId asset, std::string path, std::string fingerprint)
-    : m_asset(asset), m_path(std::move(path)), m_fingerprint(std::move(fingerprint))
+RelinkAsset::RelinkAsset(AssetId asset, std::string path, std::string fingerprint, std::optional<int> sequenceBegin)
+    : m_asset(asset), m_path(std::move(path)), m_fingerprint(std::move(fingerprint)), m_sequenceBegin(sequenceBegin)
 {}
 
 bool RelinkAsset::apply(Model &model)
@@ -111,12 +136,17 @@ bool RelinkAsset::apply(Model &model)
     m_oldPath = asset.path;
     m_oldFingerprint = asset.fileFingerprint;
     m_oldStatus = asset.status;
+    m_oldSequenceBegin = asset.info.sequenceBegin;
     model.setAssetSource(m_asset, m_path, m_fingerprint, Asset::Status::Ready);
+    if (m_sequenceBegin)
+        model.setAssetSequenceBegin(m_asset, *m_sequenceBegin);
     return true;
 }
 
 void RelinkAsset::revert(Model &model)
 {
+    if (m_sequenceBegin)
+        model.setAssetSequenceBegin(m_asset, m_oldSequenceBegin);
     model.setAssetSource(m_asset, m_oldPath, m_oldFingerprint, m_oldStatus);
 }
 
@@ -339,6 +369,22 @@ bool SetSequenceProfile::apply(Model &model)
 void SetSequenceProfile::revert(Model &model)
 {
     model.setSequenceProfile(m_oldProfile);
+}
+
+SetSequenceBackground::SetSequenceBackground(uint32_t rgb) : m_rgb(rgb & 0xffffff) {}
+
+bool SetSequenceBackground::apply(Model &model)
+{
+    if (model.sequence().background == m_rgb)
+        return false;
+    m_oldRgb = model.sequence().background;
+    model.setSequenceBackground(m_rgb);
+    return true;
+}
+
+void SetSequenceBackground::revert(Model &model)
+{
+    model.setSequenceBackground(m_oldRgb);
 }
 
 ChangeSequenceFrameRate::ChangeSequenceFrameRate(Rational fps) : m_fps(fps) {}

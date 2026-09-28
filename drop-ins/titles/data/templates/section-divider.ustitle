@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Section divider" category="Cards" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="75" outro="15"/>
+  <field name="section" label="Section" default="Q&amp;A"/>
+  <layer id="left" kind="shape" shape="rect" x="200" y="536" w="440" h="8">
+    <fill color="#ff2bd6"/>
+    <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="right" kind="shape" shape="rect" x="1280" y="536" w="440" h="8">
+    <fill color="#19e3ff"/>
+    <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="section" kind="text" x="660" y="470" w="600" fit="shrink" align="center">
+    <text>{{section}}</text>
+    <font family="Anton" weight="700" size="110"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

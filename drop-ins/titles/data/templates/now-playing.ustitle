@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Now playing" category="Live and social" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="300" outro="15"/>
+  <field name="track" label="Track" default="Neon Drip"/>
+  <field name="artist" label="Artist" default="Unicorn Tears"/>
+  <layer id="panel" kind="shape" shape="rounded-rect" x="160" y="810" w="760" h="160" radius="16">
+    <fill color="#1b1230" opacity="0.9"/>
+    <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="disc" kind="shape" shape="ellipse" x="190" y="842" w="96" h="96">
+    <fill gradient="linear" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0"/>
+    <behavior slot="in" id="pop"/><behavior slot="loop" id="pulse"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="track" kind="text" x="316" y="822" w="580" fit="shrink">
+    <text>{{track}}</text>
+    <font family="Space Grotesk" weight="700" size="58"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="artist" kind="text" x="316" y="896" w="580" fit="shrink">
+    <text>{{artist}}</text>
+    <font family="Space Grotesk" size="42"/>
+    <fill color="#ffeffb"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

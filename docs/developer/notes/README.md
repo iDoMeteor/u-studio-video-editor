@@ -20,6 +20,11 @@ here unchanged on 2026-09-26.
 | [Render](render.md) | Cancelling, avformat consumer properties, H.264 encoder choice, snapshot rendering, atomic `.part` output, progress events |
 | [Project files](project-files.md) | MLT XML with `ustudio:` properties, the format v4 render/record playlists, untrusted-input checks, autosave recovery rules |
 | [Settings and GSettings](settings.md) | Missing-schema fallback, testing with the memory backend |
+| [GPU](gpu.md) | Our own EGL context for movit, `glsl.manager` as a sticky process-wide switch, `loader-nogl`, per-producer `\?hwaccel=`, movit's service set and gaps, measured throughput and colour |
+| [Keyframes and easing](animation.md) | The one keyframe model shared by effects and titles, `easedValue()`, how MLT interpolates each easing, cut-edge keyframes |
+| [Effects](effects.md) | M5 FX0 spikes: frei0r services and Qt check, parameter addressing and animation, `mask_start`/`mask_apply`, 16-bit `luma` wipes, `cairoblend` modes, adjustment blocks. FX1: the mix's transition and why a keyframed mix is an alpha filter, not-thread-safe plugins, plugins that crash, hang or report NaN defaults, frei0r search order |
+| [Titles](titles.md) | T0 spikes: a custom MLT producer module with YAML metadata, Pango per thread, 4K cost, alpha conversion, `xml` round trip, app fonts, GApplication actions from another process. T1: hinting off for scale-true layout, font directories, detecting a substituted font, renderer cost, making the producer through `loader`, a self-contained module, boundless assets, watching atomic saves |
+| [MLT upstream candidates](mlt-upstream.md) | MLT bugs we work around, with our workaround and repro, to report upstream later |
 | [App shell](app-shell.md) | Shortcuts vs text entry, `GtkRecentInfo`, `g_file_trash()`, the playhead overlay, ruler height |
 
 Related:

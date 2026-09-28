@@ -79,19 +79,23 @@ permissions · [Getting started](docs/user/getting-started.md)
 - Proxies for 4K and variable-frame-rate phone footage; renders always use
   the originals. → [Proxies](docs/user/importing-media.md#proxies-smooth-editing-of-4k-and-phone-footage)
 - Mixed frame rates on one timeline; change the project rate at any time.
+- Any background colour under the clips, in the preview and in renders.
 - Missing media opens anyway and can be relinked in one step.
 - Autosave, crash recovery, save backups, and recent projects.
   → [Projects and saving](docs/user/projects-and-saving.md)
 - Markers, named tracks and clips, locked and hidden tracks, and a loop in
   and out.
 - Preview scale (Auto, Full, Half, Quarter) for smooth playback on any
-  machine.
+  machine, and GPU acceleration: tracks composited and clips placed on the
+  graphics card, with hardware video decoding, where a check at startup
+  says it works.
 - Built-in Help with every control and shortcut, release notes, and
   one-click diagnostics for bug reports.
   → [Settings and Help](docs/user/settings-and-help.md)
 - Project files are plain MLT XML, so `melt` can play them.
 
-**Not yet:** effects and colour, titles, formats other than MP4, named
+**Not yet:** effects and colour, a title template gallery (titles themselves
+are an [add-on](docs/user/installing.md#add-ons)), formats other than MP4, named
 markers, rebindable shortcuts. → [Known limitations](docs/user/troubleshooting.md#known-limitations)
 
 ## Roadmap

@@ -106,7 +106,7 @@ app_tokens_h = custom_target(
 # hint and action tables against each other (test_ui_hints.cpp).
 app_window_lib = static_library(
   'ustudio_app_window',
-  files('action_registry.cpp', 'app_window.cpp', 'dropins_page.cpp', 'help_dialog.cpp', 'import_queue.cpp', 'missing_media.cpp', 'proxies.cpp', 'proxy_launcher.cpp', 'proxy_queue.cpp', 'project_loader.cpp', 'render_profiles_page.cpp', 'save_queue.cpp', 'shell_hosts.cpp', 'transform_actions.cpp', 'transform_overlay.cpp', 'stall_monitor.cpp', 'ui_hints.cpp', 'timeline/timeline_renderer.cpp',
+  files('action_registry.cpp', 'app_window.cpp', 'dropins_page.cpp', 'help_dialog.cpp', 'import_queue.cpp', 'missing_media.cpp', 'proxies.cpp', 'proxy_launcher.cpp', 'gpu_acceleration.cpp', 'gpu_ui.cpp', 'proxy_queue.cpp', 'project_loader.cpp', 'render_profiles_page.cpp', 'save_queue.cpp', 'shell_hosts.cpp', 'transform_actions.cpp', 'transform_overlay.cpp', 'stall_monitor.cpp', 'ui_hints.cpp', 'timeline/timeline_renderer.cpp',
         'timeline/us_timeline_view.cpp'),
   app_tokens_h,
   dependencies: [libustudio_engine_dep, libustudio_dropins_dep, app_timeline_dep, app_autosave_dep, app_settings_dep, app_portal_dep, app_render_queue_dep, libustudio_platform_dep, gtk4_dep, adwaita_dep, gio_dep],
@@ -146,6 +146,10 @@ executable(
   app_resources,
   dependencies: [app_window_dep, drop_ins_dep],
   export_dynamic: dropin_any_module,
+  # A drop-in module resolves the core, engine and drop-in symbols it calls
+  # against this program, including ones the editor never uses itself
+  # (doc 15, step 0's REVIEW note).
+  link_whole: dropin_any_module ? [libustudio_core, libustudio_engine, libustudio_dropins] : [],
   install: true,
   cpp_args: ['-DUSTUDIO_VERSION="' + meson.project_version() + '"'],
 )

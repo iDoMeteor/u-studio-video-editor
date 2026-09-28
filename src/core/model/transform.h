@@ -4,6 +4,7 @@
 // project pixels, for the engine (its affine rect) and the preview handles.
 // Pure; no MLT.
 
+#include "core/model/native_filter.h"
 #include "core/model/types.h"
 
 #include <string>
@@ -39,6 +40,14 @@ Transform explicitTransform(const Transform &t, int sourceWidth, int sourceHeigh
 // fill=1) scales such a picture to the frame by itself.
 bool isIdentity(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile);
 
+// True when the track compositor (composite, fill=1, centred) places `t`'s
+// picture by itself whatever its aspect: a plain Fit, uncropped, unflipped,
+// unrotated. EngineSync and the writer then skip transformFilters() for a
+// clip's own cuts (the affine filter costs a frame-sized canvas, 16-18 ms at
+// 1080p), but not for a dissolve's cuts: luma mixes both at one size, so a
+// picture of another aspect there must arrive already frame-sized.
+bool compositorFits(const Transform &t);
+
 // True when a clip of the active sequence has a transform other than the
 // default Fit: the engine then plays Auto preview scale at Half (each
 // transformed 1080p track costs 16-22 ms a frame at Full; doc 19, MT4). A
@@ -53,13 +62,17 @@ bool hasTransformedClip(const Project &project);
 // graph, so a saved project plays in melt as in the editor. `outputScale`
 // is output pixels per project pixel (a scaled preview); `sourceScale` is
 // the playing file's pixels per source pixel (a proxy is smaller).
-struct NativeFilter
-{
-    std::string service;
-    std::vector<std::pair<std::string, std::string>> properties;
-};
 std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, int sourceHeight,
                                            const Profile &profile, double outputScale = 1.0, double sourceScale = 1.0);
+
+// The same transform for the GPU pipeline (ADR-019 point 5): the mirrors
+// become movit.mirror (horizontal) and movit.flip (vertical), and the
+// placement movit.rect, since no movit service rotates. A rotated transform
+// keeps transformFilters()' CPU chain whole (one CPU island in the GPU
+// graph, not two). Crop stays the core `crop` filter.
+std::vector<NativeFilter> gpuTransformFilters(const Transform &t, int sourceWidth, int sourceHeight,
+                                              const Profile &profile, double outputScale = 1.0,
+                                              double sourceScale = 1.0);
 
 // Transform's check() rules: sizes positive when placed explicitly,
 // crops non-negative, every value finite. "" when fine.

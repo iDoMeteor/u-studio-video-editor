@@ -51,6 +51,28 @@ measurements: doc 05, "Preview scale". Leave the `avformat` producer's
 `threads` unset: unset already decodes with about one thread per CPU, and
 explicit values measured no better.
 
+**The loop wraps where the frame is drained, so it overshoots by one
+frame.** `drainSlot()` (engine thread) sees a frame at or past loop-out,
+then seeks to loop-in and purges the queue: doc 05's one frame, measured
+16 for an out point of 15 at load 9 and with 24 busy loops on 16 cores.
+A starved engine thread lets more frames show before the wrap (over 20
+once, while ASan and two full suites ran). Wrapping on the consumer
+thread would cut that, but it would mean seeking the tractor from the
+consumer thread, which ADR-016 rules out. kdenlive wraps after the same
+kind of hop, on its GUI thread (2026-09-27).
+
+**Memory on the CPU path settles; it doesn't leak (2026-09-27).** Three
+transformed 1080p tracks at Half: RSS climbs about 35 MB in the first
+minute (decoders, frame queues, malloc's per-thread arenas), then stays
+within 370–380 MB for the next four minutes. The first consumer restart
+(an edit while playing) adds about 60 MB once. After that, 200 edits and
+135 restarts left it flat at 420 MB. A one-minute soak under ASan/LSan
+(the `just asan` suppressions) reports no leak. The "20 MB/min" seen
+earlier compared the first report with RSS read after `shutdown()`, which
+stopping the consumer raises by about 50 MB. `playback_soak` now reports
+growth after warm-up and the post-shutdown figure separately.
+`MALLOC_ARENA_MAX=2` makes it worse (a slow creep), so don't set it.
+
 **SDL signal handlers are disabled.** MLT's `sdl2_audio` consumer
 initialises SDL, and by default SDL turns SIGINT/SIGTERM into an
 `SDL_QUIT` event that nothing in a GTK app reads, so `kill`, Ctrl+C and
@@ -113,7 +135,13 @@ consumer stops before `Factory::close()`.
   against the old one when the swap happened. Paying for a device
   close/reopen on every edit is the actual cost of the safe version;
   see `tests/engine/test_playback_controller.cpp`'s regression test for
-  the exact scenario.
+  the exact scenario. Even the stop/restart path has a residual race:
+  once in a full ASan suite run (2026-09-27; 0 of 10 isolated repeats)
+  that test hit a SEGV in libmlt's `on_consumer_frame_show` →
+  `mlt_frame_get_position` on the `sdl2_audio` consumer thread right
+  after a restart. The frame the event hands over is already freed.
+  That is a candidate for the MLT upstream list, not something our code
+  can fix.
 - **Exactly one `AppWindow` (and therefore one `PlaybackController`) for
   the whole process, enforced, not just assumed.** `G_APPLICATION_DEFAULT_
   FLAGS` makes this app single-instance, so GApplication redelivers the

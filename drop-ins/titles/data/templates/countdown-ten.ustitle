@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Ten-second countdown" category="Countdowns" width="1920" height="1080" fps="30/1">
+  <timing intro="6" hold="300" outro="6"/>
+  <layer id="ring" kind="shape" shape="ellipse" x="760" y="340" w="400" h="400">
+    <fill color="#1b1230" opacity="0.9"/>
+    <stroke color="#ff2bd6" width="12"/>
+    <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="time" kind="text" x="760" y="430" w="400" fit="shrink" align="center">
+    <text>{{countdown:10}}</text>
+    <font family="Anton" weight="700" size="190"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

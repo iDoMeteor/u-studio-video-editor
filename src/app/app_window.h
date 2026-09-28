@@ -29,6 +29,7 @@
 #include "engine/thumbnail_cache.h"
 #include "engine/waveform_cache.h"
 #include "import_queue.h"
+#include "gpu_acceleration.h"
 #include "proxy_queue.h"
 #include "project_loader.h"
 #include "save_queue.h"
@@ -127,6 +128,9 @@ class AppWindow : public ShellHost
     void addTimelineOverlay(timeline::TimelineOverlayProvider *provider) override;
     void redrawTimeline() override;
     void addImportHandler(ImportHandler handler) override;
+    void assetChangedOnDisk(core::AssetId asset) override;
+    std::string projectFolder() const override;
+    void addHeaderButton(GtkWidget *button) override;
 
     GtkWidget *widget() const
     {
@@ -243,6 +247,12 @@ class AppWindow : public ShellHost
     void offerProxiesAfterImport();
     std::unique_ptr<ProxyQueue> m_proxyQueue;
     GtkWidget *m_proxyToggle = nullptr;
+    // ADR-019 (gpu_ui.cpp): the GPU pipeline, and the open Settings dialog's
+    // GPU row (a weak pointer: null once the dialog closes).
+    void setUpGpu();
+    void refreshGpuSettingsRow();
+    std::unique_ptr<GpuAcceleration> m_gpu;
+    GtkWidget *m_gpuSettingsRow = nullptr;
     GtkWidget *m_createProxyButton = nullptr;
     GtkWidget *m_conformProxyButton = nullptr;
     GtkWidget *m_removeProxyButton = nullptr;
@@ -699,6 +709,14 @@ class AppWindow : public ShellHost
     // set: they're modifier combos, not bare keys a text entry would ever
     // want to consume itself.
     void setTransportActionsEnabled(bool enabled);
+    // The same guard for every text field in the window (dialog entries,
+    // spin buttons, drop-in inspector pages): follows the focus widget.
+    void onFocusWidgetChanged();
+    void applyTransportActionsEnabled();
+    // A press on the timeline or the preview takes the keys back from a
+    // text field: neither is focusable, so without this an inspector
+    // entry would keep them off until the user tabbed out of it.
+    void addTextFocusRelease(GtkWidget *widget);
 
     static void importClickedTrampoline(GtkButton *button, gpointer userData);
     static void fileOpenedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
@@ -729,7 +747,7 @@ class AppWindow : public ShellHost
     static gboolean mediaBrowserFileDropTrampoline(GtkDropTarget *target, const GValue *value, double x, double y,
                                                    gpointer userData);
     static void mediaBrowserRowActivatedTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
-                                                    gpointer userData);
+                                                   gpointer userData);
     static void renderClickedTrampoline(GtkButton *button, gpointer userData);
     static void renderFinishedTrampoline(GObject *sourceObject, GAsyncResult *result, gpointer userData);
     static void renderButtonRightClickTrampoline(GtkGestureClick *gesture, int nPress, double x, double y,
@@ -906,8 +924,8 @@ class AppWindow : public ShellHost
     // is one widget a right-click gesture and a drag source attach to, and
     // lays out its cells at fixed widths so columns align across rows.
     GtkWidget *m_mediaBrowserPanel = nullptr;
-    GtkWidget *m_mediaBrowserList = nullptr; // a GtkListView (M4 D)
-    GtkStringList *m_mediaIds = nullptr;     // its items: asset ids, in bin order
+    GtkWidget *m_mediaBrowserList = nullptr;                   // a GtkListView (M4 D)
+    GtkStringList *m_mediaIds = nullptr;                       // its items: asset ids, in bin order
     std::vector<std::pair<uint64_t, std::string>> m_mediaRows; // each row's id and what it shows
     std::set<uint64_t> m_mediaAwaitingThumbnail;
     std::unordered_map<uint64_t, GtkWidget *> m_mediaBoundThumbs; // bound rows' pictures, by asset
@@ -1097,12 +1115,23 @@ class AppWindow : public ShellHost
     GtkPopover *m_inlineNameEditPopover = nullptr;
     GtkEntry *m_inlineNameEditEntry = nullptr;
     InlineEditKind m_inlineEditKind = InlineEditKind::None;
-    int m_inlineEditTrackRow = -1;      // valid when m_inlineEditKind == Track
-    core::ClipId m_inlineEditClipId;    // valid when m_inlineEditKind == Clip
+    int m_inlineEditTrackRow = -1;   // valid when m_inlineEditKind == Track
+    core::ClipId m_inlineEditClipId; // valid when m_inlineEditKind == Clip
     // Set by Escape (onInlineNameEditKeyPressed) just before popping the
     // popover down, so the "closed" signal that follows knows to discard
     // the entry's text instead of committing it.
     bool m_inlineEditCancelled = false;
+    // Why the single-key actions are off: the inline editor is open, or a
+    // text field has focus. Either one keeps them off.
+    bool m_inlineEditOpen = false;
+    bool m_textHasFocus = false;
+    bool m_transportActionsEnabled = true;
+    // Drop-ins' actions with a shortcut a text field would type (addActions()):
+    // switched with the editor's own single keys.
+    std::vector<std::string> m_typingKeyActions;
+    // The header's Settings/Help group: drop-ins' buttons go before Settings.
+    GtkWidget *m_appHeaderGroup = nullptr;
+    GtkWidget *m_settingsButton = nullptr;
 
     bool m_suppressSeekSignal = false;
 
@@ -1193,6 +1222,8 @@ class AppWindow : public ShellHost
     void onWindowActiveChanged();
     static gboolean autosaveHeartbeatTrampoline(gpointer userData);
     static void windowActiveChangedTrampoline(GObject *object, GParamSpec *pspec, gpointer userData);
+    static void focusWidgetChangedTrampoline(GObject *object, GParamSpec *pspec, gpointer userData);
+    static void textFocusReleaseTrampoline(GtkGestureClick *gesture, int nPress, double x, double y, gpointer userData);
     static gboolean closeRequestTrampoline(GtkWindow *window, gpointer userData);
 };
 

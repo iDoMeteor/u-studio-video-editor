@@ -96,13 +96,20 @@ class ShellHost
     virtual void addInspectorPage(const InspectorPage &page) = 0;
 
     // Actions ("win.<name>") with default shortcuts, listed in Help under
-    // their category (action_registry.h's contributeActions()).
+    // their category (action_registry.h's contributeActions()). A shortcut
+    // without Ctrl, Alt or Super (Shift+T) is off while a text field has
+    // focus, like the editor's own single keys.
     virtual void addActions(const std::vector<ActionSpec> &specs, gpointer target) = 0;
     // Tooltips and Help's Controls tab (ui_hints.h's registerHints()), and
     // a widget's tooltip from them. Through the host, like everything
     // here, so a module calls the shell only through the vtable.
     virtual void addHints(const std::vector<HintSpec> &hints) = 0;
     virtual void setTooltip(GtkWidget *widget, const char *hintId) = 0;
+
+    // Header bar: `button` goes between Render… and Settings, after any
+    // added before it. A drop-in that isn't loaded adds nothing, so the
+    // header has no gap for it. Use a symbolic icon and setTooltip().
+    virtual void addHeaderButton(GtkWidget *button) = 0;
 
     // Preview: `overlay` is stacked over the preview picture, the same
     // size; previewMapping() places the frame inside it. The first overlay
@@ -117,6 +124,16 @@ class ShellHost
 
     // Import: files by extension (ImportHandler).
     virtual void addImportHandler(ImportHandler handler) = 0;
+    // A file an asset plays changed on disk (a drop-in watching its own
+    // files: titles' .ustitle). The asset's fingerprint is updated and the
+    // engine rebuilds what plays it, as when missing media is found again.
+    // Not an edit: no undo step, and the project isn't marked changed.
+    virtual void assetChangedOnDisk(core::AssetId asset) = 0;
+
+    // Where files made for this project go (titles' New Title): the saved
+    // project's folder, else Settings › Locations' default project folder
+    // when it exists, else "".
+    virtual std::string projectFolder() const = 0;
 };
 
 } // namespace ustudio::app

@@ -4,6 +4,176 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+
+## 0.69.1-beta.1
+
+- U Stu Share uses the editor's Unicorn Tears styling.
+
+## 0.69.0-beta.1
+
+- U Stu Share: a separate helper to browse, install and publish template
+  packs online (the catalogue isn't online yet). U Stu itself stays
+  offline.
+
+## 0.68.0-beta.1
+
+- Template packs: save templates as a .zip or .tar.gz and open packs from
+  others in U Stu Titles' gallery; each is checked before it's installed.
+
+## 0.67.1-beta.1
+
+- The editor opens maximised, and the Render button is a little narrower
+  ("Render 42%" while it runs), so the header's project title has room.
+
+## 0.67.0-beta.1
+
+- The header's Help button is a plain question mark, and with the Titles
+  add-on a T button (between Render and Settings) opens U Stu Titles.
+
+## 0.66.0-beta.1
+
+- Title templates: New Title (Shift+T) puts a title at the playhead and
+  opens U Stu Titles with a gallery of 29 built-in designs; save your own
+  as templates, and rename, duplicate or delete them in My Templates.
+
+## 0.65.1-beta.1
+
+- Titles come as a Flatpak add-on, installed next to the app: import
+  titles, fill their fields, edit them in U Stu Titles, bake them and
+  export them for OBS.
+
+## 0.65.0-beta.1
+
+- Export a title clip on its own from the editor (Title page › Export on
+  its own): with transparency for OBS, with the clip's fields and length.
+
+## 0.64.1-beta.1
+
+- Video with transparency (ProRes 4444, WebM with alpha, QuickTime
+  Animation) has clean edges over other tracks, like PNGs and titles; such
+  video and transparent image sequences are no longer offered proxies,
+  which would lose the transparency.
+
+## 0.64.0-beta.1
+
+- Bake Title: turn a title clip into a ProRes 4444 file with transparency
+  that any program can play, in one undoable step (Title page › Bake…).
+
+## 0.63.0-beta.1
+
+- Exports started while GPU acceleration is on render on the graphics card
+  too, so soft edges and dissolves look exactly as in the preview; turning
+  it off mid-export doesn't disturb that export.
+
+## 0.62.0-beta.1
+
+- The inspector has a Title page: select a title clip and fill in its
+  fields (a guest's name and role), each clip its own, one title file for
+  all of them.
+
+## 0.61.1-beta.1
+
+- Exporting with GPU acceleration on no longer closes the editor.
+
+## 0.61.0-beta.1
+
+- Titles can show live text: `{{timecode}}`, `{{clip_time}}`,
+  `{{countdown:mm:ss}}` and `{{date}}` update as the video plays.
+- Fixed: a title clip that didn't start at the beginning of the timeline
+  played its intro and outro at the wrong moments.
+
+## 0.60.0-beta.1
+
+- GPU acceleration (Settings › Performance › Hardware, on by default where a
+  startup check passes): the preview composites tracks and places clips on
+  the graphics card, so several moved or scaled 1080p tracks play smoothly
+  at full size; soft edges and dissolves blend in linear light. Hardware
+  video decoding is used alongside it. Exports still use the processor.
+
+## 0.59.1-beta.1
+
+- Single-key shortcuts (Space, J/K/L, X, Delete, letters) no longer fire
+  while you type in any text box in the editor window, such as a field in
+  Settings; a click on the timeline or preview gives them back.
+
+## 0.59.0-beta.1
+
+- U Stu Titles animates: an animation strip with the intro, hold and outro
+  (drag to retime, click to scrub, Space to play), 17 ready-made
+  behaviours to add from a drawer of live thumbnails (fade, rise, pop,
+  typewriter, word by word, scramble, wipe, kinetic stack, float, shimmer,
+  glow and more), and keyframes on position, rotation, scale, opacity and
+  blur.
+## 0.58.1-beta.1
+
+- Transparent pictures (PNG stills, titles, rotated or scaled clips) no
+  longer get dark, coloured edges over video, in the preview and in renders.
+- A still image or image sequence with its video turned off no longer shows.
+
+## 0.58.0-beta.1
+
+- U Stu Titles: Export (Ctrl+E) a title on its own for OBS and other apps:
+  ProRes 4444, WebM VP9 or QuickTime Animation with a transparent
+  background, a PNG sequence, or H.264 on its background.
+
+## 0.57.0-beta.1
+
+- U Stu Titles: double-click text to type on the canvas; picture (PNG)
+  layers. In the editor, double-click a title clip (or Edit Title) to open
+  it in U Stu Titles over the video at the playhead.
+
+## 0.56.0-beta.1
+
+- Project background colour: click the title in the header bar to pick the
+  colour shown wherever no clip covers the frame, in the preview and in
+  renders (black by default). Saved with the project; one undo step.
+
+## 0.55.0-beta.1
+
+- U Stu Titles: a layers list (show, hide, lock, restack by dragging) and
+  an inspector for text, fonts, fills and gradients, outlines, shadows and
+  exact positions, with the title's own background and timing when nothing
+  is selected. The Unicorn Tears colours, gradients and fonts are one
+  click away, and Apply Brand restyles a whole title.
+
+## 0.54.0-beta.2
+
+- Clips of another shape than the project (4:3, phone video) play much
+  faster at their default Fit.
+- Exporting at another size (e.g. 720p from a 1080p project) places moved,
+  scaled and fitted pictures correctly; they used to run off to the right.
+
+## 0.54.0-beta.1
+
+- U Stu Titles, the title designer (with the Titles drop-in; early): add
+  text and shapes, move them with snapping to the centre, safe areas and
+  other layers, resize, undo, save and open. Design over a checkerboard,
+  any colour or a picture. A title can carry its own background colour or
+  gradient, or none for a transparent overlay.
+
+## 0.53.0-beta.1
+
+- Titles, with the Titles drop-in (not in the packages yet): `.ustitle`
+  files import as title clips that play over the video with transparency,
+  fit any clip length (only the hold stretches), and update in the editor
+  within a second when the file is saved.
+
+## 0.52.0-beta.2
+
+- Colours are right: BT.709 footage (most HD video) was shown and exported
+  with slightly wrong colours (pure red came out 233 of 255, cyan picked up
+  red), because the graph's black background labelled every frame BT.601.
+
+## 0.52.0-beta.1
+
+- Image sequences can be relinked (pick any of their images, or search a
+  folder) and get proxies.
+
+## 0.51.0-beta.3
+
+- Open Log Folder opens the folder the first time too, with this
+  session's log selected.
+
 ## 0.51.0-beta.2
 
 - The app is now called U Stu Video Editor (window title, Help, the app

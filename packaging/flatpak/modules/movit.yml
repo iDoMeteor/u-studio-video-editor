@@ -1,0 +1,29 @@
+# movit: GPU (OpenGL) image processing behind MLT's movit module, for the
+# VE GPU team's work. Owner-approved bundled dependency (2026-09-27).
+#
+# 1.7.2 differs from Fedora 44's 1.7.1 only in test-suite compatibility
+# (its NEWS), so the library matches the development machine's.
+# Its dependencies come from the GNOME 51 runtime: FFTW 3.3.11 (libfftw3),
+# libepoxy and GL (the GL extension, through --device=dri); Eigen is a
+# build-time module (eigen.yml). SDL2 is only needed by configure.
+#
+# Inert until the app asks for GLSL: MLT creates movit.* filters only
+# once a glsl.manager filter exists (filter_glsl_manager.cpp,
+# GlslManager::get_instance()), so the loader's movit.* normalisers fall
+# back to crop/swscale/resize, as without this module.
+name: movit
+config-opts:
+  - --disable-static
+# The default target also builds the test suite, which wants Google Test
+# from /usr/src/gtest; `install` only needs the library (Makefile.in).
+make-args:
+  - libmovit.la
+sources:
+  - type: archive
+    url: https://movit.sesse.net/movit-1.7.2.tar.gz
+    sha256: 00ac1f8e46c2d3e38c75cbb7a1af0a615751c158c611cb70053094b65ecfe8d5
+    x-checker-data:
+      type: html
+      url: https://movit.sesse.net/
+      version-pattern: movit-([\d.]+)\.tar\.gz
+      url-template: https://movit.sesse.net/movit-$version.tar.gz

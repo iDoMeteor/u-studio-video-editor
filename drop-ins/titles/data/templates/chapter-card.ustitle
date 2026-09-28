@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Chapter card" category="Cards" width="1920" height="1080" fps="30/1">
+  <timing intro="24" hold="90" outro="18"/>
+  <background color="#120c1f"/>
+  <field name="number" label="Number" default="1"/>
+  <field name="title" label="Title" default="The beginning"/>
+  <layer id="chapter" kind="text" x="360" y="360" w="1200" fit="shrink" align="center">
+    <text>CHAPTER {{number}}</text>
+    <font family="Space Grotesk" weight="700" size="60" tracking="0.2"/>
+    <fill color="#19e3ff"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="rule" kind="shape" shape="rect" x="760" y="468" w="400" h="6">
+    <fill gradient="linear" from="#ff2bd6" via="#9d4eff" to="#19e3ff" angle="0"/>
+    <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="title" kind="text" x="200" y="500" w="1520" fit="shrink" align="center">
+    <text>{{title}}</text>
+    <font family="Anton" weight="700" size="140"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

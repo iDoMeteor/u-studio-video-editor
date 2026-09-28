@@ -26,6 +26,22 @@ Set the preview scale to **Half** or **Quarter**, or make a
 [proxy](importing-media.md#proxies-smooth-editing-of-4k-and-phone-footage).
 A conformed proxy also fixes phone recordings with a variable frame rate.
 
+### Playback looks wrong or glitches, or GPU acceleration turned itself off
+
+Turn off **GPU acceleration** (Settings › Performance › Hardware): playback
+then runs on the processor. If that fixes it, your graphics driver is the
+cause; please report it with **Copy Diagnostics** from Help › About, which
+includes what the GPU row says. If U Stu turned GPU acceleration off by
+itself, it closed unexpectedly while using the graphics card last time;
+turn it back on to try again.
+
+### Memory keeps growing during long playback with GPU acceleration on
+
+Native builds from Fedora or other distributions use their own copy of the
+MLT library, which leaks a little memory for every frame played on the
+graphics card (about 10 MB a minute). The Flatpak will carry a fix. If a long
+session gets slow, save and restart U Stu, or turn GPU acceleration off.
+
 ### No sound
 
 - Check the transport volume and that the track isn't muted (its name
@@ -61,10 +77,11 @@ a normal terminal, or run `env -u XDG_DATA_HOME flatpak install …`.
 
 These are planned; see the [roadmap](../../README.md#roadmap).
 
-- No effects, colour correction or titles yet. They're coming as drop-ins.
+- No effects or colour correction yet. They're coming as a drop-in.
+- Titles (the Titles drop-in, not yet in the packages) have no template
+  gallery yet, and a moved title can't be relinked yet ([Titles](titles.md)).
 - Renders are MP4 (H.264 + AAC) only.
 - Markers can't be named, and the loop region isn't drawn on the timeline.
 - Keyboard shortcuts can't be changed.
-- Image sequences need their own command (Import Image Sequence…), and a
-  moved sequence can't be relinked: import it again.
+- Image sequences need their own command (Import Image Sequence…).
 - Linux only for now. Windows is planned later; macOS isn't planned.

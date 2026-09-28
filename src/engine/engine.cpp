@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "core/trace.h"
 #include "engine/engine_sync.h"
+#include "engine/gpu_session.h"
 #include "engine/playback_controller.h"
 
 #include <glib.h>
@@ -83,6 +84,45 @@ class Engine::Thread
 
     std::unique_ptr<EngineSync> sync;
     std::unique_ptr<PlaybackController> controller;
+    std::shared_ptr<GpuSession> gpu; // ADR-019; null on the CPU pipeline (an export may hold it too)
+
+    // ADR-019. On: the session first (movit's normalisers from then on),
+    // the render-thread hooks while no consumer has them, then the GPU graph,
+    // whose rebuild restarts the consumer with them. Off: the consumer
+    // stops first (its render thread releases the context), then the hooks
+    // go, the session ends and the CPU graph is built.
+    void enableGpu(const std::string &hardwareDecodeApi)
+    {
+        if (gpu)
+            return;
+        std::string error;
+        gpu = GpuSession::acquire(error);
+        if (!gpu) {
+            Log::warn("[gpu] staying on the CPU pipeline: " + error);
+            postGpu(false, error);
+            return;
+        }
+        controller->setRenderThreadHooks(
+            [this] {
+                if (!gpu->renderThreadStarted())
+                    fallBackToCpu("the render thread couldn't use the GL context");
+            },
+            [this] { gpu->renderThreadStopped(); });
+        gpu->setHardwareDecodeApi(hardwareDecodeApi);
+        sync->setPipeline(EngineSync::Pipeline::Gpu, hardwareDecodeApi);
+        postGpu(true, gpu->renderer());
+    }
+
+    void disableGpu(const std::string &why)
+    {
+        if (!gpu)
+            return;
+        controller->shutdown();
+        controller->setRenderThreadHooks({}, {});
+        gpu.reset();
+        sync->setPipeline(EngineSync::Pipeline::Cpu, {}); // rebuilds: `rebuilt` restarts the consumer
+        postGpu(false, why);
+    }
 
   private:
     void run(std::shared_ptr<const core::Project> project, PreviewScale scale)
@@ -90,7 +130,8 @@ class Engine::Thread
         pthread_setname_np(pthread_self(), "ustudio-engine");
         {
             core::trace::Scope trace("engine: start");
-            sync = std::make_unique<EngineSync>(std::move(project), scale);
+            // Its frames are read only by the consumer, at the profile's size.
+            sync = std::make_unique<EngineSync>(std::move(project), scale, EngineSync::FrameReads::ProfileSize);
             controller = std::make_unique<PlaybackController>();
             // The consumer thread's frame hand-off lands here, not on the
             // main thread: its loop wrap seeks the tractor, which only this
@@ -139,6 +180,7 @@ class Engine::Thread
                 controller->shutdown();
                 controller.reset();
                 sync.reset();
+                gpu.reset(); // after the graph: its producers were opened under it
                 return;
             }
             // The stall monitor only watches the main thread; this is the
@@ -160,6 +202,24 @@ class Engine::Thread
             else if (m_rebuilt)
                 postState(m_lastSeq);
         }
+    }
+
+    // Render thread: queues the switch for the engine thread.
+    void fallBackToCpu(std::string why)
+    {
+        Log::error("[gpu] falling back to the CPU pipeline: " + why);
+        Entry entry;
+        entry.command = [why = std::move(why)](Thread &t) { t.disableGpu(why); };
+        entry.seq = kInternal;
+        enqueue(std::move(entry));
+    }
+
+    void postGpu(bool on, std::string detail)
+    {
+        MainThreadDispatcher::post(m_ownerToken, [owner = m_owner, on, detail = std::move(detail)] {
+            owner->m_gpuPipeline = on;
+            owner->gpuChanged.emit(on, detail);
+        });
     }
 
     void postState(uint64_t seq)
@@ -286,6 +346,25 @@ void Engine::reset(std::shared_ptr<const core::Project> project)
 void Engine::setUseProxies(bool use)
 {
     send([use](Thread &t) { t.sync->setUseProxies(use); });
+}
+
+void Engine::setHardwareDecode(std::string api)
+{
+    send([api = std::move(api)](Thread &t) {
+        if (t.gpu)
+            t.gpu->setHardwareDecodeApi(api); // exports follow the preview
+        t.sync->setHardwareDecode(api);
+    });
+}
+
+void Engine::setGpuPipeline(bool on, std::string hardwareDecodeApi)
+{
+    send([on, api = std::move(hardwareDecodeApi)](Thread &t) {
+        if (on)
+            t.enableGpu(api);
+        else
+            t.disableGpu({});
+    });
 }
 
 void Engine::setPreviewScale(PreviewScale scale)

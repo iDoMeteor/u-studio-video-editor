@@ -1,0 +1,115 @@
+# Titles drop-in
+
+[Docs home](../../docs/README.md) › [Developer docs](../../docs/developer/README.md) › Titles drop-in
+
+Animated text and lower thirds from `.ustitle` files: the plan is
+[doc 16](../../docs/plans/v2/16-titles-tool.md), the decisions are
+[ADR-012](../../docs/plans/v2/adr/012-titles-mlt-module.md) (our own
+Pango/Cairo renderer behind an MLT producer) and
+[ADR-013](../../docs/plans/v2/adr/013-effects-and-titles-as-drop-in-modules.md)
+(one self-contained folder; nothing in `src/` includes from here).
+
+Status: T1 done. `.ustitle` files import as title clips, play with alpha
+through the `ustudio_title` MLT producer, fit any clip length, reload when
+the file changes, and render the same in `u-studio-render`. T2 (the
+`u-studio-titles` designer) in progress: T2a (canvas, move and resize with
+snapping, undo, save and open, backgrounds), T2b (layers list,
+inspector, brand kit), T2c (typing on the canvas, pictures, Edit Title
+from the editor, the smoke test `tools/titles-smoke/`) and T2d (export with
+alpha or flattened, `u-studio-render --title-export`) are in: T2 is done.
+T3 (animation: behaviours, text animators, loops, keyframes, the animation
+strip and the behaviour drawer) is done. Next: T4, templates.
+
+## Layout
+
+| Folder | What | May use |
+|---|---|---|
+| `core/` | `TitleDocument`, the `.ustitle` reader and writer, elastic timing, keyframe evaluation, `{{field}}` substitution; the designer's editing (`title_edit`: operations and snapshot undo), `snapping` (guides, safe areas, hit testing) and `brand_kit` (parsing a kit, Apply Brand) |
+| `data/` | `brand.xml`: the Unicorn Tears kit (values copied from the design system; compiled into the app); the designer's desktop entry, MIME type and AppStream drafts | — | std, libxml2, `src/core` (keyframes are `core::Keyframe`, evaluated by `core::easedValue()`) |
+| `render/` | `renderTitle()`: a title at a moment into premultiplied ARGB32, and `toStraightRgba()` for MLT | Pango, PangoCairo, Cairo, fontconfig |
+| `app/` | `u-studio-titles`, the designer: the window, the canvas (a GtkWidget drawn with GSK, rendering through a worker thread), the layers list, the inspector, view settings | GTK4, libadwaita, `core/`, `render/`; never MLT (checked by the build) |
+| `mltmodule/` | `libmltustudio.so`: the `ustudio_title` MLT producer (`resource`, `length`, `field.<name>`). Self-contained, exports only `mlt_register` | MLT's C API, `core/`, `render/` |
+| `engine/` | The engine extension (IP3: a producer per title clip), `u-studio-render --title-frames` and `--title-export` (IP6), and the designer's backdrop (the frame without the title, on a worker thread) | `src/engine`, mlt++ |
+| `editor/` | The editor window's side (IP5): the `.ustitle` import handler, the file watch, Edit Title (an action and a double-click on a title clip) and the designer's launcher | `src/app/shell_host.h`, GIO |
+| `register.cpp` | The drop-in's describe function; IP4 contributes the module's directory | the drop-in host API |
+| `tests/` | `titles-core`, `titles-render`, `titles-edit`, `titles-worker`, `titles-engine`, `titles-shell` | doctest |
+
+## Building and testing
+
+```sh
+meson configure builddir -Ddropin_titles=builtin   # or module
+meson compile -C builddir
+meson test -C builddir titles-core titles-render titles-edit titles-worker titles-engine titles-shell
+./builddir/drop-ins/titles/app/u-studio-titles [FILE.ustitle] [--backdrop PICTURE]
+```
+
+The drop-in's tests build only when the option isn't `disabled`. Both
+`builtin` and `module` must pass the whole suite (ADR-013):
+`just dropins-builtin` and `just dropins-module`.
+
+Installed, the MLT module goes to `$libdir/u-studio/mlt/` and the drop-in
+module (in `module` mode) to `$libdir/u-studio/drop-ins/`. Run from a build
+directory, the drop-in uses the build's own `libmltustudio` when nothing is
+installed. `u-studio-render --title-frames <project> <frame>...` prints a
+hash of each frame's pixels, which is how the tests compare the render tool
+with the editor.
+
+## The `.ustitle` format (version 1)
+
+XML, UTF-8. Canvas pixels and title frames throughout. Layers draw in file
+order, first at the bottom.
+
+```xml
+<ustitle version="1" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="60" outro="15" hold-mode="elastic"/>
+  <field name="name" label="Name" default="Jay Doe"/>
+  <layer id="bar" kind="shape" shape="rounded-rect" x="96" y="820" w="620" h="140" radius="12">
+    <fill color="#1b1230" opacity="0.92"/>
+    <stroke color="#19e3ff" width="2" opacity="0.6"/>
+    <animate property="x">
+      <key at="0" value="-700" easing="cubic_out"/>
+      <key at="14" value="96"/>
+      <key at="0" zone="outro" value="96" easing="cubic_in"/>
+      <key at="15" zone="outro" value="-700"/>
+    </animate>
+  </layer>
+  <layer id="name" kind="text" x="128" y="838" w="560" fit="shrink" align="left">
+    <text>{{name}}</text>
+    <font family="Space Grotesk" weight="700" size="64" tracking="0.02" line-height="1"/>
+    <fill gradient="linear" from="#ff3cc7" to="#19e3ff" angle="0"/>
+    <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
+  </layer>
+</ustitle>
+```
+
+| Element | Attributes |
+|---|---|
+| `<ustitle>` | `version` (required), `width`, `height` (16–8192), `fps` (`num/den`) |
+| `<timing>` | `intro`, `hold`, `outro` in title frames; `hold-mode` is always `elastic` |
+| `<background>` | As `<fill>`, behind every layer. Absent (the default): transparent, for overlays |
+| `<field>` | `name` (no braces), `label`, `default`; the text says `{{name}}` |
+| `<layer>` | `id`, `kind` (`text`, `shape`, `image`), `x`, `y`, `w`, `h`, `opacity`, `scale`, `rotation` (degrees, about the box's centre), `visible` and `locked` (`0`/`1`); text: `align` (`left`, `center`, `right`), `fit` (`none`, `wrap`, `shrink`); shape: `shape` (`rect`, `rounded-rect`, `ellipse`, `line`), `radius`; image: `src` (a PNG, relative to the title's folder or absolute; with `w` or `h` 0 that side keeps the picture's aspect) |
+| `<text>` | The text, plain (never Pango markup) |
+| `<font>` | `family` (a generic fallback is always added), `weight` (100–1000), `size` (px), `style="italic"`, `tracking` (em), `line-height` (factor) |
+| `<fill>` | `color`, or `gradient="linear"` / `"radial"` with `from`, `to`, an optional `via` (a middle stop) and `angle` for linear; `kind="none"`; `opacity` |
+| `<stroke>` | `color`, `width` (px shown outside the shape), `opacity` |
+| `<shadow>` | `dx`, `dy`, `blur` (about a Gaussian's sigma, px), `color`, `opacity` |
+| `<animate>` | `property` (`x`, `y`, `opacity`, `scale`, `rotation`, `blur`, `tracking`, `reveal` (0..1, a wipe from the left), `shift` (a gradient slid along its axis), `fill-r`/`-g`/`-b`/`-a`, `shadow-opacity`), holding `<key at value easing zone>`; `zone` is `intro` (default), `hold` or `outro`, and `at` counts from that zone's start, so outro keys stay with the outro when the hold changes; `easing` is a `core::easingName()` (`linear` default) |
+
+| `<animator>` | Text in units, each on its own clock: `unit` (`character`, `word`, `line`), `order` (`forward`, `reverse`, `centre-out`, `random` with `seed`), `stagger` (frames between units) or `spread` (frames from the first unit's start to the last's), `alternate` (every other unit mirrors `dx`), `zone` and `at` (when the first starts); `<key at easing dx dy scale rotation opacity blur>` on the unit's clock, offsets from the layer |
+| `<behavior>` | A named preset, expanded when drawn: `slot` (`in`: from the intro's start; `out`: ending at the outro's end; `loop`: through the hold), `id` (in/out: `fade`, `rise`, `drop`, `pop`, `typewriter`, `word-by-word`, `blur`, `wipe`, `scramble`, `split-lines`, `kinetic-stack`; out only: `collapse`; loop: `float`, `pulse`, `shimmer`, `wiggle`, `glow-breathe`), `duration` (a loop's period), `easing`, `seed`, `amount` (strength) |
+
+Colours are `#rgb`, `#rrggbb` or `#rrggbbaa`. A text layer with `h="0"` is
+as tall as its text; with `w="0"`, `x` is the point the alignment refers
+to. Unknown elements and unknown layer
+kinds are skipped with a warning; a newer `version` is refused.
+
+**Elastic timing.** On a clip of any length the intro plays from its start
+and the outro ends at its end, each at its designed speed; the hold, and
+any keyframes in it, stretch or shrink to fill what's between. A clip
+shorter than intro + outro plays both squeezed, with no hold. The title's
+`fps` needn't match the project's.
+
+**Untrusted input.** The reader never fetches anything (no network, no
+external entities), refuses files over 16 MB or malformed values, and
+clamps sizes and positions to sane ranges.

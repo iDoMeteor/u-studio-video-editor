@@ -31,6 +31,28 @@ Download the latest file again and install it the same way. If Flatpak says
 "already installed", you already have that version. Add `--reinstall` to
 install it anyway.
 
+## Add-ons
+
+Some features come as add-ons you install next to the app. The first one
+is **Titles** ([Titles](titles.md)). An add-on must be the same version as
+the app, so update them together.
+
+```sh
+wget https://software.unicornviz.com/u-studio-video-editor-dropin-titles-latest.flatpak
+flatpak install --user ./u-studio-video-editor-dropin-titles-latest.flatpak
+```
+
+Restart U Stu after installing. **Settings › Drop-ins** lists the installed
+add-ons; you can switch one off there. If an add-on is for another version
+of the app, it's listed under "Couldn't load" and says which version it
+needs. To remove it:
+
+```sh
+flatpak uninstall --user com.ustudio.VideoEditor.DropIn.Titles
+```
+
+Uninstalling the app removes its add-ons too.
+
 ## Uninstall
 
 ```sh

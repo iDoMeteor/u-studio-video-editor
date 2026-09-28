@@ -121,7 +121,12 @@ builddir/                 meson build output — gitignored, per-worktree
   Run `meson test -C builddir --print-errorlogs` before every commit.
 - Dependencies are: GTK4 ≥ 4.10, libadwaita, GLib/GIO/GObject, MLT 7
   (`mlt-framework-7`, `mlt++-7`), `libxml2`, and doctest for tests
-  (ADR-010). `frei0r-plugins` is a dependency of the effects drop-in only,
+  (ADR-010). `egl` for the GPU context, linked only by `src/platform/`
+  (ADR-019); MLT's `movit` module (movit, FFTW) is bundled in packages and
+  loaded by MLT, never included by our code (ADR-019). `libarchive` in the
+  titles drop-in only, and libsoup 3, json-glib and libsecret in the
+  `u-studio-share` helper only (ADR-020). `frei0r-plugins` is a
+  dependency of the effects drop-in only,
   never of the core editor (ADR-011, ADR-014). **Anything else needs
   an ADR** and the owner's sign-off.
 
@@ -230,7 +235,10 @@ team's practice is the rule:
   producer),
   **`plus`** (the `affine` filter used for clip transforms, ADR-018 — it is
   *not* in `core`), `normalize` (`volume`), `avformat`, `xml`, `sdl2`
-  (`sdl2_audio`), `rtaudio`, `gdk` (stills), `resample`. `null` is core.
+  (`sdl2_audio`), `rtaudio`, `gdk` (stills), `resample`, **`xine`** (the
+  loader's `deinterlace` normaliser; without it MLT falls back to
+  `avdeinterlace`, which converts every frame to BT.601 limited YUV, and the
+  GPU probe fails on the shifted colour, ADR-019 G5). `null` is core.
   Check a service's module in `/usr/share/mlt-7/<module>/` before assuming
   where it lives (the Flatpak's first build left out `plus` because this
   line used to call `affine` core). `frei0r` is required by the effects
@@ -348,20 +356,16 @@ half-written files. So each agent session works in its own git worktree:
 
 ## Sub-agent usage
 
-Sub-agents (the `Agent`/`Task` tool, parallel `Explore` agents, `Workflow`
-orchestration) are for long-running or background work only: a multi-file
-code review, an independent research question big enough to blow up the
-main context window, a build/test run the session doesn't need to block on.
+**Don't use sub-agents** (owner rule, 2026-09-27): no `Agent`/`Task` tool,
+no `Explore` agents, no `Workflow` orchestration. Do the work in your own
+session.
 
-- Don't spawn a sub-agent for anything doable directly in a handful of tool
-  calls — one `grep`, reading a known file, a small targeted edit. Do that
-  work yourself; a sub-agent adds latency and token cost without buying
-  parallelism there.
-- Default to doing the work in the current session. Reach for a sub-agent
-  only when the task is genuinely long-running/background, or when
-  parallel, independent lookups would otherwise serialize in one context.
-- When a task matches this bar, prefer running it in the background rather
-  than blocking the current turn on it, and report back once it completes.
+- Long-running work (builds, test and sanitizer suites, soaks, renders,
+  demo recordings) runs as a **background process** in your session
+  (`run_in_background`), and you carry on and report when it finishes.
+  That is allowed and preferred to blocking the turn.
+- Work that needs another pair of hands goes to another team's session,
+  through the VE Strategist, not to a sub-agent.
 
 ---
 
@@ -485,15 +489,21 @@ No permission needed for:
   change. It opens a window on the owner's desktop: keep it short, close it
   or kill the process you started, and never leave instances running.
 - Reading the reference checkouts (`~/Repos/kdenlive`, the design system).
+- Installing, with `sudo dnf`, the Fedora packages that approved work needs
+  (the `-devel` headers of a dependency an accepted ADR allows, a test or
+  packaging tool). Say in your report what you installed (owner,
+  2026-09-28).
+- Deleting your own stray or merged branches and worktrees, `git branch -D`
+  included (owner, 2026-09-28).
 
 Permission **is required** before:
 
 - Anything destructive or irreversible: `rm -rf` outside `builddir/` and
-  the scratchpad, `git reset --hard`, `git clean`, `git branch -D`,
-  removing another agent's worktree, overwriting or moving the owner's media
+  the scratchpad, `git reset --hard`, `git clean`, `git branch -D` on
+  anyone else's branch, removing another agent's worktree, overwriting or moving the owner's media
   or project files.
-- Installing or removing system packages (`dnf`), or changing `meson.build`
-  dependencies.
+- Removing system packages, installing one that no approved work needs, or
+  adding a `meson.build` dependency without an accepted ADR.
 - Pushing to any branch other than your own `agent/<name>` branch or the
   fast-forward landing on `main` described above; creating or modifying
   GitHub repos, releases, or workflows.
@@ -560,8 +570,14 @@ the C API deliberately), Boost, CMake, or any GUI framework other than GTK4.
 
 ## Security & data safety
 
-- The app makes no network requests. Keep it that way; nothing in the
-  editor phones home, checks versions, or fetches fonts.
+- The editor (and `u-studio-titles`, which ships with it) makes no
+  network requests. Keep it that way; nothing in it phones home, checks
+  versions, or fetches fonts. The only network code lives in separate
+  helper apps with their own Flatpak ids, and runs only on an explicit
+  user action: AI generation (`u-studio-generate`, ADR-015) and template
+  sharing (`u-studio-share`, ADR-020).
+- Template packages are untrusted archives: validate every entry before
+  writing anything (doc 20), and never execute anything from one.
 - Project files and imported media are **untrusted input**: they name
   arbitrary resource paths that MLT will open. Never execute, `system()`, or
   shell-interpolate anything read from a project file or media metadata.

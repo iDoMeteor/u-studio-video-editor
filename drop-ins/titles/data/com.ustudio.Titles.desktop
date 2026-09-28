@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=U Stu Titles
+Comment=Design animated titles and lower thirds for U Stu Video Editor
+Exec=u-studio-titles %F
+# Placeholder: the owner is making new logos (2026-09-27).
+Icon=com.ustudio.Titles
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;GTK;
+Keywords=title;lower third;text;overlay;OBS;
+MimeType=application/x-ustudio-title;
+StartupNotify=true

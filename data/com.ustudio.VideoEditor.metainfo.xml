@@ -28,6 +28,71 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.69.1-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>U Stu Share now wears the same Unicorn Tears colours as the editor and U Stu Titles.</p>
+      </description>
+    </release>
+    <release version="0.69.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.68.0-beta.1: U Stu Share, a separate helper for sharing template packs online (browse and install packs, publish your own). It's the only U Stu program that goes online, and only when you ask. The shared catalogue isn't online yet, so this beta can't reach it; U Stu Titles shows Browse Shared and Publish only where the helper is installed.</p>
+      </description>
+    </release>
+    <release version="0.68.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.67.1-beta.1:</p>
+        <ul>
+          <li>Template packs: in U Stu Titles' template gallery, Save as Pack… makes a .zip or .tar.gz of your templates to share, and Open Pack… shows what a pack holds, then installs it as a section of its own. Remove Pack… takes it out again.</li>
+        </ul>
+        <p>Try saving a few of your templates as a pack, then opening it again (on another computer too). A pack that isn't safe (files outside it, links, fonts it may not share) is refused with the reason. Known limits: sharing packs online and updating a title from its template are still coming.</p>
+      </description>
+    </release>
+    <release version="0.67.1-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.65.1-beta.1:</p>
+        <ul>
+          <li>Title templates: New Title (Shift+T) puts a title at the playhead and opens U Stu Titles with a gallery of 29 built-in designs (lower thirds, badges, cards, end screens, countdowns, stream alerts). Save your own as templates, and rename, duplicate or delete them under My Templates.</li>
+          <li>A T button in the header (between Render and Settings) opens U Stu Titles: the selected title clip, or a new title from the gallery.</li>
+          <li>The Help button is a plain question mark.</li>
+          <li>The editor opens maximised, and the Render button is narrower so the project title has room.</li>
+        </ul>
+        <p>Try New Title with a few templates, fill in their fields on the Title page, and save one of your own as a template. Titles need the Titles add-on installed next to the app. Known limits: template packs (sharing templates as a file) and updating a title from its template are still coming.</p>
+      </description>
+    </release>
+    <release version="0.65.1-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New in this beta: titles, as an add-on. Install the Titles add-on file next to the app (see Installing in the docs; it needs this exact app version), then restart U Stu. Settings › Drop-ins lists it, and a Title page appears for title clips.</p>
+        <p>Things to try: import a title (.ustitle file) onto a track above your video, fill in its fields on the Title page, open it with Edit Title (Ctrl+Shift+T) to change it in U Stu Titles, Bake it into a video file, and Export it on its own with transparency for OBS.</p>
+        <p>Known limits: the template gallery and New Title are still coming, so you start from an existing .ustitle file. U Stu Titles opens from the editor only; it has no app menu entry of its own yet.</p>
+      </description>
+    </release>
+    <release version="0.65.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New in this beta:</p>
+        <ul>
+          <li>GPU acceleration (Settings › Performance › Hardware): the preview and renders use the graphics chip, so several moved or scaled tracks play smoothly at full size. The app checks the GPU at start and falls back to the processor by itself if anything goes wrong.</li>
+          <li>Hardware video decoding, used together with GPU acceleration, takes more load off the processor.</li>
+          <li>Single-key shortcuts no longer fire while you type in a text field (Space in a settings field used to start playback).</li>
+        </ul>
+        <p>Try a project with three or more moved, scaled or cropped tracks with GPU acceleration on and off. With it on, soft edges and dissolves look slightly brighter; that is how the GPU blends, and renders match the preview. Known limits: rotated clips still use the processor, and titles come as a separate add-on that isn't packaged yet.</p>
+      </description>
+    </release>
+    <release version="0.64.1-beta.1" date="2026-09-27" type="development">
+      <description>
+        <p>New in this beta:</p>
+        <ul>
+          <li>A moved image sequence can be relinked: pick any of its images, or search a folder. It may be numbered from somewhere else now.</li>
+          <li>Image sequences get proxies, like video (unless they're transparent).</li>
+          <li>Video with transparency (ProRes 4444, WebM with alpha, QuickTime Animation) has clean edges over other tracks.</li>
+          <li>Colours are right in the preview and in renders: HD footage used to come out slightly off (reds duller, cyans with a red tint).</li>
+          <li>Open Log Folder now opens the folder the first time too, with this session's log selected.</li>
+          <li>Pick the project's background colour (click the title in the header bar): it shows wherever no clip covers the frame, in the preview and in renders.</li>
+          <li>Clips of another shape than the project (4:3, phone video) play much faster.</li>
+          <li>Exports at another size than the project place moved and fitted pictures correctly.</li>
+          <li>Transparent pictures (PNG stills, rotated or scaled clips) have clean edges over video: no more dark or coloured fringe.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.51.0-beta.2" date="2026-09-27" type="development">
       <description>
         <p>New in this beta:</p>

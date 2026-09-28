@@ -118,3 +118,33 @@ constant instead of the real `height` parameter `onRulerDraw()` receives
 would have drawn them a couple of pixels past the widget's real bottom
 edge -- fixed by using `height` for the drawing math, keeping the
 constant only for the original size request.
+
+**The first second's stalls are GTK's and Mesa's first-use costs, not
+ours (2026-09-27).** Measured on the real Wayland desktop (Intel Iris Xe,
+Mesa 26.1, GTK 4.22's Vulkan renderer) with a 3-track, 80-clip project,
+using the stall monitor plus `perf record --call-graph fp` (Fedora builds
+GTK and GLib with frame pointers). Each figure is one main-loop iteration:
+
+| Stall | Size | What it is |
+|---|---|---|
+| First iteration after activation | 150–190 ms | `gtk_window_present()` realising the window and starting the renderer 90–120 ms; `adw_style_manager_set_color_scheme(FORCE_DARK)` re-parsing libadwaita's dark stylesheet 32–38 ms; building our window 20–32 ms |
+| First frame, cold Mesa shader cache | 650–1,040 ms | GTK compiling its Vulkan pipelines (`vk_create_graphics_pipeline`): first launch, a driver update, or a cleared `~/.cache/mesa_shader_cache` (a Flatpak has its own cache) |
+| First frame, warm cache | 55–90 ms | The first text layout (fontconfig matching, HarfBuzz shaping) and the render |
+| A later frame with new content | ~55 ms | A pipeline variant GTK hadn't built yet, compiled once |
+| Quit | 120–180 ms | Shutting down, window already closing |
+
+With the cairo renderer the first two are 60–80 ms, but it's slower
+afterwards, so leave the renderer choice to GTK. Before activation,
+`Mlt::Factory::init()` takes about 140 ms of the ~450 ms before the window
+exists (start-up time, not a stall). `main.cpp` marks the start-up
+phases (`startup: dark scheme`, `startup: build window`, `startup: present
+window`) so the stall monitor names them.
+
+To measure on the desktop without touching its session, run the app under
+a private `dbus-run-session`, with scratch `XDG_*_HOME`,
+`GSETTINGS_BACKEND=keyfile` and `SDL_AUDIODRIVER=dummy`. Give activated
+services a private runtime dir (`dbus-update-activation-environment
+XDG_RUNTIME_DIR=<private dir>`, as `tools/titles-smoke/run.sh` does);
+otherwise the private session's document portal unmounts the desktop's
+`/run/user/<uid>/doc`. Reuse one scratch cache dir between runs, or every
+run pays the cold-cache first frame.

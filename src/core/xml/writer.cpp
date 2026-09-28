@@ -168,6 +168,11 @@ void writeMediaSource(xmlNodePtr producer, const Asset &asset, const fs::path &p
         addProperty(producer, "mlt_service", generator->first);
         addProperty(producer, "resource", generator->second);
         addProperty(producer, "ustudio:path", asset.path);
+        // A colour's own YUV is tagged BT.601, which MLT composites unconverted
+        // into our 709 graph; as RGBA it's converted with the profile's
+        // matrix (EngineSync does the same; docs/developer/notes/engine-sync.md).
+        if (generator->first == "color" || generator->first == "colour")
+            addProperty(producer, "mlt_image_format", "rgba");
     } else {
         addProperty(producer, "resource", relativizePath(asset.path, projectDir));
     }
@@ -212,6 +217,8 @@ void writeAssetProducer(xmlNodePtr mlt, const Asset &asset, const fs::path &proj
     if (info.isImageSequence)
         addProperty(producer, "ustudio:sequence_begin", std::to_string(info.sequenceBegin));
     addProperty(producer, "ustudio:is_still_image", info.isStillImage ? "1" : "0");
+    if (info.hasAlpha)
+        addProperty(producer, "ustudio:has_alpha", "1");
     // Read back directly (reader.cpp), not derived from the node's "out"
     // attribute below -- out=length-1 collapses both "boundless/unknown"
     // (length<=0) and "exactly 1 frame" to the same out="0", which is
@@ -585,7 +592,13 @@ std::string saveProject(const Model &model, const std::string &path)
     FrameIndex sequenceLength = std::max<FrameIndex>(seq.length(), 1);
     xmlNewProp(blackProducer, BAD_CAST "in", BAD_CAST "0");
     xmlNewProp(blackProducer, BAD_CAST "out", BAD_CAST std::to_string(sequenceLength - 1).c_str());
-    addProperty(blackProducer, "resource", "color:black");
+    // As writeMediaSource(): a bare "color:…" resource loads as black
+    // whatever the colour (it was right for black only by accident).
+    addProperty(blackProducer, "mlt_service", "color");
+    addProperty(blackProducer, "resource", backgroundResource(seq.background));
+    // melt can't run EngineSync's re-tag filter on the background; as RGBA
+    // it converts with the profile's matrix, the same pixels (see above).
+    addProperty(blackProducer, "mlt_image_format", "rgba");
 
     xmlNodePtr tractor = xmlNewChild(mlt, nullptr, BAD_CAST "tractor", nullptr);
     xmlNewProp(tractor, BAD_CAST "id", BAD_CAST("seq" + std::to_string(seq.id.value)).c_str());
@@ -599,6 +612,7 @@ std::string saveProject(const Model &model, const std::string &path)
     addProperty(tractor, "ustudio:next_id", std::to_string(project.nextId));
     addProperty(tractor, "ustudio:mlt_profile_name", seq.profile.mltName);
     addProperty(tractor, "ustudio:markers", markersToJson(seq.markers));
+    addProperty(tractor, "ustudio:background", backgroundHex(seq.background));
     addProperty(tractor, "ustudio:settings", settingsToJson(project.settings));
 
     xmlNodePtr blackTrack = xmlNewChild(tractor, nullptr, BAD_CAST "track", nullptr);

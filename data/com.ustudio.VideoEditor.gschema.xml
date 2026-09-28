@@ -111,6 +111,21 @@
       <summary>Default render profile</summary>
       <description>The render profile the Render button uses: a built-in's name or one from render-profiles.ini.</description>
     </key>
+    <key name="gpu-acceleration" type="b">
+      <default>true</default>
+      <summary>GPU acceleration</summary>
+      <description>Composite and place clips on the graphics card where a check at startup says it works (Automatic); off, everything is done on the processor.</description>
+    </key>
+    <key name="hardware-decode" type="b">
+      <default>true</default>
+      <summary>Hardware video decoding</summary>
+      <description>While GPU acceleration is on, decode video files on the graphics card where it can; falls back to the processor by itself.</description>
+    </key>
+    <key name="gpu-probe-cache" type="s">
+      <default>''</default>
+      <summary>Last GPU check</summary>
+      <description>Internal: the last GPU check's result and the versions it was made with.</description>
+    </key>
     <key name="use-proxies" type="b">
       <default>true</default>
       <summary>Play proxies</summary>

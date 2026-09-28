@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.ustudio.Titles</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>U Stu Titles</name>
+  <summary>Design animated titles and lower thirds</summary>
+  <url type="homepage">https://djunicorntears.com</url>
+  <developer id="com.djunicorntears">
+    <name>Unicorn Tears Project</name>
+  </developer>
+  <description>
+    <p>
+      U Stu Titles designs the titles U Stu Video Editor plays: lower thirds,
+      name tags, chapter cards and overlays, over your own video. This is an
+      early beta for testers.
+    </p>
+    <ul>
+      <li>Text and shapes on a canvas with safe areas and snapping; type straight on the canvas</li>
+      <li>Fonts, colours, gradients, outlines and soft shadows, with the Unicorn Tears brand kit one click away</li>
+      <li>Titles fit any clip length in the editor: only the hold stretches</li>
+      <li>Export a title on its own for OBS: ProRes 4444, WebM or QuickTime Animation with a transparent background, a PNG sequence, or H.264</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">com.ustudio.Titles.desktop</launchable>
+  <provides>
+    <mediatype>application/x-ustudio-title</mediatype>
+    <binary>u-studio-titles</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <branding>
+    <color type="primary" scheme_preference="light">#FC3CBA</color>
+    <color type="primary" scheme_preference="dark">#A04BFA</color>
+  </branding>
+  <releases>
+    <release version="0.58.0-beta.1" date="2026-09-27" type="development">
+      <description>
+        <p>The first beta of the title designer.</p>
+      </description>
+    </release>
+  </releases>
+</component>

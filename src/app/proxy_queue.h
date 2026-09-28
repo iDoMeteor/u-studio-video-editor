@@ -28,6 +28,7 @@ class ProxyQueue
         std::string source, output;
         int height = 540; // 0: source size
         core::Rational fps{30, 1};
+        int sequenceBegin = 0, sequenceCount = 0; // an image sequence: source is its pattern
     };
 
     // A running child: cancel() asks it to stop (it then exits, and
@@ -98,6 +99,11 @@ class ProxyQueue
 // (builddir/src/app -> builddir/src/render; the test editor's too). "" if
 // none of those exists.
 std::string locateRenderTool();
+
+// The value after `"key":` in one of the render tool's JSON lines: a number
+// or a string (with its escapes undone). Enough for the tool's own output
+// (render/proxy_command.h, gpu_probe_command.h), not a general JSON parser.
+std::optional<std::string> jsonField(const std::string &line, const std::string &key);
 
 // This asset's proxy file in the user's cache ($XDG_CACHE_HOME/ustudio/
 // proxies), named for the source file's identity and the height, so it

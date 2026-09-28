@@ -1,0 +1,22 @@
+# Eigen: header-only linear algebra that movit needs at build time only.
+# The manifest's /include cleanup removes it, so nothing ships. A git
+# source (tag + commit) rather than GitLab's generated archive, whose
+# checksum isn't guaranteed stable.
+name: eigen
+buildsystem: cmake-ninja
+builddir: true # Eigen refuses in-source builds
+config-opts:
+  - -DCMAKE_BUILD_TYPE=Release
+  - -DBUILD_TESTING=OFF
+  - -DEIGEN_BUILD_DOC=OFF
+  - -DEIGEN_BUILD_PKGCONFIG=ON
+cleanup:
+  - '*'
+sources:
+  - type: git
+    url: https://gitlab.com/libeigen/eigen.git
+    tag: 3.4.1
+    commit: d71c30c47858effcbd39967097a2d99ee48db464
+    x-checker-data:
+      type: git
+      tag-pattern: ^(3\.[\d.]+)$

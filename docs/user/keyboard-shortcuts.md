@@ -5,6 +5,10 @@
 The app's own list is always current: **Help › Keyboard Shortcuts**. This
 page matches `src/app/action_registry.cpp` as of 0.50.0-beta.2.
 
+While you type in a text box (a clip or track name, a field in Settings or
+the inspector), keys without `Ctrl` type into the box instead: Space types
+a space, it doesn't play. Click the timeline or the preview to use them again.
+
 ## Playback
 
 | Key | Action |
@@ -59,6 +63,36 @@ page matches `src/app/action_registry.cpp` as of 0.50.0-beta.2.
 | Key | Action |
 |---|---|
 | `Ctrl+T` | Edit Transform (exact values) |
+
+## Titles (in the editor)
+
+| Key | Action |
+|---|---|
+| `Shift+T` | New Title: a new title at the playhead, opened in U Stu Titles with the template gallery |
+| `Ctrl+Shift+T` | Edit Title: open the selected title clip in U Stu Titles (or double-click it) |
+
+## U Stu Titles (the title designer)
+
+Keys that work on the canvas only act while the canvas has focus (click
+it). Typing in a text box never triggers them.
+
+| Key | Action |
+|---|---|
+| `Ctrl+N` | New title (in a new window) |
+| `Ctrl+Shift+N` | New from Template: the template gallery |
+| `Ctrl+O` | Open a title |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
+| `Ctrl+E` | Export the title on its own (with alpha, or flattened) |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo |
+| `Ctrl+T` | Add text |
+| `Ctrl+Shift+R` | Add a rounded rectangle |
+| Double-click text | Type on the canvas (`Enter` keeps it, `Shift+Enter` a new line, `Escape` cancels) |
+| `Ctrl+;` | Show or hide the safe areas |
+| `Delete` / `Backspace` | Delete the selected layer (canvas) |
+| Arrow keys | Nudge the selected layer 1 pixel; with `Shift`, 10 (canvas) |
+| `Escape` | Clear the selection (canvas) |
+| `Space` | Play or stop the title: intro, two seconds of hold, outro (canvas) |
+| `Alt` + drag | Move without snapping |
 
 ## Mouse modifiers
 

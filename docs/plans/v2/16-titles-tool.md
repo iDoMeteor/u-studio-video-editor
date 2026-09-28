@@ -28,6 +28,14 @@ A separate application (not a dialog inside the editor) because:
 Working name: **u Studio Titles**, executable `u-studio-titles`, app id
 `com.ustudio.Titles`.
 
+> REVIEW (VE Text, 2026-09-28): owner decision: U Stu Titles stays
+> in-app only for now. It's reached from the editor (the header's T,
+> New Title, Edit Title), with no separate app ID in the packages and no
+> menu entry of its own; the Flatpak ships it inside the Titles
+> extension, which can't export a desktop entry anyway. The drafts in
+> `drop-ins/titles/data/` (desktop file, MIME type, metainfo) stay for a
+> later standalone release.
+
 ## Architecture
 
 All of it lives in `drop-ins/titles/` (see "Drop-in structure" below):
@@ -288,6 +296,12 @@ Integration points: none.
 
 Acceptance: each item has a recorded finding and a kept repro.
 
+> REVIEW: VE Core, 2026-09-27: T0 spikes run, all yes; findings in
+> [the titles notes](../../developer/notes/titles.md). A 4K two-layer lower
+> third costs 12.7 ms a frame on a worker thread with its own font map, no
+> leak over 10,000 frames. The render-CLI half of the `xml` item waits for
+> T1's drop-in packaging.
+
 ### T1 — Format, renderer, producer (about 2 weeks)
 
 Integration points: IP1, IP2, IP3 `makeProducer()`, IP4, IP5 import
@@ -302,10 +316,32 @@ with per-clip producers, elastic timing and file-watch reload.
 
 Acceptance:
 
-- [ ] A hand-written `.ustitle` plays in the editor and renders through
-      `u-studio-render` with identical frame hashes.
-- [ ] Stretching the clip changes only the hold.
-- [ ] Editing the file on disk updates the editor within a second.
+- [x] A hand-written `.ustitle` plays in the editor and renders through
+      `u-studio-render` with identical frame hashes (`titles-engine`: the
+      render tool's `--title-frames` against the editor's graph, built in
+      and as a module; seen in the editor on 2026-09-27).
+- [x] Stretching the clip changes only the hold (`titles-engine`: intro and
+      outro frames hash equal on a 93- and a 400-frame clip).
+- [x] Editing the file on disk updates the editor within a second
+      (`titles-shell`; 0.31 s from save to rebuilt graph in the editor).
+
+> REVIEW: VE Text, 2026-09-27: T1 as built. (1) The producer is made
+> through MLT's `loader` (`ustudio_title:<path>`), not the factory: only
+> the loader attaches the normalising filters, and without them the
+> compositor read our RGBA as YUV (`docs/developer/notes/titles.md`).
+> (2) A title clip's producer spans source frames 0..out, so the right half
+> of a split still ends in the outro; the left half fits the whole title
+> into its length. (3) Title assets are boundless through
+> `MediaInfo::isStillImage` (as stills are): `InsertClip` otherwise grows a
+> boundless asset's length to its clips, and it also keeps titles out of
+> proxies and profile matching. The media browser shows them with the still
+> badge until T4 gives title clips their own look. (4) The file watch
+> reports through a new IP5 method, `ShellHost::assetChangedOnDisk()`
+> (doc 15), not a command, so a save isn't an undo step. (5) Relink can't
+> probe a `.ustitle` yet (it probes through MLT's loader without the
+> service prefix); a missing title plays again when its file comes back.
+> (6) `.ustitle` keyframes carry a `zone` (intro, hold, outro) so outro
+> keys stay with the outro when the hold changes.
 
 ### T2 — The titles app (about 2–3 weeks)
 
@@ -316,11 +352,98 @@ Canvas with backdrop, guides and snapping; layers; inspector; on-canvas
 typing; shapes and images; brand kit; save and open; launch from the
 editor on a file.
 
+**Backgrounds and export** (owner requirement, 2026-09-27: "set the
+background to any colour we like, and titles either include the background
+or drop it for a proper alpha channel"; they go into OBS as overlays):
+
+- **The canvas's background** while designing: a checkerboard, **any
+  colour** (a colour picker), or a picture (`--backdrop`, the editor's
+  frame). A view setting remembered per user, never part of the title.
+- **A title's own background** (`<background>`, the document's
+  `background`): none by default, so the title has a real alpha channel
+  over the video; or a colour or gradient baked in (an image with T2c's
+  image layers). Same format version: `<background>` is optional.
+- **Export a title on its own** (T2d) from the designer, and **Export
+  Title…** in the editor if it's cheap: with alpha, as a PNG sequence and
+  at least one alpha video codec (ProRes 4444 or QuickTime Animation, and
+  WebM VP9 with alpha); or flattened onto its background as H.264. Codec
+  and pixel-format names checked against the installed avformat, and the
+  alpha proved with `ffprobe` (a pix_fmt with an alpha plane).
+
+Phases: T2a (document editing and undo, the canvas with backdrops, guides,
+snapping, move/resize, save and open, the title background), T2b (layers
+list, inspector, brand kit), T2c (on-canvas typing, images, launch from the
+editor), T2d (export).
+
 Acceptance:
 
-- [ ] A lower third can be designed from a blank canvas without touching
-      the XML.
-- [ ] Nothing typed into any text field triggers a shortcut.
+- [x] A lower third can be designed from a blank canvas without touching
+      the XML (`tools/titles-smoke/run.sh`, 2026-09-27).
+- [x] Nothing typed into any text field triggers a shortcut (only modifier
+      shortcuts are window-wide; checked by typing Delete, arrows, Escape
+      and letters into the inspector's text and the canvas text box).
+- [x] The canvas background can be any colour, and the choice is
+      remembered.
+- [x] A title with no background composites over coloured video with clean
+      anti-aliased edges (no dark fringes); one with a background covers the
+      frame. Fixed in the engine by VE Core (9b3ddd2: composite's 4:2:2
+      blend gave each pixel of a pair its own alpha); `titles-engine`'s
+      fringe case now must pass.
+- [x] A title exports as a PNG sequence and as an alpha video that `ffprobe`
+      reports with an alpha plane, and flattened as H.264 (2026-09-27:
+      ProRes 4444 `yuva444p12le`, QuickTime Animation `argb`, VP9
+      `alpha_mode=1`, PNG `rgba`; decoded back, a 92% bar reads 0.92 and an
+      empty corner 0; the smoke test exports through the dialog).
+
+> REVIEW: VE Text, 2026-09-27: T2a as built. (1) Undo keeps whole
+> documents (`TitleHistory`), not inverse commands: a title is a few
+> kilobytes, and a drag merges into one step by key. (2) The canvas
+> renders on one worker thread, newest request wins, at the canvas's size
+> on screen; the texture goes to GTK as is (Cairo's ARGB32 is
+> `GDK_MEMORY_DEFAULT`). (3) Only modifier shortcuts are window accels;
+> Delete, arrows and Escape are the canvas's own key controller, so no
+> text field can lose a key to them. (4) A press becomes a drag after 3 px,
+> so a click never edits. (5) While designing, the canvas shows the first
+> frame of the hold; T3 adds scrubbing. (6) Each launch is its own process
+> (`G_APPLICATION_NON_UNIQUE`), one window per file.
+
+> REVIEW: VE Text, 2026-09-27: T2b as built. (1) The brand kit is
+> `drop-ins/titles/data/brand.xml`, not `brand.json`: the drop-in has
+> libxml2 and no JSON parser, and the kit is compiled into the app's
+> GResource. (2) Fills gained an optional middle stop (`via`), for the
+> brand's three-colour "tears" gradient; layers gained `locked`. Same
+> format version: both are optional attributes. (3) Apply Brand keeps the
+> layout: the largest text gets the first gradient (and the display font
+> from 72 px), other text the sans font in pink-white, filled shapes ink-700
+> at 92%, outlines cyan. (4) The inspector rebuilds only on a selection
+> change or an edit made elsewhere; an edit made in it doesn't, so a field
+> keeps focus while you type, and rows that depend on a choice (a fill's
+> kind, the shadow switch) are rebuilt from an idle callback.
+
+> REVIEW: VE Text, 2026-09-27: T2c as built. (1) Typing on the canvas is
+> a text view overlaid on the layer in its family, weight and size at the
+> canvas's scale, with the layer hidden meanwhile; not a GtkEntry (text can
+> have several lines). (2) Image layers are PNG only (Cairo reads PNG
+> without another library), relative to the title's folder, cached per
+> thread and re-read when the file changes; Save As to another folder
+> rewrites relative paths. (3) Edit Title renders the backdrop itself: the
+> frame at the playhead with the title's video off, on a worker thread with
+> its own EngineSync (as an export does), joined at shutdown; the
+> `ustudio_title` producer honours `video_index=-1` for that. (4) The
+> designer is found next to the editor (one bundle in the Flatpak), else
+> the build tree, else PATH, and started with GSubprocess.
+
+> REVIEW: VE Text, 2026-09-27: T2d as built. (1) Export is
+> `u-studio-render --title-export` (IP6), run by the designer in a child
+> process: the designer stays MLT-free. (2) Alpha formats take the
+> `ustudio_title` producer's frames straight to the encoder with no
+> compositing, so the alpha is the renderer's own; H.264 is flattened by the
+> producer drawing the background itself (its `background` property), not
+> by a compositor. (3) Formats: ProRes 4444 (`prores_ks`, `vprofile=4`,
+> `yuva444p10le`), VP9 (`yuva420p`, `auto-alt-ref=0`), QuickTime Animation
+> (`argb`), PNG (`rgba`), H.264 (`libx264`, `yuv420p`, CRF 18). (4) Export
+> Title… in the editor isn't done: it's the same subcommand, so it's cheap,
+> but it waits for T4's clip workflow.
 
 ### T3 — Animation (about 2 weeks)
 
@@ -333,9 +456,32 @@ behaviour thumbnails.
 
 Acceptance:
 
-- [ ] Every shipped behaviour renders identically in the titles app, the
-      editor and export.
-- [ ] Evaluator unit tests cover every easing and every animator order.
+- [x] Every shipped behaviour renders identically in the titles app, the
+      editor and export (T3a, 2026-09-27: one renderer; `titles-engine`
+      checks the producer's frames equal `renderTitle`'s byte for byte;
+      `titles-render` renders every behaviour in every slot).
+- [x] Evaluator unit tests cover every easing and every animator order
+      (`titles-animation`).
+
+> REVIEW: VE Text, 2026-09-27: T3a as built (core and renderer; the
+> designer's animation strip is T3b). Behaviours are stored as
+> `<behavior slot id duration easing seed amount>` and expanded when drawn
+> into offsets, animators and loops (`core/animation.h`); Detach to
+> keyframes converts in and out behaviours, while loops, the scramble and
+> the typewriter's cursor stay behaviours. Animatable properties grew:
+> blur, tracking, reveal (the wipe), shift (the shimmer), fill colour per
+> channel, shadow opacity. Animators take a `spread` as well as a stagger,
+> so a typewriter fits its duration whatever the text's length.
+
+> REVIEW: VE Text, 2026-09-27: T3b as built. The animation strip draws the
+> zones, a row per layer with behaviour chips and keyframe diamonds, and
+> the playhead; dragging a divider retimes the title (one undo step). Space
+> plays the loop preview from GTK's frame clock. The inspector keys a
+> property at the playhead (◆) and edits an animated property's value
+> there; keys land in the zone the playhead is in. The behaviour drawer is
+> a popover per slot whose thumbnails animate the selected layer itself,
+> cropped to it, rendered on a worker thread and cycled on the main loop.
+> One behaviour per slot per layer: adding one replaces the slot's.
 
 ### T4 — Templates and editor workflow (about 1–2 weeks)
 
@@ -345,10 +491,61 @@ Integration points: IP5 inspector page and action contributions.
 Fields and dynamic fields, the template gallery, fields in the editor's
 Rack, New Title and insert-at-playhead over D-Bus, Bake title.
 
+> REVIEW (VE Text, 2026-09-27): T4 runs as T4.1 (editor workflow) then
+> T4.2 (templates), so the names don't collide with doc 20's T4b. T4.1 is
+> done in 0.59.1–0.65.0: the editor's text-entry shortcut guard, dynamic
+> fields, the Title inspector page (fields per clip), Bake Title, and
+> Export Title from the editor. T4.2 is done in 0.66.0: the template
+> library and gallery, 29 built-ins, and New Title, which makes the file
+> first and opens the designer with its gallery (approved deviation from
+> "save sends it back"). "Update from template" is left for later: a
+> title doesn't record its template, and merging a changed design into
+> edited text isn't cheap.
+
+**User templates and a bigger gallery** (owner request, 2026-09-27):
+
+- **Save as Template** from any title, fields included, into a user
+  template library under the app's data directory. Paths go through
+  `src/platform/` (ADR-017).
+- The gallery has **Built-in** and **My Templates** sections. User
+  templates can be edited, renamed, duplicated and deleted. Built-ins are
+  read-only: editing one saves a copy to My Templates.
+- **New Title** from any template. Title clips are copies, so changing a
+  template never rewrites existing clips silently. **Update from template**
+  on a clip, if it's cheap.
+- **About 20 built-ins** beyond the eight above, across lower thirds,
+  bugs and badges, cards, end screens, countdowns and social. They use the
+  brand kit (`brand.json`) with generic font fallbacks. Each is an ordinary
+  `.ustitle` with fields, and none uses raster art unless it's generated.
+
 Acceptance:
 
-- [ ] Ten lower thirds with different names come from one template file.
-- [ ] A baked title plays in stock `melt`.
+- [x] Ten lower thirds with different names come from one template file.
+      (Per-clip field values from the Title inspector page, 0.62.0;
+      tests `titles-engine` "field values are the clip's own" and
+      `titles-shell` "the Title page edits the selected clip's fields".)
+- [x] A baked title plays in stock `melt`. (Bake Title, 0.64.0; test
+      `titles-engine` "a bake: ... stock melt plays it with its alpha".
+      Over video, a baked file needs VE Core's `MediaInfo::hasAlpha`
+      pairing to avoid the 4:2:2 fringe; until then it's a known limit.)
+- [x] A user template survives an app restart and appears in New Title.
+      (My Templates are folders on disk, listed afresh each time the
+      gallery opens; `titles-core` "template library", live on Xvfb.)
+- [x] Editing a built-in leaves it unchanged and adds a copy to My
+      Templates. (Edit a Copy; `titles-core` and live on Xvfb.)
+- [x] Every built-in renders identically in the titles app, the editor's
+      preview and export, and passes the render tests. (`titles-render`
+      and `titles-engine`: 29 built-ins, the producer's frames byte for
+      byte the renderer's.)
+
+### T4b — Template packages, and T7 — sharing
+
+Owner request, 2026-09-27: save and open template packs as `.zip` or
+`.tar.gz`, and publish and download them through a shared catalogue.
+Planned in [doc 20](20-template-packages-and-sharing.md) and
+[ADR-020](adr/020-template-packages-and-sharing.md); the service is
+[doc 21](21-template-sharing-backend.md). T4b (local packages) follows
+T4; T7 (the `u-studio-share` helper) follows T4b.
 
 ### Later
 

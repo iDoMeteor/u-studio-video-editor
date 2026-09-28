@@ -102,6 +102,9 @@ class Model
     // The asset's proxy file ("" none; M4 C). Like a probe result, not an
     // edit: not a command, not undone, saved with the project.
     void setAssetProxy(AssetId, std::string proxyPath);
+    // An image sequence's first file number (M4 E): a relink may find it
+    // renumbered.
+    void setAssetSequenceBegin(AssetId, int begin);
     // Project::settings[key] ("" removes it); the project's own
     // preferences, saved with it (the proxy prompt's answer). Not a command.
     void setProjectSetting(const std::string &key, const std::string &value);
@@ -119,6 +122,7 @@ class Model
     // The active sequence's size and rate, as they are: nothing is retimed
     // (see core/model/retime.h for that).
     void setSequenceProfile(const Profile &profile);
+    void setSequenceBackground(uint32_t rgb);
     // The active sequence and the bin wholesale (a frame-rate change moves
     // every position and asset length at once; core/model/retime.h).
     void replaceSequenceAndBin(Sequence sequence, std::vector<Asset> bin);
@@ -268,6 +272,11 @@ class Model
     bool hasLook(LookId) const;
 
     void setClipSourceParams(ClipId, std::vector<Param> params);
+    // What the clip plays: another asset and its source params, keeping the
+    // clip's place, range, effects and transform (SetClipAsset: a title
+    // baked to a file). ClipSourceChanged. The range must fit the asset
+    // (the caller's check; SetClipAsset makes it).
+    void setClipSource(ClipId, AssetId asset, std::vector<Param> params);
     // ADR-018: where the clip's picture sits (SetClipTransform).
     void setClipTransform(ClipId, Transform transform);
     void setTransitionRecipe(TransitionId, std::string recipe, std::vector<Param> params);

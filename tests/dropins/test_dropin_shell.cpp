@@ -113,6 +113,21 @@ class RecordingShell : public app::ShellHost
     {
         importHandlers.push_back(std::move(handler));
     }
+    void assetChangedOnDisk(core::AssetId asset) override
+    {
+        changedOnDisk.push_back(asset);
+    }
+    void addHeaderButton(GtkWidget *button) override
+    {
+        headerButtons.push_back(button);
+    }
+    std::vector<GtkWidget *> headerButtons;
+    std::string projectFolder() const override
+    {
+        return folder;
+    }
+    std::string folder;
+    std::vector<core::AssetId> changedOnDisk;
 
     core::TrackId video, audio;
     app::ShellSelection selection;

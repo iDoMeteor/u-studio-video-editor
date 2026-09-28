@@ -15,9 +15,13 @@ namespace Log = ustudio::core::Log;
 
 namespace {
 
-// The value after `"key":` in one of the tool's JSON lines: a number or a
-// string (with its escapes undone). Enough for the tool's own output
-// (render/proxy_command.h), not a general JSON parser.
+std::string rate(core::Rational fps)
+{
+    return std::to_string(fps.num) + "/" + std::to_string(fps.den);
+}
+
+} // namespace
+
 std::optional<std::string> jsonField(const std::string &line, const std::string &key)
 {
     const std::string needle = "\"" + key + "\":";
@@ -46,13 +50,6 @@ std::optional<std::string> jsonField(const std::string &line, const std::string 
     return value;
 }
 
-std::string rate(core::Rational fps)
-{
-    return std::to_string(fps.num) + "/" + std::to_string(fps.den);
-}
-
-} // namespace
-
 ProxyQueue::ProxyQueue(std::unique_ptr<Launcher> launcher, std::string toolPath, Callbacks callbacks, size_t concurrent)
     : m_launcher(std::move(launcher)), m_toolPath(std::move(toolPath)), m_callbacks(std::move(callbacks)),
       m_concurrent(std::max<size_t>(concurrent, 1))
@@ -60,8 +57,13 @@ ProxyQueue::ProxyQueue(std::unique_ptr<Launcher> launcher, std::string toolPath,
 
 std::vector<std::string> ProxyQueue::commandFor(const Job &job) const
 {
-    return {m_toolPath, "--proxy",    job.source, job.output, "--height", std::to_string(job.height),
-            "--fps",    rate(job.fps)};
+    std::vector<std::string> argv{m_toolPath, "--proxy", job.source,   job.output,
+                                  "--height",  std::to_string(job.height), "--fps", rate(job.fps)};
+    if (job.sequenceCount > 0) {
+        argv.push_back("--sequence");
+        argv.push_back(std::to_string(job.sequenceBegin) + ":" + std::to_string(job.sequenceCount));
+    }
+    return argv;
 }
 
 void ProxyQueue::add(Job job)

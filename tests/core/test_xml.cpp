@@ -558,6 +558,39 @@ TEST_CASE("XML format 5: effects play in melt too -- native filters on every cut
     CHECK(text.find("<property name=\"level\">0=0.95;5g=1</property>") != std::string::npos);
 }
 
+TEST_CASE("XML format 5: an effect's mix is written as MLT's mask pair, which the reader skips")
+{
+    TempProjectFile file("format5-mix");
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    ClipId clip = model.insertClip(track, addTestAsset(model, "color:red"), 0, 0, 49);
+    Effect half;
+    half.service = "brightness";
+    half.mix = {0.5, {}};
+    model.addEffect(Model::EffectTarget::clip(clip), half, 0);
+    Effect ramp;
+    ramp.service = "sepia";
+    ramp.mix = {1.0, {{0, 0.0, Easing::Linear}, {49, 1.0, Easing::Linear}}};
+    model.addEffect(Model::EffectTarget::track(track), ramp, 0);
+    REQUIRE(saveProject(model, file.path.string()).empty());
+    const std::string text = readFile(file.path);
+
+    // core::nativeFilters(): mask_start runs the effect, mask_apply
+    // composites it back at the mix -- never with mask_apply's default
+    // transition, qtblend (ADR-007).
+    CHECK(text.find("<property name=\"mlt_service\">mask_start</property>") != std::string::npos);
+    CHECK(text.find("<property name=\"filter\">brightness</property>") != std::string::npos);
+    CHECK(text.find("<property name=\"transition\">frei0r.cairoblend</property>") != std::string::npos);
+    CHECK(text.find("<property name=\"transition.0\">0.5</property>") != std::string::npos);
+    CHECK(text.find("qtblend") == std::string::npos);
+    // A keyframed mix animates brightness's alpha between the pair.
+    CHECK(text.find("<property name=\"alpha\">0=0;49=1</property>") != std::string::npos);
+
+    auto loaded = loadProject(file.path.string());
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->project() == model.project()); // one effect each, not three
+}
+
 TEST_CASE("XML format 4 still loads (migration), and saves as format 5")
 {
     const fs::path fixture = fs::path(TEST_DATA_DIR) / "format4.ustudio";
@@ -575,4 +608,15 @@ TEST_CASE("XML format 4 still loads (migration), and saves as format 5")
     auto again = loadProject(file.path.string());
     REQUIRE(again.has_value());
     CHECK(again->project() == loaded->project());
+}
+
+TEST_CASE("xml: the sequence background is saved as #rrggbb; anything else reads as black")
+{
+    CHECK(backgroundHex(0x3366cc) == "#3366cc");
+    CHECK(backgroundResource(0x3366cc) == "0x3366ccff");
+    CHECK(parseBackgroundHex("#3366CC") == 0x3366ccu);
+    CHECK_FALSE(parseBackgroundHex("3366cc").has_value());
+    CHECK_FALSE(parseBackgroundHex("#3366c").has_value());
+    CHECK_FALSE(parseBackgroundHex("#3366cg").has_value());
+    CHECK_FALSE(parseBackgroundHex("#3366cc; rm").has_value());
 }

@@ -10,7 +10,9 @@
 // --scale defaults to half (the recorded soaks). --transformed N adds N
 // video tracks above V1 carrying the same clips, each scaled to half size,
 // placed in a quadrant and rotated a few degrees (M4 F, ADR-018): its
-// real-time acceptance is three of them at Auto.
+// real-time acceptance is three of them at Auto. --no-rotation leaves them
+// unrotated (the webcam-in-a-corner case). --gpu plays on the GPU pipeline
+// (ADR-019: GpuSession, EngineSync::Pipeline::Gpu), --hwdecode with VAAPI.
 // Use more than 64 clips so the track is built chunked (doc 19 MT2).
 // Builds a timeline of `clips` back-to-back copies of <media> in a sequence
 // whose size and frame rate match the source (a 60 fps source in a default
@@ -29,6 +31,8 @@
 #include "core/model/transform.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
+#include "engine/gpu_session.h"
+#include "platform/gpu.h"
 #include "engine/playback_controller.h"
 
 #include <glib.h>
@@ -111,6 +115,7 @@ int main(int argc, char **argv)
         return 2;
     }
     int clipsArg = 0, transformed = 0, plainTracks = 0, startFrame = 0;
+    bool gpu = false, hwdecode = false, rotate = true;
     PreviewScale scale = PreviewScale::Half;
     const char *scaleName = "Half";
     for (int i = 3; i < argc; ++i) {
@@ -119,6 +124,12 @@ int main(int argc, char **argv)
             startFrame = std::atoi(argv[++i]); // play from here, after a paused seek (the owner's start glitch)
         } else if (arg == "--tracks" && i + 1 < argc) {
             plainTracks = std::atoi(argv[++i]); // more untransformed tracks above V1
+        } else if (arg == "--gpu") {
+            gpu = true;
+        } else if (arg == "--hwdecode") {
+            hwdecode = true;
+        } else if (arg == "--no-rotation") {
+            rotate = false;
         } else if (arg == "--transformed" && i + 1 < argc) {
             transformed = std::atoi(argv[++i]);
         } else if (arg == "--scale" && i + 1 < argc) {
@@ -160,6 +171,9 @@ int main(int argc, char **argv)
             profile.fps = first.fps;
     }
     Model model = Model::createEmpty(profile);
+    // Declared before the graph so it outlives it: the graph's producers
+    // were opened under its glsl.manager (engine.cpp drops them first too).
+    std::shared_ptr<GpuSession> gpuSession;
     EngineSync sync(model, scale);
     EngineSync::ProbedMedia probed = sync.probeMedia(media); // length in this sequence's frames
 
@@ -189,11 +203,24 @@ int main(int argc, char **argv)
             placed.y.value = profile.height * (((t - 1) / 2 % 2) != 0 ? 0.75 : 0.25);
             placed.width.value = profile.width / 2.0;
             placed.height.value = profile.height / 2.0;
-            placed.rotation.value = 5.0 * t;
+            placed.rotation.value = rotate ? 5.0 * t : 0.0;
             model.setClipTransform(clip, placed);
         }
     }
     sync.setProject(model.snapshot());
+    if (gpu) {
+        std::string error;
+        gpuSession = GpuSession::acquire(error);
+        if (!gpuSession) {
+            std::fprintf(stderr, "no GPU pipeline: %s\n", error.c_str());
+            return 1;
+        }
+    }
+    const std::string decodeApi = hwdecode ? ustudio::platform::hardwareDecodeApi() : std::string();
+    if (gpu || hwdecode)
+        sync.setPipeline(gpu ? EngineSync::Pipeline::Gpu : EngineSync::Pipeline::Cpu, decodeApi);
+    std::printf("pipeline: %s, decode: %s, rotation: %s\n", gpu ? gpuSession->renderer().c_str() : "CPU",
+                decodeApi.empty() ? "software" : decodeApi.c_str(), rotate ? "yes" : "no");
     std::printf("timeline: %d x %d frames (%s, source %dx%d @ %d/%d) in a %dx%d @ %d fps sequence; "
                 "playback profile %dx%d (preview %s); %d transformed tracks\n",
                 clips, static_cast<int>(probed.length), media.c_str(), probed.width, probed.height, probed.fps.num,
@@ -213,6 +240,9 @@ int main(int argc, char **argv)
         if (previous >= 0 && position > previous + 1)
             skipped += position - previous - 1;
     });
+    if (gpuSession)
+        controller.setRenderThreadHooks([&] { gpuSession->renderThreadStarted(); },
+                                        [&] { gpuSession->renderThreadStopped(); });
     controller.setTractor(sync.tractorPtr());
     if (startFrame > 0) {
         controller.seek(startFrame);
@@ -239,6 +269,9 @@ int main(int argc, char **argv)
         double maxStallMs = 0;
         std::atomic<long> *delivered, *skipped;
         GMainLoop *loop;
+        // The first report at or after 60 s (past warm-up), and the latest.
+        long rssWarm = 0, rssLast = 0;
+        double warmT = 0, lastT = 0;
     } state{&controller, fps,      std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), 0, 0, 0, 0, 0,
             &delivered,  &skipped, g_main_loop_new(nullptr, FALSE)};
 
@@ -264,6 +297,12 @@ int main(int argc, char **argv)
             long rss = rssKb();
             if (st->rssStart == 0)
                 st->rssStart = rss;
+            if (st->rssWarm == 0 && t >= 59.0) {
+                st->rssWarm = rss;
+                st->warmT = t;
+            }
+            st->rssLast = rss;
+            st->lastT = t;
             long shown = st->controller->frameShowCount(), deliv = st->delivered->load(), skip = st->skipped->load();
             std::printf("%5.0f %8d %8ld %6ld %6ld %6ld %5ld %6.0f %7.1f %5.1f %5.0f %6.0f\n", t, playhead, expected,
                         shown - st->shownPrev, deliv - st->deliveredPrev, skip - st->skippedPrev, expected - playhead,
@@ -291,7 +330,17 @@ int main(int argc, char **argv)
     controller.shutdown();
     std::printf("totals: shown %ld, delivered %ld, skipped positions %ld, last frame %dx%d\n",
                 controller.frameShowCount(), delivered.load(), skipped.load(), lastWidth.load(), lastHeight.load());
-    std::printf("RSS first report -> end: %.1f -> %.1f MB\n", static_cast<double>(rssStart) / 1024.0,
-                static_cast<double>(rssKb()) / 1024.0);
+    // Growth is judged between reports while playing. The first minute is
+    // warm-up (decoders, frame caches, malloc arenas: 335 -> 370 MB for
+    // three transformed 1080p tracks, then flat), and the value after
+    // shutdown() includes what stopping the consumer leaves resident
+    // (+50 MB), so neither counts (2026-09-27).
+    std::printf("RSS first report -> last report: %.1f -> %.1f MB\n", static_cast<double>(rssStart) / 1024.0,
+                static_cast<double>(state.rssLast) / 1024.0);
+    if (state.rssWarm > 0 && state.lastT > state.warmT + 30)
+        std::printf("RSS growth after warm-up: %.1f MB/min (%.0f s -> %.0f s)\n",
+                    static_cast<double>(state.rssLast - state.rssWarm) / 1024.0 / ((state.lastT - state.warmT) / 60.0),
+                    state.warmT, state.lastT);
+    std::printf("RSS after shutdown: %.1f MB\n", static_cast<double>(rssKb()) / 1024.0);
     return 0;
 }

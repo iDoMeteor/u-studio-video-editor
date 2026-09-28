@@ -44,3 +44,45 @@ leak:_p11_kit_init
 # tests (dropin-shell): the EGL driver's own state, allocated once per
 # process when the display opens and never freed by GTK.
 leak:gdk_display_init_egl
+
+# movit's glsl.manager (ADR-019): GlslManager holds a reference of its own
+# through its mlt++ base, so after every caller's reference and the global
+# one are gone it is still never freed (MLT's filter_glsl_manager.cpp).
+# One per manager created: the probe, and each time GPU is switched on.
+# `just asan` preloads the module so these frames symbolize.
+leak:filter_glsl_manager_init
+
+# Our own EGL display (platform::GlContext, ADR-019): initialised once per
+# process and never terminated by design, so the driver's screen, configs
+# and option tables stay, as with GDK's display above; the first context on
+# a screen also adds per-screen state below it. A GlContext we leak still
+# reports: our wrapper is allocated outside these calls.
+leak:eglInitialize
+leak:eglCreateContext
+
+# MLT's movit.convert (filter_movit_convert.cpp, MLT 7.40): convert_image()
+# makes an MltInput for every input of every frame and parks it in the
+# frame's properties with no destructor; only a frame that builds a new chain
+# hands it on, so with a reused chain each one leaks (about 1.2 KB an input a
+# frame: ~10 MB a minute of GPU playback at 30 fps with five inputs). An
+# upstream bug we can't free from outside (the type is private to the
+# module). The Flatpak's MLT carries the fix
+# (packaging/flatpak/patches/mlt-movit-convert-input-leak.patch); this
+# stays for distro MLT builds.
+leak:create_input
+
+# The effects drop-in's tests (drop-ins/effects/tests), MLT-internal and
+# one-off; `just asan` preloads the modules so these frames symbolize.
+# - A module's metadata callback (the frei0r module's parameter info): 1.6 MB
+#   lost once when every filter's metadata is read. The editor never reads
+#   metadata in its own process, only the render tool's registry child.
+leak:mlt_repository_metadata
+# - The avformat module's swscale normaliser: one image block lost once per
+#   process when a frame read smaller than the profile passes an alpha
+#   filter between mask_start and mask_apply (a keyframed effect mix); it
+#   didn't grow over more frames or four more graph builds.
+leak:filter_scale
+# - The frei0r module's own allocations for a filter it creates: a few bytes
+#   each for some plugins, freed by nothing. A leaked mlt++ wrapper of ours
+#   still reports (it's allocated outside the module).
+leak:libmltfrei0r.so

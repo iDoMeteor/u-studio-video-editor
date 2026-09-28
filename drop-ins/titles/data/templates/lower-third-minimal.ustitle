@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Lower third, minimal" category="Lower thirds" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="120" outro="15"/>
+  <field name="name" label="Name" default="Jay Doe"/>
+  <field name="role" label="Role" default="Host"/>
+  <layer id="name" kind="text" x="180" y="790" w="1000" fit="shrink">
+    <text>{{name}}</text>
+    <font family="Space Grotesk" weight="700" size="76"/>
+    <fill color="#ffffff"/>
+    <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
+    <behavior slot="in" id="word-by-word"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="rule" kind="shape" shape="rect" x="184" y="888" w="260" h="6">
+    <fill color="#ff2bd6"/>
+    <behavior slot="in" id="wipe"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="role" kind="text" x="180" y="906" w="1000" fit="shrink">
+    <text>{{role}}</text>
+    <font family="Space Grotesk" size="46"/>
+    <fill color="#ffeffb"/>
+    <shadow dx="0" dy="4" blur="12" color="#000000" opacity="0.5"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

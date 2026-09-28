@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Starting soon" category="Countdowns" width="1920" height="1080" fps="30/1">
+  <timing intro="24" hold="9000" outro="18"/>
+  <background gradient="linear" from="#120c1f" via="#1b1230" to="#07060d" angle="90"/>
+  <field name="headline" label="Headline" default="Starting soon"/>
+  <layer id="headline" kind="text" x="160" y="300" w="1600" fit="shrink" align="center">
+    <text>{{headline}}</text>
+    <font family="Anton" weight="700" size="130"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/><behavior slot="loop" id="float"/>
+  </layer>
+  <layer id="time" kind="text" x="560" y="540" w="800" fit="shrink" align="center">
+    <text>{{countdown:05:00}}</text>
+    <font family="JetBrains Mono" weight="700" size="150"/>
+    <fill color="#19e3ff"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

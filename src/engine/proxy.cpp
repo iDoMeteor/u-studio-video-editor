@@ -1,6 +1,7 @@
 #include "engine/proxy.h"
 
 #include "core/log.h"
+#include "core/media/image_sequence.h"
 #include "core/model/model.h"
 #include "core/model/profile_match.h"
 #include "core/render/render_profile.h"
@@ -19,10 +20,18 @@ bool renderProxy(const ProxyRequest &request, std::string &error, std::function<
 {
     core::Profile probeProfile;
     probeProfile.fps = request.fps;
-    const EngineSync::ProbedMedia probed = EngineSync::probeMediaFile(probeProfile, request.source);
+    const bool sequence = request.sequenceCount > 0;
+    // A sequence is probed by its first image and lasts one frame per file.
+    EngineSync::ProbedMedia probed = EngineSync::probeMediaFile(
+        probeProfile, sequence ? core::imageSequenceFile(request.source, request.sequenceBegin) : request.source);
     if (probed.length <= 0) {
         error = "can't open " + request.source;
         return false;
+    }
+    if (sequence) {
+        probed.length = request.sequenceCount;
+        probed.isStillImage = false;
+        probed.hasAudio = false;
     }
     if (probed.isStillImage) {
         error = "a still image needs no proxy";
@@ -49,6 +58,8 @@ bool renderProxy(const ProxyRequest &request, std::string &error, std::function<
     asset.info.lengthInSequenceFrames = probed.length;
     asset.info.width = probed.width;
     asset.info.height = probed.height;
+    asset.info.isImageSequence = sequence;
+    asset.info.sequenceBegin = request.sequenceBegin;
     const core::AssetId id = model.addAsset(asset);
     model.insertClip(track, id, 0, 0, probed.length - 1);
 

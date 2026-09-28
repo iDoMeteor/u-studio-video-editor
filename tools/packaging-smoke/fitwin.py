@@ -16,7 +16,9 @@ def walk(w):
     except Exception:
         cls = ()
     attrs = w.get_attributes()
-    if attrs.map_state == X.IsViewable and ('u Studio' in name or any('u-studio' in c.lower() or 'videoeditor' in c.lower() for c in cls)):
+    # The window title ends "— U Stu" since 0.51.0-beta.2 ("— u Studio" before);
+    # the class (com.ustudio.VideoEditor / u-studio-video-editor) matches both.
+    if attrs.map_state == X.IsViewable and ('U Stu' in name or 'u Studio' in name or any('u-studio' in c.lower() or 'videoeditor' in c.lower() for c in cls)):
         return w
     for c in w.query_tree().children:
         r = walk(c)

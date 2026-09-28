@@ -1,6 +1,6 @@
 project(
   'u-studio-video-editor', 'cpp',
-  version: '0.51.0-beta.2',
+  version: '0.69.1-beta.1',
   license: 'MIT',
   license_files: ['LICENSE'],
   default_options: [
@@ -39,7 +39,10 @@ add_project_arguments(extra_warning_flags, language: 'cpp')
 
 # 1 for debug and debugoptimized builds, 0 for release and plain. Not
 # NDEBUG: this project leaves b_ndebug at meson's default (false), so NDEBUG
-# is never defined, even in a release build.
+# is never defined, even in a release build. A build with -Db_ndebug=true is
+# safe too (2026-09-27): no assert() guards anything a release needs (the
+# model's preconditions and UndoStack::redo() take a safe path), and the
+# test suites pass that way.
 add_project_arguments('-DUSTUDIO_DEBUG_BUILD=' + (get_option('debug') ? '1' : '0'), language: 'cpp')
 
 # -Werror itself is meson's own built-in option (-Dwerror=true); no need to

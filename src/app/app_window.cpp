@@ -112,6 +112,7 @@ core::Asset makeImportedAsset(const std::string &path, core::FrameIndex length,
     asset.info.hasVideo = true;
     asset.info.hasAudio = probed.hasAudio;
     asset.info.isStillImage = probed.isStillImage;
+    asset.info.hasAlpha = probed.hasAlpha;
     asset.info.lengthInSequenceFrames = length;
     asset.info.fps = probed.fps;
     asset.info.width = probed.width;
@@ -317,11 +318,13 @@ AppWindow::AppWindow(GtkApplication *app, const std::vector<dropins::ShellExtens
     // Doc 15 IP5: the drop-ins' pages, actions and overlays, into the
     // finished shell (shell_hosts.cpp).
     setUpProxies();
+    setUpGpu();
     setUpTransformOverlay();
     m_hasShellExtensions = !shellExtensions.empty();
     for (const dropins::ShellExtension &extension : shellExtensions)
         extension(*this);
     g_signal_connect(m_window, "notify::is-active", G_CALLBACK(&AppWindow::windowActiveChangedTrampoline), this);
+    g_signal_connect(m_window, "notify::focus-widget", G_CALLBACK(&AppWindow::focusWidgetChangedTrampoline), this);
     g_signal_connect(m_window, "close-request", G_CALLBACK(&AppWindow::closeRequestTrampoline), this);
     // Heartbeat, not a one-shot timer reset on every edit: simpler to
     // reason about than adding/removing a GSource on every
@@ -416,6 +419,8 @@ void AppWindow::prepareForShutdown()
     m_pool.reset();
     if (m_engine)
         m_engine->shutdown();
+    if (m_gpu)
+        m_gpu->shutdown(); // a clean exit: no crash sentinel
     if (m_refreshSourceId != 0) {
         g_source_remove(m_refreshSourceId);
         m_refreshSourceId = 0;
@@ -426,6 +431,10 @@ void AppWindow::buildUi(GtkApplication *app)
 {
     m_window = ADW_APPLICATION_WINDOW(adw_application_window_new(app));
     gtk_window_set_default_size(GTK_WINDOW(m_window), 1100, 700);
+    // Maximised by default (owner, 2026-09-28): the editor wants the room.
+    // 1100x700 is the size it unmaximises to. No window state is saved
+    // yet; when it is, a saved state wins over this.
+    gtk_window_maximize(GTK_WINDOW(m_window));
 
     GtkWidget *toolbarView = adw_toolbar_view_new();
     m_toolbarView = ADW_TOOLBAR_VIEW(toolbarView);
@@ -549,7 +558,9 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_overlay_set_child(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderProgress));
     m_renderLabel = GTK_LABEL(gtk_label_new("Render…"));
     gtk_widget_add_css_class(GTK_WIDGET(m_renderLabel), "render-label");
-    gtk_label_set_width_chars(m_renderLabel, 13); // "Rendering 100%": the header doesn't reflow as it counts
+    // "Open Render" and "Render 100%" fit, so the header doesn't reflow as
+    // it counts; kept narrow for the header's room (owner, 2026-09-28).
+    gtk_label_set_width_chars(m_renderLabel, 11);
     gtk_overlay_add_overlay(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderLabel));
     gtk_overlay_set_measure_overlay(GTK_OVERLAY(renderOverlay), GTK_WIDGET(m_renderLabel), TRUE);
     m_renderBadge = GTK_LABEL(gtk_label_new(""));
@@ -570,12 +581,17 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(renderButton, "destroy", G_CALLBACK(&AppWindow::unparentPopoverTrampoline), m_renderMenu);
 
     GtkWidget *appGroup = headerGroup();
+    m_appHeaderGroup = appGroup;
     GtkWidget *settingsButton = gtk_button_new_from_icon_name("preferences-system-symbolic");
+    m_settingsButton = settingsButton;
     setTooltip(settingsButton, "header.settings");
     g_signal_connect(settingsButton, "clicked", G_CALLBACK(&AppWindow::settingsClickedTrampoline), this);
     gtk_box_append(GTK_BOX(appGroup), settingsButton);
 
-    GtkWidget *helpButton = gtk_button_new_from_icon_name("system-help-symbolic");
+    // Our own plain "?" (data/icons/symbolic): Adwaita's help icons are a
+    // lifebuoy or a "?" in a speech bubble, unlike the header's other
+    // single-glyph icons (owner, 2026-09-28).
+    GtkWidget *helpButton = gtk_button_new_from_icon_name("ustudio-help-symbolic");
     setTooltip(helpButton, "header.help");
     g_signal_connect(helpButton, "clicked", G_CALLBACK(&AppWindow::helpClickedTrampoline), this);
     gtk_box_append(GTK_BOX(appGroup), helpButton);
@@ -674,6 +690,7 @@ void AppWindow::buildUi(GtkApplication *app)
     gtk_widget_set_hexpand(GTK_WIDGET(m_preview), TRUE);
     gtk_widget_set_vexpand(GTK_WIDGET(m_preview), TRUE);
     gtk_frame_set_child(GTK_FRAME(previewFrame), GTK_WIDGET(m_preview));
+    addTextFocusRelease(GTK_WIDGET(m_preview));
     gtk_box_append(GTK_BOX(previewRow), previewFrame);
 
     gtk_paned_set_start_child(GTK_PANED(paned), previewRow);
@@ -714,6 +731,7 @@ void AppWindow::buildUi(GtkApplication *app)
     g_signal_connect(motion, "leave", G_CALLBACK(&AppWindow::timelineLeaveTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), motion);
 
+    addTextFocusRelease(GTK_WIDGET(m_timeline));
     GtkGesture *click = gtk_gesture_click_new();
     g_signal_connect(click, "pressed", G_CALLBACK(&AppWindow::timelineClickTrampoline), this);
     gtk_widget_add_controller(GTK_WIDGET(m_timeline), GTK_EVENT_CONTROLLER(click));
@@ -1220,7 +1238,7 @@ void AppWindow::showSettingsDialog()
     // the key stored on the row.
     AdwPreferencesPage *togglesPage = addPage("Toggles", "checkbox-checked-symbolic");
     auto addToggle = [this](AdwPreferencesGroup *group, const char *key, const char *title, const char *hintKey,
-                            bool value) {
+                            bool value) -> GtkWidget * {
         GtkWidget *row = adw_switch_row_new();
         adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
         if (const HintSpec *hint = findHint(hintKey); hint && hint->detail)
@@ -1230,6 +1248,7 @@ void AppWindow::showSettingsDialog()
         g_object_set_data_full(G_OBJECT(row), "ustudio-setting", g_strdup(key), g_free);
         g_signal_connect(row, "notify::active", G_CALLBACK(&AppWindow::settingsToggleChangedTrampoline), this);
         adw_preferences_group_add(group, row);
+        return row;
     };
     AdwPreferencesGroup *startupGroup = addGroup(togglesPage, "Startup");
     addToggle(startupGroup, "reopen-last-project", "Reopen last project on startup", "settings.reopen-last",
@@ -1269,6 +1288,14 @@ void AppWindow::showSettingsDialog()
     g_signal_connect(scaleRow, "notify::selected", G_CALLBACK(&AppWindow::settingsPreviewScaleChangedTrampoline), this);
     adw_preferences_group_add(previewGroup, GTK_WIDGET(scaleRow));
     addProxySettingsRow(previewGroup);
+    // ADR-019: the GPU row's subtitle is its live status.
+    AdwPreferencesGroup *hardwareGroup = addGroup(performancePage, "Hardware");
+    m_gpuSettingsRow = addToggle(hardwareGroup, "gpu-acceleration", "GPU acceleration", "settings.gpu-acceleration",
+                                 m_settings->gpuAcceleration());
+    g_object_add_weak_pointer(G_OBJECT(m_gpuSettingsRow), reinterpret_cast<gpointer *>(&m_gpuSettingsRow));
+    refreshGpuSettingsRow();
+    addToggle(hardwareGroup, "hardware-decode", "Hardware video decoding", "settings.hardware-decode",
+              m_settings->hardwareDecode());
 
     AdwPreferencesGroup *backgroundGroup = addGroup(performancePage, "Background work");
     // 0 is "Automatic (N)" (the output/input handlers below); the pool is
@@ -1378,6 +1405,14 @@ void AppWindow::onSettingsToggleChanged(const std::string &key, bool active)
 {
     if (key == "reopen-last-project") {
         m_settings->setReopenLastProject(active);
+        return;
+    }
+    if (key == "gpu-acceleration") {
+        m_gpu->setEnabled(active);
+        return;
+    }
+    if (key == "hardware-decode") {
+        m_gpu->setHardwareDecode(active);
         return;
     }
     if (key == "snap-while-dragging") {
@@ -1500,15 +1535,36 @@ void AppWindow::onProjectFrameRateClicked()
     GtkWidget *dropdown = gtk_drop_down_new(G_LIST_MODEL(labels), nullptr);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(dropdown), selected);
 
+    // The background: the colour wherever no clip covers the frame.
+    const uint32_t background = m_model.sequence().background;
+    GdkRGBA rgba{static_cast<float>(background >> 16 & 0xff) / 255.0f,
+                 static_cast<float>(background >> 8 & 0xff) / 255.0f, static_cast<float>(background & 0xff) / 255.0f,
+                 1.0f};
+    GtkColorDialog *colorDialog = gtk_color_dialog_new();
+    gtk_color_dialog_set_with_alpha(colorDialog, FALSE);
+    gtk_color_dialog_set_title(colorDialog, "Background colour");
+    GtkWidget *colorButton = gtk_color_dialog_button_new(colorDialog); // takes colorDialog
+    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(colorButton), &rgba);
+    gtk_widget_set_tooltip_text(colorButton, "The colour wherever no clip covers the frame, in preview and export");
+    GtkWidget *colorLabel = gtk_label_new("Background");
+    gtk_widget_set_hexpand(colorLabel, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(colorLabel), 0.0f);
+    GtkWidget *colorRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_box_append(GTK_BOX(colorRow), colorLabel);
+    gtk_box_append(GTK_BOX(colorRow), colorButton);
+    GtkWidget *extra = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_box_append(GTK_BOX(extra), dropdown);
+    gtk_box_append(GTK_BOX(extra), colorRow);
+
     AdwDialog *dialog = adw_alert_dialog_new(
-        "Project frame rate",
+        "Project frame rate and background",
         ("Now " + core::formatFps(current) +
          " fps. Changing it keeps every clip, dissolve, fade and marker at its time: positions move to the "
-         "nearest frame at the new rate. You can undo it.")
+         "nearest frame at the new rate. You can undo either change.")
             .c_str());
-    adw_alert_dialog_set_extra_child(ADW_ALERT_DIALOG(dialog), dropdown);
+    adw_alert_dialog_set_extra_child(ADW_ALERT_DIALOG(dialog), extra);
     adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel");
-    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "change", "Change");
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "change", "Apply");
     adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "change", ADW_RESPONSE_SUGGESTED);
     adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
 
@@ -1517,23 +1573,39 @@ void AppWindow::onProjectFrameRateClicked()
         AppWindow *self;
         std::vector<core::Rational> rates;
         GtkDropDown *dropdown;
+        GtkColorDialogButton *colorButton;
     };
-    auto *ctx = new Context{this, std::move(rates), GTK_DROP_DOWN(g_object_ref(dropdown))};
+    auto *ctx = new Context{this, std::move(rates), GTK_DROP_DOWN(g_object_ref(dropdown)),
+                            GTK_COLOR_DIALOG_BUTTON(g_object_ref(colorButton))};
     adw_alert_dialog_choose(
         ADW_ALERT_DIALOG(dialog), GTK_WIDGET(m_window), nullptr,
         [](GObject *source, GAsyncResult *result, gpointer userData) {
             std::unique_ptr<Context> owned(static_cast<Context *>(userData));
             const std::string response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), result);
             const guint index = gtk_drop_down_get_selected(owned->dropdown);
+            const GdkRGBA *picked = gtk_color_dialog_button_get_rgba(owned->colorButton);
+            auto channel = [](float value) {
+                return static_cast<uint32_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+            };
+            const uint32_t colour = channel(picked->red) << 16 | channel(picked->green) << 8 | channel(picked->blue);
             g_object_unref(owned->dropdown);
-            if (response != "change" || index >= owned->rates.size())
+            g_object_unref(owned->colorButton);
+            if (response != "change")
                 return;
             AppWindow *self = owned->self;
-            const core::Rational fps = owned->rates[index];
-            if (self->m_undoStack.execute(std::make_unique<core::ChangeSequenceFrameRate>(fps)))
-                self->showStatus("The project is now " + core::formatFps(fps) + " fps.");
-            else
-                self->showStatus("The project is already " + core::formatFps(fps) + " fps.");
+            std::string status;
+            // Each change is its own undo step.
+            if (self->m_undoStack.execute(std::make_unique<core::SetSequenceBackground>(colour)))
+                status = "The background is now " + core::backgroundHex(colour) + ". ";
+            if (index < owned->rates.size()) {
+                const core::Rational fps = owned->rates[index];
+                if (self->m_undoStack.execute(std::make_unique<core::ChangeSequenceFrameRate>(fps)))
+                    status += "The project is now " + core::formatFps(fps) + " fps.";
+                else if (status.empty())
+                    status = "Nothing changed: the project is already " + core::formatFps(fps) + " fps.";
+            }
+            if (!status.empty())
+                self->showStatus(status);
         },
         ctx);
     // No unref of `labels`: gtk_drop_down_new() took it (transfer full).
@@ -1590,6 +1662,39 @@ void AppWindow::chooseDefaultFolder(const std::string &key, AdwActionRow *row)
 
 void AppWindow::setTransportActionsEnabled(bool enabled)
 {
+    m_inlineEditOpen = !enabled;
+    applyTransportActionsEnabled();
+}
+
+void AppWindow::onFocusWidgetChanged()
+{
+    // Entries, spin buttons and AdwEntryRow all type through an inner
+    // GtkText; a GtkTextView is the multi-line case.
+    GtkWidget *focus = gtk_window_get_focus(GTK_WINDOW(m_window));
+    // A read-only one (a copyable path) types nothing, so it keeps them.
+    m_textHasFocus = (focus && GTK_IS_TEXT(focus) && gtk_editable_get_editable(GTK_EDITABLE(focus))) ||
+                     (focus && GTK_IS_TEXT_VIEW(focus) && gtk_text_view_get_editable(GTK_TEXT_VIEW(focus)));
+    applyTransportActionsEnabled();
+}
+
+void AppWindow::addTextFocusRelease(GtkWidget *widget)
+{
+    // Capture phase, any button, never claimed: the widget's own gestures
+    // still see the press.
+    GtkGesture *press = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(press), 0);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(press), GTK_PHASE_CAPTURE);
+    g_signal_connect(press, "pressed", G_CALLBACK(&AppWindow::textFocusReleaseTrampoline), this);
+    gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(press));
+}
+
+void AppWindow::applyTransportActionsEnabled()
+{
+    const bool enabled = !m_inlineEditOpen && !m_textHasFocus;
+    if (enabled == m_transportActionsEnabled)
+        return;
+    m_transportActionsEnabled = enabled;
+    Log::debug(std::string("[app] single-key shortcuts ") + (enabled ? "on" : "off (text entry)"));
     static const char *kTransportActions[] = {
         "shuttle-forward", "shuttle-reverse",     "shuttle-stop",         "step-forward",
         "step-backward",   "seek-home",           "seek-end",             "loop-set-in",
@@ -1630,6 +1735,9 @@ void AppWindow::setTransportActionsEnabled(bool enabled)
         GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name);
         g_simple_action_set_enabled(G_SIMPLE_ACTION(action), enabled);
     }
+    for (const std::string &name : m_typingKeyActions)
+        if (GAction *action = g_action_map_lookup_action(G_ACTION_MAP(m_window), name.c_str()))
+            g_simple_action_set_enabled(G_SIMPLE_ACTION(action), enabled);
 }
 
 namespace {
@@ -2702,7 +2810,7 @@ void AppWindow::onRenderStarted(const RenderJob &job)
 {
     m_lastRenderedPath.clear();
     gtk_progress_bar_set_fraction(m_renderProgress, 0.0);
-    gtk_label_set_text(m_renderLabel, "Rendering 0%");
+    gtk_label_set_text(m_renderLabel, "Render 0%");
     updateRenderButton();
     showStatus("Rendering “" + job.profile.name + "” to " + job.outputPath +
                " … (this can take a while — the window will stay responsive)");
@@ -2713,7 +2821,7 @@ void AppWindow::onRenderProgress(double fraction)
     fraction = std::clamp(fraction, 0.0, 1.0);
     const std::string percent = std::to_string(static_cast<int>(fraction * 100.0)) + "%";
     gtk_progress_bar_set_fraction(m_renderProgress, fraction);
-    gtk_label_set_text(m_renderLabel, ("Rendering " + percent).c_str());
+    gtk_label_set_text(m_renderLabel, ("Render " + percent).c_str());
     showStatus("Rendering… " + percent);
 }
 
@@ -6050,6 +6158,18 @@ gboolean AppWindow::autosaveHeartbeatTrampoline(gpointer userData)
 void AppWindow::windowActiveChangedTrampoline(GObject *, GParamSpec *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->onWindowActiveChanged();
+}
+
+void AppWindow::focusWidgetChangedTrampoline(GObject *, GParamSpec *, gpointer userData)
+{
+    static_cast<AppWindow *>(userData)->onFocusWidgetChanged();
+}
+
+void AppWindow::textFocusReleaseTrampoline(GtkGestureClick *, int, double, double, gpointer userData)
+{
+    auto *self = static_cast<AppWindow *>(userData);
+    if (self->m_textHasFocus)
+        gtk_window_set_focus(GTK_WINDOW(self->m_window), nullptr);
 }
 
 gboolean AppWindow::closeRequestTrampoline(GtkWindow *, gpointer userData)

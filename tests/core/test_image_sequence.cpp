@@ -2,10 +2,14 @@
 
 #include "doctest.h"
 
+#include "core/commands/primitives.h"
+#include "core/commands/undo_stack.h"
 #include "core/media/image_sequence.h"
+#include "core/model/model.h"
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 
 using namespace ustudio::core;
 namespace fs = std::filesystem;
@@ -63,4 +67,26 @@ TEST_CASE("image sequence: none without a number or a numbered neighbour, and '%
     CHECK(percent->pattern == (dir / "50%%_%01d.png").string());
     CHECK(imageSequenceFile(percent->pattern, 1) == (dir / "50%_1.png").string());
     fs::remove_all(dir);
+}
+
+TEST_CASE("image sequence: a relink can renumber it, and undo puts it back")
+{
+    Model model = Model::createEmpty();
+    Asset asset;
+    asset.path = "/old/frame_%04d.png";
+    asset.status = Asset::Status::Missing;
+    asset.info.hasVideo = true;
+    asset.info.isImageSequence = true;
+    asset.info.sequenceBegin = 1;
+    asset.info.lengthInSequenceFrames = 30;
+    const AssetId id = model.addAsset(asset);
+    UndoStack undo(model);
+    REQUIRE(undo.execute(std::make_unique<RelinkAsset>(id, "/new/shot_%03d.png", "fp", 100)));
+    CHECK(model.asset(id).path == "/new/shot_%03d.png");
+    CHECK(model.asset(id).info.sequenceBegin == 100);
+    CHECK(model.asset(id).status == Asset::Status::Ready);
+    REQUIRE(undo.undo());
+    CHECK(model.asset(id).path == "/old/frame_%04d.png");
+    CHECK(model.asset(id).info.sequenceBegin == 1);
+    CHECK(model.asset(id).status == Asset::Status::Missing);
 }

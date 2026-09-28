@@ -1,0 +1,367 @@
+{
+  "affine": {
+    "hidden": true
+  },
+  "audiochannels": {
+    "hidden": true
+  },
+  "audioconvert": {
+    "hidden": true
+  },
+  "audiolevel": {
+    "hidden": true
+  },
+  "audiolevelgraph": {
+    "category": "Visualise",
+    "name": "Audio Level Graph"
+  },
+  "audiomap": {
+    "hidden": true
+  },
+  "audioseam": {
+    "hidden": true
+  },
+  "audiospectrum": {
+    "category": "Visualise",
+    "name": "Audio Spectrum"
+  },
+  "audiowave": {
+    "hidden": true
+  },
+  "audiowaveform": {
+    "category": "Visualise",
+    "name": "Audio Waveform"
+  },
+  "autofade": {
+    "category": "Audio",
+    "name": "Auto Fade"
+  },
+  "avcolor_space": {
+    "hidden": true
+  },
+  "avcolour_space": {
+    "hidden": true
+  },
+  "avdeinterlace": {
+    "hidden": true
+  },
+  "box_blur": {
+    "category": "Blur and sharpen",
+    "name": "Box Blur"
+  },
+  "boxblur": {
+    "hidden": true
+  },
+  "brightness": {
+    "category": "Colour",
+    "name": "Brightness",
+    "params": {
+      "level": {
+        "default": 1
+      }
+    }
+  },
+  "BurningTV": {
+    "hidden": true
+  },
+  "burningtv": {
+    "category": "Stylise",
+    "name": "BurningTV"
+  },
+  "cairoblend_mode": {
+    "hidden": true
+  },
+  "channelcopy": {
+    "category": "Audio",
+    "name": "Copy Channel"
+  },
+  "channelswap": {
+    "category": "Audio",
+    "name": "Swap Channels"
+  },
+  "charcoal": {
+    "category": "Stylise",
+    "name": "Charcoal"
+  },
+  "choppy": {
+    "category": "Time",
+    "name": "Choppy"
+  },
+  "chroma": {
+    "category": "Keying and alpha",
+    "name": "Chroma Key",
+    "featured": true
+  },
+  "chroma_hold": {
+    "category": "Keying and alpha",
+    "name": "Chroma Hold"
+  },
+  "color_transform": {
+    "hidden": true
+  },
+  "crop": {
+    "hidden": true
+  },
+  "dance": {
+    "category": "Distort",
+    "name": "Dance"
+  },
+  "data_feed": {
+    "hidden": true
+  },
+  "data_show": {
+    "hidden": true
+  },
+  "deinterlace": {
+    "hidden": true
+  },
+  "deshake": {
+    "category": "Stabilise",
+    "name": "Deshake"
+  },
+  "dropshadow": {
+    "category": "Stylise",
+    "name": "Drop Shadow",
+    "featured": true
+  },
+  "dust": {
+    "category": "Stylise",
+    "name": "Dust"
+  },
+  "dynamic_loudness": {
+    "category": "Audio",
+    "name": "Dynamic Loudness"
+  },
+  "dynamictext": {
+    "hidden": true
+  },
+  "fft": {
+    "hidden": true
+  },
+  "fieldorder": {
+    "hidden": true
+  },
+  "freeze": {
+    "category": "Time",
+    "name": "Freeze Frame"
+  },
+  "gamma": {
+    "category": "Colour",
+    "name": "Gamma"
+  },
+  "gpsgraphic": {
+    "hidden": true
+  },
+  "gpstext": {
+    "hidden": true
+  },
+  "gradientmap": {
+    "category": "Colour",
+    "name": "Gradient Map"
+  },
+  "grain": {
+    "category": "Stylise",
+    "name": "Grain"
+  },
+  "grayscale": {
+    "hidden": true
+  },
+  "greyscale": {
+    "category": "Colour",
+    "name": "Greyscale"
+  },
+  "gtkrescale": {
+    "hidden": true
+  },
+  "hslprimaries": {
+    "category": "Colour",
+    "name": "HSL Primaries"
+  },
+  "hslrange": {
+    "category": "Colour",
+    "name": "HSL Range"
+  },
+  "imageconvert": {
+    "hidden": true
+  },
+  "invert": {
+    "category": "Colour",
+    "name": "Invert"
+  },
+  "jack": {
+    "hidden": true
+  },
+  "jackrack": {
+    "hidden": true
+  },
+  "ladspa": {
+    "hidden": true
+  },
+  "lift_gamma_gain": {
+    "category": "Colour",
+    "name": "Lift, Gamma and Gain",
+    "featured": true
+  },
+  "lightshow": {
+    "category": "Light",
+    "name": "Light Show"
+  },
+  "lines": {
+    "category": "Stylise",
+    "name": "Scratch Lines"
+  },
+  "loudness": {
+    "category": "Audio",
+    "name": "Loudness (EBU R128)",
+    "featured": true
+  },
+  "loudness_meter": {
+    "hidden": true
+  },
+  "luma": {
+    "hidden": true
+  },
+  "lumakey": {
+    "category": "Keying and alpha",
+    "name": "Luma Key"
+  },
+  "lumaliftgaingamma": {
+    "category": "Colour",
+    "name": "Luma Lift, Gain and Gamma"
+  },
+  "mask_apply": {
+    "hidden": true
+  },
+  "mask_start": {
+    "hidden": true
+  },
+  "mirror": {
+    "hidden": true
+  },
+  "mono": {
+    "category": "Audio",
+    "name": "Mix to Mono"
+  },
+  "obscure": {
+    "hidden": true
+  },
+  "oldfilm": {
+    "category": "Stylise",
+    "name": "Old Film",
+    "featured": true
+  },
+  "outline": {
+    "category": "Stylise",
+    "name": "Outline"
+  },
+  "panner": {
+    "category": "Audio",
+    "name": "Pan"
+  },
+  "pillar_echo": {
+    "category": "Stylise",
+    "name": "Pillar Echo"
+  },
+  "rbpitch": {
+    "category": "Audio",
+    "name": "Pitch Shift"
+  },
+  "resample": {
+    "hidden": true
+  },
+  "rescale": {
+    "hidden": true
+  },
+  "resize": {
+    "hidden": true
+  },
+  "rgblut": {
+    "category": "Colour",
+    "name": "RGB Lookup"
+  },
+  "rnnoise": {
+    "category": "Audio",
+    "name": "Noise Reduction",
+    "featured": true
+  },
+  "rotoscoping": {
+    "category": "Keying and alpha",
+    "name": "Rotoscoping"
+  },
+  "sepia": {
+    "category": "Colour",
+    "name": "Sepia"
+  },
+  "shape": {
+    "hidden": true
+  },
+  "sox": {
+    "hidden": true
+  },
+  "spot_remover": {
+    "category": "Keying and alpha",
+    "name": "Spot Remover"
+  },
+  "strobe": {
+    "category": "Keying and alpha",
+    "name": "Alpha Strobe"
+  },
+  "subtitle": {
+    "hidden": true
+  },
+  "subtitle_feed": {
+    "hidden": true
+  },
+  "swresample": {
+    "hidden": true
+  },
+  "sws_colortransform": {
+    "hidden": true
+  },
+  "swscale": {
+    "hidden": true
+  },
+  "tcolor": {
+    "category": "Colour",
+    "name": "Technicolor"
+  },
+  "telecide": {
+    "hidden": true
+  },
+  "text": {
+    "hidden": true
+  },
+  "threshold": {
+    "category": "Colour",
+    "name": "Threshold"
+  },
+  "timer": {
+    "hidden": true
+  },
+  "transition": {
+    "hidden": true
+  },
+  "typewriter": {
+    "hidden": true
+  },
+  "vidstab": {
+    "category": "Stabilise",
+    "name": "Stabilise (vid.stab)",
+    "featured": true
+  },
+  "vignette": {
+    "category": "Light",
+    "name": "Vignette (MLT)"
+  },
+  "volume": {
+    "category": "Audio",
+    "name": "Gain"
+  },
+  "watermark": {
+    "hidden": true
+  },
+  "wave": {
+    "category": "Distort",
+    "name": "Wave"
+  }
+}

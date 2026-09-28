@@ -10,11 +10,15 @@ test_core_exe = executable(
   install: false,
 )
 
-# The 10k-iteration random-command property test alone runs ~28-30s on the
-# dev machine, already against meson's 30s default before this file added
-# any commands to the fuzzer's repertoire; give the whole binary headroom
-# rather than let it flake on machine load.
-test('core', test_core_exe, timeout: 90)
+# The 10k-iteration random-command property test is nearly all of this
+# binary's time: 42.6 s of 44 on the dev machine alone (2026-09-27), and it
+# hit the old shared 90 s timeout twice under concurrent load. It runs as
+# its own test with a timeout sized for a loaded machine (about 3x), so the
+# rest of the core suite (under 2 s) keeps a tight timeout that still
+# catches a real hang.
+kUndoFuzz = 'UndoStack property: random commands*'
+test('core', test_core_exe, args: ['--test-case-exclude=' + kUndoFuzz], timeout: 30)
+test('core-undo-fuzz', test_core_exe, args: ['--test-case=' + kUndoFuzz], timeout: 180)
 
 # doc 19 MT0: the worker pool, its own binary so `just tsan` can run it on
 # its own quickly.

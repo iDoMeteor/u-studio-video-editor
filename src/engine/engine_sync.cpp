@@ -1,6 +1,8 @@
 #include "engine_sync.h"
 
 #include "factory_policy.h"
+#include "gpu_session.h"
+#include "producer_open.h"
 
 #include "core/log.h"
 #include "core/trace.h"
@@ -10,8 +12,10 @@
 #include "core/model/track_segments.h"
 #include "core/model/transform.h"
 #include "platform/console.h"
+#include "platform/gl_context.h"
 
 #include <algorithm>
+#include <cstring>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -40,7 +44,6 @@ static_assert(static_cast<int>(core::Easing::BounceInOut) == mlt_keyframe_bounce
 namespace Log = ustudio::core::Log;
 
 namespace {
-constexpr const char *kBlackResource = "color:black";
 // What a missing file's clips play (doc 07, M4 B): style.css's
 // semantic_danger (#ff4d6d) darkened, so it reads as "something's wrong"
 // without glaring for the length of a clip. The engine can't include the
@@ -100,6 +103,146 @@ void flattenPlaylist(Mlt::Playlist &playlist, int offset, std::vector<PlaylistEn
     }
 }
 
+namespace {
+
+// Track 0's black is the A frame every track composites onto, and the
+// composited frame keeps its properties. producer_colour tags any YUV
+// image it makes BT.601 (producer_colour.c, MLT 7.40) and composite never
+// changes the tag, so the final YUV->RGB step (the preview's rgba, a
+// render's conversion) decoded every BT.709 source with the 601 matrix:
+// pure red 255 -> 233, cyan's red 0 -> 22, in preview and export alike.
+// This filter re-tags the black's YUV frames with the profile's colour
+// space (black is the same YUV in both). The alternatives measured worse:
+// the black as RGBA cost a full-frame conversion (+7 ms at 1080p); an
+// empty track 0 draws gaps white; a lavfi black took 600+ ms to seek.
+// Standalone repro, docs/developer/notes/engine-sync.md (2026-09-27).
+int retagImage(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height, int writable)
+{
+    mlt_properties properties = MLT_FRAME_PROPERTIES(frame);
+    const int colorspace = mlt_properties_get_int(properties, "ustudio.colorspace");
+    const int error = mlt_frame_get_image(frame, image, format, width, height, writable);
+    if (!error && *format != mlt_image_rgb && *format != mlt_image_rgba && *format != mlt_image_rgba64)
+        mlt_properties_set_int(properties, "colorspace", colorspace);
+    return error;
+}
+
+mlt_frame retagProcess(mlt_filter filter, mlt_frame frame)
+{
+    mlt_properties_set_int(MLT_FRAME_PROPERTIES(frame), "ustudio.colorspace",
+                           mlt_service_profile(MLT_FILTER_SERVICE(filter))->colorspace);
+    mlt_frame_push_get_image(frame, retagImage);
+    return frame;
+}
+
+void attachProfileColorspace(Mlt::Producer &producer, Mlt::Profile &profile)
+{
+    mlt_filter raw = mlt_filter_new();
+    if (!raw)
+        return;
+    raw->process = retagProcess;
+    mlt_service_set_profile(MLT_FILTER_SERVICE(raw), profile.get_profile());
+    Mlt::Filter filter(raw); // its own reference
+    mlt_filter_close(raw);
+    producer.attach(filter);
+}
+
+// composite blends in 4:2:2 YUV, each pixel's Y and its one chroma byte (U
+// on even pixels, V on odd) with that pixel's own alpha. Where the two
+// pixels of a pair have different alphas, U and V are mixed by different
+// amounts, so an anti-aliased edge gets a false colour: white text at
+// alpha 5 over red came out (60,63,5), not (255,5,5), and an opaque pixel
+// beside it could turn magenta (transition_composite.c's
+// composite_line_yuv, MLT 7.40; standalone repro 2026-09-27). This hook
+// makes the pixels of such a pair agree before composite sees them: both
+// take the pair's mean alpha and alpha-weighted mean colour, so the result
+// is exactly the two-pixel average of a correct blend (half the alpha's
+// horizontal detail, as 4:2:2 has for colour). Pairs of equal alpha, and
+// so every opaque area, keep their own pixels. It asks for RGBA, which the
+// sources it goes on (stills, titles, transformed cuts) make natively;
+// mlt_frame_get_image() converts the result to what composite asked for.
+// The affine transition blends RGBA correctly but cost 150 ms a 1080p frame
+// against composite's 25 (same repro).
+int pairAlphaImage(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height, int writable)
+{
+    // Without the loader's normalisers (a producer made straight from the
+    // factory) nothing converts RGBA back to what composite asked for, and
+    // it would read RGBA as YUV: leave such a frame alone.
+    if (*format != mlt_image_rgba && !frame->convert_image)
+        return mlt_frame_get_image(frame, image, format, width, height, writable);
+    *format = mlt_image_rgba;
+    const int error = mlt_frame_get_image(frame, image, format, width, height, 1);
+    if (error || *format != mlt_image_rgba || !*image)
+        return error;
+    const size_t w = static_cast<size_t>(*width), h = static_cast<size_t>(*height);
+    for (size_t y = 0; y < h; ++y) {
+        uint8_t *p = *image + y * w * 4;
+        for (size_t x = 0; x + 1 < w; x += 2, p += 8) {
+            const int a0 = p[3], a1 = p[7];
+            if (a0 == a1)
+                continue;
+            const int sum = a0 + a1;
+            for (int c = 0; c < 3; ++c)
+                p[c] = p[4 + c] = static_cast<uint8_t>((p[c] * a0 + p[4 + c] * a1 + sum / 2) / sum);
+            p[3] = p[7] = static_cast<uint8_t>((sum + 1) / 2);
+        }
+    }
+    return 0;
+}
+
+mlt_frame pairAlphaProcess(mlt_filter, mlt_frame frame)
+{
+    mlt_frame_push_get_image(frame, pairAlphaImage);
+    return frame;
+}
+
+// FFmpeg's pixel formats with an alpha channel, by name (libavutil's
+// descriptor flag isn't ours to link): yuva*, gbrap*, ya8/ya16, and the
+// packed RGB orders with an "a". pal8 may carry alpha but is rare in video.
+bool pixelFormatHasAlpha(const std::string &name)
+{
+    for (const char *prefix : {"yuva", "gbrap", "ya8", "ya16", "rgba", "argb", "bgra", "abgr", "rgb32", "bgr32"})
+        if (name.rfind(prefix, 0) == 0)
+            return true;
+    return false;
+}
+
+// On a video-track cut whose clip has its video turned off. avformat drops
+// the picture for video_index=-1, but stills (pixbuf) and image sequences
+// ignore it and kept showing (2026-09-27). A frame marked test_image is
+// what a playlist blank gives, and a transition skips such a B frame
+// (mlt_transition.c, MLT 7.40): the track below shows, the audio plays.
+mlt_frame hideVideoProcess(mlt_filter, mlt_frame frame)
+{
+    mlt_properties_set_int(MLT_FRAME_PROPERTIES(frame), "test_image", 1);
+    return frame;
+}
+
+void attachHideVideo(Mlt::Producer &producer)
+{
+    mlt_filter raw = mlt_filter_new();
+    if (!raw)
+        return;
+    raw->process = hideVideoProcess;
+    Mlt::Filter filter(raw); // its own reference
+    mlt_filter_close(raw);
+    producer.attach(filter);
+}
+
+// On a video track's cut or dissolve segment that may carry alpha; outermost,
+// so after the cut's effects and transform.
+void attachAlphaPairing(Mlt::Producer &producer)
+{
+    mlt_filter raw = mlt_filter_new();
+    if (!raw)
+        return;
+    raw->process = pairAlphaProcess;
+    Mlt::Filter filter(raw); // its own reference
+    mlt_filter_close(raw);
+    producer.attach(filter);
+}
+
+} // namespace
+
 std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 {
     auto profile = std::make_unique<Mlt::Profile>();
@@ -114,15 +257,17 @@ std::unique_ptr<Mlt::Profile> makeProfileFrom(const core::Profile &p)
 }
 } // namespace
 
-EngineSync::EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale)
+EngineSync::EngineSync(std::shared_ptr<const core::Project> project, PreviewScale previewScale, FrameReads reads,
+                       OutputSize outputSize)
     : m_extensions(createEngineExtensions()), m_project(std::move(project)), m_model(*m_project),
-      m_previewScale(previewScale)
+      m_previewScale(previewScale), m_reads(reads), m_outputSize(outputSize)
 {
     applyProfile();
     rebuildAll();
 }
 
-EngineSync::EngineSync(const core::Model &model, PreviewScale previewScale) : EngineSync(model.snapshot(), previewScale)
+EngineSync::EngineSync(const core::Model &model, PreviewScale previewScale, FrameReads reads, OutputSize outputSize)
+    : EngineSync(model.snapshot(), previewScale, reads, outputSize)
 {}
 
 EngineSync::~EngineSync() = default;
@@ -138,8 +283,9 @@ bool sameGraphInput(const core::Project &a, const core::Project &b)
     for (size_t i = 0; i < a.sequences.size(); ++i) {
         const core::Sequence &x = a.sequences[i];
         const core::Sequence &y = b.sequences[i];
-        if (x.id != y.id || x.profile != y.profile || x.tracks != y.tracks || x.clips != y.clips ||
-            x.transitions != y.transitions || x.effects != y.effects || x.adjustmentBlocks != y.adjustmentBlocks)
+        if (x.id != y.id || x.profile != y.profile || x.background != y.background || x.tracks != y.tracks ||
+            x.clips != y.clips || x.transitions != y.transitions || x.effects != y.effects ||
+            x.adjustmentBlocks != y.adjustmentBlocks)
             return false;
     }
     return true;
@@ -185,13 +331,14 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
 
 void EngineSync::dropChangedMasters(const core::Project &before, const core::Project &after)
 {
-    // A relinked, missing or found-again asset needs its file (or the
-    // placeholder) opened afresh; the cache is keyed by asset id alone.
+    // A relinked, missing, found-again or rewritten asset (a new fingerprint:
+    // ShellHost::assetChangedOnDisk()) needs its file (or the placeholder)
+    // opened afresh; the cache is keyed by asset id alone.
     for (const core::Asset &now : after.bin) {
         auto was =
             std::find_if(before.bin.begin(), before.bin.end(), [&](const core::Asset &a) { return a.id == now.id; });
-        if (was == before.bin.end() ||
-            (was->path == now.path && was->status == now.status && was->proxyPath == now.proxyPath))
+        if (was == before.bin.end() || (was->path == now.path && was->status == now.status &&
+                                        was->proxyPath == now.proxyPath && was->fileFingerprint == now.fileFingerprint))
             continue;
         for (uint64_t variant = 0; variant < 4; ++variant)
             m_masterProducers.erase((now.id.value << 2) | variant);
@@ -228,6 +375,38 @@ void EngineSync::setUseProxies(bool use)
     if (std::none_of(bin.begin(), bin.end(), [](const core::Asset &a) { return !a.proxyPath.empty(); }))
         return; // nothing plays differently
     dropProxiedMasters();
+    rebuildAll();
+}
+
+void EngineSync::setHardwareDecode(const std::string &api)
+{
+    if (api == m_hardwareDecodeApi)
+        return;
+    m_hardwareDecodeApi = api;
+    const auto &bin = m_model.project().bin;
+    if (std::none_of(bin.begin(), bin.end(), [](const core::Asset &a) { return a.info.hasVideo; }))
+        return; // nothing plays differently
+    // Every master is reopened (as rebuildOnNewProfile()): which of them
+    // decode video depends on the variant.
+    m_masterProducers.clear();
+    m_proxiedAssets.clear();
+    rebuildAll();
+}
+
+void EngineSync::setPipeline(Pipeline pipeline, const std::string &hardwareDecodeApi)
+{
+    if (pipeline == m_pipeline && hardwareDecodeApi == m_hardwareDecodeApi)
+        return;
+    m_pipeline = pipeline;
+    m_hardwareDecodeApi = hardwareDecodeApi;
+    // Everything the loader opened got the other pipeline's normalisers
+    // (docs/developer/notes/gpu.md): reopen it all.
+    Log::debug(std::string("[engine] pipeline ") + (pipeline == Pipeline::Gpu ? "GPU" : "CPU") + ": dropping " +
+               std::to_string(m_masterProducers.size()) + " cached master producer(s)");
+    m_masterProducers.clear();
+    m_proxiedAssets.clear();
+    m_blackMaster.reset();
+    m_transformBackground.reset(); // the old filters keep their references
     rebuildAll();
 }
 
@@ -288,6 +467,10 @@ void EngineSync::applyProfile()
         m_profile->set_width(scaled(sequenceProfile.width));
         m_profile->set_height(scaled(sequenceProfile.height));
     }
+    if (m_outputSize.width > 0 && m_outputSize.height > 0) {
+        m_profile->set_width(m_outputSize.width);
+        m_profile->set_height(m_outputSize.height);
+    }
     Log::debug("[engine] playback profile " + std::to_string(m_profile->width()) + "x" +
                std::to_string(m_profile->height()) + " (preview factor " + std::to_string(m_previewFactor) + ")");
 }
@@ -306,7 +489,8 @@ EngineSync::ProbedMedia EngineSync::probeMediaFile(const core::Profile &sequence
     // not contend with the live playback state open their own
     // Profile/Producer, same as renderProject()).
     std::unique_ptr<Mlt::Profile> probeProfile = makeProfileFrom(sequenceProfile);
-    Mlt::Producer producer(*probeProfile, path.c_str());
+    std::unique_ptr<Mlt::Producer> opened = openProducer(*probeProfile, path, ProducerUse::Worker);
+    Mlt::Producer &producer = *opened;
     if (!producer.is_valid())
         return {};
 
@@ -352,17 +536,26 @@ EngineSync::ProbedMedia EngineSync::probeMediaFile(const core::Profile &sequence
             result.fps = core::Rational{fpsNum, fpsDen};
         result.width = producer.get_int("meta.media.width");
         result.height = producer.get_int("meta.media.height");
+        // Also lazy (the first decoded frame). avformat picks a decoder that
+        // keeps alpha (libvpx for VP9 alpha): yuva444p12le (ProRes 4444),
+        // yuva420p (VP9), argb (qtrle), all with real alpha in their frames
+        // (standalone repro, 2026-09-27).
+        const char *pixelFormat = producer.get("meta.media.0.codec.pix_fmt");
+        result.hasAlpha = pixelFormat && pixelFormatHasAlpha(pixelFormat);
     } else {
         // A still's size too (M4 E: an image sequence is probed by its first
         // image, and fitting a picture needs its aspect). pixbuf sets
         // meta.media.width/height when it loads the image, on the first
         // get_image; avformat's single-image path on its first frame.
+        // mlt_image_none: the image as loaded, so its format says whether it
+        // has alpha (pixbuf: rgba or rgb; an image sequence of PNGs too).
         std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
-        mlt_image_format format = mlt_image_rgba;
+        mlt_image_format format = mlt_image_none;
         int w = 0, h = 0;
         frame->get_image(format, w, h);
         result.width = producer.get_int("meta.media.width");
         result.height = producer.get_int("meta.media.height");
+        result.hasAlpha = format == mlt_image_rgba;
     }
 
     return result;
@@ -411,7 +604,12 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
         const bool sequence = asset.info.isImageSequence && resource == asset.path;
         if (sequence)
             resource = "pixbuf:" + asset.path + "?begin=" + std::to_string(asset.info.sequenceBegin);
-        auto producer = std::make_shared<Mlt::Producer>(*m_profile, knownMissing ? kMissingResource : resource.c_str());
+        // Hardware decode is per producer (ADR-019): only a video file's
+        // master whose picture plays, never a sequence, still or placeholder.
+        if (!knownMissing && !sequence && videoEnabled && asset.info.hasVideo && !asset.info.isStillImage)
+            resource = withHardwareDecode(resource, m_hardwareDecodeApi);
+        std::shared_ptr<Mlt::Producer> producer =
+            openProducer(*m_profile, knownMissing ? std::string(kMissingResource) : resource, graphUse());
         if (sequence && !knownMissing && producer->is_valid()) {
             const int frames = static_cast<int>(std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1));
             producer->set("ttl", 1);
@@ -441,7 +639,7 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
                            ") -- showing the missing-media placeholder in its place");
                 mediaUnavailable.emit(asset.path);
             }
-            producer = std::make_shared<Mlt::Producer>(*m_profile, kMissingResource);
+            producer = openProducer(*m_profile, kMissingResource, graphUse());
         }
         if (knownMissing || m_unavailableAssets.contains(assetId.value)) {
             core::FrameIndex placeholderLength = std::max<core::FrameIndex>(asset.info.lengthInSequenceFrames, 1);
@@ -454,6 +652,12 @@ Mlt::Producer &EngineSync::masterProducerFor(core::AssetId assetId, bool videoEn
             producer->set("video_index", -1);
         if (!audioEnabled)
             producer->set("audio_index", -1);
+        // A colour's YUV is BT.601 values tagged 601, and MLT composites YUV
+        // without converting between colour spaces: as RGBA, the conversion
+        // to YUV uses the profile's matrix (the re-tag note above).
+        if (const char *service = producer->get("mlt_service");
+            service && (std::strcmp(service, "color") == 0 || std::strcmp(service, "colour") == 0))
+            producer->set("mlt_image_format", "rgba");
         it = m_masterProducers.emplace(key, std::move(producer)).first;
     }
     Mlt::Producer &producer = *it->second;
@@ -547,6 +751,7 @@ Mlt::Producer &EngineSync::producerForClip(const core::Clip &clip)
     if (!m_extensions.empty()) {
         if (auto it = m_clipProducers.find(clip.id.value); it != m_clipProducers.end())
             return *it->second;
+        GraphBuildScope scope(m_pipeline == Pipeline::Gpu);
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions) {
             if (std::unique_ptr<Mlt::Producer> made = extension->makeProducer(m_model, clip, *m_profile)) {
                 m_extensionProducers.insert(clip.id.value);
@@ -574,20 +779,51 @@ double EngineSync::sourceScale(const core::Clip &clip)
     return sourceWidth > 0 && playing > 0 ? static_cast<double>(playing) / sourceWidth : 1.0;
 }
 
-void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip)
+bool EngineSync::compositorFits(const core::Clip &clip, bool inDissolve) const
+{
+    // movit.overlay doesn't centre a picture by itself; movit.rect is cheap.
+    return m_pipeline == Pipeline::Cpu && m_reads == FrameReads::ProfileSize && !inDissolve &&
+           core::compositorFits(clip.transform.get());
+}
+
+bool EngineSync::carriesAlpha(const core::Clip &clip, bool transformed) const
+{
+    if (transformed || m_extensionProducers.count(clip.id.value))
+        return true;
+    if (!m_model.hasAsset(clip.asset))
+        return false;
+    const core::MediaInfo &info = m_model.asset(clip.asset).info;
+    return info.isStillImage || info.isImageSequence || info.hasAlpha;
+}
+
+std::vector<core::NativeFilter> EngineSync::transformNatives(const core::Transform &t, const core::MediaInfo &info,
+                                                             const core::Profile &profile, double sourceScale) const
+{
+    return m_pipeline == Pipeline::Gpu
+               ? core::gpuTransformFilters(t, info.width, info.height, profile, outputScale(), sourceScale)
+               : core::transformFilters(t, info.width, info.height, profile, outputScale(), sourceScale);
+}
+
+bool EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve)
 {
     if (!m_model.hasAsset(clip.asset))
-        return;
+        return false;
     const core::MediaInfo &info = m_model.asset(clip.asset).info;
-    const std::vector<core::NativeFilter> natives = core::transformFilters(
-        clip.transform.get(), info.width, info.height, m_model.sequence().profile, outputScale(), sourceScale(clip));
-    if (natives.empty())
-        return; // identity: the track compositor scales it to the frame
+    // Empty when the track compositor places the picture by itself.
+    const std::vector<core::NativeFilter> natives =
+        compositorFits(clip, inDissolve)
+            ? std::vector<core::NativeFilter>{}
+            : transformNatives(clip.transform.get(), info, m_model.sequence().profile, sourceScale(clip));
+    // Every cut is recorded, filtered or not: a clip's own cuts and its
+    // dissolve cuts can differ (compositorFits()), and applyTransformsInPlace()
+    // may only update a clip whose cuts all share one shape.
+    std::string shape;
+    for (const core::NativeFilter &native : natives)
+        shape += native.service + ";";
     TransformFilters &kept = m_transformFilters[clip.id.value];
-    kept.shape.clear();
+    kept.shape = kept.cuts.empty() || kept.shape == shape ? shape : std::string(kMixedShape);
     std::vector<std::shared_ptr<Mlt::Filter>> filters;
     for (const core::NativeFilter &native : natives) {
-        kept.shape += native.service + ";";
         auto filter = std::make_shared<Mlt::Filter>(*m_profile, native.service.c_str());
         for (const auto &[name, value] : native.properties)
             filter->set(name.c_str(), value.c_str());
@@ -602,8 +838,10 @@ void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip)
             // get_image and producer_colour locks itself around the cache
             // (filter_affine.c, producer_colour.c, MLT 7.40; TSan-checked by
             // tests/engine/test_transform). Standalone repro 2026-09-25.
+            // A worker producer: the filter reads it on the CPU, so it must
+            // never get movit's normalisers in a GPU graph (ADR-019).
             if (!m_transformBackground)
-                m_transformBackground = std::make_unique<Mlt::Producer>(*m_profile, "colour:0");
+                m_transformBackground = openProducer(*m_profile, "colour:0", ProducerUse::Worker);
             m_transformBackground->inc_ref();
             filter->set(
                 "producer", m_transformBackground->get_producer(), 0,
@@ -613,6 +851,7 @@ void EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip)
         filters.push_back(std::move(filter));
     }
     kept.cuts.push_back(std::move(filters));
+    return !natives.empty();
 }
 
 bool EngineSync::applyTransformsInPlace(const core::Project &next)
@@ -639,8 +878,11 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
         if (before.transform == clip.transform)
             continue;
         const core::MediaInfo &info = m_model.asset(clip.asset).info;
-        const std::vector<core::NativeFilter> natives = core::transformFilters(
-            clip.transform.get(), info.width, info.height, profile, outputScale(), sourceScale(clip));
+        // As applyTransform() builds a clip's own cuts; a clip with dissolve
+        // cuts of another shape is kMixedShape and rebuilds.
+        const std::vector<core::NativeFilter> natives =
+            compositorFits(clip, false) ? std::vector<core::NativeFilter>{}
+                                        : transformNatives(clip.transform.get(), info, profile, sourceScale(clip));
         std::string shape;
         for (const core::NativeFilter &native : natives)
             shape += native.service + ";";
@@ -648,11 +890,13 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
         const std::string keptShape = kept == m_transformFilters.end() ? std::string() : kept->second.shape;
         if (shape != keptShape)
             return false; // filters to add or remove (identity <-> placed, a flip): rebuild
+        changed = true;
+        if (kept == m_transformFilters.end())
+            continue; // no cut in the graph, nothing to update
         for (const auto &filters : kept->second.cuts)
             for (size_t i = 0; i < natives.size() && i < filters.size(); ++i)
                 for (const auto &[name, value] : natives[i].properties)
                     filters[i]->set(name.c_str(), value.c_str());
-        changed = true;
     }
     if (changed)
         Log::debug("[engine] clip transforms applied in place");
@@ -665,7 +909,7 @@ void EngineSync::decorateCut(Mlt::Producer &cut, const core::Clip &clip, core::F
         extension->decorateCut(cut, CutContext{m_model, clip, in - clip.in, out - in + 1, *m_profile});
 }
 
-std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackSegment &segment)
+std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackSegment &segment, bool video)
 {
     const core::Transition &t = m_model.transition(segment.transition);
     const core::Clip &clipA = m_model.clip(segment.a);
@@ -675,19 +919,23 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     std::unique_ptr<Mlt::Producer> tailA(
         masterA.cut(static_cast<int>(clipA.out - t.length + 1), static_cast<int>(clipA.out)));
     decorateCut(*tailA, clipA, clipA.out - t.length + 1, clipA.out);
-    applyTransform(*tailA, clipA);
+    const bool alphaA = carriesAlpha(clipA, applyTransform(*tailA, clipA, true));
 
     Mlt::Producer &masterB = producerForClip(clipB);
     std::unique_ptr<Mlt::Producer> headB(
         masterB.cut(static_cast<int>(clipB.in), static_cast<int>(clipB.in + t.length - 1)));
     decorateCut(*headB, clipB, clipB.in, clipB.in + t.length - 1);
-    applyTransform(*headB, clipB);
-
+    const bool alphaB = carriesAlpha(clipB, applyTransform(*headB, clipB, true));
+    // The dissolve mixes in YUV too; the pairing goes on its output.
+    const bool pairAlpha = video && m_pipeline == Pipeline::Cpu && (alphaA || alphaB);
     // IP3: a drop-in's recipe (wipes, motion; FX3) builds the whole segment.
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         if (std::unique_ptr<Mlt::Tractor> made =
-                extension->makeTransitionSegment(m_model, t, *tailA, *headB, *m_profile))
+                extension->makeTransitionSegment(m_model, t, *tailA, *headB, *m_profile)) {
+            if (pairAlpha)
+                attachAlphaPairing(*made);
             return made;
+        }
 
     auto sub = std::make_unique<Mlt::Tractor>(*m_profile);
 
@@ -715,7 +963,10 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // ~10 MB per 100 rebuilds leaked, flat when deleted). Own it, once.
     std::unique_ptr<Mlt::Field> field(sub->field());
 
-    Mlt::Transition luma(*m_profile, t.service.c_str());
+    // The GPU graph dissolves with movit.luma_mix, a plain mix without a
+    // luma `resource` (transition_movit_luma.yml).
+    const bool gpuDissolve = m_pipeline == Pipeline::Gpu && t.service == "luma";
+    Mlt::Transition luma(*m_profile, gpuDissolve ? "movit.luma_mix" : t.service.c_str());
     luma.set_in_and_out(0, static_cast<int>(t.length - 1));
     field->plant_transition(luma, 0, 1);
 
@@ -736,6 +987,8 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     field->plant_transition(mix, 0, 1);
 
     sub->refresh();
+    if (pairAlpha)
+        attachAlphaPairing(*sub);
     return sub;
 }
 
@@ -751,6 +1004,7 @@ size_t EngineSync::playlistChunkSize()
 
 void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playlist &playlist)
 {
+    const bool video = modelTrack.kind == core::Track::Kind::Video;
     playlist.clear();
     const std::vector<TrackSegment> segments = core::planTrackSegments(m_model, modelTrack);
 
@@ -806,10 +1060,14 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
             Mlt::Producer &master = producerForClip(clip);
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
             decorateCut(*cut, clip, seg.in, seg.out);
-            applyTransform(*cut, clip);
+            const bool transformed = applyTransform(*cut, clip);
+            if (video && !clip.videoEnabled)
+                attachHideVideo(*cut);
+            else if (video && m_pipeline == Pipeline::Cpu && carriesAlpha(clip, transformed))
+                attachAlphaPairing(*cut); // movit blends RGBA with straight alpha itself
             target().append(*cut);
         } else {
-            target().append(*buildTransitionSubTractor(seg));
+            target().append(*buildTransitionSubTractor(seg, video));
         }
         added();
 
@@ -822,6 +1080,8 @@ void EngineSync::rebuildAll()
 {
     Log::ScopedTimer timer("[engine] rebuildAll");
     core::trace::Scope trace("EngineSync::rebuildAll");
+    // Drop-ins' producers (titles) follow this graph's pipeline.
+    GraphBuildScope scope(m_pipeline == Pipeline::Gpu);
     const core::Sequence &seq = m_model.sequence();
     size_t clipCount = seq.clips.size();
     size_t trackCount = seq.tracks.size();
@@ -852,10 +1112,27 @@ void EngineSync::rebuildAll()
     // Created with a fixed, very long length and never mutated afterwards:
     // a running consumer may still be pulling from an older tractor's cut
     // of it while this rebuild runs, so resizing it per rebuild would race.
+    // A new background colour is a new master; a cut of the old one keeps
+    // it alive for as long as an old tractor plays it.
+    if (m_blackMaster && m_blackMasterColour != seq.background)
+        m_blackMaster.reset();
     if (!m_blackMaster) {
-        m_blackMaster = std::make_unique<Mlt::Producer>(*m_profile, kBlackResource);
+        m_blackMasterColour = seq.background;
+        m_blackMaster = openProducer(*m_profile, "color:" + core::backgroundResource(seq.background), graphUse());
         m_blackMaster->set("length", kBlackMasterLength);
         m_blackMaster->set_in_and_out(0, kBlackMasterLength - 1);
+        const uint32_t r = seq.background >> 16 & 0xff, g = seq.background >> 8 & 0xff, b = seq.background & 0xff;
+        if (r == g && g == b) {
+            // A grey is the same YUV in BT.601 and BT.709: YUV (the cheap
+            // path) re-tagged with the profile's colourspace.
+            attachProfileColorspace(*m_blackMaster, *m_profile);
+        } else {
+            // producer_colour converts with BT.601 and composite never
+            // converts B; as RGBA the colour is converted with the profile's
+            // matrix (what the writer does for melt). Costs ~7 ms a frame at
+            // 1080p (2026-09-27 measurement) for a colour the user chose.
+            m_blackMaster->set("mlt_image_format", "rgba");
+        }
     }
     core::FrameIndex sequenceLength = std::max<core::FrameIndex>(seq.length(), 1);
     // Mlt::Producer::cut() returns a new, caller-owned wrapper (the "mlt++
@@ -933,8 +1210,23 @@ void EngineSync::rebuildAll()
             // itself but cost 21 ms a frame for one untransformed 1080p track
             // against composite's 5 (39 against 7 for four). Standalone
             // repros, MLT 7.40, 2026-09-25; docs/developer/notes/engine-sync.md.
-            Mlt::Transition composite(*m_profile, "composite");
-            composite.set("fill", 1);
+            // Centred (the YAML's values; defaults left/top) when frames are
+            // read at the profile's size (FrameReads), so a plain Fit of
+            // another aspect needs no affine filter: 20 ms a frame against
+            // 63 for a 1344x768 source in 1080p, the edges within a pixel
+            // (standalone repro, 2026-09-27).
+            // The GPU graph composites with movit.overlay (source over, its
+            // default `compositing`), the same fan-in onto track 0; each
+            // cut arrives placed (gpuTransformFilters()) or frame-sized
+            // from the loader's normalisers.
+            Mlt::Transition composite(*m_profile, m_pipeline == Pipeline::Gpu ? "movit.overlay" : "composite");
+            if (m_pipeline == Pipeline::Cpu) {
+                composite.set("fill", 1);
+                if (m_reads == FrameReads::ProfileSize) {
+                    composite.set("halign", "centre");
+                    composite.set("valign", "middle");
+                }
+            }
             field->plant_transition(composite, 0, index);
         }
 
@@ -1046,7 +1338,7 @@ std::vector<std::string> EngineSync::verify() const
                         colon != std::string::npos && expectedResource.find('/') > colon) {
                         expectedResource = expectedResource.substr(colon + 1);
                     }
-                    std::string actualResource = entry.resource;
+                    std::string actualResource = withoutHardwareDecode(entry.resource);
                     // A generator with no argument ("tone:") has an empty
                     // resource, and a cut of it reports MLT's "<producer>"
                     // placeholder instead (seen 2026-09-24 in
@@ -1111,6 +1403,19 @@ struct RenderProgressContext
     int totalFrames;
     std::optional<std::chrono::steady_clock::time_point> lastCall;
 };
+
+// ADR-019: an export on the GPU pipeline renders with its own context,
+// current on the consumer's render thread for its life.
+void renderGlStarted(mlt_properties, void *context, mlt_event_data)
+{
+    if (!static_cast<platform::GlContext *>(context)->makeCurrent())
+        Log::error("[gpu] the export's render thread couldn't make its GL context current");
+}
+
+void renderGlStopped(mlt_properties, void *context, mlt_event_data)
+{
+    static_cast<platform::GlContext *>(context)->release();
+}
 
 void renderProgressTrampoline(mlt_properties /*owner*/, void *self, mlt_event_data data)
 {
@@ -1197,7 +1502,41 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
         }
     }
     core::Model &renderModel = retimed ? *retimed : model;
-    EngineSync renderSync(renderModel); // its own Profile/Tractor, independent of any live one
+    // ADR-019 point 7: the preview's pipeline. A live GPU session (the
+    // preview plays on the GPU) is shared, and this export renders with a
+    // context of its own in its share group. Declared before the graph so
+    // both outlive it.
+    std::shared_ptr<GpuSession> gpu = GpuSession::current();
+    std::unique_ptr<platform::GlContext> gpuContext;
+    if (gpu) {
+        std::string why;
+        gpuContext = gpu->sharedContext(why);
+        if (!gpuContext) {
+            Log::warn("[gpu] exporting on the CPU: " + why);
+            gpu.reset();
+        }
+    }
+    // Its own Profile/Tractor, independent of any live one. An export at
+    // another size is built at that size, so frames are read at the
+    // profile's (FrameReads): read smaller, composite's alignment and the
+    // affine filter's rect, both in profile pixels, came out wrong (a Fit
+    // or placed picture ran to the right edge of a 720p export of a 1080p
+    // project; tests/engine/test_transform, 2026-09-27). A non-square-pixel
+    // sequence keeps the consumer's scaling: its export changes the pixel
+    // shape, which one outputScale() can't express.
+    const core::EncoderSettings settings =
+        core::encoderSettings(profile, renderModel.sequence().profile, h264Encoder() == "libx264");
+    const core::Profile &sequenceProfile = renderModel.sequence().profile;
+    const bool resized = settings.width > 0 && settings.height > 0 &&
+                         (settings.width != sequenceProfile.width || settings.height != sequenceProfile.height);
+    const bool squarePixels = sequenceProfile.sar.num == sequenceProfile.sar.den;
+    EngineSync renderSync(renderModel, PreviewScale::Full,
+                          !resized || squarePixels ? EngineSync::FrameReads::ProfileSize
+                                                   : EngineSync::FrameReads::AnySize,
+                          resized && squarePixels ? EngineSync::OutputSize{settings.width, settings.height}
+                                                  : EngineSync::OutputSize{0, 0});
+    if (gpu)
+        renderSync.setPipeline(EngineSync::Pipeline::Gpu, gpu->hardwareDecodeApi());
 
     // Audit A6: render to a "<path>.part" sibling and rename into place
     // only on success, matching CLAUDE.md's "renders... written to an
@@ -1235,8 +1574,6 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // the profile -- scale the output. "frame_rate_num/den" only relabel
     // the stream's rate (60 frames at 60 fps played 1 s, not 2), so the
     // output always keeps the project's frame rate.
-    const core::EncoderSettings settings =
-        core::encoderSettings(profile, renderModel.sequence().profile, h264Encoder() == "libx264");
     if (settings.width > 0 && settings.height > 0) {
         consumer.set("width", settings.width);
         consumer.set("height", settings.height);
@@ -1265,7 +1602,13 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // bit-identical to -1 (PSNR inf on all 600 frames, same frame count and
     // audio), 20% faster on a composited graph; real_time > 1 being broken
     // is sdl2 playback's problem (doc 05), not the avformat consumer's.
-    if (threadBudget > 0) {
+    if (gpu) {
+        // One render thread, the one holding the context; the encoder
+        // still gets the budget.
+        consumer.set("real_time", -1);
+        consumer.set("threads", std::max(threadBudget, 0));
+        Log::info("[engine] Rendering on the GPU pipeline (" + gpu->renderer() + ")");
+    } else if (threadBudget > 0) {
         const core::RenderThreads threads = core::splitRenderThreads(threadBudget);
         consumer.set("real_time", -threads.frames);
         consumer.set("threads", threads.encoder);
@@ -1283,6 +1626,11 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // renderProgressTrampoline for however long that call runs; the
     // returned Event must stay alive for the same span, hence the local
     // (not immediately discarded) unique_ptr.
+    std::unique_ptr<Mlt::Event> glStartedEvent, glStoppedEvent;
+    if (gpuContext) {
+        glStartedEvent.reset(consumer.listen("consumer-thread-started", gpuContext.get(), renderGlStarted));
+        glStoppedEvent.reset(consumer.listen("consumer-thread-stopped", gpuContext.get(), renderGlStopped));
+    }
     RenderProgressContext progressContext{onProgress, renderSync.tractor().get_length(), std::nullopt};
     std::unique_ptr<Mlt::Event> progressEvent;
     if (onProgress)

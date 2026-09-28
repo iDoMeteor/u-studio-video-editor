@@ -12,6 +12,14 @@
 #   rtaudio    fallback audio consumer
 #   gdk        pixbuf still images (loader.dict: *.png=qimage,pixbuf)
 #   resample   loader.ini's "resampler" normaliser
+#   xine       loader.ini's deinterlace normaliser ("deinterlace"). Without
+#              it the loader falls back to avformat's avdeinterlace, which
+#              hands every frame on as BT.601 limited-range YUV 4:2:2: an
+#              extra conversion per frame, and movit then sees YUV where it
+#              expects the producer's RGBA (the GPU probe read #2080c0 as
+#              44,128,191; VE GPU, 2026-09-27). No external dependencies.
+#   movit      GPU (GLSL) filters and transitions for the VE GPU team; inert
+#              until the app creates a glsl.manager (see movit.yml)
 # Everything else off, including frei0r (a future drop-in, ADR-014) and
 # every Qt module (ADR-007). Option names from CMakeLists.txt at v7.40.0.
 # plus's optional deps: FFTW (only its fft/dance filters) is kept out;
@@ -45,7 +53,7 @@ config-opts:
   - -DUSE_LV2=OFF
   - -DUSE_VST2=OFF
   - -DMOD_KDENLIVE=OFF
-  - -DMOD_MOVIT=OFF
+  - -DMOD_MOVIT=ON
   - -DMOD_NDI=OFF
   - -DMOD_NORMALIZE=ON
   - -DMOD_OLDFILM=OFF
@@ -61,7 +69,7 @@ config-opts:
   - -DMOD_SPATIALAUDIO=OFF
   - -DMOD_VIDSTAB=OFF
   - -DMOD_VORBIS=OFF
-  - -DMOD_XINE=OFF
+  - -DMOD_XINE=ON
 cleanup:
   - /bin
 sources:
@@ -73,3 +81,10 @@ sources:
       url: https://api.github.com/repos/mltframework/mlt/releases/latest
       version-query: .tag_name | sub("^v"; "")
       url-query: .assets[] | select(.name | test("^mlt-[0-9.]+\\.tar\\.gz$")) | .browser_download_url
+  # VE GPU's fix for a movit.convert leak (~10 MB a minute of GPU
+  # playback): an MltInput no chain took over is deleted without its
+  # movit::Input. Carried until upstream fixes it (the patch's header and
+  # docs/developer/notes/mlt-upstream.md). Drop it when MLT is bumped past
+  # a release with the fix.
+  - type: patch
+    path: ../patches/mlt-movit-convert-input-leak.patch

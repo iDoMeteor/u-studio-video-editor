@@ -36,8 +36,11 @@ numbered too and shouldn't turn into a clip by themselves.
 - The media browser names it with its range, `frame_[0001-0030].png`, and
   marks it **SEQUENCE**.
 - If its first image is moved or deleted it shows as missing, like any
-  file. Relinking a sequence isn't supported yet: import it again.
-- Sequences don't get proxies.
+  file. Relink it like any missing file: pick any image of the sequence in
+  its new place (or let **Search a Folder** find its first image). It may
+  be numbered from somewhere else now, as long as it has enough images.
+- Sequences get proxies like video (right-click › Create Proxy), unless
+  their images are transparent (see below).
 - Limits: images are loaded through GTK's image loaders (gdk-pixbuf); if
   those can't open a format, the frames stay blank. A sequence whose
   numbers start above 100 may show no thumbnail in the media browser
@@ -53,6 +56,9 @@ numbered too and shouldn't turn into a clip by themselves.
 - To change the project's rate, click the title in the header bar. Every
   cut, dissolve, marker and keyframe keeps its time, and the change is one
   undo step.
+- The same dialog sets the project's **background**: the colour shown
+  wherever no clip covers the frame (black by default), in the preview
+  and in renders. It is saved with the project and is one undo step.
 
 ## The media browser
 
@@ -97,6 +103,12 @@ A proxy is a smaller copy of a clip that plays smoothly while you edit.
 - **Create Conformed Proxy** makes a full-size copy at the project's frame
   rate. Use it for phone and screen recordings with variable frame rates.
 - Footage taller than 1080p is offered a proxy once per project.
+- Video and image sequences with transparency (ProRes 4444, WebM with
+  alpha, QuickTime Animation, PNGs with alpha) don't get proxies: a proxy
+  couldn't keep the transparency. Put them on a track above your video and
+  the transparent parts show the tracks below, with clean edges. A project
+  saved before 0.64.1 knows a video has transparency only once you import
+  it again.
 - Proxies are made in the background and stored in your user cache folder.
 - The **Proxies** toggle beside the preview scale switches playback between
   proxies and originals.

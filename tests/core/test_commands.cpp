@@ -1527,3 +1527,43 @@ TEST_CASE("UndoStack property: random commands, undo all, model restored exactly
     CHECK_FALSE(undoStack.canUndo());
     CHECK(equalIgnoringIdAllocator(model, snapshot));
 }
+
+TEST_CASE("SetClipAsset: another asset for one clip, keeping its place and transform; exact revert")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId title = addTestAsset(model, 1000);
+    ClipId clip = model.insertClip(track, title, 50, 10, 99);
+    ClipId other = model.insertClip(track, title, 200, 0, 99);
+    model.setClipSourceParams(clip, {{"field.name", std::string("Ada"), {}}});
+    Transform moved;
+    moved.flipH = true;
+    model.setClipTransform(clip, moved);
+
+    AssetId baked = addTestAsset(model, 100); // frames 0..99: the clip's 10..99 fit
+    const Model withBaked = model;
+    SetClipAsset swap(clip, baked, {}, "Bake title");
+    CHECK(swap.label() == "Bake title");
+    REQUIRE(swap.apply(model));
+    CHECK(model.clip(clip).asset == baked);
+    CHECK(model.clip(clip).sourceParams.empty());
+    CHECK(model.clip(clip).position == 50);
+    CHECK(model.clip(clip).in == 10);
+    CHECK(model.clip(clip).out == 99);
+    CHECK(model.clip(clip).transform.get().flipH);
+    CHECK(model.clip(other).asset == title); // only this clip
+    CHECK(model.check().empty());
+    swap.revert(model);
+    CHECK(model == withBaked);
+
+    // Too short for the clip's range, a locked track, unknown ids: refused.
+    AssetId shorter = addTestAsset(model, 99);
+    const Model untouched = model;
+    CHECK_FALSE(SetClipAsset(clip, shorter, {}).apply(model));
+    CHECK_FALSE(SetClipAsset(clip, AssetId{9999}, {}).apply(model));
+    CHECK_FALSE(SetClipAsset(ClipId{9999}, baked, {}).apply(model));
+    model.setTrackFlags(track, false, false, true);
+    CHECK_FALSE(SetClipAsset(clip, baked, {}).apply(model));
+    model.setTrackFlags(track, false, false, false);
+    CHECK(model == untouched);
+}

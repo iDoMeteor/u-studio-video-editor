@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="Live now bug" category="Bugs and badges" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="300" outro="15"/>
+  <field name="label" label="Label" default="LIVE"/>
+  <layer id="pill" kind="shape" shape="rounded-rect" x="1560" y="60" w="240" h="76" radius="38">
+    <fill color="#1b1230" opacity="0.9"/>
+    <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="dot" kind="shape" shape="ellipse" x="1588" y="84" w="28" h="28">
+    <fill color="#ff3b5c"/>
+    <behavior slot="in" id="pop"/><behavior slot="loop" id="pulse"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="label" kind="text" x="1630" y="70" w="150" fit="shrink">
+    <text>{{label}}</text>
+    <font family="Space Grotesk" weight="700" size="42" tracking="0.1"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

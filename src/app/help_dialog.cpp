@@ -362,23 +362,35 @@ void AppWindow::openLogFolder()
     std::error_code ec;
     const std::filesystem::path folder = core::Log::directory();
     std::filesystem::create_directories(folder, ec);
-    // GtkFileLauncher goes through the OpenURI portal inside Flatpak, so
-    // the host's file manager opens the folder from the sandbox too.
-    GFile *file = g_file_new_for_path(core::utf8String(folder).c_str());
+    // This run's log, shown selected in the file manager: "open containing
+    // folder" asks the file manager itself (FileManager1, or the OpenURI
+    // portal's OpenDirectory inside Flatpak). Launching the folder as a
+    // URI instead opened nothing the first time (owner, 2026-09-25): the
+    // file manager, started by D-Bus activation for it, came up as a
+    // background service without a window; the second request showed one.
+    const std::filesystem::path current = core::Log::currentFile();
+    GFile *file = g_file_new_for_path(core::utf8String(current.empty() ? folder : current).c_str());
     GtkFileLauncher *launcher = gtk_file_launcher_new(file);
     g_object_unref(file);
-    gtk_file_launcher_launch(
-        launcher, GTK_WINDOW(m_window), nullptr,
-        +[](GObject *source, GAsyncResult *result, gpointer self) {
-            GError *error = nullptr;
-            if (!gtk_file_launcher_launch_finish(GTK_FILE_LAUNCHER(source), result, &error)) {
-                static_cast<AppWindow *>(self)->showStatus(std::string("Couldn't open the log folder: ") +
-                                                           (error ? error->message : "unknown error"));
-                g_clear_error(&error);
-            }
-            g_object_unref(source);
-        },
-        this);
+    auto done = +[](GObject *source, GAsyncResult *result, gpointer self) {
+        GError *error = nullptr;
+        auto *launched = GTK_FILE_LAUNCHER(source);
+        const bool ok = static_cast<bool>(g_object_get_data(source, "folder-itself"))
+                            ? gtk_file_launcher_launch_finish(launched, result, &error)
+                            : gtk_file_launcher_open_containing_folder_finish(launched, result, &error);
+        if (!ok) {
+            static_cast<AppWindow *>(self)->showStatus(std::string("Couldn't open the log folder: ") +
+                                                       (error ? error->message : "unknown error"));
+            g_clear_error(&error);
+        }
+        g_object_unref(source);
+    };
+    if (current.empty()) { // no log file this run: the folder itself
+        g_object_set_data(G_OBJECT(launcher), "folder-itself", GINT_TO_POINTER(1));
+        gtk_file_launcher_launch(launcher, GTK_WINDOW(m_window), nullptr, done, this);
+    } else {
+        gtk_file_launcher_open_containing_folder(launcher, GTK_WINDOW(m_window), nullptr, done, this);
+    }
 }
 
 void AppWindow::copyDiagnostics()
@@ -391,6 +403,7 @@ void AppWindow::copyDiagnostics()
     facts.adwaitaVersion = std::to_string(adw_get_major_version()) + "." + std::to_string(adw_get_minor_version()) +
                            "." + std::to_string(adw_get_micro_version());
     facts.flatpak = platform::runningInFlatpak();
+    facts.gpu = m_gpu ? m_gpu->statusText() : "Off";
     facts.logFolder = core::utf8String(core::Log::directory());
     facts.recentLines = core::Log::recentLines(50);
     gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(m_window)), formatDiagnostics(facts).c_str());

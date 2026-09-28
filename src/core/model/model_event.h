@@ -112,6 +112,8 @@ struct AssetChanged
 };
 struct SequenceProfileChanged
 {};
+struct SequenceBackgroundChanged
+{};
 // A marker was added, removed, or changed. Markers don't reach MLT, so
 // EngineSync ignores this one instead of rebuilding (which would restart
 // playback for a timeline annotation).
@@ -129,6 +131,6 @@ using ModelEvent =
                  TrackRemoved, TrackFlagsChanged, TrackVolumeChanged, TrackRenamed, TrackReordered, EffectChanged,
                  EffectParamChanged, AdjustmentBlockChanged, LooksChanged, ClipSourceChanged, ClipTransformChanged,
                  TransitionAdded, TransitionRemoved, TransitionChanged, AssetChanged, SequenceProfileChanged,
-                 MarkersChanged, BatchBegin, BatchEnd>;
+                 SequenceBackgroundChanged, MarkersChanged, BatchBegin, BatchEnd>;
 
 } // namespace ustudio::core

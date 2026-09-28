@@ -11,10 +11,11 @@ name, for example `meson test -C builddir engine-sync`.
 
 | Folder | Meson names | Needs |
 |---|---|---|
-| `tests/core/` | `core`, `core-thread-pool`, `core-model-release` | Nothing but the compiler: pure C++ |
+| `tests/core/` | `core`, `core-undo-fuzz`, `core-thread-pool`, `core-model-release` | Nothing but the compiler: pure C++ |
 | `tests/engine/` | `engine-*` (sync, playback controller, render, A/V sync, XML playback, caches, proxies, transform, mixed rates, …) | MLT, but no display and no media files |
 | `tests/app/` | `app-*` (timeline controller and renderer, viewport, queues, settings, autosave, UI hints, …) | GTK for some; most test logic that was kept out of widgets |
 | `tests/dropins/` | `dropins`, `dropin-*` | The drop-in build options (`just dropins-builtin`, `just dropins-module`) |
+| `drop-ins/<name>/tests/` | `titles-*`, `effects-*` | A drop-in's own tests, built only with its `-Ddropin_<name>` option on (ADR-013: the folder is self-contained) |
 | `tests/sanitizers/` | — | LeakSanitizer suppressions for `just asan` |
 | `tests/common/` | — | Shared helpers, such as the random command stream for property tests |
 
@@ -35,9 +36,52 @@ The short version:
   MLT-lifetime changes, in the tiers CLAUDE.md sets out. See
   [Building](building.md#sanitizers).
 
+## The titles designer's smoke test
+
+`tools/titles-smoke/run.sh <builddir> <outdir>` designs a lower third in
+`u-studio-titles` from a blank canvas with the mouse and keyboard only
+(doc 16, T2 acceptance), saves it through the Save dialog and checks the
+saved title: three layers, the typed text, the bar's place and size, the
+brand's fonts and gradient. It runs on a private Xvfb with its own D-Bus
+session and AT-SPI bus, so nothing shows on the desktop; screenshots of
+each step land in `<outdir>`. It needs a build with `-Ddropin_titles`, Xvfb,
+python3 with `gi` (Atspi) and python-xlib, and ImageMagick's `import`.
+Notes on driving GTK dialogs there are in
+[the titles notes](notes/titles.md).
+
+**Template packs in a smoke test**: `tools/make_test_pack.py OUT.zip
+[--version V]` writes a small valid pack (one built-in template, a
+generated preview; the repository holds no binary files), and
+`u-studio-titles --install-pack OUT.zip` installs it without a window:
+exit status 0 and "installed test/smoke-pack V in …", or 1 and
+"refused: …" (the same or an older version, or a pack that fails
+validation). Test `titles-install-pack` runs that round trip.
+
+**The sharing service, locally**: `tools/share_mock.py [--seed DIR]
+[--log FILE] [--corrupt]` serves doc 21's first-version API on
+127.0.0.1 (signed, expiring download and upload URLs; OAuth code + PKCE
+that really checks the verifier). `--log` records every request, for "no
+request without a user action"; `--corrupt` serves tampered downloads.
+Test `titles-share` runs the client against it; point `u-studio-share` at
+it with `USTUDIO_SHARE_URL`.
+
+**Any harness with a private D-Bus session** (`dbus-run-session`) must keep
+the services that session activates out of the desktop's runtime dir. With
+the real `XDG_RUNTIME_DIR`, the private session's `xdg-document-portal`
+mounts over `/run/user/<uid>/doc` and unmounts it when it exits, which
+leaves the desktop's own portal without its mount: Flatpak apps can't open
+files through it, and `app-portal-path` fails, until the owner restarts it
+(`systemctl --user restart xdg-document-portal.service`). Run
+`dbus-update-activation-environment XDG_RUNTIME_DIR=<a mktemp dir>` first
+thing inside the session, and set `GIO_USE_VFS=local`. Keep the real
+`XDG_RUNTIME_DIR` for the processes the harness starts itself: a private
+one for everything breaks the AT-SPI bus. `tools/titles-smoke` does this.
+
 ## Notable tests
 
-- **Undo property test** (`core`): 10,000 random commands, undo them all,
+- **Undo property test** (`core-undo-fuzz`, the same binary filtered to
+  this one test: about 43 s alone, so it has its own 180 s timeout and
+  `core` keeps 30 s): 10,000 random commands, undo them all,
   and the model must equal the start.
 - **`EngineSync::verify()`** (`engine-sync`): after each of the first 500
   commands of that same stream, and each undo, the MLT graph must match
@@ -49,8 +93,19 @@ The short version:
   editor.
 - **Timeline draw speed** (`app-timeline-render`): 10 tracks × 500 clips
   draw in under 4 ms.
+- **GPU pipeline** (`engine-gpu-pipeline`, `engine-gpu-engine`,
+  `engine-gpu-probe`, `app-gpu-acceleration`): the GPU graph against the
+  CPU one scene by scene, playback through the real consumer on the GPU and
+  back, the probe, and the editor's startup decisions with a fake render
+  tool. The engine ones need a GL driver (EGL); without one they print a
+  message and pass, so run them on a machine with a GPU before landing GPU
+  work. `engine-gpu-probe-no-egl` checks the clean failure everywhere.
 - **Playback soak**: `tests/engine/playback_soak.cpp` is a manual tool for
-  long playback runs.
+  long playback runs. `--gpu` plays on the GPU pipeline, `--hwdecode` adds
+  VAAPI, `--no-rotation` leaves the transformed tracks unrotated
+  (ADR-019). Judge memory by its "RSS growth after warm-up" line, not
+  by the first report: the first minute is warm-up (see the
+  [playback notes](notes/playback-engine.md)).
 
 The acceptance criteria each test backs are listed per milestone in
 [v2 doc 12](../plans/v2/12-roadmap-and-milestones.md).

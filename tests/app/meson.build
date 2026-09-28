@@ -120,6 +120,23 @@ test_proxy_queue_exe = executable(
 )
 test('app-proxy-queue', test_proxy_queue_exe)
 
+# ADR-019: GpuAcceleration's decisions with a fake render tool.
+test_gpu_acceleration_exe = executable(
+  'test_gpu_acceleration',
+  files('test_gpu_acceleration.cpp'),
+  dependencies: [doctest_dep, app_window_dep],
+  install: false,
+)
+test(
+  'app-gpu-acceleration',
+  test_gpu_acceleration_exe,
+  env: {
+    'GSETTINGS_SCHEMA_DIR': meson.project_build_root() / 'data',
+    'GSETTINGS_BACKEND': 'memory',
+  },
+  depends: ustudio_gschemas_compiled,
+)
+
 test_viewport_exe = executable(
   'test_viewport',
   files('test_viewport.cpp'),

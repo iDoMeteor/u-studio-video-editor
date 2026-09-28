@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="1" name="On air timer" category="Live and social" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="9000" outro="15"/>
+  <field name="label" label="Label" default="ON AIR"/>
+  <layer id="pill" kind="shape" shape="rounded-rect" x="1400" y="60" w="400" h="84" radius="42">
+    <fill color="#ff3b5c" opacity="0.95"/>
+    <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="label" kind="text" x="1428" y="72" w="180" fit="shrink">
+    <text>{{label}}</text>
+    <font family="Space Grotesk" weight="700" size="40" tracking="0.08"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="time" kind="text" x="1610" y="72" w="164" fit="shrink" align="right">
+    <text>{{clip_time}}</text>
+    <font family="JetBrains Mono" weight="700" size="40"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>

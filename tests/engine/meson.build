@@ -7,6 +7,15 @@ test_factory_policy_exe = executable(
 
 test('engine-factory-policy', test_factory_policy_exe)
 
+# core::easedValue() against MLT's own interpolation, every easing.
+test_eased_value_exe = executable(
+  'test_eased_value',
+  files('test_eased_value.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep],
+  install: false,
+)
+test('engine-eased-value', test_eased_value_exe)
+
 subdir('factory_paths')
 test_factory_paths_exe = executable(
   'test_factory_paths',
@@ -94,6 +103,49 @@ test_proxy_exe = executable(
 )
 test('engine-proxy', test_proxy_exe, timeout: 120)
 
+# ADR-019 G1: per-producer hardware decode, worker producers off the GPU
+# chain. The device is one that can't exist, so the software fallback is
+# what runs everywhere (docs/developer/notes/gpu.md).
+test_hardware_decode_exe = executable(
+  'test_hardware_decode',
+  files('test_hardware_decode.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-hardware-decode', test_hardware_decode_exe, timeout: 120,
+     env: ['MLT_AVFORMAT_HWACCEL_DEVICE=/nonexistent/ustudio-render-node'])
+
+# ADR-019 G2: our own GL context and the GPU probe; again with EGL pointed
+# nowhere, where the probe must fail cleanly.
+test_gpu_probe_exe = executable(
+  'test_gpu_probe',
+  files('test_gpu_probe.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-gpu-probe', test_gpu_probe_exe, timeout: 60)
+test('engine-gpu-probe-no-egl', test_gpu_probe_exe, timeout: 60,
+     env: ['USTUDIO_EGL_LIBRARY=/nonexistent/libEGL.so.1'])
+
+# ADR-019 G3: the GPU graph against the CPU one, scene by scene.
+test_gpu_pipeline_exe = executable(
+  'test_gpu_pipeline',
+  files('test_gpu_pipeline.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-gpu-pipeline', test_gpu_pipeline_exe, timeout: 180)
+
+# ADR-019 G3: the GPU pipeline through Engine and the real consumer.
+test_gpu_engine_exe = executable(
+  'test_gpu_engine',
+  files('test_gpu_engine.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, glib_dep],
+  install: false,
+)
+test('engine-gpu-engine', test_gpu_engine_exe, timeout: 120, is_parallel: false,
+     env: ['SDL_AUDIODRIVER=dummy'])
+
 # ADR-018 (M4 F1): clip transforms in the engine.
 test_transform_exe = executable(
   'test_transform',
@@ -102,6 +154,15 @@ test_transform_exe = executable(
   install: false,
 )
 test('engine-transform', test_transform_exe, timeout: 180)
+
+# BT.709 sources keep their colours (the 601-tagged background).
+test_colour_exe = executable(
+  'test_colour',
+  files('test_colour.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
+  install: false,
+)
+test('engine-colour', test_colour_exe, timeout: 120)
 
 # M4 E: image sequences through pixbuf.
 test_image_sequence_exe = executable(

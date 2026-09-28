@@ -113,6 +113,14 @@ class Settings
     static constexpr int kDefaultProxyHeight = 540;
     bool useProxies() const;
     void setUseProxies(bool use);
+    // ADR-019: GPU acceleration (Automatic when on), hardware decode while
+    // it's on, and the last probe result (GpuAcceleration).
+    bool gpuAcceleration() const;
+    void setGpuAcceleration(bool on);
+    bool hardwareDecode() const;
+    void setHardwareDecode(bool on);
+    std::string gpuProbeCache() const;
+    void setGpuProbeCache(const std::string &value);
     int proxyHeight() const;
     void setProxyHeight(int height);
     void setDropInEnabled(const std::string &name, bool enabled);

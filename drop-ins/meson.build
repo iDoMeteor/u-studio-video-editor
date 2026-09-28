@@ -7,8 +7,9 @@ fs = import('fs')
 builtin_dropin_names = []
 builtin_dropin_deps = []
 # A module resolves the app's symbols against the running program, so the
-# programs export theirs when any drop-in is a module (src/app, src/render).
-dropin_any_module = false
+# programs export theirs when any drop-in is a module (src/app, src/render),
+# or when separately packaged ones may be installed (dropin_extension_dir).
+dropin_any_module = get_option('dropin_extension_dir') != ''
 known_dropin_names = ['effects', 'titles'] # one dropin_<name> option each
 foreach name : known_dropin_names
   mode = get_option('dropin_' + name)

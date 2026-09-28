@@ -44,6 +44,28 @@ namespace ustudio::core {
 // state exactly -- the same reasoning RemoveTransition::revert already
 // relies on for its own single clip pair.
 
+// Points one clip at another asset (with that asset's source params),
+// keeping its place, range, effects and transform: a title baked to a
+// file (doc 16, "Bake title"). Refused on a locked track, or when the
+// clip's range doesn't fit the asset.
+class SetClipAsset : public Command
+{
+  public:
+    SetClipAsset(ClipId clip, AssetId asset, std::vector<Param> params, std::string label = "Replace clip source");
+    std::string label() const override
+    {
+        return m_label;
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    ClipId m_clip;
+    AssetId m_asset, m_oldAsset;
+    std::vector<Param> m_params, m_oldParams;
+    std::string m_label;
+};
+
 class AddAsset : public Command
 {
   public:
@@ -104,7 +126,10 @@ class SetClipTransform : public Command
 class RelinkAsset : public Command
 {
   public:
-    RelinkAsset(AssetId asset, std::string path, std::string fingerprint);
+    // `sequenceBegin`: an image sequence's first file number, when the
+    // relinked copy is numbered from elsewhere.
+    RelinkAsset(AssetId asset, std::string path, std::string fingerprint,
+                std::optional<int> sequenceBegin = std::nullopt);
     std::string label() const override
     {
         return "Relink media";
@@ -117,6 +142,8 @@ class RelinkAsset : public Command
     std::string m_path, m_fingerprint;
     std::string m_oldPath, m_oldFingerprint;
     Asset::Status m_oldStatus = Asset::Status::Ready;
+    std::optional<int> m_sequenceBegin;
+    int m_oldSequenceBegin = 0;
 };
 
 class RemoveAsset : public Command
@@ -265,6 +292,24 @@ class SetSequenceProfile : public Command
   private:
     Profile m_profile;
     Profile m_oldProfile;
+};
+
+// The colour under every track (Sequence::background). Refuses the colour
+// it already has.
+class SetSequenceBackground : public Command
+{
+  public:
+    explicit SetSequenceBackground(uint32_t rgb);
+    std::string label() const override
+    {
+        return "Set background colour";
+    }
+    bool apply(Model &) override;
+    void revert(Model &) override;
+
+  private:
+    uint32_t m_rgb;
+    uint32_t m_oldRgb = Sequence::kDefaultBackground;
 };
 
 // The sequence's frame rate, with everything already on it moved to the

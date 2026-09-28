@@ -224,7 +224,7 @@ against MLT 7.40, `~/Repos/mlt` at v7.40.0 for the source).
   stopping the consumer before the old graph and profile go
   (`tests/engine/test_engine_thread.cpp`: 30 ↔ 59.94 three times while
   playing). The header title shows the format and opens the change, with a
-  confirmation; "Project Frame Rate…" is also an action.
+  confirmation; "Project Frame Rate and Background…" is also an action.
 - **FR3, VFR detection (optional, not scheduled; needs the owner's call).**
   Sources whose own frame rate varies (phones, screen recordings) are
   already handled correctly by the time mapping above. Detecting them
@@ -290,12 +290,19 @@ Acceptance:
       pictures; Ctrl bypasses it (0.48.0, `app-transform-gestures`).
 - [x] A transform survives save/load, trim, split, ripple, copy and a
       frame-rate change (0.47.1).
-- [ ] 1080p30 plays in real time with three transformed tracks at Auto
+- [x] 1080p30 plays in real time with three transformed tracks at Auto
       preview scale (Full reported alongside; Full is MT4's, doc 19).
       Since 0.47.2 Auto is Half once a clip is transformed: one
       transformed track then plays every frame (30/s, the owner's webcam
-      case), three about 22/s (26/s and about 16/s at Full). Open; the
-      remaining levers are MT4's (doc 19).
+      case), three about 22/s (26/s and about 16/s at Full). Open; MT4
+      found no cheaper CPU path (doc 19), so the lever is GPU compositing,
+      [ADR-019](adr/019-gpu-acceleration.md). Met on the GPU pipeline
+      (G3, 2026-09-27): three moved-and-scaled 1080p tracks at Full showed
+      99.1% of frames over a 10-minute soak at 62% CPU (the CPU path: 10
+      frames/s at 197%). Rotated tracks stay on the CPU (no movit service
+      rotates): 22 frames/s, accepted by the owner as an exception
+      (2026-09-27, "i'm fine w/both", with the GPU path's linear-light
+      blending). Closed.
 
 ## M5 — Effects, keyframes, transitions (the FX track)
 
@@ -326,7 +333,11 @@ Acceptance (milestone gate):
 
 Phases: T0 spikes, T1 format, renderer and `ustudio_title` producer, T2 the
 `u-studio-titles` app, T3 animation (keyframes, text animators,
-behaviours), T4 templates, fields in the editor and Bake title.
+behaviours), T4 templates, fields in the editor and Bake title, T4b
+template packages (`.zip`/`.tar.gz`) and T7 the sharing helper
+([doc 20](20-template-packages-and-sharing.md),
+[ADR-020](adr/020-template-packages-and-sharing.md); the service itself
+is a separate project, [doc 21](21-template-sharing-backend.md)).
 
 Acceptance (track gate):
 - [ ] A title designed in `u-studio-titles` renders identically in the app,

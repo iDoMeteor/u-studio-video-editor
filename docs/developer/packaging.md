@@ -20,10 +20,12 @@ so on. `USTUDIO_DIST_DIR` changes the destination.
 Testers install the published bundle as described in
 [Installing](../user/installing.md).
 
-x264, FFmpeg and MLT are module files under `packaging/flatpak/modules/`,
-shared by the local manifest and the Flathub one. FFmpeg and MLT carry
-`x-checker-data`, so Flathub's update bot opens a PR when upstream
-releases. x264 has no release tags, so its commit is bumped by hand. An
+x264, FFmpeg, Eigen, movit and MLT are module files under
+`packaging/flatpak/modules/`, shared by the local manifest and the
+Flathub one. movit and its build-time Eigen are there for GPU compositing
+([ADR-019](../plans/v2/adr/019-gpu-acceleration.md)); FFTW, libepoxy
+and GL come from the runtime. All but x264 carry `x-checker-data`, so
+Flathub's update bot opens a PR when upstream releases. x264 has no release tags, so its commit is bumped by hand. An
 MLT or FFmpeg major bump needs the smoke test and the engine suites
 before it lands.
 
@@ -45,16 +47,42 @@ Two checks guard every package, Flatpak or Snap:
   AT-SPI on a private Xvfb display. The steps are:
   1. Import H.264 video, a PNG and a JPEG.
   2. Transform a picture on the preview (MLT's `affine`).
-  3. Play, and check the 440 Hz test tone through SDL's disk driver.
-  4. Split, undo, redo, save; reopen the saved project.
-  5. Render with the High quality profile, and ffprobe the output.
-  6. Make a 4K proxy.
-  7. Copy Diagnostics.
+  3. Play, and check the 440 Hz test tone through SDL's disk driver
+     (pitch and dropouts).
+  4. GPU (ADR-019):
+     - `--gpu-probe` passes in the sandbox, and fails cleanly without EGL;
+     - the log shows the pipeline on;
+     - Settings › Performance shows "On: <renderer>";
+     - RSS stays flat over a looped GPU playback (`SMOKE_GPU_SOAK`
+       seconds, default 180);
+     - the export runs without a CPU fallback.
+
+     `SMOKE_GPU=0` skips these on a machine without a usable GPU.
+  5. Split, undo, redo, save; reopen the saved project.
+  6. Render with the High quality profile, and ffprobe the output.
+  7. Make a 4K proxy; import a 30-image sequence.
+  8. Titles, when the titles extension is installed in the same
+     installation: the drop-in loads from the extension mount, a `.ustitle`
+     imports, `u-studio-render --title-export` in the sandbox renders it
+     with alpha, Edit Title starts U Stu Titles, and U Stu Titles
+     installs a template pack made by `tools/make_test_pack.py` (fails on
+     an extension built without libarchive; needs 0.68 or later).
+  9. Copy Diagnostics.
 
   Along the way it checks that no Qt library is mapped. It prints
-  PASS/FAIL per check and exits non-zero on any failure. Flatpak runs are
-  isolated from the user's own app data (a throwaway `HOME`); `--cleanup`
-  removes it. Run it before publishing any package.
+  PASS/FAIL per check and exits non-zero on any failure. Run it before
+  publishing any package. It keeps away from the user's own state:
+  - **App data:** Flatpak runs use a throwaway `HOME`, which `--cleanup`
+    removes.
+  - **Installation:** `SMOKE_FLATPAK_USER_DIR` points it at a separate
+    Flatpak installation. Test a new bundle there, never in the owner's
+    (it needs its own copy of the runtime).
+  - **The desktop's portals:** the private D-Bus session activates its
+    services (portals) with a temporary `XDG_RUNTIME_DIR`, the method in
+    [Testing](testing.md). Otherwise a private `xdg-document-portal`
+    mounts over the desktop's `/run/user/<uid>/doc` and leaves it
+    unmounted on exit (2026-09-27). The run checks that mount before and
+    after, and fails if it changed.
 
 ## Flathub submission
 
@@ -155,6 +183,23 @@ aren't installed (owner question), and the snap name isn't registered.
   plus the extension's `desktop`, `wayland`, `x11` and `opengl`.
 - x264, FFmpeg and MLT are parts, built as in the Flatpak with the same
   pinned sources and MLT modules.
+- **Not yet in the draft: the GPU pieces (ADR-019).** To match the
+  Flatpak as tested in stage G5 (2026-09-27), the Snap needs:
+  - Eigen (build only) and movit 1.7.2 parts, and `-DMOD_MOVIT=ON`.
+    core24's archive has `libfftw3-dev`, `libepoxy-dev` and Eigen.
+  - `-DMOD_XINE=ON` for the loader's `deinterlace` normaliser (see the
+    Flatpak README for why).
+  - The movit.convert leak patch, applied in the mlt part's
+    `override-build` (`patch -p1 <
+    $CRAFT_PROJECT_DIR/packaging/flatpak/patches/mlt-movit-convert-input-leak.patch`);
+    snapcraft has no patch source type.
+  - GL: the gnome extension adds the `gpu-2404` content interface (Mesa
+    from the `mesa-2404` snap) and its `gpu-2404-wrapper` command-chain.
+    The `opengl` plug opens the render node the probe's surfaceless EGL
+    context needs. Check with `u-studio-render --gpu-probe` inside the snap,
+    as the smoke test does for the Flatpak.
+
+  The parts go in when the Snap is first built.
 - The app bakes MLT's module directory in at build time. Snap layouts bind
   the snap's copies to `/usr/lib/x86_64-linux-gnu/mlt-7` and
   `/usr/share/mlt-7`, so FactoryPolicy's curated directory (ADR-007) works
@@ -176,15 +221,127 @@ Effects and titles are drop-ins
 [ADR-014](../plans/v2/adr/014-drop-in-loading-and-distribution.md)). The
 meson options `dropin_effects` and `dropin_titles` take `disabled` (the
 default for now), `builtin` or `module`. `just dropins-builtin` and
-`just dropins-module` build and test both configurations. The planned
+`just dropins-module` build and test both configurations, with every
+drop-in whose folder is in the tree (only `drop-ins/titles/` so far). The planned
 catalogue is in [v2 doc 17](../plans/v2/17-drop-in-catalogue-and-distribution.md).
+
+A titles package ships two libraries: the drop-in
+(`$libdir/u-studio/drop-ins/libustudio-dropin-titles.so` when built as a
+module) and its MLT module (`$libdir/u-studio/mlt/libmltustudio.so`, in
+every mode). At run time it needs Pango, PangoCairo, Cairo, fontconfig and
+libxml2, which the editor already has through GTK, and libarchive for
+template packs (in the GNOME runtime; build with its headers, or packs are
+switched off). The drop-in looks for the
+MLT module in the installed directory, so a package that moves it must keep
+that path, or it falls back to the build tree's. Details:
+[the drop-in's README](../../drop-ins/titles/README.md).
+
+The designer, `u-studio-titles`, installs to `bindir` next to the editor,
+which looks for it there first (so one Flatpak bundle serves both). Its
+desktop entry, the `.ustitle` MIME type (`application/x-ustudio-title`) and
+its AppStream file are in `drop-ins/titles/data/` and install with the
+drop-in; they're drafts with a placeholder icon name until the owner's new
+logos. The designer exports through `u-studio-render`, found next to it.
+Tests `titles-desktop-file` and `titles-metainfo` validate the drafts when
+`desktop-file-validate` and `appstreamcli` are installed.
+
+`u-studio-share`, the template sharing helper (ADR-020, T7), is the one
+program with network access and ships as its own app (`com.ustudio.Share`,
+with `--share=network`), never inside the editor's bundle. A package that
+can't give it the network builds with `-Dtitles_share=disabled` (the
+Titles extension). How the designer, in the editor's sandbox, starts it is
+open; the gallery only offers it where it's installed beside the designer.
+
+The built-in templates install to `$datadir/u-studio/titles/templates/`
+(29 `.ustitle` files, no pictures). The designer finds them at
+`<its bindir>/../share/u-studio/titles/templates`, so a package that
+installs the designer under another prefix (the Flatpak extension) must
+install them under the same prefix. Users' own templates live in
+`$XDG_DATA_HOME/ustudio/titles/templates/`.
+
+### Drop-ins as Flatpak extensions
+
+The app declares the extension point `com.ustudio.VideoEditor.DropIn`
+(`add-extensions` in the app manifest: `directory: lib/u-studio/extensions`,
+`subdirectories`, `no-autodownload`, `autodelete`). Each drop-in is an
+extension `com.ustudio.VideoEditor.DropIn.<Name>`, which Flatpak mounts at
+`/app/lib/u-studio/extensions/<Name>` and which is an install prefix of
+its own.
+
+The app is built with `-Ddropin_extension_dir=lib/u-studio/extensions`
+(relative to the prefix; empty by default). That does two things:
+
+- the loader trusts `<point>/<Name>/lib/u-studio/drop-ins/` for every
+  subdirectory of the point, after `$libdir/u-studio/drop-ins/`
+  (`DropInRegistry::extensionDirectories()`);
+- the editor and `u-studio-render` export their symbols (`export_dynamic`
+  plus `link_whole`), as for any module build, because a module resolves
+  core, engine and host symbols against the program.
+
+The titles extension is
+`packaging/flatpak/com.ustudio.VideoEditor.DropIn.Titles.yml`, built with
+`just flatpak-titles` after `just flatpak`:
+
+- It builds against the installed app (`runtime: com.ustudio.VideoEditor`,
+  `build-extension: true`), so the app bundle of the same version must be
+  installed in the installation flatpak-builder uses. Set
+  `FLATPAK_USER_DIR` to build against a scratch installation.
+- The app strips MLT's headers and `.pc` files, so the extension first
+  builds MLT's framework and mlt++ alone (every module off, same release)
+  and removes them afterwards. The drop-in's libraries link against the
+  app's MLT at run time through the same sonames.
+- It ships `lib/u-studio/drop-ins/libustudio-dropin-titles.so`,
+  `lib/u-studio/mlt/libmltustudio.so` and `bin/u-studio-titles`. The
+  drop-in finds its MLT module and the designer at its own install paths.
+  The designer finds `u-studio-render` on `PATH` (`/app/bin`).
+- `-Dtitles_share=disabled`: `u-studio-share`, the template sharing
+  helper, needs network access, which the app's sandbox doesn't have. How
+  it ships (its own app ID) is an open question. Without it installed
+  beside the designer, U Stu Titles hides Browse Shared and Publish.
+- The designer's desktop entry, MIME type and AppStream file are left out,
+  because an extension can't export them. U Stu Titles is reached only from
+  the editor (Edit Title). A menu entry of its own would need a separate
+  app ID.
+- The built-in templates install to `share/u-studio/titles/templates/`
+  from 0.66 (T4.2), beside `bin/`, where the designer looks for them. The
+  manifest keeps `share/u-studio/`.
+- The bundle is a runtime bundle
+  (`u-studio-video-editor-dropin-titles-<version>.flatpak`), and
+  `just dist` copies it with a `.sha256`. Modules must match the app release
+  exactly, so the app and its extensions ship as a pair.
+
+### Publishing
+
+`just publish <bundle>` uploads a bundle to the public download bucket,
+`s3://ut-software-dist/` (default AWS profile; `USTUDIO_PUBLISH_BUCKET`
+overrides), which `https://software.unicornviz.com/` serves through
+CloudFront:
+
+- under its versioned name and its `-latest` name
+  (`u-studio-video-editor-latest.flatpak`,
+  `u-studio-video-editor-dropin-titles-latest.flatpak`), each with a
+  `.sha256` that names that file, so `sha256sum -c` works on either;
+- as `application/vnd.flatpak`, so a browser download opens in the
+  software centre; the `-latest` files with `Cache-Control: max-age=300`;
+- public through the bucket policy: the bucket enforces owner ownership,
+  so ACLs are disabled and none is set;
+- a versioned object already there with other contents is never replaced.
+
+Publish the app and its extensions together, after the smoke test and
+`just dist`. The CDN's firewall answers command-line downloaders (curl,
+wget) with 403, so check a published URL with a browser User-Agent:
+`curl -sI -A 'Mozilla/5.0' <url>`.
 
 ## Releases
 
 - Everyday version bumps go in [`CHANGELOG.md`](../../CHANGELOG.md).
 - A releasable build (a tagged beta or release) also gets a `<release>`
   entry in `data/com.ustudio.VideoEditor.metainfo.xml`, written for
-  testers: what's new, what to try, known issues. A release meant for
+  testers: what's new, what to try, known issues. Every packaged build is
+  releasable, so `just flatpak`, `just flatpak-titles` and
+  `tools/flathub_prep.py` first run `tools/check_release_notes.py`, which
+  fails when `meson.build`'s version has no entry. Without one, Flatpak
+  and Help › Release notes show the newest entry's version instead. A release meant for
   Flathub needs `type="stable"` (the default), not `development`.
 - The first stable release, `2.0.0`, is milestone M7
   ([roadmap](../plans/v2/12-roadmap-and-milestones.md)).

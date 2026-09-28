@@ -191,9 +191,73 @@ from a standalone repro (MLT 7.40, 2026-09-25):
   it with `mlt_properties_get_int()`), so a picture smaller than the
   project drew at its own size in the top-left corner. With `fill=1` a
   picture of the frame's aspect fills it, but another aspect (4:3, 1344×768)
-  sits at the left, and `halign`/`valign` with `fill` offset by the unscaled
-  size. So a clip of another aspect gets the affine filter below even when
-  its transform is the default Fit (`core::isIdentity()`).
+  sits at the left. `halign=centre valign=middle` centre it, but only for a
+  frame read at the profile's own size: at any other, `composite`'s
+  `get_image` aligns `item.w` (profile pixels) against the B image's width
+  (requested pixels) and shifts every picture right, a frame-sized one too
+  (2026-09-27; an upstream candidate). So the playback graph and every
+  export centre and skip the affine filter for a plain Fit
+  (`core::compositorFits()`, `EngineSync::FrameReads::ProfileSize`): 20 ms
+  a frame against 63 for a 1344×768 clip in 1080p (decode included), the
+  edges within a pixel. An export at another size is built on a profile of
+  that size (`EngineSync::OutputSize`) rather than scaled by the consumer.
+  That also fixed the affine filter's `rect`, which is in profile pixels:
+  a 720p export of a 1080p project drew a placed or fitted picture to the
+  right edge. Other `EngineSync`s (tests, `AnySize`) and the saved XML keep
+  the left-aligned compositor and fit with affine, since melt may render a
+  file at any size. A dissolve's cuts keep affine too: `luma` mixes both
+  at one size, so a picture of another aspect must arrive frame-sized.
+- **The background (track 0) is the sequence's colour** (`Sequence::
+  background`). Black and greys stay YUV with the profile-colourspace
+  re-tag (a grey is the same YUV in BT.601 and 709); any other colour is
+  RGBA (`mlt_image_format`), as the writer saves it for melt. In MLT XML a
+  colour needs `mlt_service=color` and a bare `0xRRGGBBAA` resource: a
+  `resource` of `color:…` loads as black whatever the colour, so the old
+  `color:black` background was right by accident (2026-09-27 repro).
+- **`composite` fringes every anti-aliased alpha edge.** It blends 4:2:2
+  YUV, each pixel's Y and its one chroma byte (U on even pixels, V on odd)
+  with that pixel's own alpha, so where a pair's alphas differ U and V mix
+  by different amounts: white text at alpha 5 over red came out (60,63,5)
+  instead of (255,5,5), and an opaque neighbour could turn magenta. On cuts
+  that may carry alpha (stills, image sequences, drop-in producers such as
+  titles, transformed cuts, and dissolves of those) EngineSync attaches an
+  in-process hook, `attachAlphaPairing()`: it takes the frame as RGBA and
+  gives both pixels of an unequal pair the mean alpha and the alpha-weighted
+  mean colour. The result is exactly the two-pixel average of a correct
+  blend: half the alpha's horizontal detail, as 4:2:2 already has for
+  colour; equal pairs (every opaque area) are untouched. Measured over red:
+  darkest edge red 57 → 254, mean deficit 100 → 0 in the preview. An H.264
+  export still darkens sharp red edges a little by itself (4:2:0 shares a
+  colour between four pixels): mean deficit 59 → 33 for a PNG, 31 → 14 for
+  a title. The `affine` transition blends RGBA correctly but cost 150 ms a
+  1080p frame against `composite`'s 25, and melt can't run the hook, so a
+  saved project played in melt keeps the fringe (2,000 edge pixels differ
+  in `tests/engine/test_transform`). For VE GPU's movit path: movit's
+  overlay blends RGBA with straight or premultiplied alpha as told, so it
+  needs none of this; keep the source's alpha straight through to it.
+  Frames with no converter (a producer not made through `loader`) are left
+  alone, since returning RGBA there would be read as YUV (2026-09-27 repro).
+- **Videos with alpha** (ProRes 4444 `yuva444p12le`, VP9 alpha
+  `yuva420p`, QuickTime Animation `argb`) are recognised by the probe from
+  `meta.media.0.codec.pix_fmt` (lazy: read after the first frame) and saved
+  as `MediaInfo::hasAlpha`; `carriesAlpha()` gives them the pairing too.
+  avformat decodes VP9 alpha with libvpx, which keeps it. A still's alpha
+  comes from its format with `mlt_image_none` (pixbuf returns `rgba` or
+  `rgb` as loaded). Alpha assets are never proxied (H.264 has no alpha).
+  Encoding alpha with MLT's `avformat` consumer needs `mlt_image_format=
+  rgba` on it: left to choose from `pix_fmt`, it asks for yuv422 and drops
+  the alpha for anything but `rgba`/`argb`/`bgra` (`consumer_avformat.c`).
+  Without the pairing an alpha video's edges measured the same fringe as a
+  PNG's (darkest red 55, `tests/engine/test_colour`).
+- **A still with its video turned off kept showing**: `pixbuf` ignores
+  `video_index=-1`. A cut whose clip has its video off gets a filter that
+  marks each frame `test_image`, as a playlist blank's frames are, and a
+  transition skips such a B frame (`mlt_transition.c`), so the track below
+  shows and the audio still plays.
+- **A producer made straight from the factory, not through `loader`, gets
+  no normalisers**, and composite then read its RGBA as YUV: a transparent
+  frame showed as green (0,136,0). Drop-in producers go through `loader`
+  (`"ustudio_title:<path>"`). VE Text's finding from titles T1.
 - **The `affine` transition is too slow to be the track compositor.** It
   fits and centres any aspect by itself, but cost 21 ms a frame for one
   untransformed 1080p track (39 ms for four) against `composite`'s 5 (7).
@@ -239,3 +303,37 @@ gdk-pixbuf can't load images. `verify()` accepts the `?begin=` suffix on a
 sequence's resource. A still's size is now read at probe by decoding one
 frame (`meta.media.width`/`height` appear on the first `get_image`).
 Standalone repro, MLT 7.40, and `tests/engine/test_image_sequence`.
+
+**No cheaper CPU path for moving or scaling a picture (MT4, 2026-09-27).**
+Standalone benchmarks at 1080p30 (MLT 7.40, `-O2`, ms per frame pulled as
+yuv422): one cut composited onto black costs 4.0; with the `affine`
+transform filter 20–23, the same whether the picture is half size or a
+quarter, rotated 5° or not, so the cost is the full-frame canvas (its
+RGBA conversions and pass), not the picture. `transition.b_scaled=1`
+saved nothing reliable. Placing the picture with `composite` geometry
+instead cost more: 35 with the geometry on the track's own compositor
+(two tracks), 40 in a per-cut tractor over a transparent canvas (alpha
+kept). So the `affine` filter stays; the remaining lever is GPU
+compositing (an ADR of its own).
+
+**MLT composites YUV without converting between colour spaces, and a
+colour producer's YUV is BT.601 (fixed 0.52.0-beta.2, 2026-09-27).**
+`producer_colour` tags every YUV image it makes BT.601 (and limited range),
+and `composite` keeps its A frame's tag and never converts the B frame;
+`avcolour_space` only converts when the pixel *format* changes. Track 0 is
+our black `color:` background, so every composited frame was tagged 601
+and the final YUV→RGB step (the preview's rgba, a render's yuv420p)
+decoded every BT.709 source with the 601 matrix: pure red 255 → 233,
+cyan's red 0 → 22, in preview and export alike (found by VE GPU against
+movit). Fix: the black master carries an in-process filter
+(`mlt_filter_new()`, a `get_image` hook) that re-tags its YUV with the
+profile's colour space (black is the same YUV in both, so it's free);
+`color:` sources are opened with `mlt_image_format=rgba`, so their
+conversion to YUV uses the profile's matrix; the saved project writes the
+same `mlt_image_format=rgba` on its black and colour producers, so `melt`
+gets identical pixels. Measured alternatives: the black as RGBA in the
+editor (+7 ms a frame at 1080p), an empty track 0 (gaps draw white), a
+lavfi black (600+ ms per far seek). A source in another colour space than
+the profile (an SD 601 file in an HD project) is still composited
+unconverted, as in MLT generally. `tests/engine/test_colour` (generated
+709 bars, preview and a render).

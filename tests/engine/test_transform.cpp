@@ -175,6 +175,71 @@ TEST_CASE("transform: a 1344x768 clip in a 1080p project is fitted and centred b
     CHECK(pixelAt(sync, 5, 96, 2).blue()); // full height
 }
 
+TEST_CASE("transform: read at the profile's size, the compositor fits another aspect without affine")
+{
+    sharedFactoryPolicy();
+    Scene scene(generate("blue-1344.mp4", 1344, 768, "color:#0000c0"), 1344, 768);
+    auto fitted = [](auto &&at) {
+        CHECK(at(5, 0, 54).red()); // the 15 px bars either side of 1890x1080
+        CHECK(at(5, 191, 54).red());
+        CHECK(at(5, 96, 54).blue());
+        CHECK(at(5, 96, 2).blue());
+    };
+    {
+        EngineSync sync(scene.model, PreviewScale::Full, EngineSync::FrameReads::ProfileSize);
+        CHECK(sync.verify().empty());
+        fitted([&](int position, int x, int y) { return pixelAt(sync, position, x, y); });
+        // No affine filter on the cut: moving it has one to add, so rebuilds.
+        int rebuilds = 0, inPlace = 0;
+        sync.rebuilt.connect([&] { ++rebuilds; });
+        sync.appliedInPlace.connect([&] { ++inPlace; });
+        scene.model.setClipTransform(scene.clip, placed(480, 270, 960, 540));
+        sync.setProject(scene.model.snapshot());
+        CHECK(rebuilds == 1);
+        CHECK(inPlace == 0);
+        CHECK(pixelAt(sync, 5, 48, 27).blue());
+        CHECK(pixelAt(sync, 5, 150, 80).red());
+        scene.model.setClipTransform(scene.clip, Transform{});
+    }
+
+    // Exports take the same path, at another size too: the graph is built
+    // at the export's size (read smaller, the picture ran to the right edge).
+    for (int height : {0, 720}) {
+        INFO("export height " << height);
+        RenderProfile profile = legacyRenderProfile();
+        profile.height = height;
+        const fs::path out = scratch() / ("fit-" + std::to_string(height) + ".mp4");
+        std::string error;
+        REQUIRE(renderProject(scene.model, utf8String(out), error, {}, nullptr, profile));
+        Mlt::Profile decodeProfile("atsc_1080p_30");
+        Mlt::Producer rendered(decodeProfile, utf8String(out).c_str());
+        REQUIRE(rendered.is_valid());
+        fitted([&](int position, int x, int y) { return pixelAt(rendered, position, x, y); });
+    }
+
+    // Into a dissolve the cut keeps its affine filter: luma mixes both
+    // pictures at one size, so the incoming 1080p one stays unsqueezed.
+    scene.model.resizeClip(scene.clip, 0, 39, 0);
+    Asset green;
+    green.path = utf8String(generate("green-1080.mp4", 1920, 1080, "color:#00c000"));
+    green.info.hasVideo = true;
+    green.info.width = 1920;
+    green.info.height = 1080;
+    green.info.lengthInSequenceFrames = 60;
+    const ClipId next = scene.model.insertClip(scene.upper, scene.model.addAsset(green), 40, 10, 49);
+    REQUIRE(scene.model.addTransition(scene.upper, scene.clip, next, 10, 10).value != 0);
+    EngineSync sync(scene.model, PreviewScale::Full, EngineSync::FrameReads::ProfileSize);
+    CHECK(sync.verify().empty());
+    fitted([&](int position, int x, int y) { return pixelAt(sync, position, x, y); });
+    const Rgb mid = pixelAt(sync, 40, 96, 54);
+    CHECK(mid.b > 40);
+    CHECK(mid.g > 40);
+    const Rgb edge = pixelAt(sync, 40, 0, 54); // the bar: red fading into green
+    CHECK(edge.r > 40);
+    CHECK(edge.g > 40);
+    CHECK(pixelAt(sync, 70, 0, 54).green());
+}
+
 TEST_CASE("transform: move, scale and rotate place the picture, with the lower track around it")
 {
     sharedFactoryPolicy();
@@ -271,8 +336,14 @@ TEST_CASE("transform: the saved project plays and renders exactly as the editor 
         const uint8_t *played = image(melt, b);
         const uint8_t *rendered = image(decoded, c);
         INFO("frame " << position);
-        CHECK(std::memcmp(editor, played, 1920 * 1080 * 3) == 0);
-        CHECK(std::memcmp(editor, rendered, 1920 * 1080 * 3) == 0);
+        size_t differ = 0;
+        for (size_t i = 0; i < size_t{1920} * 1080 * 3; i += 3)
+            differ += editor[i] != played[i] || editor[i + 1] != played[i + 1] || editor[i + 2] != played[i + 2];
+        // melt can't run EngineSync's in-process alpha pairing
+        // (engine_sync.cpp, attachAlphaPairing()), so the rotated picture's
+        // anti-aliased edge differs (1994 pixels, 2026-09-27); nothing else.
+        CHECK(differ < 4000);
+        CHECK(std::memcmp(played, rendered, 1920 * 1080 * 3) == 0);
     }
 }
 

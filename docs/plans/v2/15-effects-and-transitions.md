@@ -35,7 +35,8 @@ This doc supersedes most of [doc 08](08-effects-and-compositing.md):
 5. The UX is built around seeing results before committing to them and
    manipulating values directly on the preview.
 
-Non-goals for this plan: GPU effects (`movit`), a node graph, writing new
+Non-goals for this plan: GPU *effects* (`movit` filters as user effects;
+GPU compositing and transforms are ADR-019's), a node graph, writing new
 image-processing effects, per-effect speed/time remapping (a clip property,
 doc 08), and titles (doc 16).
 
@@ -55,7 +56,7 @@ scratchpad listing `Mlt::Repository` services):
 | LV2 | **not built** | no LV2 service or metadata in this MLT build |
 | OpenFX 1.5 | host present, tagged *experimental* | searches `OFX_PLUGIN_PATH`, `/usr/OFX/Plugins`, `/usr/local/OFX/Plugins`; no plugins installed |
 | frei0r | **module present, 0 plugins** | `frei0r-plugins` is not installed; module searches `FREI0R_PATH`, then `/usr/lib64/frei0r-1` and others |
-| movit (GPU) | 17 filters, 3 transitions | needs a GL context on the consumer thread; out of scope |
+| movit (GPU) | 17 filters, 3 transitions | needs a GL context on the consumer thread; we supply our own (EGL), ADR-019 |
 | Transitions | `affine`, `composite`, `luma`, `matte`, `mix`, `movit.*` | no frei0r mixers until frei0r is installed |
 | Luma wipe images | **none** | `/usr/share/mlt-7/lumas` does not exist on this install |
 
@@ -87,7 +88,7 @@ explicitly:
 | **LADSPA** | Supported; plugin packs optional | Host is present. Real value comes from LSP, Calf, x42 or SWH packs; offer, don't require. |
 | **VST2 (LinuxVST)** | Supported, hidden behind a preference | Host present; licensing of individual plugins varies. |
 | **OpenFX** | Phase FX5, behind an *experimental* preference | MLT 7.40 ships a host (tagged experimental). Natron's `openfx-misc` set would add a large, mature collection, but packaging and host stability are unproven. Health scan mandatory. |
-| **movit** | Rejected for now | GPU context on the consumer thread conflicts with doc 05; ADR-006 already excluded it. |
+| **movit** | Compositing and transforms: ADR-019. As user effects: not planned | The consumer-thread objection is answered: our own EGL context, made current from `consumer-thread-started`, works under PlaybackController's consumer (ADR-019). Effects stay CPU inside the GPU graph. |
 | **Qt modules** (`qtblend`, `qtext`, `kdenlivetitle`, `glaxnimate`) | Rejected | ADR-007. |
 | G'MIC | Rejected | Its video host is Qt (`gmic-qt`) and MLT has no G'MIC module. |
 | LV2 | Not possible with this MLT build | No LV2 service compiled in. Revisit if Fedora or our Flatpak MLT enables it. |
@@ -291,7 +292,7 @@ that needs it.
 | IP2 | `core/xml` | Writer and reader handle the IP1 fields directly (`<filter>` elements, `ustudio:*` effect and field properties); format version 5 (4 is taken by the render-graph save, doc 09). Kept in `src/` so project data never depends on a drop-in being built. | FX1 |
 | IP3 | `engine/engine_extension`, `engine/engine_sync` | An `EngineExtension` interface; a drop-in registers a factory with `DropInHost::addEngineExtension()` and every `EngineSync` (the engine thread's, each render's) creates its own instances: `beginBuild()`, `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule; filters go on with `attachToCut()`), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), `compositor()` (replace the default `composite` track compositor; effects uses `frei0r.cairoblend`), and `applyInPlace(ParamChange)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
 | IP4 | `engine/factory_policy` | Extra plugin search paths and module directories contributed before `Mlt::Factory::init()`: the curated `FREI0R_PATH` (and `OFX_PLUGIN_PATH`), and titles' `libmltustudio.so`. Because it runs before init, each drop-in also exposes `contributeFactoryPaths()`, listed in `drop_ins.h` next to `registerDropIn()`. | FX1 |
-| IP5 | `app/shell_host.h`, `app/shell_hosts.cpp` | `ShellHost`, which the editor window implements and hands to each drop-in's `ShellExtension` (`DropInHost::addShellExtension()`) once its UI is built: an **inspector host** (`addInspectorPage()`: a sidebar on the right, created by the first page); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (`addActions()`: `ActionSpec` lists with their own target, listed in Help; taken names refused, taken shortcuts dropped); **hint contributions** (`addHints()`, `setTooltip()`: Help's Controls tab lists them under the drop-in's category); a **preview overlay host** (`addPreviewOverlay()` plus `previewMapping()`, frame ↔ widget coordinates); a **timeline overlay/lane provider** (`TimelineOverlayProvider`: paint, `pressed()` hit-test and `laneHeight()`, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (`addImportHandler()`: file extension → handler, so titles can own `.ustitle` without touching the import code). Also `model()`, `execute()` (through the undo stack), `projectChanged`, `currentFrame()`, `showStatus()`. With nothing registered the window is pixel-identical to before. | FX2 (timeline provider: FX4; import handlers: titles T1) |
+| IP5 | `app/shell_host.h`, `app/shell_hosts.cpp` | `ShellHost`, which the editor window implements and hands to each drop-in's `ShellExtension` (`DropInHost::addShellExtension()`) once its UI is built: an **inspector host** (`addInspectorPage()`: a sidebar on the right, created by the first page); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (`addActions()`: `ActionSpec` lists with their own target, listed in Help; taken names refused, taken shortcuts dropped); **hint contributions** (`addHints()`, `setTooltip()`: Help's Controls tab lists them under the drop-in's category); a **preview overlay host** (`addPreviewOverlay()` plus `previewMapping()`, frame ↔ widget coordinates); a **timeline overlay/lane provider** (`TimelineOverlayProvider`: paint, `pressed()` hit-test and `laneHeight()`, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (`addImportHandler()`: file extension → handler, so titles can own `.ustitle` without touching the import code); **`assetChangedOnDisk()`** (a drop-in watching its own files reports one changed: the asset's fingerprint is updated and the engine rebuilds, without an undo step; titles T1, `DROPIN_API_VERSION` 6). Also `model()`, `execute()` (through the undo stack), `projectChanged`, `currentFrame()`, `showStatus()`. With nothing registered the window is pixel-identical to before. | FX2 (timeline provider: FX4; import handlers: titles T1) |
 | IP6 | `render/`, `dropins/render_subcommand.h` | `u-studio-render` dispatches subcommands registered by drop-ins (`DropInHost::addRenderSubcommand()`: a name, a one-line summary for `--help`, and `run(args, out)` returning the exit status); effects registers `--probe-effect`. With none registered the tool is the M6 placeholder it was; an unknown option exits 2. | FX1 |
 | — | build | Top-level `meson.build` adds `subdir('drop-ins')`; `meson_options.txt` gains one `dropin_<name>` option per drop-in (ADR-014) and `titles`; `drop_ins.h` is generated. | FX1 |
 
@@ -729,6 +730,14 @@ Acceptance: every item has a recorded yes/no with the repro kept in
 `tests/engine` or the scratchpad notes; ADR-011 updated with anything that
 changes the plan.
 
+> REVIEW: VE Core, 2026-09-27: FX0 spikes run; every item is answered in
+> [the effects notes](../../developer/notes/effects.md). All yes, with two
+> plan changes: `decorateTractor()` covers an FX lane only on top of the
+> stack (a mid-stack lane needs a sub-tractor hook), and the drop-in's
+> curated list must leave out MLT's `not_thread_safe.txt` plugins. frei0r
+> was already installed (2.5.6), so no `dnf` was needed; no Qt in any
+> plugin. ADR-011 needs no change.
+
 ### FX1 — Engine and model (about 2 weeks)
 
 Integration points: IP1, IP2, IP3 (without `makeTransitionSegment`),
@@ -742,12 +751,52 @@ keyframe offset rule, Mix and mask, the no-rebuild parameter path, format v4.
 
 Acceptance:
 
-- [ ] Every installed frei0r service is either usable or quarantined with a
+- [x] Every installed frei0r service is either usable or quarantined with a
       reason, and the probe never crashes the editor.
-- [ ] Preview-equals-export hash test passes.
-- [ ] Dragging a parameter slider does not restart the consumer (log shows
+- [x] Preview-equals-export hash test passes.
+- [x] Dragging a parameter slider does not restart the consumer (log shows
       no `restart #` lines during the drag).
-- [ ] `melt` renders a saved project with clip, track and master effects.
+- [x] `melt` renders a saved project with clip, track and master effects.
+
+**FX1 as built (VE Effects, 2026-09-28):** `drop-ins/effects/`
+([README](../../../drop-ins/effects/README.md)).
+
+- The filters an effect becomes live in `src/core/model/effect_native.h`
+  (`core::nativeFilters()`), used by the project writer and the engine
+  extension alike, so the file `melt` plays and the editor's graph can't
+  drift. It also closes IP2's open item: the writer now emits the mix.
+- `EffectRegistry` normalises every MLT filter but `movit.*` (599 on the dev
+  machine, 545 shown) and applies `data/overlays/*.json`. Overlays can also
+  give a default MLT doesn't (brightness's `level`) and mark a plugin
+  `unstable`.
+- IP4 curation, the extension (clip cuts including dissolve tails and heads,
+  tracks, master; the mix; in place for values), `--probe-effect` and
+  `--effects-registry` (IP6), and the editor's health scan (IP5, a shell
+  extension with no UI).
+- Acceptance, how it was checked:
+  - **frei0r usable or quarantined.** All 102 frei0r services probed
+    through the render tool: 101 ok, and `pixs0r` still running at the
+    20-second deadline, so it's quarantined as timed out. `defish0r` had been
+    black at a NaN default, now treated as none. `3dflippo` probes ok but is
+    quarantined by its overlay (it corrupts memory at other read sizes). `effects-scan` shows a plugin
+    that crashes and one that hangs quarantined while the host keeps
+    running.
+  - **Preview equals export.** `effects-engine` compares frames from the
+    live graph, one built the way `renderProject()` builds its own, and the
+    saved file through MLT's `xml` producer, across a dissolve with clip,
+    track and master effects and a mixed frei0r effect. Export's H.264
+    output is lossy, so the graphs are compared, not the file.
+  - **No restart.** 30 slider steps through `SetParam` gave 30 in-place
+    applies, no `rebuilt`, one undo step. FX2 checks the same in the app
+    with a real drag.
+  - **`melt`.** Stock `melt-7` renders the saved project (`xml:` prefix:
+    melt picks a loader by extension).
+
+> REVIEW: VE Effects, 2026-09-28: FX0's plan change (b) is dropped. MLT's frei0r module already serialises the `not_thread_safe.txt` plugins (one shared instance, the service lock held across `f0r_update`), so they're offered and flagged, not left out; only MLT's blacklist, Qt-linking plugins and quarantined ones stay out of `FREI0R_PATH` ([effects notes](../../developer/notes/effects.md)).
+
+> REVIEW: VE Effects, 2026-09-28: "Mix and masks" is implemented for the mix only. A constant mix is `frei0r.cairoblend`'s opacity inside `mask_apply` (`affine` without frei0r), because `cairoblend` costs 6 ms a 1080p frame against 14 for `affine`. A keyframed mix can't animate a transition there: on a cut in a playlist the transition reads the timeline position. So it's a `brightness` filter with an animated `alpha` between the pair. Masks stay in the model only, for FX2 with the mask UI (FX0 row 4).
+
+> REVIEW: VE Effects, 2026-09-28: the editor doesn't read MLT metadata in its own process (not safe beside a running graph). The registry comes from `u-studio-render --effects-registry` and is cached, keyed by the plugin set, MLT's version and the overlays. The curation is the drop-in's `contributeFactoryPaths()` (IP4), not new code in `FactoryPolicy`. There's no `Point` kind yet, because no installed family reports one; keyframes animate `Scalar` parameters only (`core::Keyframe` is a number).
 
 ### FX2 — Rack, Browser and keyframes in the inspector (about 2 weeks)
 
