@@ -70,6 +70,16 @@ config-opts:
   - -DMOD_VIDSTAB=OFF
   - -DMOD_VORBIS=OFF
   - -DMOD_XINE=ON
+# MLT's frei0r module data (its CMakeLists' install(FILES) list at 7.40),
+# without the module: the effects extension brings libmltfrei0r.so, but the
+# module reads these from MLT_DATA, which is this app's /app/share/mlt-7.
+# The blacklist and not_thread_safe.txt keep bad or thread-unsafe plugins in
+# check; resolution_scale.yml makes some render right at Half/Quarter
+# preview (VE Effects). Inert text: no frei0r code in the app (ADR-014).
+post-install:
+  - cd ${FLATPAK_BUILDER_BUILDDIR}/src/modules/frei0r && install -Dm644 -t ${FLATPAK_DEST}/share/mlt-7/frei0r
+    aliases.yaml alpha_only.txt blacklist.txt filter_cairoblend_mode.yml not_thread_safe.txt param_name_map.yaml
+    resolution_scale.yml
 cleanup:
   - /bin
 sources:

@@ -276,6 +276,49 @@ if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Ti
         sh -c "[ $rc = 0 ] && echo \"\$1\" | grep -q '^installed test/smoke-pack '" _ "$pack"
 fi
 
+# --- 8d: the effects add-on (a Flatpak extension carrying frei0r and MLT's
+# frei0r module), when it's installed in the same installation. Hooks and
+# the Browser steps are VE Effects' (tools/effects-smoke/steps.sh).
+if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Effects" >/dev/null 2>&1; then
+    check "effects drop-in loaded from its extension" \
+        grep -q "\[drop-ins\] Loaded effects from /app/lib/u-studio/extensions/Effects/" "$OUT/app.log"
+    check "effects registered in the editor" grep -q "\[effects\] registered in u-studio-video-editor" "$OUT/app.log"
+    probe=$(flatpak run --user --no-documents-portal --command=u-studio-render "$SMOKE_APP_ID" \
+        --probe-effect frei0r.glow 2>/dev/null | tail -1)
+    echo "  probe-effect frei0r.glow: $probe"
+    check "frei0r Glow is usable in the sandbox" sh -c "echo '$probe' | grep -q '\"usable\":true'"
+    check "the health scan ran" grep -q "\[effects\] health scan" "$OUT/app.log"
+    # A render before and after adding Glow, at the same moment: Glow
+    # brightens the picture, so the mean luma must rise.
+    render_now() {
+        before=$(ls "$M"/smoke-high-quality-*.mp4 2>/dev/null | wc -l)
+        d press "Render…"; sleep 2; d press Save exact; sleep 3
+        # A render appears under its name only when done (temp file +
+        # rename), and the log already holds step 7's "Rendered".
+        for _ in $(seq 1 240); do [ "$(ls "$M"/smoke-high-quality-*.mp4 2>/dev/null | wc -l)" -gt "$before" ] && break; sleep 1; done
+        ls -t "$M"/smoke-high-quality-*.mp4 2>/dev/null | head -1
+    }
+    luma() {
+        ffmpeg -v info -ss 2.5 -i "$1" -frames:v 1 -vf signalstats,metadata=print:key=lavfi.signalstats.YAVG -f null - 2>&1 |
+            sed -n 's/.*YAVG=\([0-9.]*\).*/\1/p' | tail -1
+    }
+    plain=$(render_now)
+    d act clear-selection; d act select-all; sleep 1
+    d act effects-browser; sleep 1
+    SMOKE_DRIVE="$H" python3 "$H/../effects-smoke/entry.py" "Search effects" glow 2>>"$OUT/helpers.err"; sleep 4
+    d press "Search effects"; sleep 0.5; d enter; sleep 2
+    d shot 08d-glow
+    d act save; sleep 2
+    check "Glow added through the Browser (saved project)" \
+        grep -q '<property name="mlt_service">frei0r.glow</property>' "$M/smoke.ustudio"
+    glowing=$(render_now)
+    l0=$(luma "$plain"); l1=$(luma "$glowing")
+    echo "  render luma at 2.5 s: without Glow ${l0:-none}, with Glow ${l1:-none}"
+    check "the render with Glow is brighter" \
+        python3 -c "import sys; sys.exit(0 if float('${l1:-0}') > float('${l0:-0}') + 2 else 1)"
+    d act undo; sleep 1; d act save; sleep 1.5
+fi
+
 # --- 9: Copy Diagnostics
 d act copy-diagnostics; sleep 1
 python3 "$H/clipboard.py" > "$OUT/diagnostics.txt"

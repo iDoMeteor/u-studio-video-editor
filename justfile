@@ -135,6 +135,26 @@ dist artifact:
     echo "dist: $dest"
     cat "$dest.sha256"
 
+# The effects drop-in's Flatpak extension (packaging/flatpak/
+# com.ustudio.VideoEditor.DropIn.Effects.yml), bundled as
+# build-flatpak/u-studio-video-editor-dropin-effects-<version>.flatpak, with
+# frei0r and MLT's frei0r module inside it. Built like flatpak-titles:
+# against the installed app of this same version (FLATPAK_USER_DIR for a
+# scratch installation).
+# The effects extension bundle, built against the installed app.
+flatpak-effects:
+    python3 tools/check_release_notes.py
+    flatpak-builder --user --force-clean --state-dir=build-flatpak/state \
+        build-flatpak/effects packaging/flatpak/com.ustudio.VideoEditor.DropIn.Effects.yml
+    python3 tools/check_bundle_clean.py build-flatpak/effects/files
+    flatpak-builder --user --export-only --state-dir=build-flatpak/state --repo=build-flatpak/repo \
+        build-flatpak/effects packaging/flatpak/com.ustudio.VideoEditor.DropIn.Effects.yml
+    flatpak build-bundle --runtime --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+        build-flatpak/repo build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak \
+        com.ustudio.VideoEditor.DropIn.Effects
+    @ls -lh build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak
+    just dist build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak
+
 # Publishes a packaged artifact to the public download bucket (owner,
 # 2026-09-28): s3://ut-software-dist/ under its versioned name and its
 # -latest name (the version replaced by "latest"), each with a .sha256
