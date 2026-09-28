@@ -17,6 +17,7 @@
 #include "engine/effects_extension.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
+#include "engine/frame_renderer.h"
 #include "engine/plugins.h"
 #include "engine/probe.h"
 #include "engine/registry.h"
@@ -466,4 +467,110 @@ TEST_CASE("No Qt mapped with every frei0r plugin loaded")
     while (std::getline(maps, line))
         qt = qt || line.find("libQt") != std::string::npos;
     CHECK_FALSE(qt);
+}
+
+namespace {
+
+FrameRequest greyRequest(std::vector<Effect> effects)
+{
+    FrameRequest request;
+    request.resource = "color:0x808080ff";
+    request.sourceFrame = 10;
+    request.clipIn = 0;
+    request.clipOut = 99;
+    request.effects = std::move(effects);
+    request.width = 64;
+    request.height = 36;
+    return request;
+}
+
+Effect brightness(double level)
+{
+    Effect effect;
+    effect.service = "brightness";
+    effect.owner = kOwner;
+    Param p;
+    p.name = "level";
+    p.value = level;
+    Param rgb;
+    rgb.name = "rgb_only";
+    rgb.value = true;
+    effect.params = {p, rgb};
+    return effect;
+}
+
+int centreRed(const RenderedFrame &frame)
+{
+    return frame.rgba[(static_cast<size_t>(frame.height / 2) * static_cast<size_t>(frame.width) +
+                       static_cast<size_t>(frame.width / 2)) *
+                      4];
+}
+
+} // namespace
+
+TEST_CASE("FrameRenderer: a clip's frame through a stack, off the live graph")
+{
+    setUp();
+    const RenderedFrame plain = FrameRenderer::renderNow(greyRequest({}));
+    REQUIRE(plain.width == 64);
+    REQUIRE(plain.height == 36);
+    CHECK(near(centreRed(plain), kGrey));
+    CHECK(near(centreRed(FrameRenderer::renderNow(greyRequest({brightness(0.5)}))), kGrey / 2));
+    // The stack in order, as the editor plays it.
+    CHECK(near(centreRed(FrameRenderer::renderNow(greyRequest({brightness(0.5), brightness(0.5)}))), kGrey / 4));
+    CHECK(FrameRenderer::renderNow(greyRequest({})).rgba == plain.rgba);
+    CHECK(greyRequest({brightness(0.5)}).key() != greyRequest({brightness(0.6)}).key());
+}
+
+TEST_CASE("FrameRenderer: results on the main loop, cached, stale generations dropped")
+{
+    setUp();
+    FrameRenderer renderer;
+    GMainContext *context = g_main_context_default();
+    auto waitFor = [&](const bool &flag) {
+        for (int i = 0; i < 400 && !flag; ++i) {
+            g_main_context_iteration(context, FALSE);
+            g_usleep(5000);
+        }
+    };
+
+    bool done = false;
+    int red = -1;
+    renderer.request(greyRequest({brightness(0.5)}), 1, 1, [&](const RenderedFrame &frame) {
+        red = centreRed(frame);
+        done = true;
+    });
+    waitFor(done);
+    REQUIRE(done);
+    CHECK(near(red, kGrey / 2));
+    REQUIRE(renderer.cached(greyRequest({brightness(0.5)})));
+
+    // From the cache: at once, on the calling thread.
+    bool again = false;
+    renderer.request(greyRequest({brightness(0.5)}), 1, 1, [&](const RenderedFrame &) { again = true; });
+    CHECK(again);
+
+    // A newer generation on the lane makes the older ones moot: once 5 is
+    // asked for, 2-4 arriving after it are dropped unrendered.
+    int delivered = 0;
+    bool newest = false;
+    renderer.request(greyRequest({brightness(0.5 * 1.5)}), 1, 5, [&](const RenderedFrame &) {
+        ++delivered;
+        newest = true;
+    });
+    for (uint64_t generation = 2; generation < 5; ++generation)
+        renderer.request(greyRequest({brightness(0.1 * static_cast<double>(generation))}), 1, generation,
+                         [&](const RenderedFrame &) { ++delivered; });
+    waitFor(newest);
+    CHECK(newest);
+    for (int i = 0; i < 40; ++i) { // any strays would arrive now
+        g_main_context_iteration(context, FALSE);
+        g_usleep(5000);
+    }
+    CHECK(delivered == 1);
+
+    renderer.stop();
+    bool afterStop = false;
+    renderer.request(greyRequest({brightness(0.9)}), 1, 9, [&](const RenderedFrame &) { afterStop = true; });
+    CHECK(!afterStop);
 }

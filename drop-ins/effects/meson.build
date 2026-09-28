@@ -30,11 +30,11 @@ effects_args = [
   '-DEFFECTS_DATA_SOURCE_DIR="' + meson.current_source_dir() / 'data' + '"',
 ]
 
-effects_engine_sources = files('engine/effects_extension.cpp', 'engine/plugins.cpp', 'engine/probe.cpp',
-                               'engine/registry.cpp')
+effects_engine_sources = files('engine/effects_extension.cpp', 'engine/frame_renderer.cpp', 'engine/plugins.cpp',
+                               'engine/probe.cpp', 'engine/registry.cpp')
 # app/: GTK for the Rack, GIO for the scan's children; no MLT
 # (tools/dropin_boundary_check.sh).
-effects_app_sources = files('app/catalog.cpp', 'app/health_scan.cpp', 'app/rack.cpp')
+effects_app_sources = files('app/browser.cpp', 'app/catalog.cpp', 'app/health_scan.cpp', 'app/rack.cpp')
 effects_dropin_sources = files('register.cpp') + effects_engine_sources + effects_app_sources
 
 if get_option('dropin_effects') == 'module'

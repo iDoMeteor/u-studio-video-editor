@@ -13,7 +13,7 @@ void Catalog::setRegistry(std::shared_ptr<const EffectRegistry> registry)
 void Catalog::setHealth(const std::string &service, const HealthRecord &record)
 {
     m_health.records[service] = record;
-    changed.emit();
+    healthChanged.emit(service);
 }
 
 const EffectDescriptor *Catalog::find(const std::string &service) const

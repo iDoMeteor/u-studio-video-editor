@@ -81,10 +81,12 @@ one for everything breaks the AT-SPI bus. `tools/titles-smoke` does this.
 
 `tools/effects-smoke/run.sh <builddir> <outdir>` drives a build's editor over
 AT-SPI on a private Xvfb display, with its own D-Bus session and AT-SPI bus.
-It imports a generated clip, opens the Effects page of the inspector, adds
-Glow with **E** and the search (Enter adds the best match), undoes and
-redoes it, pins Blur with **P** and changes it 60 frames on, and checks the
-saved project each time (`value.py` sets a spin button over AT-SPI). The build needs `-Ddropin_effects`.
+It imports a generated clip, opens the Effects page of the inspector, opens
+the Browser with **E**, searches "glow", auditions Glow on the preview once
+the scan has passed it, adds it with Enter, undoes and redoes it, pins Blur with **P** and changes it 60 frames on, and checks the
+saved project each time. `value.py`, `entry.py` and `tile.py` set a spin
+button, an entry by name and a Browser tile over AT-SPI (the main window
+reports no focus without a window manager). The build needs `-Ddropin_effects`.
 It reuses `tools/packaging-smoke/drive.py` for each step; screenshots and
 logs land in `<outdir>`. Activated services get their own runtime directory,
 as for the titles smoke test.
