@@ -29,6 +29,11 @@ install_subdir('data/transitions', install_dir: effects_data_install_dir)
 effects_args = [
   '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
   '-DEFFECTS_DATA_INSTALL_DIR="' + get_option('prefix') / effects_data_install_dir + '"',
+  # A package that brings its own MLT frei0r module and frei0r plugins (the
+  # Flatpak extension: the core app's MLT is built without frei0r, ADR-014)
+  # installs them here; used when they exist, else MLT's and the system's.
+  '-DEFFECTS_MLT_INSTALL_DIR="' + get_option('prefix') / get_option('libdir') / 'u-studio' / 'mlt' + '"',
+  '-DEFFECTS_FREI0R_INSTALL_DIR="' + get_option('prefix') / get_option('libdir') / 'frei0r-1' + '"',
   # Running from a build directory: this source tree's data.
   '-DEFFECTS_DATA_SOURCE_DIR="' + meson.current_source_dir() / 'data' + '"',
 ]
