@@ -1,5 +1,7 @@
 #include "gallery.h"
 
+#include "packs.h"
+
 #include "core/media/utf8_path.h"
 #include "core/title_xml.h"
 #include "package/pack.h"
@@ -423,8 +425,20 @@ void showGallery(GtkWidget *parent, GalleryCallbacks callbacks)
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_vexpand(scroller, TRUE);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), gallery->content);
+    // Template packs (doc 20): open one into My Templates, or make one.
+    GtkWidget *header = adw_header_bar_new();
+    GtkWidget *openPack = gtk_button_new_with_label("Open Pack…");
+    gtk_widget_set_tooltip_text(openPack, "Install a template pack (.zip or .tar.gz) into My Templates");
+    connectClick(openPack, [gallery] {
+        openPackage(GTK_WIDGET(gallery->dialog), gallery->callbacks.toast, [gallery] { gallery->rebuild(); });
+    });
+    adw_header_bar_pack_start(ADW_HEADER_BAR(header), openPack);
+    GtkWidget *savePack = gtk_button_new_with_label("Save as Pack…");
+    gtk_widget_set_tooltip_text(savePack, "Make a template pack from My Templates, to share");
+    connectClick(savePack, [gallery] { savePackage(GTK_WIDGET(gallery->dialog), gallery->callbacks.toast); });
+    adw_header_bar_pack_start(ADW_HEADER_BAR(header), savePack);
     GtkWidget *view = adw_toolbar_view_new();
-    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view), adw_header_bar_new());
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view), header);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(view), scroller);
     adw_dialog_set_child(gallery->dialog, view);
     gallery->rebuild();

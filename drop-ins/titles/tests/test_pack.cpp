@@ -9,7 +9,13 @@
 #include "core/media/utf8_path.h"
 #include "core/template_library.h"
 #include "core/title_xml.h"
+#include "package/archive.h"
 #include "package/pack.h"
+
+#ifdef TITLES_HAVE_LIBARCHIVE
+#include <archive.h>
+#include <archive_entry.h>
+#endif
 
 #include <chrono>
 #include <filesystem>
@@ -347,4 +353,86 @@ TEST_CASE("a pack built from template folders validates, installs and keeps its 
     REQUIRE(templates.size() == 1);
     CHECK(fs::exists(fs::path(templates[0].folder) / "images" / "logo.png"));
     fs::remove_all(scratch());
+}
+
+TEST_CASE("archives: .zip and .tar.gz of one pack read back the same; real bad archives are refused")
+{
+    if (!pack::archivesSupported()) {
+        CHECK_FALSE(pack::readArchive("x.zip").has_value());
+        MESSAGE("built without libarchive: skipped");
+        return;
+    }
+    const auto entries = goodPack();
+    const fs::path zip = scratch() / "pack.zip", tgz = scratch() / "pack.tar.gz";
+    REQUIRE(pack::writeArchive(entries, core::utf8String(zip)).has_value());
+    REQUIRE(pack::writeArchive(entries, core::utf8String(tgz)).has_value());
+    CHECK_FALSE(fs::exists(scratch() / "pack.zip.part"));
+    auto fromZip = pack::inspectPackage(core::utf8String(zip));
+    auto fromTgz = pack::inspectPackage(core::utf8String(tgz));
+    REQUIRE_MESSAGE(fromZip.has_value(), (fromZip ? "" : fromZip.error()));
+    REQUIRE_MESSAGE(fromTgz.has_value(), (fromTgz ? "" : fromTgz.error()));
+    CHECK(fromZip->files == fromTgz->files);
+    CHECK(fromZip->manifest == fromTgz->manifest);
+    auto installed =
+        pack::openPackage(core::utf8String(tgz), core::utf8String(scratch() / "lib"), pack::Replace::Never);
+    REQUIRE(installed.has_value());
+    CHECK(listTemplates(installed->folder, false).size() == 1);
+
+#ifdef TITLES_HAVE_LIBARCHIVE
+    // Archives libarchive itself writes, with what our writer never would.
+    const auto raw = [](const fs::path &path, auto &&add) {
+        archive *a = archive_write_new();
+        archive_write_set_format_pax_restricted(a);
+        archive_write_add_filter_gzip(a);
+        archive_write_open_filename(a, path.string().c_str());
+        add(a);
+        archive_write_close(a);
+        archive_write_free(a);
+    };
+    const auto file = [](archive *a, const char *name, const std::string &data) {
+        archive_entry *e = archive_entry_new();
+        archive_entry_set_pathname(e, name);
+        archive_entry_set_size(e, static_cast<la_int64_t>(data.size()));
+        archive_entry_set_filetype(e, AE_IFREG);
+        archive_entry_set_perm(e, 0644);
+        archive_write_header(a, e);
+        archive_write_data(a, data.data(), data.size());
+        archive_entry_free(e);
+    };
+    const fs::path traversal = scratch() / "traversal.tar.gz";
+    raw(traversal, [&](archive *a) {
+        for (const pack::Entry &e : entries)
+            file(a, e.path.c_str(), e.data);
+        file(a, "../../escaped.txt", "evil");
+    });
+    auto t = pack::inspectPackage(traversal.string());
+    REQUIRE_FALSE(t.has_value());
+    CHECK(t.error().find("isn't a path inside the pack") != std::string::npos);
+    CHECK_FALSE(fs::exists(scratch().parent_path().parent_path() / "escaped.txt"));
+
+    const fs::path link = scratch() / "link.tar.gz";
+    raw(link, [&](archive *a) {
+        for (const pack::Entry &e : entries)
+            file(a, e.path.c_str(), e.data);
+        archive_entry *e = archive_entry_new();
+        archive_entry_set_pathname(e, "images/passwd.png");
+        archive_entry_set_filetype(e, AE_IFLNK);
+        archive_entry_set_symlink(e, "/etc/passwd");
+        archive_entry_set_perm(e, 0777);
+        archive_write_header(a, e);
+        archive_entry_free(e);
+    });
+    auto l = pack::inspectPackage(link.string());
+    REQUIRE_FALSE(l.has_value());
+    CHECK(l.error().find("is a link") != std::string::npos);
+
+    // A bomb: 200 MB of zeros gzip down to a few hundred kB. Reading stops
+    // at the limit, long before it's all in memory.
+    const fs::path bomb = scratch() / "bomb.tar.gz";
+    raw(bomb, [&](archive *a) { file(a, "images/zeros.png", std::string(200u << 20, '\0')); });
+    CHECK(fs::file_size(bomb) < (4u << 20));
+    auto b = pack::inspectPackage(bomb.string());
+    REQUIRE_FALSE(b.has_value());
+    CHECK((b.error().find("too big") != std::string::npos || b.error().find("more than") != std::string::npos));
+#endif
 }

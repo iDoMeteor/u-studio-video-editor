@@ -16,6 +16,18 @@ titles_test_pack = executable(
 )
 test('titles-pack', titles_test_pack)
 
+titles_test_packs_app = executable(
+  'test_titles_packs_app',
+  files('test_packs_app.cpp', '../app/packs.cpp', '../app/gallery.cpp'),
+  cpp_args: ['-DTITLES_TEMPLATES_DIR="' + meson.current_source_dir() / '..' / 'data' / 'templates' + '"',
+             '-DTITLES_TEMPLATES_SOURCE_DIR="' + meson.current_source_dir() / '..' / 'data' / 'templates' + '"'],
+  include_directories: [src_inc, titles_inc],
+  dependencies: [titles_doctest_dep, titles_render_dep, titles_package_dep, libustudio_platform_dep, gtk4_dep,
+                 adwaita_dep],
+  install: false,
+)
+test('titles-packs-app', titles_test_packs_app)
+
 titles_test_render = executable(
   'test_titles_render',
   files('test_render.cpp'),
