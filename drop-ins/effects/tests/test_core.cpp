@@ -653,3 +653,43 @@ TEST_CASE("recipeIndexOf: a transition's recipe, the dissolve for none or an unk
     CHECK(recipeIndexOf(recipes, t) == 0);
     CHECK(recipeIndexOf({}, t) == -1);
 }
+
+// --- Touch-record (FX4) --------------------------------------------------------
+
+TEST_CASE("withRecording: a performed curve becomes far fewer keys that stay within the tolerance")
+{
+    // Two seconds at 30 fps of a smooth performance (a sine sweep) with a
+    // hold in the middle, as a hand on a slider would make it.
+    std::vector<std::pair<core::FrameIndex, double>> performed;
+    for (core::FrameIndex f = 10; f < 70; ++f) {
+        const double v = f < 30 ? std::sin(static_cast<double>(f - 10) / 20.0 * 1.5707963) : (f < 45 ? 1.0 : 1.0 - static_cast<double>(f - 45) / 25.0);
+        performed.emplace_back(f, v);
+    }
+    const std::vector<core::Keyframe> before{{0, 0.5, core::Easing::Linear}, {40, 9.0, core::Easing::Linear},
+                                             {100, 0.2, core::Easing::Linear}};
+    const double tolerance = recordingTolerance(0.0, 1.0);
+    const std::vector<core::Keyframe> keys = withRecording(before, performed, tolerance);
+    // The key inside the recorded range is replaced; those outside stay.
+    CHECK(keys.front() == before.front());
+    CHECK(keys.back() == before.back());
+    CHECK_FALSE(std::any_of(keys.begin(), keys.end(), [](const core::Keyframe &k) { return k.value == 9.0; }));
+    // The ends of the recording are kept.
+    CHECK(keyAt(keys, 10));
+    CHECK(keyAt(keys, 69));
+    // Fewer keys than frames: an editable curve.
+    const size_t recorded = keys.size() - 2;
+    MESSAGE(recorded << " keys for " << performed.size() << " frames");
+    CHECK(recorded < performed.size() / 3);
+    // And it still plays what was performed, within the tolerance.
+    for (const auto &[frame, value] : performed)
+        CHECK(std::abs(core::easedValue(keys, static_cast<double>(frame)) - value) <= tolerance + 1e-9);
+}
+
+TEST_CASE("withRecording: repeated frames keep the last value; an empty recording changes nothing")
+{
+    const std::vector<core::Keyframe> keys = withRecording({}, {{5, 0.1}, {5, 0.4}, {6, 0.5}}, 0.001);
+    REQUIRE(keys.size() == 2);
+    CHECK(keys[0].value == doctest::Approx(0.4));
+    const std::vector<core::Keyframe> untouched{{3, 1.0, core::Easing::SmoothNatural}};
+    CHECK(withRecording(untouched, {}, 0.01) == untouched);
+}
