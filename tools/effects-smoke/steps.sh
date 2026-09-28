@@ -165,18 +165,19 @@ d act effects-add-transition; sleep 2
 shot 13-transition-added
 d act save; sleep 2
 check "T adds a transition" grep -q "ustudio:transition_id" "$OUT/smoke.ustudio"
-STAR=$(python3 "$SMOKE_HERE/where.py" "Star" 2>>"$OUT/helpers.err")
-echo "star tile at $STAR" >>"$OUT/steps.log"
+# The first wipe's tile (the list scrolls; later tiles may be out of view).
+WIPE=$(python3 "$SMOKE_HERE/where.py" "Wipe Right" 2>>"$OUT/helpers.err")
+echo "wipe tile at $WIPE" >>"$OUT/steps.log"
 # shellcheck disable=SC2086
-[ -n "$STAR" ] && d click $STAR; sleep 2
-shot 14-star-wipe
+[ -n "$WIPE" ] && d click $WIPE; sleep 2
+shot 14-wipe
 d act save; sleep 2
-check "a wipe chosen from its tile" grep -q ">wipe.star<" "$OUT/smoke.ustudio"
-check "its map written beside the project" [ -s "$OUT/ustudio-wipes/v1/star.pgm" ]
-check "the saved file names the map relatively" grep -q ">ustudio-wipes/v1/star.pgm<" "$OUT/smoke.ustudio"
+check "a wipe chosen from its tile" grep -q ">wipe.left<" "$OUT/smoke.ustudio"
+check "its map written beside the project" [ -s "$OUT/ustudio-wipes/v1/left.pgm" ]
+check "the saved file names the map relatively" grep -q ">ustudio-wipes/v1/left.pgm<" "$OUT/smoke.ustudio"
 d act undo; sleep 1
 d act save; sleep 2
-check "undo takes the wipe back" saved_lacks ">wipe.star<"
+check "undo takes the wipe back" saved_lacks ">wipe.left<"
 
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
