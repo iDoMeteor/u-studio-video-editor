@@ -31,11 +31,17 @@ There's no UI yet: the Rack and Browser are FX2, and the build option stays
 |---|---|---|
 | `core/` | `EffectDescriptor` and normalisation (every family's parameters to one set of kinds), curated overlays, the effect commands (add, remove, reorder, bypass, set parameter, set mix; gestures merge), probe results and `effect-health.json`, a small JSON reader and writer | std, `src/core` (never GTK, GLib or MLT: checked by the build) |
 | `engine/` | `EffectRegistry` (every MLT filter, from `Mlt::Repository` metadata), frei0r discovery and curation (IP4), `EffectsExtension` (IP3), `u-studio-render --probe-effect` and `--effects-registry` (IP6), and `FrameRenderer` (a clip's frame through a stack, on a thread of its own with throwaway producers: the Browser's tiles and audition, never the live graph) | `src/engine`, mlt++, GLib |
-| `app/` | The Effect Rack and the Browser (inspector pages, IP5), the catalog they read (registry and health), and the editor's background health scan (the registry and one probe child per effect, featured first) | GTK, GIO, `engine/` headers without MLT; never MLT (checked by the build) |
+| `app/` | The Effect Rack, the Browser and the Transitions page (inspector pages, IP5; the page also outlines its transition on the timeline and claims a double-click on one), the catalog they read (registry and health), and the editor's background health scan (the registry and one probe child per effect, featured first) | GTK, GIO, `engine/` headers without MLT; never MLT (checked by the build) |
 | `data/overlays/` | Curated names, categories, featured flags, defaults MLT doesn't give, hidden plumbing, known-unstable plugins, one JSON file per family | — |
+| `data/transitions/` | Transition recipes (dissolves, dips, flashes, 20 wipes): each a name and the `Transition::params` it resolves into (`src/core/model/transition_native.h` says what they mean; the wipe maps are generated there) | — |
 | `data/looks/` | Brand Looks (`brand.json`): stacks of filters with settings, no LUT files (a LUT library is FX5's) | — |
 | `register.cpp` | The drop-in's describe function and its integration points | the drop-in host API |
 | `tests/` | `effects-core`, `effects-engine`, `effects-scan`; `frei0r/broken_plugin.cpp` builds two frei0r plugins broken on purpose (one crashes, one hangs) | doctest |
+
+A transition recipe is data too: `core/transitions.h` loads the recipes and
+changes a transition's with one undo step (`SetTransitionRecipe`);
+`core::nativeTransition()` (`src/core/model/transition_native.h`) turns
+them into MLT services for the editor's graph and the project writer alike.
 
 The filters an effect becomes are decided in one place in `src/`:
 `core::nativeFilters()` (`src/core/model/effect_native.h`), which the project

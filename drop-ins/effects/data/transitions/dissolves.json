@@ -20,7 +20,8 @@
         "b.0.service": "brightness",
         "b.0.level": "ramp:0,0,1",
         "b.0.rgb_only": 1
-      }
+      },
+      "swatch": "#000000"
     },
     {
       "id": "flash",
@@ -34,7 +35,8 @@
         "b.0.service": "brightness",
         "b.0.level": "ramp:2.5,2.5,1",
         "b.0.rgb_only": 1
-      }
+      },
+      "swatch": "#ffffff"
     }
   ]
 }

@@ -37,8 +37,16 @@ effects_engine_sources = files('engine/effects_extension.cpp', 'engine/frame_ren
                                'engine/probe.cpp', 'engine/registry.cpp')
 # app/: GTK for the Rack, GIO for the scan's children; no MLT
 # (tools/dropin_boundary_check.sh).
+# The Transitions page's tile and outline colours, from the editor's
+# style.css (drop-ins/ builds before src/app, so its own copy, as titles').
+effects_app_tokens_h = custom_target(
+  'effects-app-tokens-h',
+  input: meson.project_source_root() / 'src' / 'app' / 'style' / 'style.css',
+  output: 'tokens.h',
+  command: [find_program('python3'), meson.project_source_root() / 'tools' / 'gen_tokens.py', '@INPUT@', '@OUTPUT@'],
+)
 effects_app_sources = files('app/browser.cpp', 'app/catalog.cpp', 'app/compare.cpp', 'app/health_scan.cpp',
-                              'app/rack.cpp')
+                              'app/rack.cpp', 'app/transitions_page.cpp') + [effects_app_tokens_h]
 effects_dropin_sources = files('register.cpp') + effects_engine_sources + effects_app_sources
 
 if get_option('dropin_effects') == 'module'

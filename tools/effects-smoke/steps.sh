@@ -150,6 +150,34 @@ d click 900 900; sleep 1
 python3 "$SMOKE_HERE/hold.py" 51 3 "$OUT/12-held-backslash.png" 2>>"$OUT/helpers.err"
 check "held \\ shows the picture without effects" grep -q "held \\\\: the picture without effects" "$OUT/app.log"
 
+
+# Transitions (FX3): two stills at the end of the track (a still has frames
+# to spare either side, so a dissolve fits), T at the cut between them, a
+# wipe's tile on the Transitions page, saved with its map beside the
+# project; undo takes the style back to the dissolve.
+ffmpeg -loglevel error -y -f lavfi -i "color=c=0x2040c0:size=1280x720" -frames:v 1 "$M/still.png"
+d act seek-end; sleep 0.5
+d act import; sleep 1.5; d loc "$M/still.png"; d enter; sleep 3
+d act seek-end; sleep 0.5
+d act import; sleep 1.5; d loc "$M/still.png"; d enter; sleep 3
+d act seek-end; sleep 1
+d act effects-add-transition; sleep 2
+shot 13-transition-added
+d act save; sleep 2
+check "T adds a transition" grep -q "ustudio:transition_id" "$OUT/smoke.ustudio"
+STAR=$(python3 "$SMOKE_HERE/where.py" "Star" 2>>"$OUT/helpers.err")
+echo "star tile at $STAR" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+[ -n "$STAR" ] && d click $STAR; sleep 2
+shot 14-star-wipe
+d act save; sleep 2
+check "a wipe chosen from its tile" grep -q ">wipe.star<" "$OUT/smoke.ustudio"
+check "its map written beside the project" [ -s "$OUT/ustudio-wipes/v1/star.pgm" ]
+check "the saved file names the map relatively" grep -q ">ustudio-wipes/v1/star.pgm<" "$OUT/smoke.ustudio"
+d act undo; sleep 1
+d act save; sleep 2
+check "undo takes the wipe back" saved_lacks ">wipe.star<"
+
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
 echo "RESULT: $FAILED failed"

@@ -87,7 +87,10 @@ the scan has passed it, adds it with Enter, undoes and redoes it, pins Blur with
 saved project each time. Then it saves the stack as a Look, imports a
 second clip, applies the brand Look Neon Night to both, changes a value on
 both at once, drags a brand Look onto the picture, turns compare on, and
-holds **\\**. It also checks an audition leaves the live graph's rebuild
+holds **\\**. Then two stills go at the end of the track, **T** adds a
+dissolve between them, the Star wipe's tile on the Transitions page is
+clicked, and the saved project must name `wipe.star` and its map
+`ustudio-wipes/v1/star.pgm` (written beside it); undo takes it back. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
 `value.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a

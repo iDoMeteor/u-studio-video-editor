@@ -7,8 +7,10 @@
 #include "app/compare.h"
 #include "app/health_scan.h"
 #include "app/rack.h"
+#include "app/transitions_page.h"
 #include "core/health.h"
 #include "core/looks.h"
+#include "core/transitions.h"
 #include "core/log.h"
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
@@ -71,6 +73,9 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         addRack(shell, catalog);
         addBrowser(shell, catalog);
         addCompare(shell, catalog);
+        // FX3: the transition styles (small; the drop-in's own data).
+        static const std::vector<TransitionRecipe> recipes = loadRecipes((effectsDataDir() / "transitions").string());
+        addTransitions(shell, recipes);
         if (scanning)
             return; // one scan per process, however many windows
         scanning = true;

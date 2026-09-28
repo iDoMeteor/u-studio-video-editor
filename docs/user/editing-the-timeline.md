@@ -96,6 +96,9 @@ same track. It shows as a hatched area.
   nothing else on the track moves.
 - Moving, trimming or splitting a clip into a dissolve removes that
   dissolve.
+- With the Effects add-on, **T** adds a dissolve at the cut nearest the
+  playhead, and a dissolve can be a dip, a flash or a wipe instead
+  ([Transition styles](effects.md#transition-styles)).
 
 ## Naming clips
 

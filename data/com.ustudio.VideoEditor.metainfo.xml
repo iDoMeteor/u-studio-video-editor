@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.75.0-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New since 0.74.0-beta.1: transition styles, in the Effects add-on. Put the playhead on a dissolve, or double-click one, and the Transitions page shows a tile for each style: a dip to black, a flash, and 20 wipes, from straight wipes and a clock to a star and the unicorn horn. Click one to use it; wipes have Softness and Reverse. Press T to add a dissolve at the cut nearest the playhead.</p>
+        <p>Try a few wipes on clips you know, change the softness, undo, and render the project to check it plays as the preview did. Known limits: no motion (push, slide, zoom) or blend styles yet, and the tiles are drawings of each style, not your clips. With GPU acceleration on, a wipe can stutter at Full preview quality; Half plays it smoothly. A saved project with wipes keeps their shapes in a small ustudio-wipes folder beside it.</p>
+      </description>
+    </release>
     <release version="0.74.0-beta.1" date="2026-09-28" type="development">
       <description>
         <p>New since 0.73.1-beta.1: effects, in the Effects add-on. Open the inspector (the round button at the picture's top right) and press E: every effect is a tile showing your clip with it on. Point at one to try it on the picture, click to add it, then change it on the Effects page. Pin values at the playhead to make them change over time, save a set of effects as a look (five brand looks come with it), copy and paste effects between clips, and hold \ or press Compare to see before and after.</p>

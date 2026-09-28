@@ -73,6 +73,13 @@ Terminals inside the VS Code snap set `XDG_DATA_HOME` to a private folder,
 so `flatpak --user` installs somewhere your desktop can't see. Install from
 a normal terminal, or run `env -u XDG_DATA_HOME flatpak install …`.
 
+### A wipe stutters in the preview
+
+With GPU acceleration on, a wipe takes the processor's slower path while
+it plays, so at **Full** preview quality it can drop frames. Set the
+preview to **Half**, or turn GPU acceleration off in Settings. The render
+plays it exactly either way ([Transition styles](effects.md#transition-styles)).
+
 ### An effect is missing or turned off
 
 With the Effects add-on, U Stu checks every effect in the background the
@@ -89,8 +96,9 @@ effects this one doesn't have ([Effects](effects.md#unstable-effects)).
 
 These are planned; see the [roadmap](../../README.md#roadmap).
 
-- Effects (the Effects add-on) can't draw masks yet, and there are no
-  wipes or other transitions beyond dissolves yet.
+- Effects (the Effects add-on) can't draw masks yet. Transitions come in
+  dissolve, dip, flash and wipe styles; motion (push, slide, zoom) and
+  blend styles aren't there yet.
 - Titles (the Titles drop-in, not yet in the packages) have no template
   gallery yet, and a moved title can't be relinked yet ([Titles](titles.md)).
 - Renders are MP4 (H.264 + AAC) only.
