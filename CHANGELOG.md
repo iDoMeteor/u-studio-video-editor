@@ -5,6 +5,13 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+
+## 0.74.1-beta.1
+
+- Importing thousands of clips onto one track (a long caption file, a big
+  folder) is fast: 20,000 clips now take a fraction of a second
+  instead of minutes, and undoing them just as fast.
+
 ## 0.74.0-beta.1
 
 - Effects (the Effects add-on): add, try on the picture, keyframe and

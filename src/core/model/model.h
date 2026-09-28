@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <string>
 #include <vector>
@@ -328,6 +329,21 @@ class Model
     Track &mutableTrack(TrackId);
     Clip &mutableClip(ClipId);
     void sortTrackClips(Track &track);
+    // A track's clip order: position, then end, then id.
+    struct ClipOrderKey
+    {
+        FrameIndex position, end;
+        ClipId id;
+        bool operator<(const ClipOrderKey &other) const
+        {
+            return std::tie(position, end, id) < std::tie(other.position, other.end, other.id);
+        }
+    };
+    bool clipBefore(ClipId a, ClipId b) const;
+    // One clip put in its place in an otherwise sorted track: a new one
+    // (not listed yet), or one listed that changed, found by `was`, its key
+    // before the change.
+    void placeClip(Track &track, ClipId id, std::optional<ClipOrderKey> was = std::nullopt);
     void reserveId(uint64_t value);
 };
 
