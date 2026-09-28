@@ -11,6 +11,12 @@ docs-only changes are not listed (CLAUDE.md).
   opens U Stu Titles with a gallery of 29 built-in designs; save your own
   as templates, and rename, duplicate or delete them in My Templates.
 
+## 0.65.1-beta.1
+
+- Titles come as a Flatpak add-on, installed next to the app: import
+  titles, fill their fields, edit them in U Stu Titles, bake them and
+  export them for OBS.
+
 ## 0.65.0-beta.1
 
 - Export a title clip on its own from the editor (Title page › Export on

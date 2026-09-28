@@ -50,6 +50,8 @@ titles_register_args = [
   '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
   '-DTITLES_MLT_INSTALL_DIR="' + titles_mlt_install_dir + '"',
   '-DTITLES_MLT_BUILD_DIR="' + titles_mlt_build_dir + '"',
+  # Packaged apart from the editor (a Flatpak extension): its own bindir.
+  '-DTITLES_APP_INSTALL_DIR="' + get_option('prefix') / get_option('bindir') + '"',
   # Running from a build directory: the designer built next to it.
   '-DTITLES_APP_BUILD_PATH="' + titles_app_exe.full_path() + '"',
 ]

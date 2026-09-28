@@ -13,3 +13,10 @@ option('dropin_effects', type: 'combo', choices: ['disabled', 'builtin', 'module
        description: 'The effects and transitions drop-in (doc 15)')
 option('dropin_titles', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'disabled',
        description: 'The titles drop-in (doc 16)')
+# A Flatpak extension point for separately packaged drop-ins (ADR-014, doc
+# 17), relative to the prefix, e.g. 'lib/u-studio/extensions'. Each
+# subdirectory is one drop-in's extension prefix, whose
+# lib/u-studio/drop-ins/ joins the trusted directories. Setting it also
+# makes the programs export the symbols modules resolve against them.
+option('dropin_extension_dir', type: 'string', value: '',
+       description: 'Extension point whose subdirectories hold separately packaged drop-ins (relative to prefix)')

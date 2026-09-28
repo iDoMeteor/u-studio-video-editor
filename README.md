@@ -94,7 +94,8 @@ permissions · [Getting started](docs/user/getting-started.md)
   → [Settings and Help](docs/user/settings-and-help.md)
 - Project files are plain MLT XML, so `melt` can play them.
 
-**Not yet:** effects and colour, titles, formats other than MP4, named
+**Not yet:** effects and colour, a title template gallery (titles themselves
+are an [add-on](docs/user/installing.md#add-ons)), formats other than MP4, named
 markers, rebindable shortcuts. → [Known limitations](docs/user/troubleshooting.md#known-limitations)
 
 ## Roadmap

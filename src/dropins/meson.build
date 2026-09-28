@@ -3,6 +3,8 @@
 gmodule_dep = dependency('gmodule-2.0', include_type: 'system')
 
 dropin_install_dir = get_option('prefix') / get_option('libdir') / 'u-studio' / 'drop-ins'
+# Separately packaged drop-ins (the Flatpak extension point): '' for none.
+dropin_extension_dir = get_option('dropin_extension_dir') == '' ? '' : get_option('prefix') / get_option('dropin_extension_dir')
 
 libustudio_dropins = static_library(
   'ustudio_dropins',
@@ -10,6 +12,7 @@ libustudio_dropins = static_library(
   cpp_args: [
     '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
     '-DUSTUDIO_DROPIN_DIR="' + dropin_install_dir + '"',
+    '-DUSTUDIO_DROPIN_EXTENSION_DIR="' + dropin_extension_dir + '"',
   ],
   dependencies: [libustudio_engine_dep, gmodule_dep],
   include_directories: src_inc,

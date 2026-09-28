@@ -184,6 +184,8 @@ removable.
   here. Flatpak permissions belong to the app, not extensions, so no
   extension can add network access; see doc 18 for how AI generation
   handles that.
+
+  > REVIEW: VE Installers, 2026-09-28: built in 0.65.1-beta.1, keys checked against flatpak-manifest(5) and flatpak-metadata(5): the point mounts at `/app/lib/u-studio/extensions/<Name>` (`subdirectories`, `no-autodownload`, `autodelete`), and `-Ddropin_extension_dir` makes the loader trust each extension's `lib/u-studio/drop-ins/`. Titles is the first (`com.ustudio.VideoEditor.DropIn.Titles`); details in [packaging.md](../../developer/packaging.md#drop-ins-as-flatpak-extensions).
 - **Fedora RPM.** The core package plus subpackages named
   `u-studio-video-editor-dropin-<name>`, each requiring its own runtime
   dependencies.

@@ -6,8 +6,8 @@ Titles are animated text and shapes, such as lower thirds, name tags and
 chapter cards. They play over your video with transparency. Each title is a
 `.ustitle` file, and you use it on the timeline like any other clip.
 
-> **Early days.** Titles come with the *Titles* drop-in, which isn't in every
-> installed package yet ([roadmap](../../README.md)).
+> **Early days.** Titles come with the *Titles* add-on, installed next to
+> the app ([Installing › Add-ons](installing.md#add-ons)).
 
 ## Putting a title on the timeline
 

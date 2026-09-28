@@ -33,6 +33,8 @@ loading.
   not by the editor. Development and test builds may still build effects
   and titles `builtin`.
 
+> REVIEW: VE Installers, 2026-09-28: the Flatpak extension mount is in the trusted list when the app is built with `-Ddropin_extension_dir` (the Flatpak sets `lib/u-studio/extensions`); that option also makes the programs export their symbols for modules. Titles ships as `com.ustudio.VideoEditor.DropIn.Titles` from 0.65.1-beta.1 ([packaging.md](../../../developer/packaging.md#drop-ins-as-flatpak-extensions)).
+
 ## Consequences
 - Each drop-in's tests run in both builtin and module mode.
 - Loading native code in-process is a trust decision; restricting load
