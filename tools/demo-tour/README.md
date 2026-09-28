@@ -59,3 +59,48 @@ leaves screenshots in the output folder for checking.
   typed, which avoids the location entry's autocomplete race.
 - Playback on Xvfb is software-rendered, so it's choppier than on a real
   desktop.
+
+## Narrated parts (the series)
+
+Since 2026-09-28 every demo is a short, narrated part of the tour:
+
+```sh
+TOUR_PART=basics-1 tools/demo-tour/make_demo.sh   # -> u-studio-demo-<date>-basics-1-v<version>.mp4
+```
+
+- `parts.json` names each part's chapters (by their `step()` titles), its
+  card title and its narration script. The tour still runs from the start
+  (later chapters need the state earlier ones build) and stops after the
+  part's last chapter; `post.py` keeps only the part's chapters.
+- `narration/<part>.txt`: one `## <chapter title>` block per chapter, plus
+  `## intro` and `## outro` for the cards. Plain language for users.
+- `narrate.py` speaks every line with `tts.py` (OpenAI speech, voice
+  `cedar`, `gpt-4o-mini-tts`, speed 0.9) before the run, cached in
+  `~/.cache/ustudio-demo-tts` by a hash of the request. The key is read at
+  call time from `OPENAI_API_KEY` or the owner's
+  `~/Repos/ai-animated-video/config.env`, and never printed or stored. This
+  is the demo tooling's only network use; the editor never goes online.
+- Each chapter lasts at least as long as its line. `post.py` lays the voice
+  at the chapter starts (never inside a fast-forward), ducks the app's own
+  sound under it, narrates the cards, and normalises to -16 LUFS.
+- `TOUR_GPU=0` presets GPU acceleration off; `TOUR_NO_MERGE=1` records the
+  build as it is; `TOUR_STOP_AFTER=<title>` ends a run early.
+
+Series (one per slot, each under 5 minutes; done ones are dated):
+
+| Part | Topic | Recorded |
+|---|---|---|
+| basics-1 | Importing, mixed frame rates, the media browser, split audio | 2026-09-28 (0.70.0-beta.1) |
+| basics-2 | Playback, shuttle, loop, timeline editing | |
+| basics-3 | Save and backups, settings, the project format | |
+| basics-4 | Rendering, the queue, quit while rendering and restart | |
+| titles-1 | New Title, the template gallery, editing text, the brand kit | |
+| pip | Picture in picture: move, scale, rotate, crop, flip, Edit Transform | |
+| titles-2 | Animation: behaviours, the strip, fields on the Title page | |
+| titles-3 | Bake, Export for OBS, template packs | |
+| mixed-media | Stills, image sequences, the background colour | |
+| relink | Missing media and relink; proxies | |
+| transitions | Dissolves | |
+| settings-help | Settings, shortcuts, Help, diagnostics | |
+| gpu | GPU acceleration (after VE GPU's fix; maybe on the real desktop) | |
+| effects | Effects (after FX2) | |

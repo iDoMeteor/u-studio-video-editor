@@ -1,0 +1,29 @@
+# Basics 1: importing, mixed frame rates and the media browser. Voice cedar.
+# "## intro" and "## outro" play over the title cards; the rest over their chapters.
+
+## intro
+Welcome to U Stu Video Editor. In this first part of the basics, we'll bring in some footage, mix clips of different sizes and frame rates, and get to know the media browser.
+
+## Import
+Let's start by importing some clips. Pick several files at once, and they land in order on the timeline. The project takes its size and frame rate from the first clip.
+
+## Clip tooltips
+Rest the pointer on any clip to see the frame under it, its timecode, and its details.
+
+## Mixed frame rates
+These clips are a different size, and run at twenty-five frames a second instead of thirty. That's fine: they join the project, and every frame lands at the right time.
+
+## Import a folder
+Import Folder brings in a whole folder at once. It's a single undo step, and anything that can't be opened is listed for you.
+
+## Media browser
+The media browser shows everything in your project, with its length, frame rate and format. Drag any item straight onto the timeline.
+
+## Split audio
+Here's the finished soundtrack for this video. Split Audio peels its sound onto an audio track of its own, so we can work with it separately.
+
+## Trim to fit
+Drag the end of the soundtrack back, and it snaps neatly to the end of the edit.
+
+## outro
+That's part one. Next time, we'll play our edit back and start shaping it on the timeline. Thanks for watching!

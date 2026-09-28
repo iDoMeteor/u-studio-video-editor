@@ -60,11 +60,15 @@ def hover(x, y, wait=1.2):
 
 # =====================================================================
 n = 0
+STOP_AFTER = os.environ.get('TOUR_STOP_AFTER', '')   # a part's last chapter (make_demo.sh, parts.json)
+last_title = None
 def step(title, sub=''):
-    global n
+    global n, last_title
     n += 1
-    if n > UPTO:
-        quit_app(); sys.exit(0)
+    if n > UPTO or (STOP_AFTER and last_title == STOP_AFTER):
+        narration_wait(); pause(1.0)
+        chapter('(end)'); quit_app(); sys.exit(0)
+    last_title = title
     chapter(title, sub)
 
 # TOUR_GPU=0 presets GPU acceleration off in the run's private dconf (dconf
@@ -85,7 +89,7 @@ hover(520, row_y(0), 3.0); snap('c1-tooltip')
 rest()
 
 # ---------------------------------------------------------------- 2
-step('Mixed frame rates', 'a 25 fps 1344×768 set joins a 30 fps project; MLT maps every frame by time')
+step('Mixed frame rates', 'a 25 fps 1344×768 set joins a 30 fps project, and every frame lands at its time')
 press('Add track'); pause(1.5)
 import_folder(M + '/zizzle')
 pause(6); rest(); snap('c2-mixed')
@@ -129,7 +133,7 @@ drag(a1_end - 2, 752 + 180 + 38, v1_end + 2, 752 + 180 + 38, dur=1.6); pause(1);
 act('zoom-fit'); pause(1.2); snap('c3b-trimmed')
 
 # ---------------------------------------------------------------- 4
-step('Playback', 'real-time playback on its own engine thread, with sound')
+step('Playback', 'real-time playback with sound; the editor stays responsive')
 act('seek-home'); act('play-pause'); pause(5); act('play-pause'); pause(0.8)
 step('Shuttle and step', 'J / K / L shuttle, frame steps, 10-frame steps')
 act('shuttle-forward', 2, gap=1.2); pause(1.5); act('shuttle-stop'); pause(0.6)

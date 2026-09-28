@@ -19,8 +19,28 @@ def now():
 def log(m):
     print(f"{now():8.2f}  {m}", file=LOG, flush=True)
 
+# Narration (narrate.py wrote it before the run): a chapter lasts at least as
+# long as its spoken line, so the voice never runs into the next chapter.
+_NARR_PATH = os.path.join(OUT, 'narration.json')
+NARR = json.load(open(_NARR_PATH)) if os.path.exists(_NARR_PATH) else {}
+_seen = {}
+_narr_end = 0.0
+NARR_LEAD = 0.4     # the line starts this long after its chapter (post.py uses the same)
+
+def narration_wait():
+    """Hold until the current chapter's line has been spoken."""
+    if now() < _narr_end:
+        time.sleep(_narr_end - now())
+
 def chapter(title, sub=''):
-    CHAPTERS.append((now(), title, sub))
+    global _narr_end
+    narration_wait()
+    _seen[title] = _seen.get(title, 0) + 1
+    key = title if _seen[title] == 1 else f'{title} #{_seen[title]}'
+    line = NARR.get(key)
+    CHAPTERS.append((now(), title, sub, key))
+    if line:
+        _narr_end = now() + NARR_LEAD + line['dur'] + 0.6
     json.dump(CHAPTERS, open(os.path.join(OUT, 'chapters.json'), 'w'))
     log(f"=== {title} {sub}")
 

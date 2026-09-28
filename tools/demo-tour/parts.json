@@ -1,0 +1,9 @@
+{
+  "basics-1": {
+    "title": "Basics 1",
+    "subtitle": "Importing, mixed frame rates and the media browser",
+    "narration": "narration/basics-1.txt",
+    "chapters": ["Import", "Clip tooltips", "Mixed frame rates", "Import a folder", "Media browser",
+                 "Split audio", "Trim to fit"]
+  }
+}

@@ -39,13 +39,23 @@ meson configure "$BUILD" -Dbuildtype=release -Ddropin_titles=builtin >/dev/null 
 meson compile -C "$BUILD" >/dev/null
 VERSION=$(meson introspect "$BUILD" --projectinfo | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
 
-# 3. record + post
-TOUR_MEDIA="$MEDIA" TOUR_BIN="$BUILD/src/app/u-studio-video-editor" "$HERE/run_tour.sh" "$WORK" 1
-TOUR_VERSION="$VERSION" python3 "$HERE/post.py" "$WORK" "$WORK/demo.mp4"
+# 3. narration (a part from parts.json: TOUR_PART=basics-1), record, post
+mkdir -p "$WORK"
+PART=${TOUR_PART:-}
+STOP=
+NAME=u-studio-demo-$(date +%F)
+if [ -n "$PART" ]; then
+  NARR=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["narration"])' "$HERE/parts.json" "$PART")
+  STOP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["chapters"][-1])' "$HERE/parts.json" "$PART")
+  python3 "$HERE/narrate.py" "$HERE/$NARR" "$WORK/narration.json"
+  NAME=$NAME-$PART
+fi
+TOUR_STOP_AFTER="$STOP" TOUR_MEDIA="$MEDIA" TOUR_BIN="$BUILD/src/app/u-studio-video-editor" "$HERE/run_tour.sh" "$WORK" 1
+TOUR_PART="$PART" TOUR_VERSION="$VERSION" python3 "$HERE/post.py" "$WORK" "$WORK/demo.mp4"
 
 # 4. save, never overwrite
 mkdir -p "$DEST"
-BASE="$DEST/u-studio-demo-$(date +%F)-v$VERSION"
+BASE="$DEST/$NAME-v$VERSION"
 OUT="$BASE.mp4"; n=2
 while [ -e "$OUT" ]; do OUT="$BASE-$n.mp4"; n=$((n + 1)); done
 cp "$WORK/demo.mp4" "$OUT"
