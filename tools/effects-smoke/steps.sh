@@ -68,8 +68,10 @@ shot 2-browser
 # Featured effects are checked first; Glow is one. Wait for its result.
 for _ in $(seq 1 60); do grep -q '"frei0r.glow"' "$OUT/home/cache/ustudio/effect-health.json" 2>/dev/null && break; sleep 1; done
 sleep 1
+REBUILDS=$(grep -c "rebuildAll took" "$OUT/app.log")
 python3 "$SMOKE_HERE/tile.py" 0 2>>"$OUT/helpers.err"; sleep 3
 shot 2b-audition
+check "audition didn't rebuild the live graph" [ "$(grep -c "rebuildAll took" "$OUT/app.log")" = "$REBUILDS" ]
 check "audition rendered off the live graph" grep -q "auditioning frei0r.glow on the preview" "$OUT/app.log"
 shot 2c-looks-ranked-after
 d press "Search effects"; sleep 0.5; d enter; sleep 2
@@ -126,14 +128,27 @@ check "one change, both clips" [ "$(grep -c '>0.123<' "$OUT/smoke.ustudio")" -ge
 d act effects-browser; sleep 1
 e "Search effects" "film grain"; sleep 3
 shot 9-before-drag
-TILE=$(python3 "$SMOKE_HERE/where.py" "Film Grain" 2>>"$OUT/helpers.err")
+# The second "Film Grain" tile is the brand Look (an effect ranks first).
+TILE=$(python3 "$SMOKE_HERE/where.py" "Film Grain" 1 2>>"$OUT/helpers.err")
 PICTURE=$(python3 "$SMOKE_HERE/where.py" "Effects drop zone" 2>>"$OUT/helpers.err" || echo "600 300")
 echo "tile at $TILE, picture at $PICTURE" >>"$OUT/steps.log"
 # shellcheck disable=SC2086
 python3 "$SMOKE_HERE/drag.py" $TILE $PICTURE 2>>"$OUT/helpers.err"; sleep 2
 shot 10-after-drag
 d act save; sleep 2
-check "dragged onto the picture" grep -q '<property name="mlt_service">frei0r.filmgrain</property>' "$OUT/smoke.ustudio"
+check "a brand look dragged onto the picture" grep -q '<property name="mlt_service">frei0r.filmgrain</property>' "$OUT/smoke.ustudio"
+
+# Compare: before (no clip effects) left of the divider, after right; and
+# \ held shows the whole picture without them.
+d act select-all; sleep 0.5
+d act effects-compare; sleep 3
+shot 11-compare
+check "compare shows the before frame" grep -q "comparing: the before frame shown" "$OUT/app.log"
+d act effects-compare; sleep 1
+# Focus out of the Browser's search first: in a text field \ is typing.
+d click 900 900; sleep 1
+python3 "$SMOKE_HERE/hold.py" 51 3 "$OUT/12-held-backslash.png" 2>>"$OUT/helpers.err"
+check "held \\ shows the picture without effects" grep -q "held \\\\: the picture without effects" "$OUT/app.log"
 
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null

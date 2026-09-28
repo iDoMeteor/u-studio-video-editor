@@ -16,8 +16,10 @@ keyframes in the inspector) is in progress: the Rack, keyframes in it (pins, pre
 last changed) the Browser (**E**: tiles of the frame through each effect,
 audition on the preview, Enter, a click or a drag onto the picture adds),
 several clips at once, copy and paste (**Ctrl+Shift+C**, **Ctrl+Shift+V**)
-and Looks (brand Looks ship in `data/looks/brand.json`; save your own from
-the Rack's menu) are in. Effects in a project play in the
+Looks (brand Looks ship in `data/looks/brand.json`; save your own from
+the Rack's menu), and compare (hold **\\** for the picture without the
+clip's effects; the Rack's Compare button for a before/after split you
+drag) are in. Effects in a project play in the
 preview, export and stock `melt`; every effect MLT offers is described,
 health-checked in its own process and quarantined if it crashes or hangs.
 There's no UI yet: the Rack and Browser are FX2, and the build option stays

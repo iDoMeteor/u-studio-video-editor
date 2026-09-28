@@ -147,6 +147,7 @@ class Rack
         m_host.setTooltip(m_scope, "effects.rack-scope");
         m_host.setTooltip(m_add, "effects.rack-add");
         m_host.setTooltip(m_menu, "effects.rack-menu");
+        m_host.setTooltip(m_compare, "effects.compare");
         m_host.addInspectorPage({"effects.rack", "Effects", "applications-graphics-symbolic", m_root});
         m_host.selectionChanged().connect([this] { refresh(); });
         m_host.projectChanged().connect([this] { refresh(); });
@@ -781,6 +782,12 @@ class Rack
         gtk_accessible_update_property(GTK_ACCESSIBLE(m_menu), GTK_ACCESSIBLE_PROPERTY_LABEL, "Effects menu", -1);
         g_object_unref(menu);
         gtk_box_append(GTK_BOX(header), m_menu);
+        // Before and after over the picture (app/compare.h).
+        GtkWidget *compare = gtk_button_new_from_icon_name("view-dual-symbolic");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(compare), "win.effects-compare");
+        gtk_accessible_update_property(GTK_ACCESSIBLE(compare), GTK_ACCESSIBLE_PROPERTY_LABEL, "Compare", -1);
+        m_compare = compare;
+        gtk_box_append(GTK_BOX(header), compare);
         gtk_box_append(GTK_BOX(box), header);
 
         m_titleRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -1433,7 +1440,7 @@ class Rack
     GtkWidget *m_root = nullptr, *m_scope = nullptr, *m_add = nullptr, *m_addPopover = nullptr;
     GtkWidget *m_search = nullptr, *m_addList = nullptr, *m_title = nullptr, *m_empty = nullptr;
     GtkWidget *m_cards = nullptr, *m_menu = nullptr, *m_titleRow = nullptr, *m_pastePopover = nullptr;
-    GtkWidget *m_lookPopover = nullptr, *m_lookName = nullptr;
+    GtkWidget *m_lookPopover = nullptr, *m_lookName = nullptr, *m_compare = nullptr;
     std::vector<std::unique_ptr<Control>> m_controls;
     std::vector<std::unique_ptr<CardAction>> m_actions;
     std::string m_structure;

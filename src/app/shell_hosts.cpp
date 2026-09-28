@@ -86,11 +86,7 @@ void AppWindow::addInspectorPage(const InspectorPage &page)
         // every drop meant for the preview). A window with breakpoints no
         // longer takes its minimum size from its content, so the minimum it
         // has now is pinned first (doc 15's REVIEW note on the inspector).
-        int minWidth = 0, minHeight = 0;
-        gtk_widget_measure(GTK_WIDGET(m_window), GTK_ORIENTATION_HORIZONTAL, -1, &minWidth, nullptr, nullptr, nullptr);
-        gtk_widget_measure(GTK_WIDGET(m_window), GTK_ORIENTATION_VERTICAL, minWidth, &minHeight, nullptr, nullptr,
-                           nullptr);
-        gtk_widget_set_size_request(GTK_WIDGET(m_window), minWidth, minHeight);
+        const auto [minWidth, minHeight] = pinInspectorMinimum();
         // The content's minimum (about 885 px) plus the sidebar's widest.
         AdwBreakpoint *dock = adw_breakpoint_new(adw_breakpoint_condition_new_length(
             ADW_BREAKPOINT_CONDITION_MIN_WIDTH, std::max(1280, minWidth + 360), ADW_LENGTH_UNIT_PX));
@@ -174,6 +170,24 @@ void AppWindow::addHeaderButton(GtkWidget *button)
     // Shell extensions run after buildUi(); before it, this is a misuse.
     g_return_if_fail(m_appHeaderGroup && m_settingsButton);
     gtk_box_insert_child_after(GTK_BOX(m_appHeaderGroup), button, gtk_widget_get_prev_sibling(m_settingsButton));
+    // A wider header widens the pinned minimum (drop-ins run in no fixed
+    // order: a page's breakpoint may already be set).
+    if (m_inspectorSplit)
+        pinInspectorMinimum();
+}
+
+std::pair<int, int> AppWindow::pinInspectorMinimum()
+{
+    // With a breakpoint (the docking inspector) the window no longer takes
+    // its minimum size from its content, so the content's own minimum is
+    // pinned as a size request: measured on the content, since the window
+    // itself then only reports the request.
+    GtkWidget *content = adw_application_window_get_content(m_window);
+    int minWidth = 0, minHeight = 0;
+    gtk_widget_measure(content, GTK_ORIENTATION_HORIZONTAL, -1, &minWidth, nullptr, nullptr, nullptr);
+    gtk_widget_measure(content, GTK_ORIENTATION_VERTICAL, minWidth, &minHeight, nullptr, nullptr, nullptr);
+    gtk_widget_set_size_request(GTK_WIDGET(m_window), minWidth, minHeight);
+    return {minWidth, minHeight};
 }
 
 void AppWindow::addHints(const std::vector<HintSpec> &hints)
