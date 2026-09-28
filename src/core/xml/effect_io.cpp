@@ -1,9 +1,9 @@
 #include "core/xml/effect_io.h"
 
 #include "core/model/animation.h"
+#include "core/model/effect_native.h"
 
 #include <charconv>
-#include <cstdio>
 #include <cstdlib>
 #include <sstream>
 
@@ -40,30 +40,6 @@ std::vector<std::string> split(const std::string &text, char separator)
 // "d:0.5", "i:3", "b:1", "s:text", "c:r,g,b,a", "r:x,y,w,h".
 std::string encodeValue(const Param::Value &value);
 Param::Value decodeValue(const std::string &text);
-
-// What MLT reads for a constant value.
-std::string nativeValue(const Param::Value &value)
-{
-    return std::visit(
-        [](const auto &v) -> std::string {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, double>)
-                return formatDouble(v);
-            else if constexpr (std::is_same_v<T, int64_t>)
-                return std::to_string(v);
-            else if constexpr (std::is_same_v<T, bool>)
-                return v ? "1" : "0";
-            else if constexpr (std::is_same_v<T, std::string>)
-                return v;
-            else if constexpr (std::is_same_v<T, Color>) {
-                char buf[16]; // MLT's colour form: 0xRRGGBBAA
-                std::snprintf(buf, sizeof buf, "0x%02x%02x%02x%02x", v.r, v.g, v.b, v.a);
-                return buf;
-            } else
-                return formatDouble(v.x) + " " + formatDouble(v.y) + " " + formatDouble(v.w) + " " + formatDouble(v.h);
-        },
-        value);
-}
 
 std::string encodeValue(const Param::Value &value)
 {
@@ -228,22 +204,22 @@ std::vector<Param> readParams(xmlNodePtr parent, const std::string &prefix)
 void writeEffectFilter(xmlNodePtr parent, const Effect &effect, FrameIndex offset, FrameIndex length, bool withModel,
                        std::optional<FrameIndex> cutIn)
 {
-    xmlNodePtr filter = xmlNewChild(parent, nullptr, BAD_CAST "filter", nullptr);
-    if (cutIn) {
-        xmlNewProp(filter, BAD_CAST "in", BAD_CAST std::to_string(*cutIn).c_str());
-        xmlNewProp(filter, BAD_CAST "out", BAD_CAST std::to_string(*cutIn + length - 1).c_str());
+    // The same filters the engine attaches (core::nativeFilters(): the
+    // effect, or mask_start + mask_apply for a mix); the model record goes on
+    // the first, and the reader skips the rest (no ustudio:effect_id).
+    xmlNodePtr filter = nullptr;
+    for (const NativeFilter &native : nativeFilters(effect, offset, length)) {
+        xmlNodePtr node = xmlNewChild(parent, nullptr, BAD_CAST "filter", nullptr);
+        if (cutIn) {
+            xmlNewProp(node, BAD_CAST "in", BAD_CAST std::to_string(*cutIn).c_str());
+            xmlNewProp(node, BAD_CAST "out", BAD_CAST std::to_string(*cutIn + length - 1).c_str());
+        }
+        addProperty(node, "mlt_service", native.service);
+        for (const auto &[name, value] : native.properties)
+            addProperty(node, name, value);
+        if (!filter)
+            filter = node;
     }
-    addProperty(filter, "mlt_service", effect.service);
-    for (const Param &param : effect.params) {
-        if (param.name.empty())
-            continue;
-        if (!param.keyframes.empty() && std::holds_alternative<double>(param.value))
-            addProperty(filter, param.name, animationString(keyframesForCut(param.keyframes, offset, length)));
-        else
-            addProperty(filter, param.name, nativeValue(param.value));
-    }
-    if (!effect.enabled)
-        addProperty(filter, "disable", "1");
     if (!withModel)
         return;
     addProperty(filter, "ustudio:effect_id", std::to_string(effect.id.value));
