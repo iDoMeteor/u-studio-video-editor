@@ -28,6 +28,13 @@ titles_test_packs_app = executable(
 )
 test('titles-packs-app', titles_test_packs_app)
 
+# The designer's headless --install-pack, as the packaging smoke test uses it.
+test('titles-install-pack', find_program('sh'),
+     args: [meson.current_source_dir() / 'install_pack.sh', titles_app_exe,
+            meson.project_source_root() / 'tools' / 'make_test_pack.py',
+            meson.current_build_dir() / 'install-pack-scratch'],
+     depends: titles_app_exe)
+
 titles_test_render = executable(
   'test_titles_render',
   files('test_render.cpp'),

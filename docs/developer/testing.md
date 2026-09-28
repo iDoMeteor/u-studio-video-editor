@@ -49,6 +49,14 @@ python3 with `gi` (Atspi) and python-xlib, and ImageMagick's `import`.
 Notes on driving GTK dialogs there are in
 [the titles notes](notes/titles.md).
 
+**Template packs in a smoke test**: `tools/make_test_pack.py OUT.zip
+[--version V]` writes a small valid pack (one built-in template, a
+generated preview; the repository holds no binary files), and
+`u-studio-titles --install-pack OUT.zip` installs it without a window:
+exit status 0 and "installed test/smoke-pack V in …", or 1 and
+"refused: …" (the same or an older version, or a pack that fails
+validation). Test `titles-install-pack` runs that round trip.
+
 **Any harness with a private D-Bus session** (`dbus-run-session`) must keep
 the services that session activates out of the desktop's runtime dir. With
 the real `XDG_RUNTIME_DIR`, the private session's `xdg-document-portal`
