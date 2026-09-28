@@ -51,6 +51,16 @@ measurements: doc 05, "Preview scale". Leave the `avformat` producer's
 `threads` unset: unset already decodes with about one thread per CPU, and
 explicit values measured no better.
 
+**The loop wraps where the frame is drained, so it overshoots by one
+frame.** `drainSlot()` (engine thread) sees a frame at or past loop-out,
+then seeks to loop-in and purges the queue: doc 05's one frame, measured
+16 for an out point of 15 at load 9 and with 24 busy loops on 16 cores.
+A starved engine thread lets more frames show before the wrap (over 20
+once, while ASan and two full suites ran). Wrapping on the consumer
+thread would cut that, but it would mean seeking the tractor from the
+consumer thread, which ADR-016 rules out. kdenlive wraps after the same
+kind of hop, on its GUI thread (2026-09-27).
+
 **Memory on the CPU path settles; it doesn't leak (2026-09-27).** Three
 transformed 1080p tracks at Half: RSS climbs about 35 MB in the first
 minute (decoders, frame queues, malloc's per-thread arenas), then stays
