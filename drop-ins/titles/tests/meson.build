@@ -6,6 +6,16 @@ titles_test_core = executable(
 )
 test('titles-core', titles_test_core)
 
+# T4b: the pack manifest, the validator against a corpus of malicious packs,
+# install and remove.
+titles_test_pack = executable(
+  'test_titles_pack',
+  files('test_pack.cpp'),
+  dependencies: [titles_doctest_dep, titles_package_dep],
+  install: false,
+)
+test('titles-pack', titles_test_pack)
+
 titles_test_render = executable(
   'test_titles_render',
   files('test_render.cpp'),

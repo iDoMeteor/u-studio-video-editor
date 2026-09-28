@@ -41,6 +41,21 @@ titles_render_dep = declare_dependency(
                  titles_fontconfig_dep],
 )
 
+# package/ (doc 20, T4b): template packs. The manifest, validator and
+# library install; std, libxml2 and GLib (SHA-256). No network.
+titles_package = static_library(
+  'ustudio_titles_package',
+  files('package/pack.cpp'),
+  include_directories: titles_inc,
+  dependencies: [titles_core_dep, glib_dep, libxml2_dep],
+  install: false,
+)
+titles_package_dep = declare_dependency(
+  link_with: titles_package,
+  include_directories: titles_inc,
+  dependencies: [titles_core_dep, glib_dep, libxml2_dep],
+)
+
 subdir('mltmodule')
 subdir('app')
 
