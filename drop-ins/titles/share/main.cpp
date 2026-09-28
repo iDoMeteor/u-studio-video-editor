@@ -430,9 +430,20 @@ gint onLocalOptions(GApplication *, GVariantDict *options, gpointer)
     return -1;
 }
 
+void onStartup(GApplication *, gpointer)
+{
+    // Dark, and the editor's stylesheet: the same brand tokens as the
+    // editor and U Stu Titles (src/app/style/style.css).
+    adw_style_manager_set_color_scheme(adw_style_manager_get_default(), ADW_COLOR_SCHEME_FORCE_DARK);
+    GtkCssProvider *provider = gtk_css_provider_new();
+    gtk_css_provider_load_from_resource(provider, "/com/ustudio/Share/style.css");
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
+                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(provider);
+}
+
 void onActivate(GApplication *app, gpointer)
 {
-    adw_style_manager_set_color_scheme(adw_style_manager_get_default(), ADW_COLOR_SCHEME_FORCE_DARK);
     auto *window = new ShareWindow(GTK_APPLICATION(app), g_publish);
     gtk_window_present(window->window());
 }
@@ -447,6 +458,7 @@ int main(int argc, char **argv)
     g_application_add_main_option(G_APPLICATION(app), "publish", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_FILENAME,
                                   "Publish a template pack (shows what it uploads first)", "PACK");
     g_signal_connect(app, "handle-local-options", G_CALLBACK(onLocalOptions), nullptr);
+    g_signal_connect(app, "startup", G_CALLBACK(onStartup), nullptr);
     g_signal_connect(app, "activate", G_CALLBACK(onActivate), nullptr);
     const int status = g_application_run(G_APPLICATION(app), argc, argv);
     g_object_unref(app);

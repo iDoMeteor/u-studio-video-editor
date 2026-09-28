@@ -143,6 +143,39 @@ The hand-off follows ADR-015:
 > the editor's sandbox, starts it; until then the gallery shows Browse
 > Shared and Publish only where the helper is installed next to it.
 
+## Starting the helper from inside the editor's sandbox
+
+For VE Installers and the owner; not built yet (2026-09-28). In the Flatpak,
+U Stu Titles runs inside the editor's sandbox (`com.ustudio.VideoEditor`,
+through the Titles extension), with no network. The helper is a separate
+app (`com.ustudio.Share`) with `--share=network`. The designer can't run a
+binary that isn't in its own sandbox, so it needs a way to ask the host to
+start the other app, passing an action ("browse") or a pack file
+("publish this").
+
+| Way | How | For | Against |
+|---|---|---|---|
+| `flatpak-spawn --host flatpak run com.ustudio.Share` | runs a host command | trivial | needs `--talk-name=org.freedesktop.Flatpak`, which is host command execution for the whole editor: **out** |
+| D-Bus activation of `com.ustudio.Share` | the designer calls `org.freedesktop.Application.Activate` / `ActivateAction` on the helper's bus name; the helper's desktop file sets `DBusActivatable=true`, so the session bus starts it | GApplication does it with no new code in the helper; actions carry arguments ("browse", "publish" + a path); the editor needs only `--talk-name=com.ustudio.Share`, one name, no host access | the file to publish must reach the helper's sandbox: through the Documents portal (`Documents.AddFull` granting `com.ustudio.Share` read access), which returns a path valid inside the helper |
+| A custom URL scheme, `ustudio-share://publish?…`, through the OpenURI portal | `gtk_uri_launcher` / `org.freedesktop.portal.OpenURI`; the helper's desktop file registers `x-scheme-handler/ustudio-share` | no bus permission at all; works from any app, and from a web page ("Open in U Stu Share") | a URL can't carry a file, so publishing still needs the Documents portal (pass the document id in the URL); the portal may ask the user which app to open it with the first time; any web page can trigger the handler (the helper must treat URL input as untrusted and always confirm) |
+| The OpenURI portal on the pack file (`OpenFile`) | the helper registers for `application/x-ustudio-template-pack` | a file hand-off the portal already solves; the user sees their choice of app | only publish, not browse; needs a MIME type of its own for packs |
+
+Recommendation: **D-Bus activation** for both directions (the helper
+already hands packs back with `ActivateAction` on the editor), with the
+Documents portal for the file to publish. It needs one `--talk-name` each
+way and no host access, and it's the pattern ADR-015 already chose for the
+AI helper. The URL scheme is a good second entry point later (web
+"install" links), not the main path.
+
+Needed to build it: the helper's Flatpak manifest (`com.ustudio.Share`:
+`--share=network`, `--talk-name=com.ustudio.VideoEditor` for the hand-off,
+`--talk-name=org.freedesktop.secrets` for the keyring, its desktop file with
+`DBusActivatable=true`); the editor's manifest gains
+`--talk-name=com.ustudio.Share`; the designer's `launchShare()` becomes an
+`ActivateAction` call when it runs in a sandbox (`platform::runningInFlatpak()`),
+with the Documents portal for `--publish`; and the helper's hand-off to the
+editor passes a portal path back the same way.
+
 ## Open questions (owner)
 
 1. Catalogue name and domain (with the `djunicorntears.com` decision).

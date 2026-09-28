@@ -5,6 +5,10 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.69.1-beta.1
+
+- U Stu Share uses the editor's Unicorn Tears styling.
+
 ## 0.69.0-beta.1
 
 - U Stu Share: a separate helper to browse, install and publish template

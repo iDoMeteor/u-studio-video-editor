@@ -87,9 +87,16 @@ if titles_share_enabled
     dependencies: [titles_package_dep, titles_soup_dep, titles_json_dep, titles_secret_dep, gio_dep],
   )
   # The helper: its own program (its own Flatpak app, com.ustudio.Share).
+  titles_share_resources = import('gnome').compile_resources(
+    'share-resources',
+    'share/share.gresource.xml',
+    source_dir: meson.project_source_root() / 'src' / 'app' / 'style',
+    c_name: 'ustudio_share',
+  )
   titles_share_exe = executable(
     'u-studio-share',
     files('share/main.cpp'),
+    titles_share_resources,
     dependencies: [titles_share_dep, libustudio_core_dep, gtk4_dep, adwaita_dep],
     install: true,
   )
