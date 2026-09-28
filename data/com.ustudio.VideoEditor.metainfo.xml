@@ -28,6 +28,11 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.69.2-beta.1" date="2026-09-28" type="development">
+      <description>
+        <p>New Title in an unsaved project no longer creates a folder straight in your home folder: it uses your default project folder, your Videos folder, or U Stu's own data folder, in that order.</p>
+      </description>
+    </release>
     <release version="0.69.1-beta.1" date="2026-09-28" type="development">
       <description>
         <p>U Stu Share now wears the same Unicorn Tears colours as the editor and U Stu Titles.</p>

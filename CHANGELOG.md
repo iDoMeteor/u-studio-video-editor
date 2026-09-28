@@ -5,6 +5,11 @@ Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
 
+## 0.69.2-beta.1
+
+- New Title in an unsaved project never makes a folder loose in your home
+  folder: default project folder, then Videos, then U Stu's data folder.
+
 ## 0.69.1-beta.1
 
 - U Stu Share uses the editor's Unicorn Tears styling.

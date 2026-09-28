@@ -371,8 +371,16 @@ std::string newTitlePath(const std::string &projectFolder)
     if (!projectFolder.empty()) {
         folder = core::pathFromUtf8(projectFolder) / "Titles";
     } else {
+        // No project folder: the Videos folder, when there is one (GLib
+        // gives none, or the home folder itself, when it isn't set up),
+        // else a folder in the user's data dir. Never files loose in $HOME.
+        std::error_code ec;
         const char *videos = g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS);
-        folder = core::pathFromUtf8(videos ? videos : g_get_home_dir()) / "U Stu Titles";
+        const fs::path home = core::pathFromUtf8(g_get_home_dir());
+        if (videos && core::pathFromUtf8(videos) != home && fs::is_directory(core::pathFromUtf8(videos), ec))
+            folder = core::pathFromUtf8(videos) / "U Stu Titles";
+        else
+            folder = core::pathFromUtf8(g_get_user_data_dir()) / "ustudio" / "U Stu Titles";
     }
     std::error_code ec;
     for (int n = 1;; ++n) {

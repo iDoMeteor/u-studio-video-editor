@@ -17,7 +17,9 @@ opens on it with the template gallery. Pick a design, change the text, and
 save; the editor updates straight away. The file goes in a **Titles** folder
 next to your project (`Title 1.ustitle`, `Title 2.ustitle`, …). If the
 project isn't saved yet, it goes in your default project folder (Settings ›
-Locations), or, without one, in **U Stu Titles** in your Videos folder.
+Locations); without one, in **U Stu Titles** in your Videos folder; and
+without a Videos folder, in U Stu's own data folder
+(`~/.local/share/ustudio/U Stu Titles`).
 Either way the clip keeps finding it after you save the project.
 
 The **T** button in the header bar opens U Stu Titles too: on the selected
