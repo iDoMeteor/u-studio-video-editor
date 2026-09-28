@@ -28,6 +28,14 @@ A separate application (not a dialog inside the editor) because:
 Working name: **u Studio Titles**, executable `u-studio-titles`, app id
 `com.ustudio.Titles`.
 
+> REVIEW (VE Text, 2026-09-28): owner decision: U Stu Titles stays
+> in-app only for now. It's reached from the editor (the header's T,
+> New Title, Edit Title), with no separate app ID in the packages and no
+> menu entry of its own; the Flatpak ships it inside the Titles
+> extension, which can't export a desktop entry anyway. The drafts in
+> `drop-ins/titles/data/` (desktop file, MIME type, metainfo) stay for a
+> later standalone release.
+
 ## Architecture
 
 All of it lives in `drop-ins/titles/` (see "Drop-in structure" below):
