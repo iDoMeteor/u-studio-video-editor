@@ -12,9 +12,12 @@
 #include "core/health.h"
 #include "core/json.h"
 #include "core/keyframes.h"
+#include "core/looks.h"
 #include "core/model/animation.h"
 #include "core/model/effect_native.h"
 
+#include <fstream>
+#include <iterator>
 #include <random>
 
 using namespace ustudio;
@@ -448,4 +451,95 @@ TEST_CASE("Keyframes: pin, move between, re-ease, and the feels")
     CHECK(feelName(core::Easing::Discrete) == "Hold");
     CHECK(feelName(core::Easing::SmoothNatural) == "Smooth");
     CHECK(feelName(core::Easing::QuarticIn) == core::easingName(core::Easing::QuarticIn));
+}
+
+TEST_CASE("Paste, looks and several clips at once: one undo step each, exact")
+{
+    core::Model model = core::Model::createEmpty();
+    core::TrackId track = model.addTrack(core::Track::Kind::Video, 0, "V1");
+    core::Asset asset;
+    asset.path = "color:red";
+    asset.info.hasVideo = true;
+    asset.info.lengthInSequenceFrames = 1000;
+    core::AssetId assetId = model.addAsset(asset);
+    core::ClipId a = model.insertClip(track, assetId, 0, 0, 99);
+    core::ClipId b = model.insertClip(track, assetId, 100, 0, 99);
+    core::Effect glow;
+    glow.service = "frei0r.glow";
+    glow.owner = kOwner;
+    core::Effect foreign;
+    foreign.service = "brightness";
+    foreign.owner = "someone-else";
+    model.addEffect(Target::clip(b), glow, 0);
+    model.addEffect(Target::clip(b), foreign, 1);
+    core::UndoStack undo(model);
+    const core::Project start = model.project();
+
+    core::Effect sepia;
+    sepia.service = "sepia";
+    sepia.owner = kOwner;
+    // Append onto both: a gets sepia, b gets it after its two.
+    REQUIRE(undo.execute(
+        pasteEffects(model, {Target::clip(a), Target::clip(b)}, {sepia}, PasteMode::Append, "Paste effects")));
+    CHECK(model.clip(a).effects.size() == 1);
+    CHECK(model.clip(b).effects.size() == 3);
+    CHECK(model.clip(b).effects[2].service == "sepia");
+    // Replace: b loses its own glow and sepia, keeps the other drop-in's.
+    REQUIRE(undo.execute(pasteEffects(model, {Target::clip(b)}, {sepia, glow}, PasteMode::Replace, "Paste effects")));
+    REQUIRE(model.clip(b).effects.size() == 3);
+    CHECK(model.clip(b).effects[0].owner == "someone-else");
+    CHECK(model.clip(b).effects[1].service == "sepia");
+    CHECK(model.clip(b).effects[2].service == "frei0r.glow");
+    REQUIRE(model.check().empty());
+
+    // Several clips: one parameter on both sepias, one undo step per gesture.
+    const std::vector<core::EffectId> sepias = {model.clip(a).effects[0].id, model.clip(b).effects[1].id};
+    core::Param level;
+    level.name = "u";
+    level.value = 0.2;
+    undo.execute(setParamOnAll(sepias, level, 7));
+    level.value = 0.4;
+    undo.execute(setParamOnAll(sepias, level, 7)); // the same drag
+    undo.execute(setMixOnAll(model, sepias, 0.5, 8));
+    CHECK(std::get<double>(model.effect(sepias[0]).params[0].value) == 0.4);
+    CHECK(model.effect(sepias[1]).mix.value == 0.5);
+
+    // Looks: saved, deleted from the middle, undone back in place.
+    core::Look first{{}, "First", {sepia}}, second{{}, "Second", {glow}}, third{{}, "Third", {sepia, glow}};
+    for (const core::Look &look : {first, second, third})
+        REQUIRE(undo.execute(std::make_unique<SaveLook>(look)));
+    const core::Project withLooks = model.project();
+    REQUIRE(undo.execute(std::make_unique<DeleteLook>(withLooks.looks[1].id)));
+    CHECK(model.project().looks.size() == 2);
+    undo.undo();
+    CHECK(sameProject(model.project(), withLooks)); // the order too
+    CHECK(!SaveLook(core::Look{{}, "", {sepia}}).apply(model));
+
+    while (undo.canUndo())
+        undo.undo();
+    CHECK(sameProject(model.project(), start));
+}
+
+TEST_CASE("Brand looks: the shipped file parses; bad entries are skipped")
+{
+    std::optional<Json> json = parseJson(R"({"version":1,"looks":[
+        {"name":"Good","effects":[{"service":"frei0r.glow","params":{"0":0.3,"x":true,"t":"s"},"mix":0.8}]},
+        {"name":"No service","effects":[{"params":{}}]},
+        {"effects":[{"service":"sepia"}]},
+        {"name":"Empty","effects":[]}]})");
+    REQUIRE(json);
+    const std::vector<core::Look> looks = looksFromJson(*json);
+    REQUIRE(looks.size() == 1);
+    CHECK(looks[0].name == "Good");
+    REQUIRE(looks[0].effects.size() == 1);
+    CHECK(looks[0].effects[0].owner == kOwner);
+    CHECK(looks[0].effects[0].mix.value == 0.8);
+    CHECK(looks[0].effects[0].params.size() == 3);
+    CHECK(looksFromJson(Json(Json::Object{})).empty());
+
+    std::ifstream in(EFFECTS_DATA_SOURCE_DIR "/looks/brand.json");
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::optional<Json> brand = parseJson(text);
+    REQUIRE(brand);
+    CHECK(looksFromJson(*brand).size() == 5);
 }

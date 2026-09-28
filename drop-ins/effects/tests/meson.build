@@ -1,6 +1,7 @@
 effects_test_core = executable(
   'test_effects_core',
   files('test_core.cpp'),
+  cpp_args: effects_args,
   dependencies: [effects_doctest_dep, effects_core_dep],
   install: false,
 )

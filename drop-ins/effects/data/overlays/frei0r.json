@@ -102,7 +102,12 @@
   "frei0r.curves": {
     "category": "Colour",
     "name": "Curves",
-    "featured": true
+    "featured": true,
+    "params": {
+      "1": {
+        "default": false
+      }
+    }
   },
   "frei0r.d90stairsteppingfix": {
     "category": "Analysis",
@@ -377,7 +382,12 @@
   "frei0r.three_point_balance": {
     "category": "Colour",
     "name": "Three-Point Colour Balance",
-    "featured": true
+    "featured": true,
+    "params": {
+      "3": {
+        "default": false
+      }
+    }
   },
   "frei0r.threelay0r": {
     "category": "Colour",

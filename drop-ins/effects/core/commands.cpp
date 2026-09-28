@@ -1,6 +1,9 @@
 #include "core/commands.h"
 
+#include "core/descriptor.h"
+
 #include <algorithm>
+#include <cstdint>
 
 namespace ustudio::effects {
 
@@ -171,6 +174,92 @@ bool SetMix::mergeWith(const core::Command &next)
 bool SetMix::isNoOp() const
 {
     return m_old == m_mix;
+}
+
+std::unique_ptr<core::Command> pasteEffects(const core::Model &model, const std::vector<Target> &targets,
+                                            const std::vector<core::Effect> &effects, PasteMode mode, std::string label)
+{
+    std::vector<std::unique_ptr<core::Command>> commands;
+    for (const Target &target : targets) {
+        if (!model.hasEffectTarget(target))
+            continue;
+        if (mode == PasteMode::Replace)
+            for (const core::Effect &existing : model.effects(target))
+                if (existing.owner == kOwner)
+                    commands.push_back(std::make_unique<RemoveEffect>(existing.id));
+        for (core::Effect effect : effects) {
+            effect.id = {};
+            // At the end, whatever the removals above left (AddEffect clamps).
+            commands.push_back(std::make_unique<AddEffect>(target, std::move(effect), SIZE_MAX));
+        }
+    }
+    return std::make_unique<core::CompositeCommand>(std::move(label), std::move(commands));
+}
+
+std::unique_ptr<core::Command> setParamOnAll(const std::vector<core::EffectId> &effects, const core::Param &param,
+                                             uint64_t gesture)
+{
+    std::vector<std::unique_ptr<core::Command>> commands;
+    for (core::EffectId id : effects)
+        commands.push_back(std::make_unique<SetParam>(id, param));
+    return std::make_unique<core::CompositeCommand>("Set effect parameter", std::move(commands), gesture,
+                                                    "Set effect parameter");
+}
+
+std::unique_ptr<core::Command> setMixOnAll(const core::Model &model, const std::vector<core::EffectId> &effects,
+                                           double mix, uint64_t gesture)
+{
+    std::vector<std::unique_ptr<core::Command>> commands;
+    for (core::EffectId id : effects) {
+        if (!model.hasEffect(id))
+            continue;
+        core::KeyframedValue value = model.effect(id).mix;
+        value.value = mix;
+        commands.push_back(std::make_unique<SetMix>(id, value));
+    }
+    return std::make_unique<core::CompositeCommand>("Set effect mix", std::move(commands), gesture, "Set effect mix");
+}
+
+bool SaveLook::apply(core::Model &model)
+{
+    if (m_look.name.empty() || m_look.effects.empty())
+        return false;
+    for (core::Effect &effect : m_look.effects)
+        effect.id = {};
+    m_id = model.addLook(m_look, m_id.isValid() ? std::optional(m_id) : std::nullopt);
+    return true;
+}
+
+void SaveLook::revert(core::Model &model)
+{
+    model.removeLook(m_id);
+}
+
+bool DeleteLook::apply(core::Model &model)
+{
+    if (!model.hasLook(m_id))
+        return false;
+    const auto &looks = model.project().looks;
+    for (size_t i = 0; i < looks.size(); ++i)
+        if (looks[i].id == m_id)
+            m_index = i;
+    m_removed = model.removeLook(m_id);
+    return true;
+}
+
+void DeleteLook::revert(core::Model &model)
+{
+    // Model::addLook() appends: take the looks that followed it off, and
+    // put everything back in the old order, each under its own id.
+    std::vector<core::Look> after;
+    const std::vector<core::Look> &looks = model.project().looks;
+    for (size_t i = m_index; i < looks.size(); ++i)
+        after.push_back(looks[i]);
+    for (const core::Look &look : after)
+        model.removeLook(look.id);
+    model.addLook(m_removed, m_id);
+    for (const core::Look &look : after)
+        model.addLook(look, look.id);
 }
 
 } // namespace ustudio::effects

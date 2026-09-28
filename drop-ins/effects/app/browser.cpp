@@ -11,8 +11,10 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ustudio::effects {
@@ -31,9 +33,12 @@ enum Section
 {
     Featured,
     Recent,
+    Looks,
     All,
     FirstCategory,
 };
+// A tile's drag payload: what it adds (Catalog::effectsFor()).
+constexpr std::string_view kDragPrefix = "ustudio-effects:";
 
 std::string lower(std::string text)
 {
@@ -56,10 +61,11 @@ class Browser;
 struct Tile
 {
     Browser *browser;
-    std::string service;
-    GtkWidget *child = nullptr;   // the GtkFlowBoxChild
-    GtkWidget *picture = nullptr; // GtkPicture
-    GtkWidget *badge = nullptr;   // its cost, or "checking…"
+    std::string item;                      // an effect's service, or a look (Catalog::effectsFor())
+    std::optional<std::string> fixedBadge; // "look"
+    GtkWidget *child = nullptr;            // the GtkFlowBoxChild
+    GtkWidget *picture = nullptr;          // GtkPicture
+    GtkWidget *badge = nullptr;            // its cost, "checking…", or "look"
 };
 
 class Browser
@@ -73,15 +79,16 @@ class Browser
         m_host.addHints({
             {"effects.browser-search", "Effects", "Search effects",
              "By name, category or tag; Enter adds the best match", "effects-browser", nullptr},
-            {"effects.browser-section", "Effects", "Show", "Featured picks, what you added lately, or a category",
-             nullptr, nullptr},
+            {"effects.browser-section", "Effects", "Show",
+             "Featured picks, what you added lately, looks, or a category", nullptr, nullptr},
             {"effects.browser-unstable", "Effects", "Show unstable effects",
              "Effects that crashed, hung or misbehaved in the stability check on this computer; they may take "
              "the editor down",
              nullptr, nullptr},
-            {"effects.browser-tile", "Effects", "Effect",
-             "Point at it to try it on the picture; click or press Enter to add it", nullptr,
-             "Hover to preview on the picture"},
+            {"effects.browser-tile", "Effects", "Effect or look",
+             "Point at it to try it on the picture; click or press Enter to add it to the selected clips, or drag "
+             "it onto the picture or the Effects page",
+             nullptr, "Hover to preview on the picture; drag onto the picture to add"},
         });
         // E: the Browser (doc 15, "Keyboard summary").
         static const std::vector<app::ActionSpec> actions = {
@@ -100,11 +107,22 @@ class Browser
         gtk_widget_set_can_target(m_audition, FALSE);
         gtk_widget_set_visible(m_audition, FALSE);
         m_host.addPreviewOverlay(m_audition);
+        // A drop zone over the picture that takes the pointer only while one
+        // of our tiles is being dragged (the preview's own handles work the
+        // rest of the time).
+        m_dropZone = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_dropZone), GTK_ACCESSIBLE_PROPERTY_LABEL, "Effects drop zone",
+                                       -1);
+        gtk_widget_set_can_target(m_dropZone, FALSE);
+        GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_STRING, GDK_ACTION_COPY);
+        g_signal_connect(drop, "drop", G_CALLBACK(&onPreviewDropTrampoline), this);
+        gtk_widget_add_controller(m_dropZone, GTK_EVENT_CONTROLLER(drop));
+        m_host.addPreviewOverlay(m_dropZone);
 
         m_catalog.changed.connect([this] { scheduleRefill(); });
         m_catalog.healthChanged.connect([this](const std::string &service) { onHealthChanged(service); });
         m_host.selectionChanged().connect([this] { onSourceChanged(); });
-        m_host.projectChanged().connect([this] { onSourceChanged(); });
+        m_host.projectChanged().connect([this] { onProjectChanged(); });
         m_host.playheadMoved().connect([this] { onPlayheadMoved(); });
         // The renderer's thread holds MLT producers: it stops with the
         // window, before Mlt::Factory::close().
@@ -112,15 +130,18 @@ class Browser
         refill();
     }
 
-    // One effect checked: its tile's badge, and its picture now that it may
-    // run here.
+    // One effect checked: its tiles' badges, and pictures now that it may
+    // run here (an effect's tile, and any look using it).
     void onHealthChanged(const std::string &service)
     {
-        for (const std::unique_ptr<Tile> &tile : m_tiles)
-            if (tile->service == service) {
-                setBadge(*tile);
-                requestTile(*tile, m_tileGeneration);
-            }
+        const core::Model &model = m_host.model();
+        for (const std::unique_ptr<Tile> &tile : m_tiles) {
+            const std::vector<std::string> services = m_catalog.servicesOf(model, tile->item);
+            if (std::find(services.begin(), services.end(), service) == services.end())
+                continue;
+            setBadge(*tile);
+            requestTile(*tile, m_tileGeneration);
+        }
     }
 
     void onBrowserAction()
@@ -142,6 +163,18 @@ class Browser
             return;
         m_refillPending = true;
         g_idle_add(&onRefillTrampoline, this);
+    }
+
+    // The project's looks may have changed (Save as Look): the Looks section
+    // lists them; any edit also changes the source frame.
+    void onProjectChanged()
+    {
+        const size_t looks = m_host.model().project().looks.size();
+        if (looks != m_projectLooks) {
+            m_projectLooks = looks;
+            scheduleRefill();
+        }
+        onSourceChanged();
     }
 
     // A new source frame (selection, edit, a paused playhead): the tiles
@@ -171,12 +204,12 @@ class Browser
 
     // --- Audition and apply --------------------------------------------------
 
-    void audition(const std::string &service)
+    void audition(const std::string &item)
     {
-        std::optional<FrameRequest> request = requestFor(service, kAuditionWidth, kAuditionHeight);
+        std::optional<FrameRequest> request = requestFor(item, kAuditionWidth, kAuditionHeight);
         if (!request)
             return;
-        m_auditioning = service;
+        m_auditioning = item;
         const uint64_t generation = ++m_auditionGeneration;
         m_renderer.request(std::move(*request), 0, generation, [this, generation](const RenderedFrame &frame) {
             if (generation != m_auditionGeneration || m_auditioning.empty() || frame.rgba.empty())
@@ -197,47 +230,56 @@ class Browser
             gtk_widget_set_visible(m_audition, FALSE);
     }
 
-    void apply(const std::string &service)
+    void apply(const std::string &item)
     {
         stopAudition();
-        const EffectDescriptor *descriptor = m_catalog.find(service);
-        if (!descriptor)
+        applyTo(item, applyTargets());
+    }
+
+    // Adds `item` (an effect or a look) to each target, as one undo step.
+    void applyTo(const std::string &item, const std::vector<core::Model::EffectTarget> &targets)
+    {
+        const core::Model &model = m_host.model();
+        const std::vector<core::Effect> effects = m_catalog.effectsFor(model, item);
+        const std::string name = m_catalog.nameOf(model, item);
+        if (effects.empty() || targets.empty())
             return;
-        const core::Model::EffectTarget target = applyTarget();
-        const size_t end = m_host.model().effects(target).size();
-        if (!m_host.execute(std::make_unique<AddEffect>(target, makeEffect(*descriptor), end))) {
-            m_host.showStatus("Couldn't add " + descriptor->name);
+        const bool look = item.starts_with("look:");
+        if (!m_host.execute(
+                pasteEffects(model, targets, effects, PasteMode::Append, (look ? "Apply look " : "Add ") + name))) {
+            m_host.showStatus("Couldn't add " + name);
             return;
         }
-        std::erase(m_recent, service);
-        m_recent.insert(m_recent.begin(), service);
+        std::erase(m_recent, item);
+        m_recent.insert(m_recent.begin(), item);
         if (m_recent.size() > static_cast<size_t>(kRecentMax))
             m_recent.resize(kRecentMax);
-        m_host.showStatus(
-            "Added " + descriptor->name +
-            (target.kind == core::Model::EffectTarget::Kind::Clip ? " to the clip" : " to the whole sequence"));
+        const core::Model::EffectTarget &target = targets.front();
+        m_host.showStatus((look ? "Applied " : "Added ") + name +
+                          (target.kind != core::Model::EffectTarget::Kind::Clip ? " to the whole sequence"
+                           : targets.size() > 1 ? " to " + std::to_string(targets.size()) + " clips"
+                                                : " to the clip"));
     }
 
     void onSearchActivate()
     {
         refill();
-        if (GtkFlowBoxChild *first = gtk_flow_box_get_child_at_index(GTK_FLOW_BOX(m_grid), 0))
-            if (const char *service = static_cast<const char *>(g_object_get_data(G_OBJECT(first), "service")))
-                apply(service);
+        if (!m_tiles.empty())
+            apply(m_tiles.front()->item);
     }
 
     void onChildActivated(GtkFlowBoxChild *child)
     {
-        if (const char *service = static_cast<const char *>(g_object_get_data(G_OBJECT(child), "service")))
-            apply(service);
+        if (const char *item = static_cast<const char *>(g_object_get_data(G_OBJECT(child), "item")))
+            apply(item);
     }
 
     void onSelectionChanged()
     {
         GList *selected = gtk_flow_box_get_selected_children(GTK_FLOW_BOX(m_grid));
         if (selected)
-            if (const char *service = static_cast<const char *>(g_object_get_data(G_OBJECT(selected->data), "service")))
-                audition(service);
+            if (const char *item = static_cast<const char *>(g_object_get_data(G_OBJECT(selected->data), "item")))
+                audition(item);
         g_list_free(selected);
     }
 
@@ -245,6 +287,45 @@ class Browser
     {
         stopAudition();
         gtk_flow_box_unselect_all(GTK_FLOW_BOX(m_grid));
+    }
+
+    // --- Dropping on the picture ----------------------------------------------
+
+    void onDragBegin()
+    {
+        core::Log::debug("[effects] dragging a Browser tile");
+        gtk_widget_set_can_target(m_dropZone, TRUE);
+        stopAudition();
+    }
+
+    void onDragEnd()
+    {
+        gtk_widget_set_can_target(m_dropZone, FALSE);
+    }
+
+    // A drop on the picture: the topmost clip under the playhead (doc 15:
+    // "the topmost visible clip under the pointer"; at the playhead, since
+    // the frame's clips aren't mapped to the picture yet).
+    bool onPreviewDrop(const std::string &payload)
+    {
+        if (!payload.starts_with(kDragPrefix))
+            return false;
+        const std::string item = payload.substr(kDragPrefix.size());
+        core::Log::debug("[effects] " + item + " dropped on the picture");
+        const core::Model &model = m_host.model();
+        const core::FrameIndex frame = m_host.currentFrame();
+        std::optional<core::ClipId> top;
+        for (const core::Track &track : model.sequence().tracks) {
+            if (track.kind != core::Track::Kind::Video || track.hidden)
+                continue;
+            for (core::ClipId id : track.clips) {
+                const core::Clip &clip = model.clip(id);
+                if (frame >= clip.position && frame < clip.position + clip.length())
+                    top = id; // later tracks are higher
+            }
+        }
+        applyTo(item, {top ? core::Model::EffectTarget::clip(*top) : core::Model::EffectTarget::sequence()});
+        return true;
     }
 
     void refill()
@@ -262,7 +343,41 @@ class Browser
         const guint section = gtk_drop_down_get_selected(GTK_DROP_DOWN(m_section));
         const bool unstable = gtk_check_button_get_active(GTK_CHECK_BUTTON(m_unstable));
 
-        std::vector<std::pair<int, const EffectDescriptor *>> matches;
+        // Tiles to show, best first. A search ranks effects and looks alike
+        // (the name itself, then names starting with it, then any match),
+        // an effect before a look of the same rank; without one, the
+        // section's own order.
+        struct Entry
+        {
+            int rank;
+            std::string item, title, description;
+            std::optional<std::string> badge;
+        };
+        std::vector<Entry> entries;
+        auto rankOf = [&](const std::string &name, const std::string &haystack) {
+            if (name == query)
+                return 0;
+            if (name.starts_with(query))
+                return 1;
+            if (haystack.find(query) != std::string::npos)
+                return 2;
+            return -1;
+        };
+
+        const core::Model &model = m_host.model();
+        auto addLooks = [&](const std::vector<core::Look> &looks, const std::string &prefix, bool byIndex) {
+            for (size_t i = 0; i < looks.size(); ++i) {
+                const std::string name = lower(looks[i].name);
+                const int rank = query.empty() ? (section == Looks ? 0 : -1) : rankOf(name, name);
+                if (rank >= 0)
+                    entries.push_back({rank * 2 + 1, prefix + std::to_string(byIndex ? i : looks[i].id.value),
+                                       looks[i].name, "A look: " + std::to_string(looks[i].effects.size()) + " effects",
+                                       "look"});
+            }
+        };
+        addLooks(m_catalog.brandLooks(), "look:brand:", true);
+        addLooks(model.project().looks, "look:project:", false);
+
         for (const EffectDescriptor *d : m_catalog.offered(unstable)) {
             if (query.empty() && !inSection(*d, section))
                 continue;
@@ -270,23 +385,15 @@ class Browser
             std::string haystack = name + " " + lower(d->category + " " + d->service);
             for (const std::string &tag : d->tags)
                 haystack += " " + lower(tag);
-            int rank = 3;
-            if (query.empty())
-                rank = section == Recent ? recentRank(d->service) : 0;
-            else if (name == query)
-                rank = 0;
-            else if (name.starts_with(query))
-                rank = 1;
-            else if (haystack.find(query) != std::string::npos)
-                rank = 2;
-            if (rank < 3 || (query.empty() && section == Recent))
-                matches.emplace_back(rank, d);
+            const int rank = query.empty() ? (section == Recent ? recentRank(d->service) : 0) : rankOf(name, haystack);
+            if (rank >= 0)
+                entries.push_back({rank * 2, d->service, d->name, d->description, std::nullopt});
         }
-        std::stable_sort(matches.begin(), matches.end(),
-                         [](const auto &a, const auto &b) { return a.first < b.first; });
-        for (const auto &[rank, d] : matches)
-            addTile(*d);
-        gtk_label_set_text(GTK_LABEL(m_status), matches.empty()            ? "No effect matches"
+        std::stable_sort(entries.begin(), entries.end(),
+                         [](const Entry &a, const Entry &b) { return a.rank < b.rank; });
+        for (const Entry &entry : entries)
+            addTile(entry.item, entry.title, entry.description, entry.badge);
+        gtk_label_set_text(GTK_LABEL(m_status), m_tiles.empty()            ? "No effect matches"
                                                 : sourceClip().has_value() ? "Point at an effect to try it"
                                                                            : "Select a clip to try effects on it");
         requestTiles();
@@ -304,40 +411,49 @@ class Browser
             if (model.hasClip(id))
                 return id;
         const core::FrameIndex frame = m_host.currentFrame();
+        std::optional<core::ClipId> top;
         for (const core::Track &track : model.sequence().tracks) {
             if (track.kind != core::Track::Kind::Video)
                 continue;
             for (core::ClipId id : track.clips) {
                 const core::Clip &clip = model.clip(id);
                 if (frame >= clip.position && frame < clip.position + clip.length())
-                    return id;
+                    top = id;
             }
         }
-        return std::nullopt;
+        return top;
     }
 
-    core::Model::EffectTarget applyTarget() const
+    // Every selected clip, else the whole sequence.
+    std::vector<core::Model::EffectTarget> applyTargets() const
     {
         const core::Model &model = m_host.model();
+        std::vector<core::Model::EffectTarget> targets;
         for (core::ClipId id : m_host.currentSelection().clips)
             if (model.hasClip(id))
-                return core::Model::EffectTarget::clip(id);
-        return core::Model::EffectTarget::sequence();
+                targets.push_back(core::Model::EffectTarget::clip(id));
+        if (targets.empty())
+            targets.push_back(core::Model::EffectTarget::sequence());
+        return targets;
     }
 
-    // The source clip at the playhead with its own effects and `service`
-    // added; nullopt without a clip, or for an effect that hasn't passed
-    // the stability check (it would run in this process).
-    std::optional<FrameRequest> requestFor(const std::string &service, int width, int height) const
+    // The source clip at the playhead with its own effects and the item's
+    // added; nullopt without a clip, or when any effect it adds hasn't
+    // passed the stability check (it would run in this process).
+    std::optional<FrameRequest> requestFor(const std::string &item, int width, int height) const
     {
-        const std::optional<HealthRecord> health = m_catalog.health(service);
-        if (!health || !health->usable() || !m_catalog.usable(service))
-            return std::nullopt;
-        const EffectDescriptor *descriptor = m_catalog.find(service);
-        const std::optional<core::ClipId> id = sourceClip();
-        if (!descriptor || !id)
-            return std::nullopt;
         const core::Model &model = m_host.model();
+        const std::vector<core::Effect> added = m_catalog.effectsFor(model, item);
+        if (added.empty())
+            return std::nullopt;
+        for (const core::Effect &effect : added) {
+            const std::optional<HealthRecord> health = m_catalog.health(effect.service);
+            if (!health || !health->usable() || !m_catalog.usable(effect.service))
+                return std::nullopt;
+        }
+        const std::optional<core::ClipId> id = sourceClip();
+        if (!id)
+            return std::nullopt;
         const core::Clip &clip = model.clip(*id);
         if (!model.hasAsset(clip.asset))
             return std::nullopt;
@@ -352,7 +468,7 @@ class Browser
         for (const core::Effect &effect : clip.effects)
             if (effect.owner == kOwner && effect.enabled && m_catalog.usable(effect.service))
                 request.effects.push_back(effect);
-        request.effects.push_back(makeEffect(*descriptor));
+        request.effects.insert(request.effects.end(), added.begin(), added.end());
         request.width = width;
         request.height = height;
         return request;
@@ -367,7 +483,7 @@ class Browser
 
     void requestTile(Tile &tile, uint64_t generation)
     {
-        std::optional<FrameRequest> request = requestFor(tile.service, kTileWidth, kTileHeight);
+        std::optional<FrameRequest> request = requestFor(tile.item, kTileWidth, kTileHeight);
         if (!request) {
             gtk_picture_set_paintable(GTK_PICTURE(tile.picture), nullptr);
             return;
@@ -384,17 +500,22 @@ class Browser
 
     void setBadge(Tile &tile)
     {
-        const std::optional<HealthRecord> health = m_catalog.health(tile.service);
-        const char *text = !health ? "checking…" : !health->usable() ? "unstable" : nullptr;
-        const char *style = !health || !health->usable() ? "dim-label" : nullptr;
+        for (const char *c : {"dim-label", "success", "warning", "error", "accent"})
+            gtk_widget_remove_css_class(tile.badge, c);
+        if (tile.fixedBadge) {
+            gtk_label_set_text(GTK_LABEL(tile.badge), tile.fixedBadge->c_str());
+            gtk_widget_add_css_class(tile.badge, "accent");
+            return;
+        }
+        const std::optional<HealthRecord> health = m_catalog.health(tile.item);
+        const char *text = !health ? "checking…" : "unstable";
+        const char *style = "dim-label";
         if (health && health->usable()) {
             const CostBadge badge = costBadge(health->msPerFrame);
             text = badge == CostBadge::Light ? "light" : badge == CostBadge::Medium ? "medium" : "heavy";
             style = badge == CostBadge::Light ? "success" : badge == CostBadge::Medium ? "warning" : "error";
         }
         gtk_label_set_text(GTK_LABEL(tile.badge), text);
-        for (const char *c : {"dim-label", "success", "warning", "error"})
-            gtk_widget_remove_css_class(tile.badge, c);
         gtk_widget_add_css_class(tile.badge, style);
     }
 
@@ -406,6 +527,8 @@ class Browser
             return d.featured;
         if (section == Recent)
             return std::find(m_recent.begin(), m_recent.end(), d.service) != m_recent.end();
+        if (section == Looks)
+            return false; // looks are tiles of their own
         if (section == All)
             return true;
         const size_t index = section - FirstCategory;
@@ -432,14 +555,14 @@ class Browser
             return;
         m_categories = categories;
         GtkStringList *list = gtk_string_list_new(nullptr);
-        for (const char *fixed : {"Featured", "Recent", "All"})
+        for (const char *fixed : {"Featured", "Recent", "Looks", "All"})
             gtk_string_list_append(list, fixed);
         for (const std::string &c : categories)
             gtk_string_list_append(list, c.c_str());
         const guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(m_section));
         m_updating = true;
         gtk_drop_down_set_model(GTK_DROP_DOWN(m_section), G_LIST_MODEL(list));
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_section), selected < 3 ? selected : 0);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_section), selected < FirstCategory ? selected : 0);
         m_updating = false;
         g_object_unref(list);
     }
@@ -462,7 +585,7 @@ class Browser
         gtk_box_append(GTK_BOX(m_root), m_search);
 
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        const char *sections[] = {"Featured", "Recent", "All", nullptr};
+        const char *sections[] = {"Featured", "Recent", "Looks", "All", nullptr};
         m_section = gtk_drop_down_new_from_strings(sections);
         gtk_widget_set_hexpand(m_section, TRUE);
         g_signal_connect(m_section, "notify::selected", G_CALLBACK(&onSectionTrampoline), this);
@@ -504,11 +627,13 @@ class Browser
         gtk_box_append(GTK_BOX(m_root), scroll);
     }
 
-    void addTile(const EffectDescriptor &d)
+    void addTile(const std::string &item, const std::string &title, const std::string &description,
+                 std::optional<std::string> fixedBadge)
     {
         auto tile = std::make_unique<Tile>();
         tile->browser = this;
-        tile->service = d.service;
+        tile->item = item;
+        tile->fixedBadge = std::move(fixedBadge);
         GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
         tile->picture = gtk_picture_new();
         gtk_picture_set_content_fit(GTK_PICTURE(tile->picture), GTK_CONTENT_FIT_COVER);
@@ -517,7 +642,7 @@ class Browser
         gtk_widget_add_css_class(tile->picture, "card");
         gtk_box_append(GTK_BOX(box), tile->picture);
         GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-        GtkWidget *name = gtk_label_new(d.name.c_str());
+        GtkWidget *name = gtk_label_new(title.c_str());
         gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
         gtk_label_set_xalign(GTK_LABEL(name), 0.0f);
         gtk_widget_set_hexpand(name, TRUE);
@@ -531,13 +656,23 @@ class Browser
 
         tile->child = gtk_flow_box_child_new();
         gtk_flow_box_child_set_child(GTK_FLOW_BOX_CHILD(tile->child), box);
-        g_object_set_data_full(G_OBJECT(tile->child), "service", g_strdup(d.service.c_str()), g_free);
-        gtk_accessible_update_property(GTK_ACCESSIBLE(tile->child), GTK_ACCESSIBLE_PROPERTY_LABEL, d.name.c_str(), -1);
-        const std::string tip = d.name + (d.description.empty() ? "" : "\n" + d.description);
+        g_object_set_data_full(G_OBJECT(tile->child), "item", g_strdup(item.c_str()), g_free);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(tile->child), GTK_ACCESSIBLE_PROPERTY_LABEL, title.c_str(), -1);
+        const std::string tip = title + (description.empty() ? "" : "\n" + description);
         gtk_widget_set_tooltip_text(tile->child, tip.c_str());
         GtkEventController *hover = gtk_event_controller_motion_new();
         g_signal_connect(hover, "enter", G_CALLBACK(&onTileEnterTrampoline), tile.get());
         gtk_widget_add_controller(tile->child, hover);
+        // Drag it onto the picture (the clip under the playhead) or the Rack.
+        GtkDragSource *drag = gtk_drag_source_new();
+        gtk_drag_source_set_actions(drag, GDK_ACTION_COPY);
+        const std::string payload = std::string(kDragPrefix) + item;
+        GdkContentProvider *content = gdk_content_provider_new_typed(G_TYPE_STRING, payload.c_str());
+        gtk_drag_source_set_content(drag, content);
+        g_object_unref(content);
+        g_signal_connect(drag, "drag-begin", G_CALLBACK(&onDragBeginTrampoline), this);
+        g_signal_connect(drag, "drag-end", G_CALLBACK(&onDragEndTrampoline), this);
+        gtk_widget_add_controller(tile->child, GTK_EVENT_CONTROLLER(drag));
         gtk_flow_box_append(GTK_FLOW_BOX(m_grid), tile->child);
         m_tiles.push_back(std::move(tile));
     }
@@ -591,7 +726,7 @@ class Browser
     static void onTileEnterTrampoline(GtkEventControllerMotion *, double, double, gpointer tile)
     {
         auto *t = static_cast<Tile *>(tile);
-        t->browser->audition(t->service);
+        t->browser->audition(t->item);
     }
     static void onGridLeaveTrampoline(GtkEventControllerMotion *, gpointer self)
     {
@@ -604,17 +739,31 @@ class Browser
         static_cast<Browser *>(self)->onKeyEscape();
         return TRUE;
     }
+    static void onDragBeginTrampoline(GtkDragSource *, GdkDrag *, gpointer self)
+    {
+        static_cast<Browser *>(self)->onDragBegin();
+    }
+    static void onDragEndTrampoline(GtkDragSource *, GdkDrag *, gboolean, gpointer self)
+    {
+        static_cast<Browser *>(self)->onDragEnd();
+    }
+    static gboolean onPreviewDropTrampoline(GtkDropTarget *, const GValue *value, double, double, gpointer self)
+    {
+        const char *payload = G_VALUE_HOLDS_STRING(value) ? g_value_get_string(value) : nullptr;
+        return payload && static_cast<Browser *>(self)->onPreviewDrop(payload);
+    }
 
     app::ShellHost &m_host;
     Catalog &m_catalog;
     FrameRenderer m_renderer;
     GtkWidget *m_root = nullptr, *m_search = nullptr, *m_section = nullptr, *m_unstable = nullptr;
-    GtkWidget *m_status = nullptr, *m_grid = nullptr, *m_audition = nullptr;
+    GtkWidget *m_status = nullptr, *m_grid = nullptr, *m_audition = nullptr, *m_dropZone = nullptr;
     std::vector<std::unique_ptr<Tile>> m_tiles;
     std::vector<std::string> m_categories, m_recent;
     std::string m_auditioning;
     uint64_t m_tileGeneration = 0, m_auditionGeneration = 0;
     core::FrameIndex m_lastFrame = -1;
+    size_t m_projectLooks = 0;
     guint m_sourceTimer = 0;
     bool m_refillPending = false, m_updating = false;
 };
