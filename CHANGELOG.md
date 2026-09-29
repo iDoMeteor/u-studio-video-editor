@@ -4,6 +4,28 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.80.1-beta.1
+
+- U Stu Titles: the inspector's number rows (Speed, position, size and
+  the rest) and the Export dialog's length can be reached by screen
+  readers.
+- U Stu Titles: an added animation's Height shows its real height.
+
+## 0.80.0-beta.1
+
+- Effects: a picture's position, size and rotation can change over time:
+  the Transform card at the top of the Effects page pins, steps, eases and
+  records them like an effect's values, with curves in the curve lanes;
+  dragging a keyframed picture on the preview sets its keyframe at the
+  playhead.
+- Transitions: a transition's sound can cut at its middle instead of
+  crossfading (Sound: Cut).
+- Transitions: Additive, Screen and Lighten blend dissolves; a styled
+  dissolve opened without the Effects add-on plays as a plain one instead
+  of refusing the project.
+- Effects: a health check still running when the editor quits no longer
+  outlives it; adding to an adjustment block says so.
+
 ## 0.79.0-beta.1
 
 - Transitions: Zoom In and Spin In (either way) join the motion styles; a

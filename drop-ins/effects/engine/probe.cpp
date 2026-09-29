@@ -3,6 +3,7 @@
 #include "core/model/effect_native.h"
 #include "engine/producer_open.h"
 #include "engine/registry.h"
+#include "platform/process.h"
 
 #include <mlt++/Mlt.h>
 
@@ -10,6 +11,7 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -189,6 +191,10 @@ HealthRecord probeEffect(const std::string &service, int frames, const std::func
 
 int runProbeEffect(const std::vector<std::string> &args, std::ostream &out)
 {
+    // A probe inside a plugin ignores the render tool's cancel; its editor
+    // kills it when the scan stops, and this covers an editor that died.
+    const char *parent = std::getenv("USTUDIO_PARENT_PID"); // set by the editor's scan
+    platform::exitWithParent(parent ? std::strtoll(parent, nullptr, 10) : 0);
     int frames = 10;
     bool usable = (args.size() == 1 || args.size() == 2) && isServiceName(args[0]);
     if (usable && args.size() == 2) {

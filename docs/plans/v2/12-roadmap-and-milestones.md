@@ -318,7 +318,7 @@ and on-preview handles, FX5 optional plugin families.
 Acceptance (milestone gate):
 - [x] Every installed frei0r service is usable or quarantined with a
       reason; none can crash the editor (ADR-011).
-- [ ] Keyframed transform, masked effects, a dissolve with effects on both
+- [x] Keyframed transform, masked effects, a dissolve with effects on both
       sides and an adjustment block render identically in preview and in
       `u-studio-render` output (frame hashes on a synthetic project).
 - [x] Dissolves and wipes survive move/trim of either clip and undo/redo
@@ -349,6 +349,19 @@ Acceptance (milestone gate):
 > transforms: the model and engine side is in (a placed picture's position,
 > size and rotation), and that test's transformed clip is keyframed into a
 > dissolve. The keyframing UI is VE Effects'.
+
+> REVIEW: VE Effects, 2026-09-29. Box 2 ticked. `effects-render` (the
+> drop-in's test_render.cpp) builds one synthetic project with all four: a
+> placed picture whose position, size and rotation are keyframed across
+> the dissolve, a keyframed effect on one side and an ellipse-masked one
+> on the other, and an adjustment block faded in and out over every
+> track. The live Engine's frames (what the preview widget shows) hash
+> identically to the real `u-studio-render --frames` process's at 16
+> frames through all of it. The keyframing UI is the Rack's Transform card
+> (pins, previous/next, feel, touch-record) and transform curves in the
+> curve lanes, with VE Core's key-aware preview handles; the lossless file
+> itself is VE Core's `--ffv1` (`engine-render-frames`). M5's four boxes
+> are ticked.
 
 ## Titles track (parallel to M3–M5)
 

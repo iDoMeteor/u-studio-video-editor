@@ -16,6 +16,8 @@
 #include <adwaita.h>
 
 #include <cstdlib>
+#include <fstream>
+#include <vector>
 #include <filesystem>
 #include <string>
 
@@ -29,7 +31,7 @@ fs::path scratch()
 {
     static const fs::path dir =
         fs::temp_directory_path() / ("ustudio-titles-window-" + std::to_string(platform::currentProcessId()));
-    fs::create_directories(dir);
+    fs::create_directories(dir); // every time: a test may have removed it
     return dir;
 }
 
@@ -116,5 +118,64 @@ TEST_CASE("closing the designer with a layer selected doesn't call into the clos
         settle();
         CHECK(gtkWindow == nullptr);
     }
+    fs::remove_all(scratch());
+}
+
+namespace {
+
+void collect(GtkWidget *widget, std::vector<GtkWidget *> &out)
+{
+    out.push_back(widget);
+    for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
+        collect(child, out);
+}
+
+} // namespace
+
+TEST_CASE("the inspector's number rows are reachable by screen readers: spin buttons with labels (Demos, 2026-09-29)")
+{
+    // libadwaita 1.9.2 leaves AdwSpinRow out of the AT-SPI tree, so the
+    // inspector's number rows are action rows with a labelled spin button.
+    if (!haveGtk())
+        return;
+    {
+        std::ofstream(scratch() / "square.json")
+            << R"({"v":"5.7.0","fr":30,"ip":0,"op":30,"w":512,"h":512,"assets":[],"layers":[]})";
+    }
+    const std::string path = core::utf8String(scratch() / "animated.ustitle");
+    auto doc = parseTitle(R"(<ustitle version="2" width="1920" height="1080" fps="30/1">
+      <timing intro="10" hold="30" outro="10"/>
+      <layer id="anim" kind="lottie" src="square.json" x="704" y="284" w="512" h="512"/>
+    </ustitle>)");
+    REQUIRE(doc.has_value());
+    REQUIRE(saveTitle(doc->document, path).empty());
+    auto *window = new app::TitlesWindow(application(), path, {});
+    GtkWindow *gtkWindow = window->window();
+    gtk_window_present(gtkWindow);
+    settle();
+    GtkWidget *list = findListBox(GTK_WIDGET(gtkWindow));
+    REQUIRE(list != nullptr);
+    gtk_list_box_select_row(GTK_LIST_BOX(list), gtk_list_box_get_row_at_index(GTK_LIST_BOX(list), 0));
+    settle();
+    std::vector<GtkWidget *> widgets;
+    collect(GTK_WIDGET(gtkWindow), widgets);
+    int spins = 0;
+    bool speed = false;
+    for (GtkWidget *widget : widgets) {
+        CHECK_FALSE(ADW_IS_SPIN_ROW(widget));
+        if (!GTK_IS_SPIN_BUTTON(widget))
+            continue;
+        ++spins;
+        CHECK(gtk_test_accessible_has_property(GTK_ACCESSIBLE(widget), GTK_ACCESSIBLE_PROPERTY_LABEL));
+        if (char *differs =
+                gtk_test_accessible_check_property(GTK_ACCESSIBLE(widget), GTK_ACCESSIBLE_PROPERTY_LABEL, "Speed (%)"))
+            g_free(differs);
+        else
+            speed = true;
+    }
+    CHECK(spins > 5); // Speed, position, size, rotation, ...
+    CHECK(speed);
+    gtk_window_destroy(gtkWindow);
+    settle();
     fs::remove_all(scratch());
 }

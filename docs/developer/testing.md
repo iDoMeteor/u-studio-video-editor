@@ -114,6 +114,12 @@ It reuses `tools/packaging-smoke/drive.py` for each step; screenshots and
 logs land in `<outdir>`. Activated services get their own runtime directory,
 as for the titles smoke test.
 
+`effects-render` (built with the render tool) is M5's box 2: one
+synthetic project with a keyframed transform, a masked effect, a dissolve
+with effects on both clips and a faded adjustment block, saved, then the
+live Engine's frame hashes compared with the real `u-studio-render
+--frames` process's.
+
 `tools/effects-smoke/run.sh <builddir> <outdir> soak_steps.sh` is the
 drop-in's playback memory soak (about 15 minutes): a 1080p H.264 clip,
 selected, the Browser shown and then hidden while a fresh profile's health

@@ -105,6 +105,14 @@ TEST_CASE("nativeTransition: a wipe's video props, map name and a dip's filters 
     CHECK(property(native.headFilters[0], "rgb_only") == "1");
 }
 
+TEST_CASE("nativeTransition: a hold switches at its share of the length")
+{
+    const std::vector<Param> params{{"a.9.service", std::string("volume"), {}},
+                                    {"a.9.level", std::string("hold:0,-100"), {}}};
+    CHECK(property(nativeTransition(transitionWith(params, 20)).tailFilters[0], "level") == "0|=0;10|=-100");
+    CHECK(property(nativeTransition(transitionWith(params, 15)).tailFilters[0], "level") == "0|=0;7|=-100");
+}
+
 TEST_CASE("nativeTransition: a ramp follows the transition's length")
 {
     const std::vector<Param> params{{"a.0.service", std::string("brightness"), {}},
@@ -113,13 +121,28 @@ TEST_CASE("nativeTransition: a ramp follows the transition's length")
     CHECK(property(nativeTransition(transitionWith(params, 40)).tailFilters[0], "level") == "0=1;39=0");
 }
 
-TEST_CASE("transitionProblem: only allowed services, and never a file property")
+TEST_CASE("transitionProblem: never a file property; a service not offered plays as the plain dissolve")
 {
     CHECK(transitionProblem(transitionWith({})).empty());
     CHECK(transitionProblem(transitionWith({{"video.luma", std::string("no-such-map"), {}}})).empty());
-    CHECK_FALSE(transitionProblem(transitionWith({{"video.service", std::string("qtblend"), {}}})).empty());
-    CHECK_FALSE(transitionProblem(transitionWith({{"audio.service", std::string("ladspa"), {}}})).empty());
-    CHECK_FALSE(transitionProblem(transitionWith({{"b.0.service", std::string("frei0r.glow"), {}}})).empty());
+    // Services outside the allowlist are never played: the whole recipe
+    // falls back to the dissolve (as an unknown wipe map does).
+    for (const std::vector<Param> &params : std::vector<std::vector<Param>>{
+             {{"video.service", std::string("qtblend"), {}}, {"video.0", 0.5, {}}},
+             {{"b.0.service", std::string("frei0r.glow"), {}}, {"a.0.service", std::string("brightness"), {}}},
+             {{"video.service", std::string("frei0r.cairoblend"), {}}}}) {
+        const NativeTransition native = nativeTransition(transitionWith(params));
+        CHECK(native.video.service == "luma");
+        CHECK(native.video.properties.empty());
+        CHECK(native.tailFilters.empty());
+        CHECK(native.headFilters.empty());
+        CHECK(transitionProblem(transitionWith(params)).empty());
+    }
+    CHECK(nativeTransition(transitionWith({{"audio.service", std::string("ladspa"), {}}})).audio.service == "mix");
+    // A drop-in's service, once registered (the effects drop-in's blends).
+    registerTransitionService("test.blend");
+    CHECK(nativeTransition(transitionWith({{"video.service", std::string("test.blend"), {}}})).video.service ==
+          "test.blend");
     CHECK_FALSE(transitionProblem(transitionWith({{"video.resource", std::string("/etc/passwd"), {}}})).empty());
     CHECK_FALSE(transitionProblem(transitionWith({{"video.producer.resource", std::string("x"), {}}})).empty());
     CHECK_FALSE(transitionProblem(transitionWith({{"video.factory", std::string("loader"), {}}})).empty());
@@ -141,24 +164,31 @@ TEST_CASE("transitionProblem: only allowed services, and never a file property")
               .empty());
     Transition hostile = transitionWith({});
     hostile.service = "qtblend";
-    CHECK_FALSE(transitionProblem(hostile).empty());
+    CHECK(nativeTransition(hostile).video.service == "luma");
 }
 
-TEST_CASE("Model::check() and the reader refuse a transition naming a service outside the allowlist")
+TEST_CASE("A transition naming a service outside the allowlist opens and plays as the plain dissolve")
 {
     auto [model, id] = modelWithDissolve();
-    REQUIRE(model.check().empty());
     model.setTransitionRecipe(id, "evil", {{"video.service", std::string("glaxnimate"), {}}});
-    REQUIRE(model.check().size() == 1);
-    CHECK(model.check()[0].find("not allowed") != std::string::npos);
+    CHECK(model.check().empty());
 
-    // A hand-edited file saying the same doesn't open.
+    // A hand-edited file saying the same opens; its render graph never
+    // names the service, and the recipe is kept for a build that has it.
     TempDir dir;
     const fs::path path = dir.path / "hostile.ustudio";
     REQUIRE(saveProject(model, path.string()).empty());
+    std::ifstream in(path);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(text.find(">glaxnimate<") == std::string::npos);
     auto loaded = loadProject(path.string());
-    REQUIRE_FALSE(loaded.has_value());
-    CHECK(loaded.error().find("not allowed") != std::string::npos);
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->transition(id).recipe == "evil");
+
+    // A file property still refuses the project.
+    model.setTransitionRecipe(id, "evil", {{"video.resource", std::string("/etc/passwd"), {}}});
+    REQUIRE(model.check().size() == 1);
+    CHECK(model.check()[0].find("not allowed") != std::string::npos);
 }
 
 TEST_CASE("XML round-trip: a wipe's recipe survives, and its map is written beside the project")

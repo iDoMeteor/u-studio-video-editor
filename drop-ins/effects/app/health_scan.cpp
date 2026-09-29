@@ -173,6 +173,10 @@ struct HealthScan::Impl
             static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE));
         for (const auto &[name, value] : options.environment)
             g_subprocess_launcher_setenv(launcher, name.c_str(), value.c_str(), TRUE);
+        // The probe ends if this process has already gone by the time it
+        // starts (platform::exitWithParent()).
+        g_subprocess_launcher_setenv(launcher, "USTUDIO_PARENT_PID",
+                                     std::to_string(platform::currentProcessId()).c_str(), TRUE);
         std::vector<const char *> argv;
         argv.push_back(options.renderTool.c_str());
         for (const std::string &arg : args)
@@ -418,6 +422,16 @@ std::string renderToolPath()
     return out;
 }
 
+namespace {
+// The editor's scan, for the process: stopped when the application shuts
+// down (stopEditorHealthScan()), else at exit.
+std::unique_ptr<HealthScan> &editorScan()
+{
+    static std::unique_ptr<HealthScan> scan;
+    return scan;
+}
+} // namespace
+
 void startEditorHealthScan(HealthScan::Progress progress, HealthScan::RegistryReady registryReady)
 {
     const std::string tool = renderToolPath();
@@ -432,10 +446,13 @@ void startEditorHealthScan(HealthScan::Progress progress, HealthScan::RegistryRe
     // Left empty: the scan's thread works it out (it reads the plugin
     // directories).
     options.fingerprint.clear();
-    // For the process: stopped (its children killed) when the program exits.
-    static std::unique_ptr<HealthScan> scan;
-    scan = std::make_unique<HealthScan>(std::move(options), std::move(progress), std::move(registryReady));
-    scan->start();
+    editorScan() = std::make_unique<HealthScan>(std::move(options), std::move(progress), std::move(registryReady));
+    editorScan()->start();
+}
+
+void stopEditorHealthScan()
+{
+    editorScan().reset(); // its children killed, its thread joined
 }
 
 } // namespace ustudio::effects

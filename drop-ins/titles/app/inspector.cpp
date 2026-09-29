@@ -72,14 +72,22 @@ void add(GtkWidget *groupWidget, GtkWidget *row)
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(groupWidget), row);
 }
 
+// A number row: an action row with a spin button, not an AdwSpinRow, which
+// libadwaita 1.9.2 leaves out of the AT-SPI tree (screen readers and
+// scripts can't reach it; docs/developer/notes/gtk-upstream.md).
 GtkWidget *spinRow(const char *title, double value, double min, double max, double step, int digits,
                    std::function<void(double)> set)
 {
-    GtkWidget *row = adw_spin_row_new_with_range(min, max, step);
+    GtkWidget *row = adw_action_row_new();
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
-    adw_spin_row_set_digits(ADW_SPIN_ROW(row), static_cast<guint>(digits));
-    adw_spin_row_set_value(ADW_SPIN_ROW(row), value);
-    onProperty(row, "value", [row, set = std::move(set)] { set(adw_spin_row_get_value(ADW_SPIN_ROW(row))); });
+    GtkWidget *spin = gtk_spin_button_new_with_range(min, max, step);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(spin), static_cast<guint>(digits));
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), value);
+    gtk_widget_set_valign(spin, GTK_ALIGN_CENTER);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(spin), GTK_ACCESSIBLE_PROPERTY_LABEL, title, -1);
+    adw_action_row_add_suffix(ADW_ACTION_ROW(row), spin);
+    adw_action_row_set_activatable_widget(ADW_ACTION_ROW(row), spin);
+    onProperty(spin, "value", [spin, set = std::move(set)] { set(gtk_spin_button_get_value(GTK_SPIN_BUTTON(spin))); });
     return row;
 }
 

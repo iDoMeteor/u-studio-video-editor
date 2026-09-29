@@ -37,6 +37,48 @@
         "b.0.rgb_only": 1
       },
       "swatch": "#ffffff"
+    },
+    {
+      "id": "blend.add",
+      "name": "Additive Dissolve",
+      "category": "Blends",
+      "description": "The incoming clip is added over the outgoing one, a bright blend half-way",
+      "params": {
+        "video.service": "frei0r.cairoblend",
+        "video.0": "ramp:0,1,1",
+        "video.1": "add",
+        "a.0.service": "brightness",
+        "a.0.level": "ramp:1,1,0",
+        "a.0.rgb_only": 1
+      }
+    },
+    {
+      "id": "blend.screen",
+      "name": "Screen Dissolve",
+      "category": "Blends",
+      "description": "A soft, light blend of the two clips half-way, like two projectors on one screen",
+      "params": {
+        "video.service": "frei0r.cairoblend",
+        "video.0": "ramp:0,1,1",
+        "video.1": "screen",
+        "a.0.service": "brightness",
+        "a.0.level": "ramp:1,1,0",
+        "a.0.rgb_only": 1
+      }
+    },
+    {
+      "id": "blend.lighten",
+      "name": "Lighten Dissolve",
+      "category": "Blends",
+      "description": "Half-way, the lighter of the two clips shows at every point",
+      "params": {
+        "video.service": "frei0r.cairoblend",
+        "video.0": "ramp:0,1,1",
+        "video.1": "lighten",
+        "a.0.service": "brightness",
+        "a.0.level": "ramp:1,1,0",
+        "a.0.rgb_only": 1
+      }
     }
   ]
 }

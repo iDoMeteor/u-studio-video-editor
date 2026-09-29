@@ -45,6 +45,20 @@ Layer makeTextLayer(const TitleDocument &doc, const std::string &text)
     return layer;
 }
 
+Layer makeAnimationLayer(const TitleDocument &doc, const std::string &src, int width, int height)
+{
+    Layer layer;
+    layer.id = uniqueLayerId(doc, "animation");
+    layer.kind = LayerKind::Lottie;
+    layer.src = src;
+    const double w = std::min(static_cast<double>(std::max(width, 1)), doc.width / 2.0);
+    layer.w = w;
+    layer.h = w * std::max(height, 1) / std::max(width, 1);
+    layer.x = (doc.width - layer.w) / 2.0;
+    layer.y = (doc.height - layer.h) / 2.0;
+    return layer;
+}
+
 Layer makeShapeLayer(const TitleDocument &doc, ShapeKind shape)
 {
     Layer layer;

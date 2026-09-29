@@ -71,5 +71,8 @@ std::string renderToolPath();
 // extension). Quarantines take effect at the next graph build. The
 // callbacks run on the main loop (the Rack's badges and effect list).
 void startEditorHealthScan(HealthScan::Progress progress, HealthScan::RegistryReady registryReady);
+// Stops it, its probes killed (main thread, when the application shuts
+// down: a probe started as the editor quit outlived it, 2026-09-29).
+void stopEditorHealthScan();
 
 } // namespace ustudio::effects

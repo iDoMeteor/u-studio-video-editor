@@ -3,6 +3,7 @@
 #include "core/descriptor.h"
 #include "core/log.h"
 #include "core/model/effect_native.h"
+#include "core/model/transition_native.h"
 
 #include <mutex>
 #include <optional>
@@ -39,6 +40,16 @@ core::MixTransition mixTransition()
     }();
     return transition;
 }
+
+} // namespace
+
+void registerTransitionServices()
+{
+    if (mixTransition() == core::MixTransition::Cairoblend)
+        core::registerTransitionService("frei0r.cairoblend");
+}
+
+namespace {
 
 class EffectsExtension : public engine::EngineExtension
 {

@@ -5,7 +5,9 @@
 #include "core/commands.h"
 #include "core/keyframes.h"
 #include "core/log.h"
+#include "core/commands/primitives.h"
 #include "core/model/animation.h"
+#include "core/transform_edit.h"
 #include "tokens.h"
 
 #include <gtk/gtk.h>
@@ -32,7 +34,7 @@ constexpr double kPad = 5.0;      // above and below the curve inside a lane
 constexpr double kKeyRadius = 3.5;
 constexpr double kKeyGrab = 7.0;  // how near a press must be to take a key
 
-// One animated value of a clip's effects.
+// One animated value of a clip's effects, or of its transform.
 struct Curve
 {
     core::EffectId effect;
@@ -40,6 +42,7 @@ struct Curve
     std::string title; // "Glow · Blur"
     double low = 0.0, high = 1.0;
     std::vector<core::Keyframe> keys;
+    std::optional<TransformField> transform; // set: `effect` and `param` unused
 };
 
 // The value range a curve is drawn over: the parameter's own when the
@@ -63,11 +66,26 @@ std::vector<Curve> curvesOf(const core::Model &model, const Catalog &catalog, co
     std::vector<Curve> curves;
     if (!model.hasClip(clip))
         return curves;
+    // The clip's own placement first (ADR-018): each keyed value's spread.
+    static const std::pair<TransformField, const char *> fields[] = {
+        {TransformField::X, "Transform · X"},
+        {TransformField::Y, "Transform · Y"},
+        {TransformField::Width, "Transform · Width"},
+        {TransformField::Height, "Transform · Height"},
+        {TransformField::Rotation, "Transform · Rotation"},
+    };
+    for (const auto &[field, title] : fields) {
+        const std::vector<core::Keyframe> &keys = fieldOf(model.clip(clip).transform.get(), field).keyframes;
+        if (keys.empty())
+            continue;
+        const auto [lo, hi] = rangeOf(keys, std::nullopt, std::nullopt);
+        curves.push_back({core::EffectId{}, "", title, lo, hi, keys, field});
+    }
     for (const core::Effect &effect : model.clip(clip).effects) {
         const EffectDescriptor *descriptor = catalog.find(effect.service);
         const std::string name = descriptor ? descriptor->name : effect.service;
         if (!effect.mix.keyframes.empty())
-            curves.push_back({effect.id, "", name + " · Mix", 0.0, 1.0, effect.mix.keyframes});
+            curves.push_back({effect.id, "", name + " · Mix", 0.0, 1.0, effect.mix.keyframes, std::nullopt});
         for (const core::Param &param : effect.params) {
             if (param.keyframes.empty())
                 continue;
@@ -81,7 +99,7 @@ std::vector<Curve> curvesOf(const core::Model &model, const Catalog &catalog, co
                         high = p.maximum;
                     }
             const auto [lo, hi] = rangeOf(param.keyframes, low, high);
-            curves.push_back({effect.id, param.name, name + " · " + title, lo, hi, param.keyframes});
+            curves.push_back({effect.id, param.name, name + " · " + title, lo, hi, param.keyframes, std::nullopt});
         }
     }
     return curves;
@@ -174,8 +192,8 @@ class CurveLanes : public app::timeline::TimelineOverlayProvider
             const double kx = viewport.xForFrame(static_cast<double>(clip.position + key.at));
             const double ky = yOf(curve, key.value, hit->top);
             if (std::abs(kx - x) <= kKeyGrab && std::abs(ky - y) <= kKeyGrab) {
-                m_drag = Drag{hit->clip, curve.effect, curve.param, key.at, curve.low, curve.high, hit->top,
-                              ++m_nextGesture};
+                m_drag = Drag{hit->clip,  curve.effect, curve.param,     key.at,         curve.low,
+                              curve.high, hit->top,     ++m_nextGesture, curve.transform};
                 return true;
             }
         }
@@ -184,7 +202,7 @@ class CurveLanes : public app::timeline::TimelineOverlayProvider
             const core::FrameIndex at = std::clamp(frameAt(viewport, x) - clip.position, core::FrameIndex{0},
                                                    clip.length() - 1);
             std::vector<core::Keyframe> keys = withKeyAt(curve.keys, at, valueAt(curve, y, hit->top));
-            apply(model, curve.effect, curve.param, std::move(keys), 0);
+            apply(model, hit->clip, curve, std::move(keys), 0);
         }
         return true; // the lane is ours: never a clip move or marquee
     }
@@ -192,12 +210,13 @@ class CurveLanes : public app::timeline::TimelineOverlayProvider
     void dragged(const core::Model &model, const Viewport &viewport, const RowLayout &, double x, double y,
                  bool finished) override
     {
-        if (!m_drag || !model.hasClip(m_drag->clip) || !model.hasEffect(m_drag->effect)) {
+        if (!m_drag || !model.hasClip(m_drag->clip) || (!m_drag->transform && !model.hasEffect(m_drag->effect))) {
             m_drag.reset();
             return;
         }
         const core::Clip &clip = model.clip(m_drag->clip);
-        std::vector<core::Keyframe> keys = keysOf(model, m_drag->effect, m_drag->param);
+        const Curve dragged{m_drag->effect, m_drag->param, {}, m_drag->low, m_drag->high, {}, m_drag->transform};
+        std::vector<core::Keyframe> keys = keysOf(model, m_drag->clip, dragged);
         auto it = std::find_if(keys.begin(), keys.end(), [&](const core::Keyframe &k) { return k.at == m_drag->at; });
         if (it == keys.end()) {
             m_drag.reset();
@@ -207,10 +226,9 @@ class CurveLanes : public app::timeline::TimelineOverlayProvider
         const core::FrameIndex lower = it == keys.begin() ? 0 : std::prev(it)->at + 1;
         const core::FrameIndex upper = std::next(it) == keys.end() ? clip.length() - 1 : std::next(it)->at - 1;
         const core::FrameIndex at = std::clamp(frameAt(viewport, x) - clip.position, lower, std::max(lower, upper));
-        const Curve range{m_drag->effect, m_drag->param, {}, m_drag->low, m_drag->high, {}};
         it->at = at;
-        it->value = valueAt(range, y, m_drag->top);
-        apply(model, m_drag->effect, m_drag->param, std::move(keys), m_drag->gesture);
+        it->value = valueAt(dragged, y, m_drag->top);
+        apply(model, m_drag->clip, dragged, std::move(keys), m_drag->gesture);
         m_drag->at = at;
         if (finished)
             m_drag.reset();
@@ -261,6 +279,7 @@ class CurveLanes : public app::timeline::TimelineOverlayProvider
         core::FrameIndex at;
         double low, high, top;
         uint64_t gesture;
+        std::optional<TransformField> transform;
     };
 
     static core::FrameIndex frameAt(const Viewport &viewport, double x)
@@ -304,10 +323,12 @@ class CurveLanes : public app::timeline::TimelineOverlayProvider
         return std::nullopt;
     }
 
-    static std::vector<core::Keyframe> keysOf(const core::Model &model, core::EffectId effect,
-                                              const std::string &param)
+    static std::vector<core::Keyframe> keysOf(const core::Model &model, core::ClipId clip, const Curve &curve)
     {
-        const core::Effect &e = model.effect(effect);
+        if (curve.transform)
+            return fieldOf(model.clip(clip).transform.get(), *curve.transform).keyframes;
+        const std::string &param = curve.param;
+        const core::Effect &e = model.effect(curve.effect);
         if (param.empty())
             return e.mix.keyframes;
         for (const core::Param &p : e.params)
@@ -316,9 +337,18 @@ class CurveLanes : public app::timeline::TimelineOverlayProvider
         return {};
     }
 
-    void apply(const core::Model &model, core::EffectId effect, const std::string &param,
-               std::vector<core::Keyframe> keys, uint64_t gesture)
+    void apply(const core::Model &model, core::ClipId clip, const Curve &curve, std::vector<core::Keyframe> keys,
+               uint64_t gesture)
     {
+        if (curve.transform) {
+            // A keyed transform is already an explicit placement.
+            core::Transform t = model.clip(clip).transform.get();
+            fieldOf(t, *curve.transform).keyframes = std::move(keys);
+            m_host.execute(std::make_unique<core::SetClipTransform>(clip, t, gesture));
+            return;
+        }
+        const core::EffectId effect = curve.effect;
+        const std::string &param = curve.param;
         const core::Effect &e = model.effect(effect);
         if (param.empty()) {
             core::KeyframedValue mix = e.mix;

@@ -22,6 +22,10 @@ std::optional<size_t> layerIndex(const TitleDocument &doc, const std::string &id
 // A new text or shape layer with sensible defaults, centred on the canvas.
 Layer makeTextLayer(const TitleDocument &doc, const std::string &text);
 Layer makeShapeLayer(const TitleDocument &doc, ShapeKind shape);
+// An animated layer (T6) for `src`, an animation of `width` x `height`: at
+// its own size, or half the canvas wide if it's bigger, centred. Its box has
+// the animation's aspect, height included (the inspector shows both).
+Layer makeAnimationLayer(const TitleDocument &doc, const std::string &src, int width, int height);
 
 class TitleHistory
 {

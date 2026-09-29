@@ -9,7 +9,7 @@ effects_inc = include_directories('.')
 effects_core = static_library(
   'ustudio_effects_core',
   files('core/commands.cpp', 'core/descriptor.cpp', 'core/health.cpp', 'core/json.cpp', 'core/keyframes.cpp', 'core/looks.cpp',
-        'core/transitions.cpp', 'core/blocks.cpp'),
+        'core/transitions.cpp', 'core/blocks.cpp', 'core/transform_edit.cpp'),
   include_directories: effects_inc,
   dependencies: [libustudio_core_dep],
   pic: true,
