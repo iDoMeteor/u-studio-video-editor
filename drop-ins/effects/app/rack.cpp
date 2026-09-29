@@ -1,6 +1,7 @@
 #include "app/rack.h"
 
 #include "app/catalog.h"
+#include "app/preview_tools.h"
 #include "app/shell_host.h"
 #include "core/blocks.h"
 #include "core/commands.h"
@@ -1182,8 +1183,65 @@ class Rack
         rebuildCards(*target);
     }
 
+    // --- On the picture (app/preview_tools.h) ------------------------------
+
+    Control *findControl(const ControlKey &key)
+    {
+        for (const std::unique_ptr<Control> &control : m_controls)
+            if (keyOf(*control) == key)
+                return control.get();
+        return nullptr;
+    }
+
+    void onEyedropper(Control &control)
+    {
+        const ControlKey key = keyOf(control);
+        previewTools(m_host).pickColour([this, key](core::Color colour) {
+            // The Rack may have been rebuilt since: find the control again,
+            // and set it as a hand would (keys, several clips, undo).
+            if (Control *now = findControl(key)) {
+                const GdkRGBA rgba{colour.r / 255.0f, colour.g / 255.0f, colour.b / 255.0f, 1.0f};
+                gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(now->widget), &rgba);
+            }
+        });
+    }
+
+    void onRectHandles(Control &control, bool on)
+    {
+        PreviewTools &tools = previewTools(m_host);
+        if (!on) {
+            if (m_rectKey == keyOf(control))
+                tools.hideRect();
+            m_rectKey.reset();
+            return;
+        }
+        m_rectKey = keyOf(control);
+        const ControlKey key = keyOf(control);
+        const core::Rect *rect = nullptr;
+        const core::Param::Value value = readControl(control);
+        rect = std::get_if<core::Rect>(&value);
+        tools.showRect(rect ? *rect : core::Rect{}, [this, key](core::Rect r, uint64_t) {
+            if (Control *now = findControl(key))
+                writeControlAsHand(*now, r);
+        });
+    }
+
+    // Sets a rect control's numbers as typing them would (one undo step for
+    // a drag: the changes come closer than the gesture gap).
+    void writeControlAsHand(Control &control, const core::Rect &r)
+    {
+        const double values[4] = {r.x, r.y, r.w, r.h};
+        for (size_t i = 0; i < 4 && i < control.rect.size(); ++i)
+            gtk_adjustment_set_value(control.rect[i], values[i]);
+    }
+
     void rebuildCards(const core::Model::EffectTarget &target)
     {
+        // The handles belonged to a control about to go.
+        if (m_rectKey) {
+            previewTools(m_host).hideRect();
+            m_rectKey.reset();
+        }
         while (GtkWidget *child = gtk_widget_get_first_child(m_cards))
             gtk_box_remove(GTK_BOX(m_cards), child);
         m_controls.clear();
@@ -1479,11 +1537,22 @@ class Rack
             gtk_widget_set_halign(widget, GTK_ALIGN_START);
             g_signal_connect(widget, "notify::active", G_CALLBACK(&onControlNotifyTrampoline), control.get());
             break;
-        case ParamKind::Color:
-            widget = gtk_color_dialog_button_new(gtk_color_dialog_new());
+        case ParamKind::Color: {
+            control->widget = gtk_color_dialog_button_new(gtk_color_dialog_new());
+            g_signal_connect(control->widget, "notify::rgba", G_CALLBACK(&onControlNotifyTrampoline), control.get());
+            // The eyedropper: a colour from the picture (app/preview_tools.h).
+            GtkWidget *pick = gtk_button_new_from_icon_name("color-select-symbolic");
+            gtk_widget_add_css_class(pick, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(pick), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                           "Pick a colour from the picture", -1);
+            m_host.setTooltip(pick, "effects.eyedropper");
+            g_signal_connect(pick, "clicked", G_CALLBACK(&onEyedropperTrampoline), control.get());
+            widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
             gtk_widget_set_halign(widget, GTK_ALIGN_START);
-            g_signal_connect(widget, "notify::rgba", G_CALLBACK(&onControlNotifyTrampoline), control.get());
+            gtk_box_append(GTK_BOX(widget), control->widget);
+            gtk_box_append(GTK_BOX(widget), pick);
             break;
+        }
         case ParamKind::Choice: {
             control->choices = p.choices;
             std::vector<const char *> strings;
@@ -1504,6 +1573,15 @@ class Rack
                 gtk_box_append(GTK_BOX(widget), spin);
                 g_signal_connect(adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
             }
+            // Handles over the picture (app/preview_tools.h).
+            GtkWidget *handles = gtk_toggle_button_new();
+            gtk_button_set_icon_name(GTK_BUTTON(handles), "object-select-symbolic");
+            gtk_widget_add_css_class(handles, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(handles), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                           "Edit on the picture", -1);
+            m_host.setTooltip(handles, "effects.rect-handles");
+            g_signal_connect(handles, "toggled", G_CALLBACK(&onRectHandlesTrampoline), control.get());
+            gtk_box_append(GTK_BOX(widget), handles);
             break;
         }
         case ParamKind::File:
@@ -1599,6 +1677,16 @@ class Rack
     static void onPinActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
     {
         static_cast<Rack *>(self)->onPinAction();
+    }
+    static void onEyedropperTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onEyedropper(*c);
+    }
+    static void onRectHandlesTrampoline(GtkToggleButton *button, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onRectHandles(*c, gtk_toggle_button_get_active(button));
     }
     static void onArmTrampoline(GtkToggleButton *, gpointer control)
     {
@@ -1701,6 +1789,7 @@ class Rack
     uint64_t m_nextGesture = 0;
     std::set<ControlKey> m_armed;
     std::optional<Recording> m_recording;
+    std::optional<ControlKey> m_rectKey; // the rect control whose handles are on the picture
 };
 
 } // namespace

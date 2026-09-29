@@ -104,7 +104,11 @@ screenshot, `rightmost.py`) is dragged, and the saved curve must have moved
 one key and come back with one undo. Last, a drag across the FX lane
 draws an adjustment block, Glow added from the Browser must land on the
 block, and the block's right end (its cyan outline on the screenshot,
-`rightmost.py`) is dragged longer and undone. It also checks an audition leaves the live graph's rebuild
+`rightmost.py`) is dragged longer and undone. Then Blue Screen's colour is
+picked from the middle of the picture with the eyedropper (the saved
+colour must be the one logged), and Spot Remover's rectangle is shown on
+the picture and its handle (a solid cyan square, `rightmost.py`'s square
+filter) dragged, which must change the saved rectangle. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
 `value.py`, `ramp.py`, `rightmost.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a

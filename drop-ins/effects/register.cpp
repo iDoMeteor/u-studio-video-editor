@@ -7,6 +7,7 @@
 #include "app/compare.h"
 #include "app/curve_lanes.h"
 #include "app/fx_lane.h"
+#include "app/preview_tools.h"
 #include "app/health_scan.h"
 #include "app/rack.h"
 #include "app/transitions_page.h"
@@ -89,6 +90,7 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         addCompare(shell, catalog);
         addCurveLanes(shell, catalog);
         addFxLane(shell, catalog);
+        previewTools(shell); // the eyedropper's and rect handles' overlay, stacked now
         // FX3: the transition styles (small; the drop-in's own data).
         static const std::vector<TransitionRecipe> recipes = loadRecipes((effectsDataDir() / "transitions").string());
         addTransitions(shell, recipes);

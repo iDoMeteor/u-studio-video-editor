@@ -282,6 +282,54 @@ check "dragging the block's end lengthens it" [ "${LONGER:-0}" -gt "${LENGTH:-0}
 d act undo; sleep 1; d act save; sleep 2
 check "undo gives the old length back" grep -q "<property name=\"ustudio:length\">$LENGTH<" "$OUT/smoke.ustudio"
 
+
+# The eyedropper (FX4): Blue Screen on the first clip, its colour picked
+# from the middle of the picture; the saved colour is the frame's there,
+# not the effect's default green.
+d act seek-home; sleep 0.5
+d act select-next-clip; sleep 1
+d act effects-browser; sleep 1
+e "Search effects" "blue screen"; sleep 3
+d press "Search effects"; sleep 0.3; d enter; sleep 2
+d press "Effects" exact; sleep 1
+d press "Pick a colour from the picture"; sleep 1
+PICTURE=$(python3 "$SMOKE_HERE/where.py" "Effects picture tools" 2>>"$OUT/helpers.err" || echo "700 350")
+echo "picture tools at $PICTURE" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+d click $PICTURE; sleep 3
+shot 21-eyedropper
+d act save; sleep 2
+check "the eyedropper picks from the picture" grep -q "eyedropper picked #" "$OUT/app.log"
+PICKED=$(grep -o "eyedropper picked #[0-9a-f]*" "$OUT/app.log" | tail -1 | grep -o '#.*' | tr -d '#')
+echo "picked $PICKED" >>"$OUT/steps.log"
+picked_saved() { grep -q "<property name=\"0\">0x${PICKED}ff</property>" "$OUT/smoke.ustudio"; }
+check "the picked colour is Blue Screen's colour" picked_saved
+
+
+# Rect handles (FX4): Spot Remover's rectangle shown on the picture; its
+# bottom-right handle dragged makes the saved rectangle bigger.
+d act effects-browser; sleep 1
+e "Search effects" "spot remover"; sleep 3
+d press "Search effects"; sleep 0.3; d enter; sleep 2
+d press "Effects" exact; sleep 1
+d press "Edit on the picture"; sleep 1
+shot 22-rect-handles
+d act save; sleep 2
+RECT0=$(grep -o '<property name="rect">[^<]*' "$OUT/smoke.ustudio" | tail -1)
+HANDLE=$(python3 "$SMOKE_HERE/rightmost.py" "$OUT/22-rect-handles.png" "#19e3ff" 50 700 1500 5 5 2>>"$OUT/helpers.err")
+echo "rect handle at $HANDLE ($RECT0)" >>"$OUT/steps.log"
+if [ -n "$HANDLE" ]; then
+    set -- $HANDLE
+    python3 "$SMOKE_HERE/drag.py" "$(($1 - 2))" "$(($2 - 2))" "$(($1 + 120))" "$(($2 + 70))" 2>>"$OUT/helpers.err" # from the handle's middle
+fi
+sleep 1.5
+shot 23-rect-dragged
+d act save; sleep 2
+RECT1=$(grep -o '<property name="rect">[^<]*' "$OUT/smoke.ustudio" | tail -1)
+echo "rect $RECT0 -> $RECT1" >>"$OUT/steps.log"
+rect_grew() { [ -n "$RECT1" ] && [ "$RECT0" != "$RECT1" ]; }
+check "dragging a rect handle on the picture changes the rectangle" rect_grew
+
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
 echo "RESULT: $FAILED failed"

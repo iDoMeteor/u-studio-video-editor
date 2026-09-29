@@ -66,6 +66,16 @@ On each card:
 Every change can be undone with **Ctrl+Z**. A drag of a slider is one undo
 step, however long you drag.
 
+**On the picture:**
+
+- **Colours:** click the **pipette** beside a colour, then click the
+  picture. It takes the colour of the selected clip at that spot, as the
+  clip is before its effects: what you want for keying out a background.
+  **Esc** cancels.
+- **Rectangles** (an area to fix or to work on): click the **select**
+  button beside the numbers to show the rectangle over the picture, then
+  drag it, or drag its corners. Click the button again to hide it.
+
 ## Making an effect change over time (keyframes)
 
 Beside each number there are three small buttons: **‹**, a **star** (the
