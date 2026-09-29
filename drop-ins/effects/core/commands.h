@@ -144,6 +144,28 @@ class SetMix : public core::Command
     uint64_t m_gesture;
 };
 
+// An effect's mask (nullopt: none); a drag's changes (one gesture) merge.
+class SetEffectMask : public core::Command
+{
+  public:
+    SetEffectMask(core::EffectId id, std::optional<core::EffectMask> mask, uint64_t gesture = 0)
+        : m_id(id), m_mask(std::move(mask)), m_gesture(gesture)
+    {}
+    std::string label() const override
+    {
+        return "Set effect mask";
+    }
+    bool apply(core::Model &model) override;
+    void revert(core::Model &model) override;
+    bool mergeWith(const core::Command &next) override;
+    bool isNoOp() const override;
+
+  private:
+    core::EffectId m_id;
+    std::optional<core::EffectMask> m_mask, m_old;
+    uint64_t m_gesture;
+};
+
 // Pastes `effects` onto every target as one undo step (doc 15, "Applying
 // effects": copy and paste a stack, and applying a Look). Replace first
 // removes the target's own effects (this drop-in's; others' are kept).

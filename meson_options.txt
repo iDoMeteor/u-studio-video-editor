@@ -23,6 +23,8 @@ option('dropin_titles', type: 'combo', choices: ['disabled', 'builtin', 'module'
 # that can't give it the network (the editor's Titles extension).
 option('titles_share', type: 'feature', value: 'auto',
        description: 'Build u-studio-share, the template sharing helper (needs libsoup 3, json-glib)')
+option('titles_thorvg', type: 'feature', value: 'auto',
+       description: 'Draw the titles drop-in\'s animated (Lottie) layers with ThorVG (ADR-021)')
 # A Flatpak extension point for separately packaged drop-ins (ADR-014, doc
 # 17), relative to the prefix, e.g. 'lib/u-studio/extensions'. Each
 # subdirectory is one drop-in's extension prefix, whose

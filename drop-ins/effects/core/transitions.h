@@ -22,6 +22,7 @@ struct TransitionRecipe
     std::string name;     // "Radial Wipe"
     std::string category; // "Dissolves", "Wipes"
     std::string description;
+    std::string swatch; // "#rrggbb": a dip's or flash's middle colour, for its tile; "" otherwise
     std::vector<core::Param> params;  // empty: the plain dissolve
     std::vector<std::string> exposed; // params the user may change (softness, reverse)
 };
@@ -30,7 +31,7 @@ struct TransitionRecipe
 inline constexpr const char *kDefaultRecipe = "dissolve";
 
 // Recipes from a recipes file: {"version":1,"recipes":[{"id","name",
-// "category","description","params":{name:value},"exposed":[name]}]}.
+// "category","description","swatch","params":{name:value},"exposed":[name]}]}.
 // Numbers become doubles, booleans bools, strings strings. An entry without
 // an id or name, or whose params core::transitionProblem() refuses, is
 // skipped; so is an exposed name that isn't among its params.

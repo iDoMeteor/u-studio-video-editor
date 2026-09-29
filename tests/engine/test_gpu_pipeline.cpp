@@ -86,6 +86,7 @@ fs::path generate(const std::string &name, int width, int height, const char *le
     consumer.set("real_time", -1);
     consumer.connect(tractor);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return path;
 }
 
@@ -416,54 +417,117 @@ TEST_CASE("GPU pipeline: an export while the preview is on the GPU matches the p
     CHECK(compare(preview, exported).mean <= 2.0);
 }
 
-// FX3: transition recipes are CPU-only until verified in a movit graph. On
-// the GPU a wipe previews as the plain dissolve, and an export made while
-// the preview is on the GPU renders on the CPU, so it keeps the wipe.
-TEST_CASE("GPU pipeline: a wipe previews as a dissolve and exports as the wipe")
+// FX3: on the GPU a wipe stays the CPU `luma` (an island in the movit
+// graph), so it plays the CPU's wipe frame by frame; a dip is movit's
+// dissolve with the CPU brightness filters on its cuts.
+namespace {
+
+// Where the incoming green meets the outgoing blue along the middle row: the
+// first x from the left that is more blue than green; -1 if none.
+int wipeEdge(const Image &image)
+{
+    for (int x = 0; x < 1920; x += 2)
+        if (at(image, x, 540)[2] > at(image, x, 540)[1])
+            return x;
+    return -1;
+}
+
+struct TwoClipScene
+{
+    Scene scene{utf8String(generate("blue.mp4", 1920, 1080, "color:#2040c0")), 1920, 1080};
+    TransitionId transition;
+    TwoClipScene()
+    {
+        scene.model.resizeClip(scene.clip, 0, 39, 0);
+        Asset green;
+        green.path = utf8String(generate("green.mp4", 1920, 1080, "color:#20c040"));
+        green.info.hasVideo = true;
+        green.info.width = 1920;
+        green.info.height = 1080;
+        green.info.lengthInSequenceFrames = 60;
+        const ClipId next = scene.model.insertClip(scene.upper, scene.model.addAsset(green), 40, 10, 49);
+        transition = scene.model.addTransition(scene.upper, scene.clip, next, 10, 10); // [30, 50)
+    }
+};
+
+} // namespace
+
+TEST_CASE("GPU pipeline: a wipe plays as the CPU's, frame by frame")
 {
     sharedFactoryPolicy();
-    Scene scene(utf8String(generate("blue.mp4", 1920, 1080, "color:#2040c0")), 1920, 1080);
-    scene.model.resizeClip(scene.clip, 0, 39, 0);
-    Asset green;
-    green.path = utf8String(generate("green.mp4", 1920, 1080, "color:#20c040"));
-    green.info.hasVideo = true;
-    green.info.width = 1920;
-    green.info.height = 1080;
-    green.info.lengthInSequenceFrames = 60;
-    const ClipId next = scene.model.insertClip(scene.upper, scene.model.addAsset(green), 40, 10, 49);
-    const TransitionId wipe = scene.model.addTransition(scene.upper, scene.clip, next, 10, 10);
-    REQUIRE(wipe.value != 0);
-    scene.model.setTransitionRecipe(wipe, "wipe.left",
-                                    {{"video.service", std::string("luma"), {}},
-                                     {"video.luma", std::string("left"), {}},
-                                     {"video.softness", 0.1, {}}});
-    REQUIRE(scene.model.check().empty());
-    Image cpu, gpu;
-    if (!renderBoth(scene.model, 40, cpu, gpu))
-        return;
-    INFO("cpu left " << pixel(cpu, 100, 540) << " right " << pixel(cpu, 1820, 540) << "; gpu left "
-                     << pixel(gpu, 100, 540) << " right " << pixel(gpu, 1820, 540));
-    // CPU: green on the left already, blue still on the right.
-    CHECK(at(cpu, 100, 540)[1] > 150);
-    CHECK(at(cpu, 1820, 540)[2] > 150);
-    // GPU: one dissolve colour across the frame.
-    for (size_t c = 0; c < 3; ++c)
-        CHECK(std::abs(at(gpu, 100, 540)[c] - at(gpu, 1820, 540)[c]) <= 3);
+    TwoClipScene two;
+    REQUIRE(two.transition.value != 0);
+    two.scene.model.setTransitionRecipe(two.transition, "wipe.left",
+                                        {{"video.service", std::string("luma"), {}},
+                                         {"video.luma", std::string("left"), {}},
+                                         {"video.softness", 0.1, {}}});
+    REQUIRE(two.scene.model.check().empty());
+    for (int position = 31; position < 50; position += 2) {
+        Image cpu, gpu;
+        if (!renderBoth(two.scene.model, position, cpu, gpu))
+            return;
+        INFO("frame " << position << ": cpu edge " << wipeEdge(cpu) << ", gpu edge " << wipeEdge(gpu));
+        CHECK(std::abs(wipeEdge(cpu) - wipeEdge(gpu)) <= 16);
+        if (position == 41) {
+            // Mid-wipe: the incoming green on the left, the blue still right.
+            CHECK(at(gpu, 100, 540)[1] > 150);
+            CHECK(at(gpu, 1820, 540)[2] > 150);
+        }
+    }
+}
 
-    std::string error;
-    std::shared_ptr<GpuSession> session = GpuSession::acquire(error); // the preview's
-    REQUIRE(session);
-    const fs::path out = scratch() / "export-wipe.mp4";
-    bool ok = false;
-    std::thread worker([&] { ok = renderProject(scene.model, utf8String(out), error); });
-    worker.join();
-    INFO(error);
-    REQUIRE(ok);
-    session.reset();
-    const Image exported = exportedFrame(out, 40);
+TEST_CASE("GPU pipeline: a dip to black is black in the middle")
+{
+    sharedFactoryPolicy();
+    TwoClipScene two;
+    REQUIRE(two.transition.value != 0);
+    two.scene.model.setTransitionRecipe(two.transition, "dip-black",
+                                        {{"a.0.service", std::string("brightness"), {}},
+                                         {"a.0.level", std::string("ramp:1,0,0"), {}},
+                                         {"b.0.service", std::string("brightness"), {}},
+                                         {"b.0.level", std::string("ramp:0,0,1"), {}}});
+    Image cpu, gpu;
+    if (!renderBoth(two.scene.model, 40, cpu, gpu))
+        return;
     for (size_t c = 0; c < 3; ++c) {
-        CHECK(std::abs(at(exported, 100, 540)[c] - at(cpu, 100, 540)[c]) <= 6);
-        CHECK(std::abs(at(exported, 1820, 540)[c] - at(cpu, 1820, 540)[c]) <= 6);
+        CHECK(at(gpu, 960, 540)[c] <= 4);
+        CHECK(at(cpu, 960, 540)[c] <= 4);
+    }
+    // Either side of the middle the pictures come back (not a stuck black).
+    Image cpuAfter, gpuAfter;
+    REQUIRE(renderBoth(two.scene.model, 48, cpuAfter, gpuAfter));
+    CHECK(at(gpuAfter, 960, 540)[1] > 100);
+}
+
+// FX3 motion: a push (the affine transition, and the affine filter on the
+// outgoing cut) plays on the GPU as the CPU's does, a CPU island in the
+// movit graph (VE GPU's repro, 2026-09-28).
+TEST_CASE("GPU pipeline: a push plays as the CPU's, frame by frame")
+{
+    sharedFactoryPolicy();
+    TwoClipScene two;
+    REQUIRE(two.transition.value != 0);
+    two.scene.model.setTransitionRecipe(
+        two.transition, "push.left",
+        {{"video.service", std::string("affine"), {}},
+         {"video.rect", std::string("ramp:100% 0% 100% 100%|0% 0% 100% 100%"), {}},
+         {"a.0.service", std::string("affine"), {}},
+         {"a.0.transition.rect", std::string("ramp:0% 0% 100% 100%|-100% 0% 100% 100%"), {}}});
+    REQUIRE(two.scene.model.check().empty());
+    // Where the incoming green starts from the left on the middle row.
+    auto greenEdge = [](const Image &image) {
+        for (int x = 0; x < 1920; x += 2)
+            if (at(image, x, 540)[1] > at(image, x, 540)[2])
+                return x;
+        return -1;
+    };
+    for (int position = 32; position < 50; position += 4) {
+        Image cpu, gpu;
+        if (!renderBoth(two.scene.model, position, cpu, gpu))
+            return;
+        INFO("frame " << position << ": cpu edge " << greenEdge(cpu) << ", gpu edge " << greenEdge(gpu));
+        CHECK(std::abs(greenEdge(cpu) - greenEdge(gpu)) <= 8);
+        CHECK(greenEdge(gpu) > 0);
     }
 }
 

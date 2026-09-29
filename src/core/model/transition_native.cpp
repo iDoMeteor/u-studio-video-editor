@@ -207,10 +207,25 @@ std::string transitionProblem(const Transition &transition)
         for (const NativeFilter &filter : *filters)
             if (!transitionServiceAllowed(filter.service))
                 return "transition filter service not allowed: " + filter.service;
-    // A resource can only come from a generated map, never a path in the file.
-    for (const auto &[name, value] : native.video.properties)
-        if (name == "resource" || name == "factory" || name.starts_with("producer."))
-            return "transition property not allowed: " + name;
+    // Nothing in the file may name something for MLT to open: a map comes
+    // only from video.luma, by name. `affine`'s filter takes a producer as
+    // its `background` and passes `producer.*`/`transition.*` on
+    // (filter_affine.yml), so the names are checked on every service, at
+    // any depth ("transition.producer.resource").
+    auto opensSomething = [](const std::string &name) {
+        const std::string leaf = name.substr(name.rfind('.') + 1);
+        return leaf == "resource" || leaf == "factory" || leaf == "background" || leaf == "luma" ||
+               name.starts_with("producer.") || name.find(".producer.") != std::string::npos;
+    };
+    for (const NativeFilter *service : {&native.video, &native.audio})
+        for (const auto &[name, value] : service->properties)
+            if (opensSomething(name))
+                return "transition property not allowed: " + name;
+    for (const auto *filters : {&native.tailFilters, &native.headFilters})
+        for (const NativeFilter &filter : *filters)
+            for (const auto &[name, value] : filter.properties)
+                if (opensSomething(name))
+                    return "transition property not allowed: " + name;
     // An unknown wipe map isn't a problem: it plays as the plain dissolve
     // (doc 15: never a load failure).
     return {};

@@ -772,3 +772,65 @@ TEST_CASE("EngineSync: scaled preview dimensions are rounded to even numbers")
     CHECK(sync.profile().width() == 684);  // 683 rounded up to even
     CHECK(sync.profile().height() == 386); // 385 rounded up to even
 }
+
+// FX3: a transition recipe's values (a wipe's softness, a dip's level) are
+// set on the live services, as effect values are: dragging them never
+// rebuilds the graph (M5: no parameter drag restarts the consumer). A new
+// map or new services rebuild.
+TEST_CASE("EngineSync: a transition recipe's values change in place; a new wipe map rebuilds")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    ClipId a = model.insertClip(track, addGeneratorAsset(model, "color:red"), 0, 0, 29);
+    ClipId b = model.insertClip(track, addGeneratorAsset(model, "color:blue"), 30, 10, 49);
+    TransitionId t = model.addTransition(track, a, b, 10, 10); // [20, 40)
+    auto wipe = [](const char *map, double softness) {
+        return std::vector<Param>{{"video.service", std::string("luma"), {}},
+                                  {"video.luma", std::string(map), {}},
+                                  {"video.softness", softness, {}}};
+    };
+    model.setTransitionRecipe(t, "wipe", wipe("left", 0.0));
+    EngineSync sync(model);
+    int rebuilds = 0, inPlace = 0;
+    sync.rebuilt.connect([&] { ++rebuilds; });
+    sync.appliedInPlace.connect([&] { ++inPlace; });
+
+    // Blue at the left edge a quarter of the way through a hard-edged wipe.
+    auto blueAt = [&](double u, int frame) {
+        sync.tractor().seek(frame);
+        std::unique_ptr<Mlt::Frame> f(sync.tractor().get_frame());
+        mlt_image_format format = mlt_image_rgb;
+        int w = 160, h = 90;
+        const uint8_t *image = f->get_image(format, w, h);
+        return image[(static_cast<size_t>(h / 2) * w + static_cast<size_t>(u * w)) * 3 + 2];
+    };
+    const int hardEdge = blueAt(0.40, 30);
+    for (double softness : {0.2, 0.4, 0.6, 0.8}) {
+        model.setTransitionRecipe(t, "wipe", wipe("left", softness));
+        sync.setProject(model.snapshot());
+    }
+    CHECK(rebuilds == 0);
+    CHECK(inPlace == 4);
+    CHECK(sync.verify().empty());
+    // A soft edge reaches further: the picture follows the value.
+    CHECK(blueAt(0.40, 30) != hardEdge);
+
+    // A dip's ramp too (its brightness filters on the cuts).
+    model.setTransitionRecipe(t, "dip", {{"a.0.service", std::string("brightness"), {}},
+                                         {"a.0.level", std::string("ramp:1,0,0"), {}}});
+    sync.setProject(model.snapshot());
+    CHECK(rebuilds == 1); // other services
+    model.setTransitionRecipe(t, "dip", {{"a.0.service", std::string("brightness"), {}},
+                                         {"a.0.level", std::string("ramp:1,0.5,0.5"), {}}});
+    sync.setProject(model.snapshot());
+    CHECK(rebuilds == 1);
+    CHECK(inPlace == 5);
+
+    // Another map: another file for luma to read, so a rebuild.
+    model.setTransitionRecipe(t, "wipe", wipe("left", 0.2));
+    sync.setProject(model.snapshot());
+    model.setTransitionRecipe(t, "wipe", wipe("radial", 0.2));
+    sync.setProject(model.snapshot());
+    CHECK(rebuilds == 3);
+}

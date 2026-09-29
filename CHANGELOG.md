@@ -4,6 +4,42 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.78.0-beta.1
+
+- Titles: two built-in templates with a ringing bell, a lower third and a
+  subscribe reminder, animated layers ready to use.
+
+## 0.77.0-beta.1
+
+- Effects (the Effects add-on): adjustment blocks on an FX lane above the
+  tracks (effects over a stretch of time on the tracks beneath, with
+  fades), curve lanes under a clip (C), touch-record, masks (rectangle or
+  ellipse, soft edge, invert), an eyedropper and rectangles you drag on the
+  picture, a LUT library for .cube files, and LADSPA audio plugins (VST2 and
+  OpenFX behind a choice). OpenFX plugins can no longer load unasked.
+
+## 0.76.0-beta.1
+
+- Titles: animated layers. Add a Lottie animation (a logo sting, a
+  sticker) to a title; it plays in the designer, the editor and exports,
+  and travels in templates and template packs.
+
+## 0.75.1-beta.1
+
+- Editing while playing restarts playback faster: frames about to be thrown
+  away are no longer rendered, and one from before the edit can't flash up.
+
+## 0.75.0-beta.1
+
+- Transition styles (the Effects add-on): a dissolve can dip to black,
+  flash, slide, push or wipe (20 shapes) from the Transitions page; T adds one at the
+  nearest cut, and a double-click on one opens its styles.
+
+## 0.74.1-beta.1
+
+- Importing thousands of clips onto one track (a long caption file, a big
+  folder) is fast: 20,000 clips now take a fraction of a second
+  instead of minutes, and undoing them just as fast.
 
 ## 0.74.0-beta.1
 

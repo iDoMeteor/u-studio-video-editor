@@ -121,6 +121,18 @@ consumer stops before `Factory::close()`.
   `consumer-frame-show` event while playing, the last explicit seek target
   while paused. Never `tractor->position()` for display — it runs ahead of
   what's on screen by the consumer's prefetch buffer.
+- **Frames shown while the consumer stops are dropped.** During `stop()`,
+  `sdl2_audio` shows the frames it had queued, and a last one
+  (`consumer_sdl2_audio.c`'s video thread), rendered or not; the read-ahead
+  skips late frames at `real_time=1`, so often not. `handleFrameShow()`
+  rendered each on the consumer's thread: about five per restart, i.e. per
+  edit while playing, and GL work on sdl2's thread on the GPU pipeline.
+  `shutdown()` now sets `m_stopping` around `stop()` and `handleFrameShow()`
+  returns at once, before any GL context is made current. A paused refresh
+  still renders, since that frame is the one on screen. Found by VE GPU
+  ([GPU notes](gpu.md), "Frames rendered on the consumer's own thread");
+  `tests/engine/test_playback_controller` counts none shown during stop
+  (50 in 10 stops before, 2026-09-28).
 - **Every `setTractor()` call is a full stop/reselect/restart of the
   consumer — never `Mlt::Consumer::connect()` on one that's already
   running.** `EngineSync` rebuilds the tractor as a new object after every

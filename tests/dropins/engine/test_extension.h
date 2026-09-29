@@ -24,6 +24,7 @@ struct ExtensionLog
 {
     std::vector<std::pair<core::FrameIndex, core::FrameIndex>> cuts; // offset, length
     int builds = 0, playlists = 0, tractors = 0, compositors = 0, producers = 0, recipes = 0, inPlace = 0;
+    std::vector<std::pair<int, std::vector<core::FrameIndex>>> lanes; // decorateLane: lane, its blocks' starts
 };
 ExtensionLog &extensionLog();
 // Off by default: with it off the graph uses "composite", as without drop-ins.

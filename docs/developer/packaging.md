@@ -71,7 +71,12 @@ Two checks guard every package, Flatpak or Snap:
      with alpha, Edit Title starts U Stu Titles, and U Stu Titles
      installs a template pack made by `tools/make_test_pack.py` (fails on
      an extension built without libarchive; needs 0.68 or later).
-  10. Copy Diagnostics.
+  10. Effects, when the effects extension is installed: the drop-in loads
+     from the extension mount, `u-studio-render --probe-effect frei0r.glow`
+     reports it usable in the sandbox, the health scan runs, Glow is added
+     through the Browser (the saved project has it), and a render with Glow
+     is brighter than the same render without.
+  11. Copy Diagnostics.
 
   Along the way it checks that no Qt library is mapped. It prints
   PASS/FAIL per check and exits non-zero on any failure. Run it before
@@ -303,6 +308,11 @@ The titles extension is
   extension strips its binaries instead (0.73.1's bundle was 19 MB with
   debug info, 0.9 MB stripped). `.dynsym` stays, so the loader's symbols
   resolve as before. Any future drop-in extension needs the same.
+- **ThorVG 1.0.6** (animated Lottie layers, ADR-021) is built static
+  inside the extension without expressions (no JavaScript engine,
+  `-Dextra=`) and without file access (`-Dfile=false`); those flags are the
+  second line of defence behind the drop-in's own validator. Check a build
+  with `grep -c jerry` on the shipped binaries: it must find nothing.
 - `-Dtitles_share=disabled`: `u-studio-share`, the template sharing
   helper, needs network access, which the app's sandbox doesn't have. How
   it ships (its own app ID) is an open question. Without it installed
@@ -318,6 +328,33 @@ The titles extension is
   (`u-studio-video-editor-dropin-titles-<version>.flatpak`), and
   `just dist` copies it with a `.sha256`. Modules must match the app release
   exactly, so the app and its extensions ship as a pair.
+
+The effects extension is
+`packaging/flatpak/com.ustudio.VideoEditor.DropIn.Effects.yml`, built with
+`just flatpak-effects` the same way. frei0r ships in it and nowhere else
+(ADR-011 as narrowed by ADR-014):
+
+- **frei0r-plugins 2.5.6** (the version the drop-in is developed against)
+  install to `lib/frei0r-1/`. The OpenCV plugins (facebl0r, facedetect)
+  and the gavl ones (rgbparade, scale0tilt, vectorscope) are left out: the
+  GNOME runtime has neither library. Cairo is there, so `cairoblend`, which
+  a partial Mix uses, is in.
+- **MLT 7.40's frei0r module** is built from the app's MLT release with
+  every other module off, and installed to `lib/u-studio/mlt/`. The drop-in
+  adds that folder to FactoryPolicy's module directories and puts
+  `lib/frei0r-1/` first on its frei0r search path, whenever those folders
+  exist (`EFFECTS_MLT_INSTALL_DIR`, `EFFECTS_FREI0R_INSTALL_DIR`).
+- **The module's data stays in the app.** MLT's frei0r module reads
+  `blacklist.txt`, `not_thread_safe.txt`, `resolution_scale.yml` and four
+  more files from `MLT_DATA/frei0r/`, which is the app's
+  `/app/share/mlt-7`. So `modules/mlt.yml` installs those seven text files
+  there, without the module. Without them bad plugins aren't blacklisted,
+  unsafe ones run multi-threaded, and some render wrong at Half preview.
+- It strips its binaries from the start (`strip: true`), and ships the
+  effects data (overlays, Looks, transitions) under
+  `share/u-studio/drop-ins/effects/`.
+- `u-studio-video-editor-dropin-effects-<version>.flatpak` is published with
+  the app like the titles one.
 
 ### Publishing
 

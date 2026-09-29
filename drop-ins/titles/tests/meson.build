@@ -15,6 +15,25 @@ titles_test_captions = executable(
 )
 test('titles-captions', titles_test_captions)
 
+# T6 (ADR-021): the Lottie check, frames, and the animated layer's format.
+titles_test_lottie = executable(
+  'test_titles_lottie',
+  files('test_lottie.cpp'),
+  dependencies: [titles_doctest_dep, titles_core_dep],
+  install: false,
+)
+test('titles-lottie', titles_test_lottie)
+
+# Doc 16's absolute time for 1,000 cues: a benchmark, not a test, since a
+# loaded machine fails any fixed limit (`meson test --benchmark`).
+titles_bench_captions = executable(
+  'bench_titles_captions',
+  files('bench_captions.cpp'),
+  dependencies: [titles_core_dep],
+  install: false,
+)
+benchmark('titles-captions-bench', titles_bench_captions)
+
 # T4b: the pack manifest, the validator against a corpus of malicious packs,
 # install and remove.
 titles_test_pack = executable(

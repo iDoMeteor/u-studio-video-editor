@@ -14,6 +14,8 @@
 #include "core/keyframes.h"
 #include "core/looks.h"
 #include "core/transitions.h"
+#include "core/blocks.h"
+#include "core/model/effect_native.h"
 #include "core/model/animation.h"
 #include "core/model/effect_native.h"
 #include "core/model/transition_native.h"
@@ -652,4 +654,205 @@ TEST_CASE("recipeIndexOf: a transition's recipe, the dissolve for none or an unk
     t.recipe = "from.a.newer.version";
     CHECK(recipeIndexOf(recipes, t) == 0);
     CHECK(recipeIndexOf({}, t) == -1);
+}
+
+// --- Touch-record (FX4) --------------------------------------------------------
+
+TEST_CASE("withRecording: a performed curve becomes far fewer keys that stay within the tolerance")
+{
+    // Two seconds at 30 fps of a smooth performance (a sine sweep) with a
+    // hold in the middle, as a hand on a slider would make it.
+    std::vector<std::pair<core::FrameIndex, double>> performed;
+    for (core::FrameIndex f = 10; f < 70; ++f) {
+        const double v = f < 30 ? std::sin(static_cast<double>(f - 10) / 20.0 * 1.5707963) : (f < 45 ? 1.0 : 1.0 - static_cast<double>(f - 45) / 25.0);
+        performed.emplace_back(f, v);
+    }
+    const std::vector<core::Keyframe> before{{0, 0.5, core::Easing::Linear}, {40, 9.0, core::Easing::Linear},
+                                             {100, 0.2, core::Easing::Linear}};
+    const double tolerance = recordingTolerance(0.0, 1.0);
+    const std::vector<core::Keyframe> keys = withRecording(before, performed, tolerance);
+    // The key inside the recorded range is replaced; those outside stay.
+    CHECK(keys.front() == before.front());
+    CHECK(keys.back() == before.back());
+    CHECK_FALSE(std::any_of(keys.begin(), keys.end(), [](const core::Keyframe &k) { return k.value == 9.0; }));
+    // The ends of the recording are kept.
+    CHECK(keyAt(keys, 10));
+    CHECK(keyAt(keys, 69));
+    // Fewer keys than frames: an editable curve.
+    const size_t recorded = keys.size() - 2;
+    MESSAGE(recorded << " keys for " << performed.size() << " frames");
+    CHECK(recorded < performed.size() / 3);
+    // And it still plays what was performed, within the tolerance.
+    for (const auto &[frame, value] : performed)
+        CHECK(std::abs(core::easedValue(keys, static_cast<double>(frame)) - value) <= tolerance + 1e-9);
+}
+
+TEST_CASE("withRecording: repeated frames keep the last value; an empty recording changes nothing")
+{
+    const std::vector<core::Keyframe> keys = withRecording({}, {{5, 0.1}, {5, 0.4}, {6, 0.5}}, 0.001);
+    REQUIRE(keys.size() == 2);
+    CHECK(keys[0].value == doctest::Approx(0.4));
+    const std::vector<core::Keyframe> untouched{{3, 1.0, core::Easing::SmoothNatural}};
+    CHECK(withRecording(untouched, {}, 0.01) == untouched);
+}
+
+// --- Adjustment blocks (FX4) ----------------------------------------------------
+
+namespace {
+
+core::Model modelWithTracks(int tracks)
+{
+    core::Model model = core::Model::createEmpty();
+    for (int i = 0; i < tracks; ++i)
+        model.addTrack(core::Track::Kind::Video, i, "V" + std::to_string(i + 1));
+    return model;
+}
+
+// Undo restores ids, but a restore still advances the id allocator
+// (Model::add*'s reuseId; the core tests' equalIgnoringIdAllocator()).
+bool sameIgnoringIdAllocator(const core::Model &a, const core::Model &b)
+{
+    core::Project x = a.project(), y = b.project();
+    x.nextId = y.nextId = 0;
+    return x == y;
+}
+
+core::Effect glowEffect(double mix = 1.0)
+{
+    core::Effect effect;
+    effect.service = "frei0r.glow";
+    effect.owner = kOwner;
+    effect.mix.value = mix;
+    return effect;
+}
+
+} // namespace
+
+TEST_CASE("Adjustment blocks: add, move, fade and remove, each one undo step; overlaps refused")
+{
+    core::Model model = modelWithTracks(2);
+    const core::Model empty = model;
+    core::UndoStack stack(model);
+    core::AdjustmentBlock block;
+    block.lane = 0;
+    block.start = 30;
+    block.length = 60;
+    block.effects = {glowEffect()};
+    auto add = std::make_unique<AddAdjustmentBlock>(block);
+    AddAdjustmentBlock *adding = add.get();
+    REQUIRE(stack.execute(std::move(add)));
+    const core::AdjustmentBlockId id = adding->id();
+    REQUIRE(model.hasAdjustmentBlock(id));
+    CHECK(model.adjustmentBlock(id).effects[0].id.isValid());
+    CHECK(model.check().empty());
+
+    // Overlapping on the same lane: refused; on another lane: fine.
+    core::AdjustmentBlock overlap = block;
+    overlap.start = 60;
+    CHECK_FALSE(stack.execute(std::make_unique<AddAdjustmentBlock>(overlap)));
+    overlap.lane = 1;
+    CHECK(stack.execute(std::make_unique<AddAdjustmentBlock>(overlap)));
+    stack.undo();
+    // Past the tracks: refused.
+    overlap.lane = 2;
+    CHECK_FALSE(stack.execute(std::make_unique<AddAdjustmentBlock>(overlap)));
+
+    // A drag: many moves, one step; fades shrink with the block.
+    const core::Model placed = model;
+    CHECK(stack.execute(std::make_unique<SetAdjustmentBlockFades>(id, core::FadeSpec{20}, core::FadeSpec{20})));
+    for (core::FrameIndex length : {50, 40, 10})
+        stack.execute(std::make_unique<SetAdjustmentBlockRange>(id, 0, 35, length, 9));
+    CHECK(model.adjustmentBlock(id).start == 35);
+    CHECK(model.adjustmentBlock(id).fadeIn->length == 10);
+    stack.undo();
+    CHECK(model.adjustmentBlock(id).length == 60);
+    CHECK(model.adjustmentBlock(id).fadeIn->length == 20);
+    stack.undo();
+    CHECK(sameIgnoringIdAllocator(model, placed));
+    CHECK_FALSE(stack.execute(std::make_unique<SetAdjustmentBlockFades>(id, core::FadeSpec{61}, std::nullopt)));
+
+    // Remove, undo: the same block, ids and all.
+    REQUIRE(stack.execute(std::make_unique<RemoveAdjustmentBlock>(id)));
+    CHECK_FALSE(model.hasAdjustmentBlock(id));
+    stack.undo();
+    CHECK(sameIgnoringIdAllocator(model, placed));
+    stack.undo();
+    CHECK(sameIgnoringIdAllocator(model, empty));
+    stack.redo();
+    CHECK(sameIgnoringIdAllocator(model, placed));
+}
+
+TEST_CASE("blockEffects: fades ramp each effect's mix in and out")
+{
+    core::AdjustmentBlock block;
+    block.length = 101;
+    block.effects = {glowEffect(0.8)};
+    CHECK(core::blockEffects(block)[0].mix.keyframes.empty()); // no fades: as it is
+
+    block.fadeIn = core::FadeSpec{20};
+    block.fadeOut = core::FadeSpec{40};
+    const std::vector<core::Keyframe> keys = core::blockEffects(block)[0].mix.keyframes;
+    auto at = [&](double frame) { return core::easedValue(keys, frame); };
+    CHECK(at(0) == doctest::Approx(0.0));
+    CHECK(at(10) == doctest::Approx(0.4));
+    CHECK(at(20) == doctest::Approx(0.8));
+    CHECK(at(50) == doctest::Approx(0.8));
+    CHECK(at(60) == doctest::Approx(0.8));
+    CHECK(at(80) == doctest::Approx(0.4));
+    CHECK(at(100) == doctest::Approx(0.0));
+
+    // An animated mix keeps its shape under the envelope.
+    block.effects[0].mix.keyframes = {{0, 0.5, core::Easing::Linear}, {100, 1.0, core::Easing::Linear}};
+    const std::vector<core::Keyframe> shaped = core::blockEffects(block)[0].mix.keyframes;
+    CHECK(core::easedValue(shaped, 50.0) == doctest::Approx(0.75));
+    CHECK(core::easedValue(shaped, 100.0) == doctest::Approx(0.0));
+}
+
+TEST_CASE("blockEffects: an eased mix keeps its easing between the fades, and follows it through them")
+{
+    core::AdjustmentBlock block;
+    block.length = 201;
+    block.fadeIn = core::FadeSpec{20};
+    block.fadeOut = core::FadeSpec{20};
+    block.effects = {glowEffect()};
+    // Ease in from 0.2 to 1 across the whole block: a fade boundary cuts
+    // the one segment at each end.
+    const std::vector<core::Keyframe> own{{0, 0.2, core::Easing::CubicInOut}, {200, 1.0, core::Easing::Linear}};
+    block.effects[0].mix.keyframes = own;
+    const std::vector<core::Keyframe> keys = core::blockEffects(block)[0].mix.keyframes;
+    auto envelope = [](double f) { return std::clamp(std::min(f / 20.0, (200.0 - f) / 20.0), 0.0, 1.0); };
+    for (double f : {0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 137.0, 180.0, 190.0, 200.0})
+        CHECK(core::easedValue(keys, f) == doctest::Approx(core::easedValue(own, f) * envelope(f)).epsilon(0.002));
+
+    // A segment wholly between the fades keeps its own key and easing.
+    const std::vector<core::Keyframe> inner{{40, 0.2, core::Easing::CubicIn}, {160, 1.0, core::Easing::Linear}};
+    block.effects[0].mix.keyframes = inner;
+    const std::vector<core::Keyframe> kept = core::blockEffects(block)[0].mix.keyframes;
+    auto at40 = std::find_if(kept.begin(), kept.end(), [](const core::Keyframe &k) { return k.at == 40; });
+    REQUIRE(at40 != kept.end());
+    CHECK(at40->easing == core::Easing::CubicIn);
+    CHECK(core::easedValue(kept, 100.0) == doctest::Approx(core::easedValue(inner, 100.0)));
+    CHECK(kept.size() < 60); // only the fades are sampled
+}
+
+TEST_CASE("Overlays: a parameter's kind and file extensions, kept through the registry cache")
+{
+    EffectDescriptor d;
+    d.service = "avfilter.lut3d";
+    ParamDescriptor file;
+    file.id = "av.file";
+    file.kind = ParamKind::Text;
+    d.params = {file};
+    std::optional<Json> overlay = parseJson(R"j({"name":"LUT (.cube)","params":{"av.file":{"kind":"file","extensions":["cube"]}}})j");
+    REQUIRE(overlay);
+    applyOverlay(d, *overlay);
+    CHECK(d.params[0].kind == ParamKind::File);
+    CHECK(d.params[0].extensions == std::vector<std::string>{"cube"});
+    const std::optional<EffectDescriptor> back = descriptorFromJson(toJson(d));
+    REQUIRE(back);
+    CHECK(*back == d);
+    // An unknown kind changes nothing.
+    std::optional<Json> odd = parseJson(R"({"params":{"av.file":{"kind":"spaceship"}}})");
+    applyOverlay(d, *odd);
+    CHECK(d.params[0].kind == ParamKind::File);
 }

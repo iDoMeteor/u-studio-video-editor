@@ -136,7 +136,9 @@ test_gpu_pipeline_exe = executable(
   dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
   install: false,
 )
-test('engine-gpu-pipeline', test_gpu_pipeline_exe, timeout: 180)
+# Wipe maps go to $XDG_CACHE_HOME/ustudio/luma: the build tree's, not the user's.
+test('engine-gpu-pipeline', test_gpu_pipeline_exe, timeout: 180,
+     env: ['XDG_CACHE_HOME=' + meson.current_build_dir() / 'xdg-cache'])
 
 # ADR-019 G3: the GPU pipeline through Engine and the real consumer.
 test_gpu_engine_exe = executable(
@@ -293,3 +295,12 @@ test_mixed_rates_exe = executable(
 )
 
 test('engine-mixed-rates', test_mixed_rates_exe, timeout: 180)
+
+# M6 groundwork: u-studio-render --frames against the live preview.
+test_render_frames_exe = executable(
+  'test_render_frames',
+  files('test_render_frames.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_render_cli_dep, glib_dep],
+  install: false,
+)
+test('engine-render-frames', test_render_frames_exe, timeout: 300, is_parallel: false)

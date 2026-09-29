@@ -35,3 +35,22 @@ structural there.
   fall back to default init and log a warning; the test would catch this
   in CI but a user machine would run with Qt loaded rather than fail to
   start.
+
+> REVIEW: VE Core, 2026-09-28: the default denylist also names `openfx`.
+> At `Factory::init()` MLT's openfx module dlopens every `.ofx` bundle in
+> `/usr/OFX/Plugins` and `/usr/local/OFX/Plugins`, and `OFX_PLUGIN_PATH`
+> only adds to those (`src/modules/openfx/factory.c`, MLT 7.40). So any
+> OpenFX plugin installed system-wide, Qt-linked or not, was loaded into the
+> editor, which is this ADR's failure mode by another route. VE Effects
+> found it. The effects drop-in may bring openfx back only behind its
+> experimental preference, after scanning every bundle for a Qt dependency
+> (FX5). A module allowlist that replaces the denylist is planned as an
+> ADR that amends this one.
+
+> REVIEW: VE Effects, 2026-09-28: the lift is `FactoryPaths::allowModules`
+> (drop-in API 14): a drop-in names the denylist entries it lifts, and
+> `effectiveDenylist()` ignores any entry naming "qt", so Qt stays denied
+> whatever a drop-in asks. The effects drop-in lifts `openfx` only when its
+> OpenFX preference is on and `openfxBundlesNamingQt()` finds no bundle in
+> the fixed folders or `OFX_PLUGIN_PATH` whose files name Qt; otherwise it
+> logs which bundle kept OpenFX off. Tested in `engine-factory-policy`.

@@ -66,6 +66,30 @@ On each card:
 Every change can be undone with **Ctrl+Z**. A drag of a slider is one undo
 step, however long you drag.
 
+**On the picture:**
+
+- **Colours:** click the **pipette** beside a colour, then click the
+  picture. It takes the colour of the selected clip at that spot, as the
+  clip is before its effects: what you want for keying out a background.
+  **Esc** cancels.
+- **Rectangles** (an area to fix or to work on): click the **selection**
+  button (a dashed rectangle) beside the numbers to show the rectangle over
+  the picture, then drag it, or drag its corners. Click the button again to
+  hide it.
+
+### Limiting an effect to part of the picture (masks)
+
+Each effect's **Mask** chooses where it applies: **None** (everywhere),
+a **Rectangle** or an **Ellipse**. With a shape:
+
+- the **selection** button beside it shows the shape on the picture: drag
+  it, or its corners, to place it;
+- **Invert** applies the effect everywhere *but* inside the shape (blur
+  everything except a face);
+- **Soft edge** fades the effect out gradually at the shape's edge.
+
+**Mix** still applies, inside the shape.
+
 ## Making an effect change over time (keyframes)
 
 Beside each number there are three small buttons: **‹**, a **star** (the
@@ -86,6 +110,32 @@ moves to the next point: **Linear** (steady), **Smooth**, **Ease in**,
 **Ease out**, **Snap**, **Bounce**, **Elastic**, or **Hold** (it stays put,
 then jumps), plus every other curve in the list.
 
+### Seeing and shaping the curve (curve lanes)
+
+Select a clip and press **C**: a lane opens under it on the timeline for
+each value that changes over time, showing its curve, with a dot for each
+keyframe.
+
+- **Drag a dot** left or right to move the keyframe in time, up or down to
+  change its value. The whole drag is one undo step.
+- **Double-click** a lane to add a keyframe there, on the curve.
+- Press **C** again to close the lanes.
+
+### Recording a change as you play (touch-record)
+
+For a change that follows the music or the action, perform it instead of
+pinning points one by one:
+
+1. Click the **record** button (the dot) beside the setting: it turns red.
+2. Play, and move the setting's slider while it plays.
+3. Let go. U Stu keeps just enough keyframes to follow what you did, so
+   the curve stays easy to adjust afterwards. It replaces the keyframes
+   over the stretch you recorded; the rest stay.
+
+One performance is one undo step. Click the red button again to stop
+recording that setting. Recording works without playing too: each
+position of the playhead you move the slider at is recorded.
+
 ## Several clips at once
 
 Select several clips (click one, then **Ctrl**-click or **Shift**-click
@@ -93,6 +143,24 @@ others). The **Effects** page then shows the effects they all have, and a
 change applies to every one of them as one undo step. Adding an effect or a
 look adds it to all of them. (Moving effects and keyframes are one clip at
 a time.)
+
+## Adjustment blocks (the FX lane)
+
+An adjustment block puts effects on everything beneath it for a stretch of
+time: a grade for one scene, a blur behind a title, a glow for the chorus.
+Blocks live in the **FX** lane, the thin lane above the tracks.
+
+1. **Drag across the FX lane** to draw a block over the time it should
+   cover. It's selected, and the **Effects** page shows it.
+2. **Add effects** to it as to a clip: press **E** and pick, or search.
+3. **Drag the block** to move it, **drag its ends** to lengthen or shorten
+   it, and **drag the small dots at its top corners** inwards to fade its
+   effects in and out.
+4. On the **Effects** page, **Affects** chooses what it changes: **Every
+   track**, or a track and those below it (so a title on a higher track
+   stays untouched). The **bin** removes the block.
+
+Clicking a clip on the timeline takes the **Effects** page back to clips.
 
 ## Copy and paste
 
@@ -114,6 +182,52 @@ Find looks under **Looks** on the **Add** page (or by name in the search).
 Try one by pointing at it, and apply it by clicking or dragging, like an
 effect.
 
+## Transition styles
+
+With the add-on, a dissolve between two clips can play in another style:
+a **dip to black**, a **flash**, a **slide** or **push** (the next clip
+slides in over this one, or pushes it out, from any side), or one of 20
+**wipes** (left, right, up, down and the diagonals, circle, clock,
+diamond, barn doors, blinds, checkerboard, blocks, star, sparkle and the
+unicorn horn).
+
+1. Put the playhead on a dissolve, or double-click one on the timeline.
+   Or press **T** to add a dissolve at the cut nearest the playhead on the
+   active track (about half a second, like **Add Transition**).
+2. The **Transitions** page opens in the inspector, and the dissolve it's
+   about is outlined on the timeline. Each tile shows its style: the
+   outgoing clip in pink, the incoming one in blue.
+3. Click a tile to play the dissolve that way. **Ctrl+Z** puts the last
+   style back.
+
+A wipe has two settings above the tiles: **Softness** (how blurred its
+edge is) and **Reverse** (run it the other way). A slider drag is one undo
+step.
+
+The style is saved with the project, and a render plays it exactly as the
+preview does. A saved project with wipes gets a small `ustudio-wipes`
+folder beside it: keep it with the project file.
+
+With GPU acceleration on, a wipe can stutter in the preview at **Full**
+quality while it plays; set the preview to **Half** to watch it smoothly.
+The render is unaffected.
+
+## LUTs
+
+A LUT (a `.cube` file) is a ready-made colour grade, from a camera maker
+or a colourist. U Stu keeps a library of them:
+
+1. On the **Add** page, click the **open** button beside **Unstable** and
+   choose one or more `.cube` files. They're copied into a `luts` folder
+   beside your saved project (or into your own library, when the project
+   isn't saved yet), so the project doesn't depend on where they came from.
+2. Choose **LUTs** in the section list: a tile for each. Point at one to
+   try it, click to add it, as with any effect.
+
+**LUT (.cube)** among the effects does the same with any file you choose.
+Keep a project and its `luts` folder together: a project moved to another
+folder can't find its LUTs yet.
+
 ## Before and after
 
 - **Hold \\** (backslash): the picture without the selected clip's effects,
@@ -123,6 +237,22 @@ effect.
   Drag the dividing line. Click **Compare** again to turn it off.
 
 Both show the frame the playhead is on; pause to compare a moment.
+
+## More effect families
+
+Besides the effects U Stu comes with, it can use audio plugins you
+install:
+
+- **LADSPA** audio plugins are found by themselves. For many more audio
+  effects (equalisers, compressors, limiters, noise gates), install
+  **LSP Plugins**' LADSPA set (on Fedora: `lsp-plugins-ladspa`); the **Add**
+  page suggests it under **Audio** when it's missing.
+- **VST2** plugins and **OpenFX** plugins are off unless you turn them on:
+  the **⋯** button on the **Add** page. They're loaded when U Stu starts,
+  so a change applies the next time you start it.
+
+Every plugin is checked like the other effects, and a plugin that would
+load Qt is never loaded at all.
 
 ## Unstable effects
 

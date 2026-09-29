@@ -97,13 +97,17 @@ permissions · [Getting started](docs/user/getting-started.md)
 - Effects (an [add-on](docs/user/installing.md#add-ons)): hundreds of
   colour, light, blur, keying and audio effects on clips, tracks or the
   whole picture, tried on your picture before you add them, with
-  keyframes, looks, copy and paste, and before/after compare.
+  keyframes (drawn as curves, or performed live), looks, masks, LUTs,
+  adjustment blocks over several tracks, copy and paste, before/after
+  compare, audio plugins, and dissolves that dip, flash, slide, push or
+  wipe.
   → [Effects](docs/user/effects.md)
 - Titles and captions (an [add-on](docs/user/installing.md#add-ons)): a
-  title designer with templates, and `.srt`/`.vtt` captions in and out.
+  title designer with templates and animated (Lottie) layers, and
+  `.srt`/`.vtt` captions in and out.
   → [Titles](docs/user/titles.md)
 
-**Not yet:** wipes and other transitions beyond dissolves, formats other than MP4, named
+**Not yet:** zoom and blend transitions, formats other than MP4, named
 markers, rebindable shortcuts. → [Known limitations](docs/user/troubleshooting.md#known-limitations)
 
 ## Roadmap
@@ -115,10 +119,11 @@ relinking and clip transforms (M4, shipped as the 0.50 beta).
 
 **Next:**
 
-- **Effects, keyframes and transitions** (M5): effects with keyframes and
-  looks are in (FX1, FX2); next the transitions library (wipes, motion,
-  blend), the FX lane and curve lanes, delivered as a drop-in
-  add-on. → [doc 15](docs/plans/v2/15-effects-and-transitions.md),
+- **Effects, keyframes and transitions** (M5): effects, keyframes,
+  looks, transitions, curve lanes, touch-record, the FX lane, masks, LUTs
+  and audio plugins are in (FX1-FX5), as a drop-in add-on; still to come:
+  zoom, spin and blend transitions, audio curves on transitions, and live
+  tile previews. → [doc 15](docs/plans/v2/15-effects-and-transitions.md),
   [ADR-013](docs/plans/v2/adr/013-effects-and-titles-as-drop-in-modules.md)
 - **Titles**: a companion title designer with animation and reusable
   templates. → [doc 16](docs/plans/v2/16-titles-tool.md)

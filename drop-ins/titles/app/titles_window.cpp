@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 
 namespace ustudio::titles::app {
 
@@ -47,6 +49,7 @@ constexpr ActionEntry kActions[] = {
     {"add-ellipse", nullptr},
     {"add-line", nullptr},
     {"add-image", nullptr},
+    {"add-animation", nullptr},
     {"backdrop-checkerboard", nullptr},
     {"backdrop-colour", nullptr},
     {"backdrop-image", nullptr},
@@ -222,6 +225,7 @@ void TitlesWindow::buildUi()
     g_menu_append(add, "Ellipse", "win.add-ellipse");
     g_menu_append(add, "Line", "win.add-line");
     g_menu_append(add, "Picture…", "win.add-image");
+    g_menu_append(add, "Animation…", "win.add-animation");
     GtkWidget *addButton = gtk_menu_button_new();
     gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(addButton), "list-add-symbolic");
     gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(addButton), G_MENU_MODEL(add));
@@ -562,7 +566,7 @@ void TitlesWindow::save(const std::string &path)
     if (!oldFolder.empty() && oldFolder != folder) {
         m_history.apply("Save As", [&](TitleDocument &doc) {
             for (Layer &layer : doc.layers) {
-                if (layer.kind != LayerKind::Image || layer.src.empty())
+                if (!drawnFromFile(layer))
                     continue;
                 const std::filesystem::path src = core::pathFromUtf8(layer.src);
                 if (src.is_absolute())
@@ -884,6 +888,87 @@ void TitlesWindow::choosePicture(const std::optional<std::string> &replaceId)
     g_object_unref(dialog);
 }
 
+void TitlesWindow::chooseAnimation()
+{
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Add Animation");
+    GtkFileFilter *filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "Lottie animations (.json)");
+    gtk_file_filter_add_suffix(filter, "json");
+    gtk_file_dialog_set_default_filter(dialog, filter);
+    g_object_unref(filter);
+    gtk_file_dialog_open(
+        dialog, GTK_WINDOW(m_window), m_cancellable,
+        [](GObject *source, GAsyncResult *result, gpointer data) {
+            GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, nullptr);
+            if (!file)
+                return; // cancelled, or the window is gone
+            auto *window = static_cast<TitlesWindow *>(data);
+            const std::string path = utf8Path(file);
+            g_object_unref(file);
+            // Read and checked on a worker: up to 8 MB of untrusted JSON
+            // (ADR-021 decision 3) is too long for the main loop.
+            struct Job
+            {
+                std::string path;
+                std::expected<lottie::Facts, std::string> facts = std::unexpected(std::string());
+            };
+            GTask *task = g_task_new(
+                nullptr, window->m_cancellable,
+                [](GObject *, GAsyncResult *res, gpointer self) {
+                    GTask *done = G_TASK(res);
+                    if (g_cancellable_is_cancelled(g_task_get_cancellable(done)))
+                        return; // the window closed meanwhile
+                    auto *job = static_cast<Job *>(g_task_get_task_data(done));
+                    auto *w = static_cast<TitlesWindow *>(self);
+                    if (!job->facts)
+                        w->toast("Couldn't add the animation: " + job->facts.error());
+                    else
+                        w->addAnimation(job->path, *job->facts);
+                },
+                window);
+            g_task_set_task_data(task, new Job{path}, [](gpointer job) { delete static_cast<Job *>(job); });
+            g_task_run_in_thread(task, [](GTask *, gpointer, gpointer jobData, GCancellable *) {
+                auto *job = static_cast<Job *>(jobData);
+                std::error_code ec;
+                const auto size = std::filesystem::file_size(core::pathFromUtf8(job->path), ec);
+                if (ec) {
+                    job->facts = std::unexpected(std::string("it doesn't read"));
+                    return;
+                }
+                if (size > lottie::kMaxBytes) {
+                    job->facts = std::unexpected("it's over " + std::to_string(lottie::kMaxBytes >> 20) + " MB");
+                    return;
+                }
+                std::ifstream in(core::pathFromUtf8(job->path), std::ios::binary);
+                const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                job->facts = lottie::check(json);
+            });
+            g_object_unref(task);
+        },
+        this);
+    g_object_unref(dialog);
+}
+
+void TitlesWindow::addAnimation(const std::string &path, const lottie::Facts &facts)
+{
+    const TitleDocument &doc = m_history.document();
+    Layer layer;
+    layer.id = uniqueLayerId(doc, "animation");
+    layer.kind = LayerKind::Lottie;
+    layer.src = pictureSource(path);
+    // At its own size, or half the canvas wide if it's bigger; its height
+    // follows its aspect (h = 0). Centred.
+    const double w = std::min(static_cast<double>(facts.width), doc.width / 2.0);
+    const double h = w * facts.height / facts.width;
+    layer.w = w;
+    layer.x = (doc.width - w) / 2.0;
+    layer.y = (doc.height - h) / 2.0;
+    addLayerOf(layer, "Add Animation");
+    if (facts.hasText)
+        toast("Its text is drawn in your system's fonts, which may differ from the file's");
+}
+
 void TitlesWindow::editTextOnCanvas(const std::string &id)
 {
     finishTextEdit(true);
@@ -1182,6 +1267,8 @@ void TitlesWindow::onAction(GSimpleAction *action, GVariant *, gpointer self)
         window->addLayerOf(makeShapeLayer(doc, ShapeKind::Line), "Add Line");
     } else if (name == "add-image") {
         window->choosePicture(std::nullopt);
+    } else if (name == "add-animation") {
+        window->chooseAnimation();
     } else if (name == "backdrop-checkerboard") {
         window->m_canvas->setBackdropImage(nullptr);
         ViewSettings view = loadViewSettings();

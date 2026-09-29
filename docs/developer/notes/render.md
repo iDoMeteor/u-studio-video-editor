@@ -9,6 +9,34 @@ thread; the `.part` is removed. The app owns the render thread, asks before
 quitting mid-render, and cancels and joins it before MLT is closed (post-M3
 audit P2: quitting mid-render used to crash). A finished render reads
 stopped only after avformat has written the trailer and closed the file.
+Call `stop()` after that wait even so: with `real_time` -1 the consumer's
+render-ahead thread can still be pulling a frame when `run()` returns, and
+`stop()` is what joins it. `u-studio-render --frames --ffv1` first skipped
+it and crashed every time at exit (SIGSEGV in a filter as
+`Factory::close()` unloaded the modules under that thread) or, in a test
+that went on using MLT, with a SIGFPE in a filter reading freed memory
+(2026-09-29). The "qtrle SIGFPE under `affine`" once listed as an MLT bug
+was the same thing: a `colour` producer with `affine` encoded to qtrle
+crashed at teardown 5 runs in 6 without `stop()`, 0 in 6 with it
+(standalone repro). Test helpers that encode media call `stop()` too.
+
+**`u-studio-render --frames` (M6 groundwork).** `--frames <project>
+[--range IN:OUT]` builds the preview's own graph (Full, frames read at the
+profile's size, CPU) and prints a 64-bit FNV-1a hash of each frame's RGBA as
+JSON; `engine-render-frames` checks them against the live `Engine`'s frames.
+`--ffv1 <output>` renders the range losslessly instead (Matroska, FFV1,
+`yuv422p`, PCM): `yuv422p` is the graph's own 4:2:2, so the file decodes to
+exactly the YUV an export's consumer gets, which the same test checks byte
+for byte.
+
+**A range render seeks to 0 after `set_in_and_out()`.** Setting a
+producer's in/out leaves its absolute frame where it was, so the consumer's
+first pull came from frame 0 and the range carried on from its second
+frame. `seek()` is relative to the in point: `seek(first)` on a range
+shorter than `first` lands past the end, which pauses the producer
+(`mlt_producer_seek()`, MLT 7.40), and `terminate_on_pause` then ends the
+render with no frames written. Found when a keyframed transform made frame
+0 differ from the range's first frame (2026-09-29).
 
 `renderProject()` uses MLT's `avformat` consumer, with properties confirmed
 against its actual YAML metadata rather than guessed from ffmpeg CLI-flag

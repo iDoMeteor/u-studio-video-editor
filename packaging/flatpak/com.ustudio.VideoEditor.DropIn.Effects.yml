@@ -1,0 +1,139 @@
+# The effects and transitions drop-in as a Flatpak extension (ADR-011 as
+# narrowed by ADR-014, doc 15, doc 17): an opt-in add-on to
+# com.ustudio.VideoEditor, mounted at /app/lib/u-studio/extensions/Effects
+# through the app's com.ustudio.VideoEditor.DropIn extension point.
+#
+# Build it with `just flatpak-effects` after `just flatpak`: like the
+# titles extension it builds against the installed app of the same
+# version, and the editor refuses a drop-in built for another release.
+#
+# frei0r ships here and nowhere else: the app's MLT is built without its
+# frei0r module (modules/mlt.yml), so this extension brings both the
+# plugins and MLT's module for them. All under its own prefix:
+#   lib/u-studio/drop-ins/libustudio-dropin-effects.so  the editor's side
+#   lib/u-studio/mlt/libmltfrei0r.so  MLT 7.40's frei0r module, found by the
+#       drop-in at its install path and linked into FactoryPolicy's curated
+#       module directory (IP4)
+#   lib/frei0r-1/*.so  frei0r-plugins, on the drop-in's frei0r search path
+#   share/u-studio/drop-ins/effects/  overlays, Looks and transitions
+#
+# Deliberately left out: frei0r's OpenCV plugins (facebl0r, facedetect)
+# and its gavl ones (rgbparade, scale0tilt, vectorscope), because neither
+# library is in the GNOME runtime.
+
+id: com.ustudio.VideoEditor.DropIn.Effects
+runtime: com.ustudio.VideoEditor
+runtime-version: master
+sdk: org.gnome.Sdk//51
+build-extension: true
+separate-locales: false
+appstream-compose: false
+build-options:
+  prefix: /app/lib/u-studio/extensions/Effects
+  prepend-pkg-config-path: /app/lib/u-studio/extensions/Effects/lib/pkgconfig
+  # flatpak-builder splits debug info out only for /app itself; an
+  # extension strips its own (the titles extension shipped 19 MB of it).
+  strip: true
+
+modules:
+  # frei0r-plugins, the version the drop-in is developed against (Fedora
+  # 44's). Cairo comes from the runtime, so cairoblend (the drop-in's mix
+  # compositor) is in.
+  - name: frei0r-plugins
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DWITHOUT_OPENCV=ON
+      - -DWITHOUT_FACERECOGNITION=ON
+      - -DWITHOUT_GAVL=ON
+    sources:
+      - type: archive
+        url: https://github.com/dyne/frei0r/archive/refs/tags/v2.5.6.tar.gz
+        sha256: bfe715df3d33c1acb857732962402bb8b0eef73e9dde1b58485d3e3b0e42e182
+
+  # MLT's frei0r module, built from the same MLT release as the app with
+  # every other module off (core has no dependencies and always builds).
+  # Its libmlt and headers also serve the drop-in's build and are removed
+  # afterwards; the sonames resolve to the app's MLT at run time.
+  - name: mlt-frei0r
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+      - -DBUILD_TESTS_WITH_QT6=OFF
+      - -DBUILD_DOCS=OFF
+      - -DCLANG_FORMAT=OFF
+      - -DMOD_FREI0R=ON
+      - -DMOD_AVFORMAT=OFF
+      - -DMOD_DECKLINK=OFF
+      - -DMOD_GDK=OFF
+      - -DMOD_GLAXNIMATE_QT6=OFF
+      - -DMOD_JACKRACK=OFF
+      - -DUSE_LV2=OFF
+      - -DUSE_VST2=OFF
+      - -DMOD_KDENLIVE=OFF
+      - -DMOD_MOVIT=OFF
+      - -DMOD_NDI=OFF
+      - -DMOD_NORMALIZE=OFF
+      - -DMOD_OLDFILM=OFF
+      - -DMOD_OPENCV=OFF
+      - -DMOD_OPENFX=OFF
+      - -DMOD_PLUS=OFF
+      - -DMOD_PLUSGPL=OFF
+      - -DMOD_QT6=OFF
+      - -DMOD_RESAMPLE=OFF
+      - -DMOD_RTAUDIO=OFF
+      - -DMOD_RUBBERBAND=OFF
+      - -DMOD_RNNOISE=OFF
+      - -DMOD_SDL1=OFF
+      - -DMOD_SDL2=OFF
+      - -DMOD_SOX=OFF
+      - -DMOD_SPATIALAUDIO=OFF
+      - -DMOD_VIDSTAB=OFF
+      - -DMOD_VORBIS=OFF
+      - -DMOD_XINE=OFF
+      - -DMOD_XML=OFF
+    post-install:
+      - install -Dm755 ${FLATPAK_DEST}/lib/mlt-7/libmltfrei0r.so ${FLATPAK_DEST}/lib/u-studio/mlt/libmltfrei0r.so
+    sources:
+      - type: archive
+        url: https://github.com/mltframework/mlt/releases/download/v7.40.0/mlt-7.40.0.tar.gz
+        sha256: f11c30e21670f62a3dfc56a31306ac02f3feea00908a2821a4a0bf3e989d3d6a
+
+  # The whole project configures and builds (the drop-in compiles against
+  # src/); only the effects files are kept (cleanup below).
+  - name: u-studio-effects
+    buildsystem: meson
+    config-opts:
+      - -Dbuildtype=release
+      - -Dtests=disabled
+      - -Drender_tool=false
+      - -Ddropin_effects=module
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - builddir
+          - build-flatpak
+          - .flatpak-builder
+          - .claude
+    cleanup:
+      - /bin/u-studio-video-editor
+      - /share/applications
+      - /share/glib-2.0
+      - /share/icons
+      - /share/metainfo
+      - /share/mime
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /lib/libmlt*
+  - /lib/mlt-7
+  - /bin/melt*
+  - /share/mlt-7
+  - /share/man
+  - /share/doc
+  - '*.a'
+  - '*.la'

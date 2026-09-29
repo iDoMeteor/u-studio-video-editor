@@ -1,6 +1,7 @@
 #include "title_renderer.h"
 
 #include "blur.h"
+#include "lottie_layer.h"
 #include "core/animation.h"
 #include "core/captions.h"
 #include "core/evaluate.h"
@@ -187,12 +188,10 @@ cairo_surface_t *layerImage(const TitleDocument &doc, const Layer &layer, std::s
     return cache.back().surface.get();
 }
 
-// An image layer's box: its own size where w or h is 0.
-Box imageBox(const Layer &layer, const LayerState &state, cairo_surface_t *image)
+// An image or animated layer's box: its own size where w or h is 0.
+Box sizedBox(const Layer &layer, const LayerState &state, double iw, double ih)
 {
     double w = layer.w, h = layer.h;
-    const double iw = image ? cairo_image_surface_get_width(image) : 0.0;
-    const double ih = image ? cairo_image_surface_get_height(image) : 0.0;
     if (iw > 0 && ih > 0) {
         if (w <= 0 && h <= 0) {
             w = iw;
@@ -204,6 +203,29 @@ Box imageBox(const Layer &layer, const LayerState &state, cairo_surface_t *image
         }
     }
     return {state.x, state.y, std::max(w, 1.0), std::max(h, 1.0)};
+}
+
+Box imageBox(const Layer &layer, const LayerState &state, cairo_surface_t *image)
+{
+    return sizedBox(layer, state, image ? cairo_image_surface_get_width(image) : 0.0,
+                    image ? cairo_image_surface_get_height(image) : 0.0);
+}
+
+// An animated layer's box (as imageBox, by the animation's size), or its
+// own box when the animation doesn't read.
+Box animationBox(const TitleDocument &doc, const Layer &layer, const LayerState &state, std::set<std::string> &warnings)
+{
+    const auto facts = lottieFacts(imagePath(doc, layer), layer.src, warnings);
+    return sizedBox(layer, state, facts ? facts->width : 0.0, facts ? facts->height : 0.0);
+}
+
+// Where the animation goes in its box: its own aspect, as large as fits,
+// centred.
+Box containedBox(const Box &box, const lottie::Facts &facts)
+{
+    const double scale = std::min(box.w / facts.width, box.h / facts.height);
+    const double w = facts.width * scale, h = facts.height * scale;
+    return {box.x + (box.w - w) / 2, box.y + (box.h - h) / 2, w, h};
 }
 
 // A text layer's Pango layout in canvas pixels, fitted to its box, and
@@ -785,6 +807,26 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
         layer.kind == LayerKind::Text && (!animatedUnits(layer, expansion).empty() || expansion.cursor.has_value());
     // Room for units to move beyond the text's own box.
     double unitReach = 0.0;
+    Surface animationFrame; // an animated layer's frame, drawn below
+    Box drawn;              // where in the box it goes
+    if (layer.kind == LayerKind::Lottie) {
+        const std::string path = imagePath(doc, layer);
+        const auto facts = lottieFacts(path, layer.src, warnings);
+        if (!facts)
+            return;
+        box = sizedBox(layer, state, facts->width, facts->height);
+        drawn = containedBox(box, *facts);
+        // Rendered at the size it lands on screen, so it stays sharp at any
+        // scale (ADR-021 decision 7); rotation doesn't change the size.
+        const double deviceScale =
+            (static_cast<double>(width) / doc.width + static_cast<double>(height) / doc.height) / 2 * state.scale;
+        const int w = std::clamp(static_cast<int>(std::ceil(drawn.w * deviceScale)), 1, lottie::kMaxSide);
+        const int h = std::clamp(static_cast<int>(std::ceil(drawn.h * deviceScale)), 1, lottie::kMaxSide);
+        const double frame = lottie::frameAt(titleFrame, doc.fpsNum, doc.fpsDen, *facts, layer.speed, layer.loop);
+        animationFrame.reset(lottieFrame(path, layer.src, frame, w, h, warnings));
+        if (!animationFrame)
+            return;
+    }
     if (layer.kind == LayerKind::Image) {
         image = layerImage(doc, layer, warnings);
         if (!image)
@@ -896,6 +938,16 @@ void drawLayer(cairo_t *target, int width, int height, const TitleDocument &doc,
                 strokeAndFill(cr.get(), layer, fill, text.box, state.shift);
                 paintColourRuns(cr.get(), text.layout.get(), runs, text.originX, text.originY, fill.opacity);
             }
+        } else if (layer.kind == LayerKind::Lottie) {
+            cairo_surface_t *frame = animationFrame.get();
+            cairo_save(cr.get());
+            cairo_translate(cr.get(), drawn.x, drawn.y);
+            cairo_scale(cr.get(), drawn.w / cairo_image_surface_get_width(frame),
+                        drawn.h / cairo_image_surface_get_height(frame));
+            cairo_set_source_surface(cr.get(), frame, 0, 0);
+            cairo_pattern_set_filter(cairo_get_source(cr.get()), CAIRO_FILTER_GOOD);
+            cairo_paint(cr.get());
+            cairo_restore(cr.get());
         } else if (layer.kind == LayerKind::Image) {
             cairo_save(cr.get());
             cairo_translate(cr.get(), box.x, box.y);
@@ -1015,6 +1067,9 @@ std::vector<LayerGeometry> measureLayers(const TitleDocument &doc, double titleF
         geometry.locked = layer.locked;
         if (layer.kind == LayerKind::Image) {
             const Box box = imageBox(layer, state, layerImage(doc, layer, warnings));
+            geometry.box = {box.x, box.y, box.w, box.h};
+        } else if (layer.kind == LayerKind::Lottie) {
+            const Box box = animationBox(doc, layer, state, warnings);
             geometry.box = {box.x, box.y, box.w, box.h};
         }
         if (layer.kind == LayerKind::Text) {

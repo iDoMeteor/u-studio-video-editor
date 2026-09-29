@@ -1,0 +1,36 @@
+{
+  "avfilter.lut3d": {
+    "name": "LUT (.cube)",
+    "category": "Colour",
+    "tags": [
+      "lut",
+      "grade",
+      "look",
+      "cube",
+      "colour"
+    ],
+    "description": "A colour grade from a .cube file: pick one, or import yours into the LUTs on the Add page",
+    "params": {
+      "av.file": {
+        "name": "LUT file",
+        "kind": "file",
+        "extensions": [
+          "cube"
+        ]
+      },
+      "av.interp": {
+        "name": "Smoothing",
+        "default": "tetrahedral"
+      },
+      "av.clut": {
+        "hidden": true
+      },
+      "av.threads": {
+        "hidden": true
+      },
+      "position": {
+        "hidden": true
+      }
+    }
+  }
+}

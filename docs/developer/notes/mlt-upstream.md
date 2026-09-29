@@ -35,7 +35,7 @@ Each needs a standalone repro before it goes upstream.
 | Behaviour | Why not |
 |---|---|
 | `sdl2_audio` handed `on_consumer_frame_show` a freed frame right after a consumer restart (a SEGV in `mlt_frame_get_position`, seen once under ASan; [Playback engine](playback-engine.md)). | 600 restarts under ASan, standalone: clean |
-| A `colour` producer with the plus `affine` filter, encoded as QuickTime Animation (`qtrle`, `argb`), died with SIGFPE on the read-ahead thread. Tests encode qtrle from a PNG still instead. | 14 standalone runs across `real_time` 1, −1, −2 and −4: clean |
 | `play()` after a pause sometimes never started: stale speed-0 frames used up the refresh wake-ups (worked around in `PlaybackController::play()`). | 0 of 120 in two standalone variants |
 | `sdl2_audio` shows frames the read-ahead thread skipped without checking `rendered` (the stop path and the paused refresh), so a GL user renders them off the render thread ([GPU](gpu.md)). | Arguably by design; seen once in 2.5 minutes under load |
+| The `avfilter` filter leaks a properties object (with its strings) each time it sets up a filter graph: `init_image_filtergraph()` closes `p` only on its failure path, and the success path returns first (`filter_avfilter.c:431`, `:711`). Once per graph, not per frame; LSan suppression `leak:filter_get_image` (`tests/sanitizers/lsan.supp`), seen in the effects drop-in's `test_engine` LUT case under `just asan`. | Found 2026-09-29, after this round; not filed yet (needs a standalone repro and a check against master) |
 | `pixbuf` ignores `video_index=-1`. We mark such frames `test_image` (`attachHideVideo()`). | Not a bug: `video_index` is an `avformat` property |

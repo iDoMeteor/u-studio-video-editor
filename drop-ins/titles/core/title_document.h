@@ -107,7 +107,8 @@ enum class LayerKind
 {
     Text,
     Shape,
-    Image, // a PNG, drawn into the box
+    Image,  // a PNG, drawn into the box
+    Lottie, // an animated layer (T6, ADR-021): a Lottie file, kept to its aspect in the box
 };
 
 enum class ShapeKind
@@ -255,7 +256,10 @@ struct Layer
     double radius = 0.0; // RoundedRect
     // Image: a PNG, relative to the title's folder (or absolute). With w or
     // h 0, that side follows the picture's aspect; both 0, its own size.
+    // Lottie (an animated layer) uses `src` too: a .json, like a picture.
     std::string src;
+    bool loop = true;   // Lottie: from the start again at its end, or hold the last frame
+    double speed = 1.0; // Lottie: 0.25 to 4
 
     Fill fill;
     Stroke stroke;
@@ -267,6 +271,14 @@ struct Layer
 
     bool operator==(const Layer &) const = default;
 };
+
+// A layer drawn from a file beside the title (a picture or an animation):
+// the files that travel with a title when it's saved elsewhere, templated
+// or packed.
+inline bool drawnFromFile(const Layer &layer)
+{
+    return (layer.kind == LayerKind::Image || layer.kind == LayerKind::Lottie) && !layer.src.empty();
+}
 
 // A template's slot, filled per clip (`field.<name>` on the producer).
 struct Field

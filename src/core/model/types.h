@@ -207,8 +207,9 @@ struct Param
 // Limits an effect to a region (doc 15, "Mix and masks").
 struct EffectMask
 {
-    std::string shape;         // "rectangle", "ellipse", or a luma map's name
-    std::vector<Param> params; // the shape's geometry, keyframable
+    std::string shape;         // "rectangle" or "ellipse" (a luma map's name: not yet)
+    std::vector<Param> params; // the shape's geometry, keyframable: "x", "y" (its centre) and "width",
+                               // "height", each a fraction of the frame (the whole frame is 1)
     KeyframedValue feather;
     bool invert = false;
 

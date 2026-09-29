@@ -78,6 +78,8 @@ while you're typing in a text field.
 | `Ctrl+Shift+C` | Copy the effects on the Effects page |
 | `Ctrl+Shift+V` | Paste effects onto the selected clips (after or instead of theirs) |
 | `\` (hold) | See the picture without the selected clip's effects |
+| `T` | Add a dissolve at the cut nearest the playhead, and pick its style |
+| `C` | Show or hide the selected clip's curve lanes |
 
 ## Titles (in the editor)
 

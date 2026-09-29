@@ -31,6 +31,10 @@ void PlaybackController::shutdown()
 {
     if (m_consumer) {
         Log::debug(std::string("[engine] shutdown(): stopping consumer '") + m_backendName + "'");
+        // While it stops, sdl2_audio still shows the frames it had queued,
+        // and the last one (consumer_sdl2_audio.c's video_thread), rendered
+        // or not: handleFrameShow() drops them (m_stopping).
+        m_stopping.store(true);
         m_consumer->stop(); // joins the consumer's own thread(s) -- doc 05
     } else {
         Log::debug("[engine] shutdown(): no consumer to stop");
@@ -45,6 +49,7 @@ void PlaybackController::shutdown()
     // free), reproducing reliably enough to be worth this fence rather
     // than trusting stop() alone.
     { std::lock_guard<std::mutex> lock(m_frameShowMutex); }
+    m_stopping.store(false); // the next consumer's frames are shown again
     m_frameShowEvent.reset();
     m_renderStartedEvent.reset();
     m_renderStoppedEvent.reset();
@@ -419,6 +424,18 @@ void PlaybackController::handleFrameShow(const Mlt::EventData &eventData)
     // acquires this same mutex after stop() to guarantee it never starts
     // destroying anything this function might still be touching.
     std::lock_guard<std::mutex> lock(m_frameShowMutex);
+
+    // Stopping (every rebuild's restart): the frames sdl2_audio spits out
+    // now belong to the tractor being dropped. Often they were never
+    // rendered (the read-ahead skips late frames at real_time=1), and
+    // get_image() would render them here on the consumer's thread: a full
+    // render per restart on the CPU pipeline, and GL work on sdl2's thread
+    // on the GPU one (the create_fbo crash). So nothing here, not even the
+    // GL context below. A paused refresh still renders: that frame is what
+    // the user sees. VE GPU's instrumented runs, docs/developer/notes/
+    // gpu.md "Frames rendered on the consumer's own thread".
+    if (m_stopping.load())
+        return;
 
     Mlt::Frame frame(eventData.to_frame());
     if (!frame.is_valid())

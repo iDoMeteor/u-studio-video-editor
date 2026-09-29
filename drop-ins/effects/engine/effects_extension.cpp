@@ -5,6 +5,7 @@
 #include "core/model/effect_native.h"
 
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 namespace ustudio::effects {
@@ -68,6 +69,21 @@ class EffectsExtension : public engine::EngineExtension
         attach(tractor, model.sequence().effects, 0, sequenceLength(model), profile);
     }
 
+    // Adjustment blocks (FX4): each block's effects, its fades folded into
+    // their mix (core::blockEffects()), on `target` over the block's range.
+    // The filters' in/out are the block's, so their keyframes count from its
+    // first frame (mlt_filter_get_position() subtracts "in").
+    void decorateLane(Mlt::Service &target, const core::Model &, int,
+                      const std::vector<const core::AdjustmentBlock *> &blocks, Mlt::Profile &profile) override
+    {
+        for (const core::AdjustmentBlock *block : blocks) {
+            core::AdjustmentBlock frame = *block;
+            frame.effects.clear();
+            attach(target, core::blockEffects(*block), 0, block->length, profile, nullptr,
+                   std::optional<core::AdjustmentBlock>(std::move(frame)));
+        }
+    }
+
     bool applyInPlace(const engine::ParamChange &change) override
     {
         auto found = m_attached.find(change.effect.id.value);
@@ -77,13 +93,13 @@ class EffectsExtension : public engine::EngineExtension
         // leaving or reaching a constant 1) needs different filters: rebuild.
         for (const Attached &attached : found->second) {
             const std::vector<core::NativeFilter> natives =
-                core::nativeFilters(change.effect, attached.offset, attached.length, mixTransition());
+                core::nativeFilters(playedAs(change.effect, attached, change.block), attached.offset, attached.length, mixTransition());
             if (natives.size() != attached.filters.size())
                 return false;
         }
         for (const Attached &attached : found->second) {
             const std::vector<core::NativeFilter> natives =
-                core::nativeFilters(change.effect, attached.offset, attached.length, mixTransition());
+                core::nativeFilters(playedAs(change.effect, attached, change.block), attached.offset, attached.length, mixTransition());
             for (size_t i = 0; i < natives.size(); ++i)
                 for (const auto &[name, value] : natives[i].properties)
                     attached.filters[i]->set(name.c_str(), value.c_str());
@@ -97,7 +113,22 @@ class EffectsExtension : public engine::EngineExtension
     {
         std::vector<std::shared_ptr<Mlt::Filter>> filters; // nativeFilters() order
         core::FrameIndex offset, length;
+        // An adjustment block's effect: the block (without its effects), so
+        // a new value is played with the block's fades as well.
+        std::optional<core::AdjustmentBlock> block;
     };
+
+    // What `effect` plays as where `attached` put it: a block's with the
+    // block's fades as they are now (`now`, from the change), else as built.
+    static core::Effect playedAs(const core::Effect &effect, const Attached &attached,
+                                 const core::AdjustmentBlock *now = nullptr)
+    {
+        if (!attached.block)
+            return effect;
+        core::AdjustmentBlock block = now ? *now : *attached.block;
+        block.effects = {effect};
+        return core::blockEffects(block).front();
+    }
 
     static core::FrameIndex sequenceLength(const core::Model &model)
     {
@@ -105,8 +136,11 @@ class EffectsExtension : public engine::EngineExtension
     }
 
     // `cut` when `service` is a clip's cut (engine::attachToCut()).
+    // `block`: the effects are an adjustment block's (their filters get its
+    // in/out; see decorateLane()).
     void attach(Mlt::Service &service, const std::vector<core::Effect> &effects, core::FrameIndex offset,
-                core::FrameIndex length, Mlt::Profile &profile, Mlt::Producer *cut = nullptr)
+                core::FrameIndex length, Mlt::Profile &profile, Mlt::Producer *cut = nullptr,
+                std::optional<core::AdjustmentBlock> block = std::nullopt)
     {
         for (const core::Effect &effect : effects) {
             if (effect.owner != kOwner) {
@@ -118,7 +152,7 @@ class EffectsExtension : public engine::EngineExtension
                 ++extensionStats().skipped;
                 continue;
             }
-            Attached attached{{}, offset, length};
+            Attached attached{{}, offset, length, block};
             bool valid = true;
             for (const core::NativeFilter &native : core::nativeFilters(effect, offset, length, mixTransition())) {
                 auto filter = std::make_shared<Mlt::Filter>(profile, native.service.c_str());
@@ -142,10 +176,13 @@ class EffectsExtension : public engine::EngineExtension
                 continue;
             }
             for (const std::shared_ptr<Mlt::Filter> &filter : attached.filters) {
-                if (cut)
+                if (cut) {
                     engine::attachToCut(*cut, *filter);
-                else
+                } else {
+                    if (block)
+                        filter->set_in_and_out(static_cast<int>(block->start), static_cast<int>(block->end() - 1));
                     service.attach(*filter);
+                }
             }
             extensionStats().attached += static_cast<int>(attached.filters.size());
             m_attached[effect.id.value].push_back(std::move(attached));

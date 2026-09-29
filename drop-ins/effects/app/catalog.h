@@ -8,13 +8,18 @@
 #include "core/health.h"
 #include "core/model/model.h"
 #include "core/model/signal.h"
+#include "engine/plugins.h"
 #include "engine/registry.h"
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ustudio::effects {
+
+// A LUT library item's prefix (Catalog::effectsFor()).
+inline constexpr std::string_view kLutPrefix = "lut:";
 
 class Catalog
 {
@@ -49,7 +54,8 @@ class Catalog
     }
 
     // What a Browser tile carries, dragged or applied: an effect's service,
-    // "look:brand:<index>" or "look:project:<id>". The effects it adds (new,
+    // "look:brand:<index>", "look:project:<id>" or "lut:<path>" (a .cube
+    // file in the LUT library, as avfilter.lut3d). The effects it adds (new,
     // at their defaults or the look's settings), or none when it names
     // nothing this install can play.
     std::vector<core::Effect> effectsFor(const core::Model &model, const std::string &item) const;
@@ -61,6 +67,19 @@ class Catalog
     std::vector<core::Effect> clipboard;
     // One service's health result arrived (its badge, whether it's usable).
     core::Signal<const std::string &> healthChanged;
+
+    // VST2 and OpenFX: offered only when chosen (as loaded at start-up).
+    ExperimentalFamilies experimental;
+    // Whether LSP Plugins' LADSPA set is installed (doc 15: recommended for
+    // audio, never required); the Browser suggests it when it isn't.
+    bool lspInstalled = true;
+
+    // The adjustment block the FX lane selected (the shell's selection has
+    // no blocks yet): the Rack edits its effects. Null when none.
+    std::optional<core::AdjustmentBlockId> selectedBlock;
+    // After selectedBlock changes. Process-wide, like the clipboard: with
+    // two windows, a block selected in one shows in both Racks.
+    core::Signal<> blockSelected;
 
   private:
     std::shared_ptr<const EffectRegistry> m_registry;

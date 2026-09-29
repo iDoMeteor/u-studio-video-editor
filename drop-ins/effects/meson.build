@@ -9,7 +9,7 @@ effects_inc = include_directories('.')
 effects_core = static_library(
   'ustudio_effects_core',
   files('core/commands.cpp', 'core/descriptor.cpp', 'core/health.cpp', 'core/json.cpp', 'core/keyframes.cpp', 'core/looks.cpp',
-        'core/transitions.cpp'),
+        'core/transitions.cpp', 'core/blocks.cpp'),
   include_directories: effects_inc,
   dependencies: [libustudio_core_dep],
   pic: true,
@@ -29,6 +29,11 @@ install_subdir('data/transitions', install_dir: effects_data_install_dir)
 effects_args = [
   '-DUSTUDIO_VERSION="' + meson.project_version() + '"',
   '-DEFFECTS_DATA_INSTALL_DIR="' + get_option('prefix') / effects_data_install_dir + '"',
+  # A package that brings its own MLT frei0r module and frei0r plugins (the
+  # Flatpak extension: the core app's MLT is built without frei0r, ADR-014)
+  # installs them here; used when they exist, else MLT's and the system's.
+  '-DEFFECTS_MLT_INSTALL_DIR="' + get_option('prefix') / get_option('libdir') / 'u-studio' / 'mlt' + '"',
+  '-DEFFECTS_FREI0R_INSTALL_DIR="' + get_option('prefix') / get_option('libdir') / 'frei0r-1' + '"',
   # Running from a build directory: this source tree's data.
   '-DEFFECTS_DATA_SOURCE_DIR="' + meson.current_source_dir() / 'data' + '"',
 ]
@@ -37,8 +42,16 @@ effects_engine_sources = files('engine/effects_extension.cpp', 'engine/frame_ren
                                'engine/probe.cpp', 'engine/registry.cpp')
 # app/: GTK for the Rack, GIO for the scan's children; no MLT
 # (tools/dropin_boundary_check.sh).
+# The Transitions page's tile and outline colours, from the editor's
+# style.css (drop-ins/ builds before src/app, so its own copy, as titles').
+effects_app_tokens_h = custom_target(
+  'effects-app-tokens-h',
+  input: meson.project_source_root() / 'src' / 'app' / 'style' / 'style.css',
+  output: 'tokens.h',
+  command: [find_program('python3'), meson.project_source_root() / 'tools' / 'gen_tokens.py', '@INPUT@', '@OUTPUT@'],
+)
 effects_app_sources = files('app/browser.cpp', 'app/catalog.cpp', 'app/compare.cpp', 'app/health_scan.cpp',
-                              'app/rack.cpp')
+                              'app/rack.cpp', 'app/transitions_page.cpp', 'app/curve_lanes.cpp', 'app/fx_lane.cpp', 'app/preview_tools.cpp') + [effects_app_tokens_h]
 effects_dropin_sources = files('register.cpp') + effects_engine_sources + effects_app_sources
 
 if get_option('dropin_effects') == 'module'

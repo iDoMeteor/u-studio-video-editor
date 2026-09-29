@@ -242,18 +242,18 @@ void AppWindow::redrawTimeline()
     refreshTimeline();
 }
 
-bool AppWindow::overlayClaimsPress(double x, double y, int nPress)
+timeline::TimelineOverlayProvider *AppWindow::overlayClaimsPress(double x, double y, int nPress)
 {
     if (m_timelineOverlays.empty())
-        return false;
+        return nullptr;
     const timeline::RowLayout layout = rowLayout();
     for (timeline::TimelineOverlayProvider *overlay : m_timelineOverlays) {
         if (overlay->pressed(m_model, m_viewport, layout, x, y, nPress)) {
             gtk_widget_queue_draw(GTK_WIDGET(m_timeline));
-            return true;
+            return overlay;
         }
     }
-    return false;
+    return nullptr;
 }
 
 std::string AppWindow::projectFolder() const
