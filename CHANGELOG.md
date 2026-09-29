@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.80.2-beta.1
+
+- The editor's number settings (Settings, Render profiles, Edit Transform)
+  are reachable by screen readers.
+
 ## 0.80.1-beta.1
 
 - U Stu Titles: the inspector's number rows (Speed, position, size and
