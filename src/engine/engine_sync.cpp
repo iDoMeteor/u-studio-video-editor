@@ -1026,15 +1026,7 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // The transition's recipe (core/model/transition_native.h): the plain
     // dissolve for empty params, a wipe, a dip or a flash otherwise.
     // Model::check() has already refused any service outside its allowlist.
-    // The GPU graph gets only what VE GPU has verified in it: every recipe
-    // plays there as the plain dissolve (movit.luma_mix), with no CPU
-    // filters on the cuts and no map (a wipe's resource on movit.luma_mix
-    // is unverified; composite/affine/brightness inside a movit graph too).
-    const bool gpu = m_pipeline == Pipeline::Gpu;
-    core::Transition plain = t;
-    if (gpu)
-        plain.params.clear();
-    const core::NativeTransition native = core::nativeTransition(plain);
+    const core::NativeTransition native = core::nativeTransition(t);
     for (const auto &[filters, cut] : {std::pair{&native.tailFilters, tailA.get()}, {&native.headFilters, headB.get()}})
         for (const core::NativeFilter &spec : *filters) {
             Mlt::Filter filter(*m_profile, spec.service.c_str());
@@ -1047,17 +1039,26 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
             attachToCut(*cut, filter);
         }
 
-    // The GPU graph dissolves with movit.luma_mix, a plain mix without a
-    // luma `resource` (transition_movit_luma.yml).
-    const bool gpuDissolve = gpu && native.video.service == "luma";
+    // A wipe's map; none for a dissolve, a dip or an unknown map name
+    // (which then plays as the dissolve).
+    const std::string map =
+        native.luma.empty() || native.video.service != "luma" ? std::string() : lumaMapFile(native.luma);
+    // The GPU graph dissolves (and dips, whose brightness filters sit on the
+    // cuts) with movit.luma_mix, a plain mix without a luma `resource`
+    // (transition_movit_luma.yml). A wipe there stays the CPU `luma`, an
+    // island in the movit graph (VE GPU's repro, 2026-09-28): movit.luma_mix
+    // squares the progress and reads the map through a producer at 8 bits,
+    // while the CPU luma reads the .pgm itself at 16 bits, so the island
+    // plays exactly the CPU's wipe (edge within ~9 px at 1080p) at about
+    // 140 ms a frame at Full. Keep the maps .pgm: another image format goes
+    // through the default loader, the gap on a live GPU session.
+    const bool gpuDissolve = m_pipeline == Pipeline::Gpu && native.video.service == "luma" && map.empty();
     Mlt::Transition luma(*m_profile, gpuDissolve ? "movit.luma_mix" : native.video.service.c_str());
-    for (const auto &[name, value] : native.video.properties)
-        luma.set(name.c_str(), value.c_str());
-    if (!native.luma.empty() && !gpuDissolve && native.video.service == "luma") {
-        const std::string map = lumaMapFile(native.luma);
-        if (!map.empty())
-            luma.set("resource", map.c_str());
-    }
+    if (!gpuDissolve)
+        for (const auto &[name, value] : native.video.properties)
+            luma.set(name.c_str(), value.c_str());
+    if (!map.empty())
+        luma.set("resource", map.c_str());
     luma.set_in_and_out(0, static_cast<int>(t.length - 1));
     field->plant_transition(luma, 0, 1);
 
@@ -1601,16 +1602,6 @@ bool renderProject(core::Model &model, const std::string &outputPath, std::strin
     // both outlive it.
     std::shared_ptr<GpuSession> gpu = GpuSession::current();
     std::unique_ptr<platform::GlContext> gpuContext;
-    // A transition recipe (a wipe, dip or flash) plays only on the CPU
-    // pipeline until VE GPU verifies its shapes in a movit graph (see
-    // buildTransitionSubTractor()), so an export with one renders there
-    // rather than silently turning it into a dissolve.
-    const auto &transitions = renderModel.sequence().transitions;
-    if (gpu && std::any_of(transitions.begin(), transitions.end(),
-                           [](const core::Transition &t) { return !t.params.empty(); })) {
-        Log::info("[gpu] exporting on the CPU: the project has transition recipes");
-        gpu.reset();
-    }
     if (gpu) {
         std::string why;
         gpuContext = gpu->sharedContext(why);

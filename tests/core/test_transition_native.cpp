@@ -123,6 +123,22 @@ TEST_CASE("transitionProblem: only allowed services, and never a file property")
     CHECK_FALSE(transitionProblem(transitionWith({{"video.resource", std::string("/etc/passwd"), {}}})).empty());
     CHECK_FALSE(transitionProblem(transitionWith({{"video.producer.resource", std::string("x"), {}}})).empty());
     CHECK_FALSE(transitionProblem(transitionWith({{"video.factory", std::string("loader"), {}}})).empty());
+    // affine's filter opens its background as a producer, and passes
+    // producer.* and transition.* on: refused on the cuts and at any depth.
+    CHECK_FALSE(transitionProblem(transitionWith({{"a.0.service", std::string("affine"), {}},
+                                                  {"a.0.background", std::string("/etc/passwd"), {}}}))
+                    .empty());
+    CHECK_FALSE(transitionProblem(transitionWith({{"b.0.service", std::string("affine"), {}},
+                                                  {"b.0.producer.resource", std::string("x.mp4"), {}}}))
+                    .empty());
+    CHECK_FALSE(transitionProblem(transitionWith({{"b.0.service", std::string("affine"), {}},
+                                                  {"b.0.transition.producer.resource", std::string("x"), {}}}))
+                    .empty());
+    CHECK_FALSE(transitionProblem(transitionWith({{"audio.resource", std::string("x.wav"), {}}})).empty());
+    // A motion recipe's geometry is fine.
+    CHECK(transitionProblem(transitionWith({{"a.0.service", std::string("affine"), {}},
+                                            {"a.0.transition.rect", std::string("ramp:0% 0% 100% 100%|-100% 0% 100% 100%"), {}}}))
+              .empty());
     Transition hostile = transitionWith({});
     hostile.service = "qtblend";
     CHECK_FALSE(transitionProblem(hostile).empty());

@@ -150,12 +150,19 @@ std::vector<fs::path> frei0rSearchDirs()
         fromEnv = std::getenv("MLT_FREI0R_PLUGIN_PATH");
     const std::string list = fromEnv && *fromEnv ? fromEnv : kMltDefaultFrei0rPath;
     std::vector<fs::path> dirs;
+    // A package's own plugins first (the Flatpak extension's; no
+    // FREI0R_PATH in the sandbox), when it has them. The remembered list
+    // (a child's) already starts with them.
+    std::error_code ec;
+    const fs::path packaged = EFFECTS_FREI0R_INSTALL_DIR;
+    if (fs::is_directory(packaged, ec))
+        dirs.push_back(packaged);
     const char *home = g_get_home_dir();
     for (const std::string &entry : split(list, kListSeparator)) {
-        if (entry.starts_with("$HOME"))
-            dirs.push_back(fs::path(home ? home : "") / fs::path(entry.substr(5)).relative_path());
-        else
-            dirs.emplace_back(entry);
+        fs::path dir = entry.starts_with("$HOME") ? fs::path(home ? home : "") / fs::path(entry.substr(5)).relative_path()
+                                                  : fs::path(entry);
+        if (std::find(dirs.begin(), dirs.end(), dir) == dirs.end())
+            dirs.push_back(std::move(dir));
     }
     return dirs;
 }
