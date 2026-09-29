@@ -86,3 +86,11 @@ leak:filter_scale
 #   each for some plugins, freed by nothing. A leaked mlt++ wrapper of ours
 #   still reports (it's allocated outside the module).
 leak:libmltfrei0r.so
+
+# MLT's avfilter filter (libmltavformat, filter_avfilter.c:431/711, MLT 7.40):
+# init_image_filtergraph() closes its temporary properties only on failure;
+# the success path returns first, so each filter graph set-up (the first
+# frame, a format or size change) leaks them. Upstream; the effects drop-in's
+# avfilter.* effects (a LUT) reach it. Inlined into filter_get_image, which
+# only MLT's own filters have on a stack: our wrappers are never under it.
+leak:filter_get_image
