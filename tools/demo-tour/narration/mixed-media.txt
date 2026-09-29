@@ -1,0 +1,25 @@
+# Mixed media, proxies and relinking. Voice cedar.
+
+## intro
+This video is about working with all kinds of media: still images, numbered image sequences, lighter proxy copies for heavy footage, and what to do when a file goes missing.
+
+## Import a folder
+Import Folder brings in a whole folder at once. Here it's a few still images: thumbnails and artwork. It's all a single undo step.
+
+## Media browser
+Every item in the media browser shows its length, frame rate and format, and still images are marked as images. Drag one onto the timeline, and it fills the space to the end of your edit.
+
+## Proxies
+Heavy footage? Right-click it and choose Create Proxy. A smaller copy is made in the background, and the Proxies button switches playback between the copies and the originals. Renders always use the originals, so your export quality never drops.
+
+## Import Image Sequence
+Numbered images, like a render from an animation or 3D tool, can come in as one clip. Choose Import Image Sequence, pick any one of the images, and the whole run becomes a single clip, one image per frame.
+
+## Missing media
+If a file is moved or renamed, its clips show red stripes, and a banner tells you what's missing. Rendering asks you to relink first, so nothing goes out with holes in it.
+
+## Relink
+Relink can search a folder for you. It finds the file by its name and its contents, and the whole fix is a single undo step.
+
+## outro
+That's mixed media in U Stu Video Editor. Thanks for watching!

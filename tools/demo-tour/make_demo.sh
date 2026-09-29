@@ -35,7 +35,7 @@ if [ "${TOUR_NO_MERGE:-0}" != 1 ]; then
 fi
 BUILD=$REPO/builddir
 [ -d "$BUILD" ] || meson setup "$BUILD" "$REPO" >/dev/null
-meson configure "$BUILD" -Dbuildtype=release -Ddropin_titles=builtin >/dev/null   # the titles chapters need the designer
+meson configure "$BUILD" -Dbuildtype=release -Ddropin_titles=builtin -Ddropin_effects=builtin >/dev/null   # the titles chapters need the designer
 meson compile -C "$BUILD" >/dev/null
 VERSION=$(meson introspect "$BUILD" --projectinfo | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
 
@@ -47,6 +47,11 @@ NAME=u-studio-demo-$(date +%F)
 if [ -n "$PART" ]; then
   NARR=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["narration"])' "$HERE/parts.json" "$PART")
   STOP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["chapters"][-1])' "$HERE/parts.json" "$PART")
+  # A part can skip tour sections it doesn't need and start without drop-ins.
+  export TOUR_SKIP=${TOUR_SKIP:-$(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))[sys.argv[2]].get("skip", [])))' "$HERE/parts.json" "$PART")}
+  SCRIPT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]].get("script", ""))' "$HERE/parts.json" "$PART")
+  [ -n "$SCRIPT" ] && export TOUR_SCRIPT="$HERE/$SCRIPT"   # a part with its own short tour (captions.py)
+  export TOUR_DROPINS_OFF=${TOUR_DROPINS_OFF:-$(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))[sys.argv[2]].get("dropins_off", [])))' "$HERE/parts.json" "$PART")}
   python3 "$HERE/narrate.py" "$HERE/$NARR" "$WORK/narration.json"
   NAME=$NAME-$PART
 fi

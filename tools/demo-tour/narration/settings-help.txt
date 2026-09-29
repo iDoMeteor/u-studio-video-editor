@@ -1,0 +1,37 @@
+# Settings and Help. Voice cedar.
+
+## intro
+This video is a quick tour of the settings, and of the help that's built into U Stu Video Editor.
+
+## Settings
+Settings has every preference in one place, grouped into pages.
+
+## Settings: Toggles
+Toggles switches everyday behaviours on and off: reopening your last project, snapping, following the playhead, thumbnails and waveforms.
+
+## Settings: Performance
+Performance is where you tune the preview, proxies for heavy footage, graphics acceleration and hardware video decoding, and how much work runs in the background.
+
+## Settings: Locations
+Locations sets where your projects are saved, and where finished videos go.
+
+## Settings: Render
+Render holds your render profiles. High quality is the default, and you can make your own.
+
+## Settings: Drop-ins
+Drop-ins lists the optional add-ons, like titles and effects, with a switch for each one. U Stu never downloads anything; add-ons are installed like any other package.
+
+## Settings: Shortcuts
+And Shortcuts is where you'll soon be able to change the keys. For now, Help lists every shortcut.
+
+## Help
+Help explains every control and lists every shortcut, in sections that remember where you were.
+
+## Release notes
+Release notes show what's new in each version, written for the people testing it.
+
+## About and diagnostics
+And About has the version details. If something goes wrong, Copy Diagnostics puts everything a bug report needs on your clipboard.
+
+## outro
+That's settings and help. Thanks for watching!

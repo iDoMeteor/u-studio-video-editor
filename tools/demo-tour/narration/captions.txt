@@ -1,0 +1,19 @@
+# Captions. Voice cedar.
+
+## intro
+In this video, we'll add captions to our edit: import a subtitle file, see it play, fix a line, and export the captions again.
+
+## Import captions
+Import a subtitle file, an S R T or a V T T, just like any other media. Every line becomes a caption, at its time, on a new Captions track at the top.
+
+## Captions play over the video
+The captions play right over the video. Italics and colours from the file come through, and a caption the file places at the top of the picture goes at the top.
+
+## Fix a caption
+Spotted a typo? Select the caption, and correct its words on the Title page. The timeline names each caption by its first line.
+
+## Export captions
+When you're done, Export Captions writes every caption, with your fixes, as an S R T or a V T T file, ready for YouTube or any web player.
+
+## outro
+That's captions in U Stu Video Editor. Thanks for watching!

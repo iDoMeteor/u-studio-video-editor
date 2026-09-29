@@ -1,0 +1,25 @@
+# Basics 4: rendering. Voice cedar.
+
+## intro
+Welcome to the last part of the basics. Our edit is ready, so let's turn it into a video file, queue up a second version, and see what happens if you quit in the middle of a render.
+
+## Render
+Time to render. The file is named for you and saved in your export folder, in high quality by default.
+
+## Queue another render
+Right-click the Render button to queue another version, like a quick draft.
+
+## Cancel or queue
+Clicking the Render button while it works lets you cancel the current render, and the next one in the queue carries on.
+
+## Render finished
+When the render is done, the button turns cyan. Click it to open your new video.
+
+## Quit while rendering
+If you quit in the middle of a render, the editor asks first, stops cleanly, and offers to finish the job next time.
+
+## Reopen
+Open the editor again, and your last project is right where you left it, with the unfinished render ready to restart.
+
+## outro
+And that's the basics: from importing footage to a finished video. The next videos dig into titles, picture in picture, effects and more. Thanks for watching!

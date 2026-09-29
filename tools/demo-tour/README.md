@@ -93,7 +93,7 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | basics-1 | Importing, mixed frame rates, the media browser, split audio | 2026-09-28 (0.70.0-beta.1) |
 | basics-2 | Playback, shuttle, loop, timeline editing | 2026-09-28 (0.71.0-beta.1, GPU off; file -2) |
 | basics-3 | Save and backups, settings, the project format | 2026-09-28 (0.73.0-beta.1, GPU off; file -2) |
-| basics-4 | Rendering, the queue, quit while rendering and restart | |
+| basics-4 | Rendering, the queue, quit while rendering and restart | 2026-09-29 (0.78.0-beta.1, GPU on, drop-ins off) |
 | titles-1 | New Title, the template gallery, editing text, the brand kit | |
 | pip | Picture in picture: move, scale, rotate, crop, flip, Edit Transform | |
 | titles-2 | Animation: behaviours, the strip, fields on the Title page | |

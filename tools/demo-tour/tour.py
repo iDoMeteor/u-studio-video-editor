@@ -4,9 +4,24 @@ sys.path.insert(0, os.environ['TOUR_DEMO'])
 import tourlib as T
 from tourlib import *
 M = os.environ['TOUR_MEDIA']
+
+def is_on(node):
+    # GTK4 toggle buttons report "on" as PRESSED over AT-SPI; others as CHECKED.
+    st = node.get_state_set()
+    return st.contains(Atspi.StateType.PRESSED) or st.contains(Atspi.StateType.CHECKED)
+
+def inspector(open_=False):
+    """Show or hide the inspector (docked and open by default since 0.7x; the
+    timeline chapters' positions assume a full-width timeline)."""
+    n = find('Inspector', roles=('toggle button',), timeout=4)
+    if n and is_on(n) != open_:
+        click(*centre_of(n)); pause(0.8)
 WORK = os.path.join(os.environ['TOUR_OUT'], 'work')
 UPTO = int(os.environ.get('TOUR_UPTO', '99'))
 SHOTS = os.environ.get('TOUR_SHOTS', '1') == '1'
+SKIP = set(filter(None, os.environ.get('TOUR_SKIP', '').split(',')))   # sections a part doesn't need
+def on(section):
+    return section not in SKIP
 TL_X0 = 36          # the timeline's time zero, in screen x
 
 def seek_x(x):
@@ -73,10 +88,14 @@ def step(title, sub=''):
 
 # TOUR_GPU=0 presets GPU acceleration off in the run's private dconf (dconf
 # honours XDG_CONFIG_HOME, so the owner's settings are untouched).
+OFF = [d for d in os.environ.get('TOUR_DROPINS_OFF', '').split(',') if d]
+if OFF:
+    subprocess.run(['dconf', 'write', '/com/ustudio/VideoEditor/disabled-drop-ins', str(OFF)], check=True)
+    T.log(f'drop-ins off: {OFF}')
 if os.environ.get('TOUR_GPU', '1') == '0':
     subprocess.run(['dconf', 'write', '/com/ustudio/VideoEditor/gpu-acceleration', 'false'], check=True)
     T.log('GPU acceleration preset off')
-launch()
+launch(); inspector(False)
 step('U Stu Video Editor', 'a GNOME-native multi-track video editor')
 pause(3)
 
@@ -224,56 +243,7 @@ for _ in range(3):
     press('Redo'); pause(0.7)
 act('zoom-fit'); pause(1); rest(); snap('c5-end')
 
-# ---------------------------------------------------------------- 5b transform
-step('Transform on the preview', 'click a picture to select it; drag a corner to scale, the body to move; guides snap')
-act('zoom-fit'); act('seek-home'); act('step-forward-10', 6, gap=0.1); pause(1.5)
-click(960, 385); pause(1.2)
-b = preview_box(); T.log(f"preview box {b}")
-if b:
-    x0, y0, x1, y1 = b
-    drag(x0 + 1, y0 + 1, x0 + (x1 - x0) // 2, y0 + (y1 - y0) // 2, dur=1.4); pause(1.2)
-    b = preview_box() or b; x0, y0, x1, y1 = b
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-    drag(cx, cy, cx + 40, cy - 60, dur=1.4); pause(1.2); rest(); snap('c5b-pip')
-    step('Rotate', 'drag the knob above the box; Shift steps by 15°')
-    k = preview_knob(); T.log(f"knob {k}")
-    if k:
-        drag(k[0], k[1], k[0] + 70, k[1] + 12, dur=1.4); pause(1.2); rest(); snap('c5b-rotated')
-    step('Transform menu', 'right-click the preview: fit, stretch, centre, flip and rotate')
-    b = preview_box() or b; x0, y0, x1, y1 = b
-    click((x0 + x1) // 2, (y0 + y1) // 2, button=3); pause(1.5); snap('c5b-menu')
-    # The menu's items aren't in the AT-SPI tree under Xvfb; close it and flip
-    # through the same action the item runs.
-    keysym(K_ESC); pause(0.5); act('transform-flip-h'); pause(1.2); rest(); snap('c5b-flipped')
-step('Edit Transform', 'Ctrl+T shows exact values beside the preview; every change is one undo step')
-act('transform-edit'); pause(3); snap('c5b-dialog')
-# Its own window, and Esc only reaches it with focus, which Xvfb doesn't give.
-press_in('Edit Transform', 'Close'); pause(0.8)
-act('play-pause'); pause(4); act('play-pause'); pause(0.8)
-
-# ---------------------------------------------------------------- 5c image sequence
-# Numbered frames generated at runtime from a staged clip; nothing goes in the repo.
-step('Import Image Sequence', 'Ctrl+Alt+I: pick any image of a numbered run and it comes in as one clip, one image per frame')
-act('import-image-sequence'); center_dialogs(1.0)
-set_location(SEQ_FIRST); keysym(K_RETURN); pause(1.2)
-if find('Open', exact=True, timeout=1):   # Enter may only navigate
-    press('Open', exact=True)
-pause(3); T.log(f"sequence status {status()!r}")
-press('Show or hide the media browser'); pause(1.5)
-for _ in range(14):
-    mouse(230, 400, 'b5c'); time.sleep(0.08)
-pause(1.2); snap('c5c-browser')
-v3 = clips_in_row(YB(0))
-v3_end = max(r[1] for r in v3) if v3 else 200
-drop_x = v3_end + 40
-drag(70, 695, drop_x, YB(0), dur=1.6); pause(2); rest(); snap('c5c-dropped')   # the newest asset is the last row
-press('Show or hide the media browser'); pause(1)
-seek_x(drop_x + 8); pause(0.8)   # playhead onto the sequence
-act('zoom-in', 4, gap=0.3); pause(1)
-act('play-pause'); pause(1.5); snap('c5c-playing'); pause(1.2); act('play-pause'); pause(0.8)
-act('undo'); pause(1); act('zoom-fit'); rest()   # keep the later chapters' timeline as it was
-
-# ---------------------------------------------------------------- 5d titles (U Stu Titles)
+# Shared helpers (the titles, format and render chapters use them).
 def wait_status(prefixes, timeout):
     end = time.time() + timeout
     while time.time() < end:
@@ -294,95 +264,150 @@ def titles_window():
         time.sleep(0.5)
     subprocess.run(['python3', os.path.join(T.DEMO, 'fitwin.py'), 'u-studio-titles'], capture_output=True, timeout=30)
     pause(1.5)
-PACK = os.path.join(WORK, 'stream-kit.zip')
-subprocess.run(['python3', os.path.join(T.DEMO, 'make_demo_pack.py'), PACK], check=True)
 
-step('Titles', 'New Title (Shift+T): a title clip at the playhead on the active track, and U Stu Titles opens on it')
-v3 = clips_in_row(YB(0))
-title_x = (max(r[1] for r in v3) if v3 else 300) + 60
-click(1500, YB(0)); pause(0.6)                 # the empty end of V3: make it the active track
-seek_x(title_x); pause(0.8)
-act('titles-new'); pause(5)
-titles_window(); snap('c5d-gallery')
-step('Template gallery', 'lower thirds, bugs and badges, cards, end screens, countdowns, live and social, and your own')
-for _ in range(10):
-    mouse(960, 600, 'b5c'); time.sleep(0.12)
-pause(1.5)
-for _ in range(10):
-    mouse(960, 600, 'b4c'); time.sleep(0.12)
-pause(1)
-step('Template packs', 'Open Pack… shows what a shared pack holds before installing it; Save as Pack… makes one')
-press('Open Pack…'); pause(1.5); set_location(PACK); keysym(K_RETURN); pause(1.2)
-if find('Open', exact=True, timeout=1):
-    press('Open', exact=True)
-pause(2.5); snap('c5d-pack')
-press('Install', exact=True); pause(2.5)
-for _ in range(40):
-    mouse(960, 600, 'b5c'); time.sleep(0.06)
-pause(2); snap('c5d-pack-installed')
-for _ in range(40):
-    mouse(960, 600, 'b4c'); time.sleep(0.06)
-pause(1)
-press('Lower third, two lines', exact=True); pause(3); snap('c5d-template')
-step('Designing over the picture', 'the video at the playhead shows behind the title: layers on the left, the inspector on the right')
-layer = find('{{name}}', roles=('label',), timeout=3)
-if layer:
-    click(*centre_of(layer)); pause(1.5)
-dump('c5d-layer'); snap('c5d-layer')
-step('Brand kit', 'the Unicorn Tears colours, gradients and fonts sit next to every colour and font; Apply Brand restyles a title')
-# The brand fonts aren't installed here (they fall back), so point at the kit
-# rather than click a font that would look unchanged.
-a = find('Anton', roles=('button',), exact=True, timeout=2)
-if a:
-    ax, ay = centre_of(a)
-    move(ax, ay - 40); pause(0.8); move(ax, ay + 110, dur=1.2); pause(1)
-b = where('Apply Brand')
-if b:
-    move(*b, dur=1.0); pause(2)
-snap('c5d-brand')
-step('Animation', 'Add In…, Out… and Loop… show each behaviour on your own layer; the strip shows intro, hold and outro')
-press('Add In…', roles=TG, exact=True); pause(3)
-p = find('Pop', roles=('table cell',), exact=True, timeout=2)
-if p:
-    click(*centre_of(p)); pause(1.2)
-else:
-    keysym(K_ESC); pause(0.6)
-press('Add Loop…', roles=TG, exact=True); pause(2.5)
-p = find('Glow breathe', roles=('table cell',), exact=True, timeout=2)
-if p:
-    click(*centre_of(p)); pause(1.2)
-else:
-    keysym(K_ESC); pause(0.6)
-press('Play the intro'); pause(5); snap('c5d-playing'); press('Play the intro'); pause(0.6)
-step('Export for OBS', 'Ctrl+E: ProRes 4444, WebM or a PNG sequence with transparency, or H.264, at any length')
-keysym(ord('e'), mods=('ctrl',)); pause(2); snap('c5d-export'); dump('c5d-export')
-keysym(K_ESC); pause(1)
-step('Save the title', 'Ctrl+S: the editor picks it up at once, with clean transparent edges over the video')
-keysym(ord('s'), mods=('ctrl',)); pause(2)
-press('Close', exact=True); pause(2)
-use_app(None)
-act('zoom-in', 4, gap=0.3); pause(1)
-# The playhead is at the title's first frame: step back one so the title is
-# the "next" clip on the active track, select it, then go into the hold.
-act('step-backward'); act('select-next-clip'); T.log(f"select title: {status()!r}")
-act('step-forward-10', 5, gap=0.2); pause(1.5); snap('c5d-editor')
-step('Title fields', 'the inspector’s Title page: one lower third for every guest, and the preview follows as you type')
-click(*where('Inspector', roles=TG)); pause(2); dump('c5d-titlepage'); snap('c5d-titlepage')
-fields = [n for n in walk(app_node()) if info(n)[2] in ('text', 'entry') and extents(n)[0] > 1400]
-T.log(f"title fields: {[info(f)[0] for f in fields]}")
-for f, text in zip(fields, ('DJ Unicorn', 'Resident, Neon Grove')):
-    click(*centre_of(f)); pause(0.4); keysym(ord('a'), mods=('ctrl',)); typestr(text); pause(1.2)
-pause(1.5); snap('c5d-fields')
-step('Bake', 'Bake… renders the title to a ProRes 4444 file and plays that instead; Ctrl+Z brings the live title back')
-if press('Bake…'):
-    ff_start(); st = wait_status(('Baked', "Couldn't bake"), 180); ff_end(); T.log(f"bake status {st!r}")
-pause(2); snap('c5d-baked')
-act('undo'); pause(1.5)
-insp = find('Inspector', roles=TG, timeout=2)
-if insp and insp.get_state_set().contains(Atspi.StateType.CHECKED):
-    click(*centre_of(insp)); pause(1)      # close it only if it's open
-act('zoom-fit'); pause(1)
+# ---------------------------------------------------------------- 5b transform
+if on('transform'):
+    step('Transform on the preview', 'click a picture to select it; drag a corner to scale, the body to move; guides snap')
+    act('zoom-fit'); act('seek-home'); act('step-forward-10', 6, gap=0.1); pause(1.5)
+    click(960, 385); pause(1.2)
+    b = preview_box(); T.log(f"preview box {b}")
+    if b:
+        x0, y0, x1, y1 = b
+        drag(x0 + 1, y0 + 1, x0 + (x1 - x0) // 2, y0 + (y1 - y0) // 2, dur=1.4); pause(1.2)
+        b = preview_box() or b; x0, y0, x1, y1 = b
+        cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+        drag(cx, cy, cx + 40, cy - 60, dur=1.4); pause(1.2); rest(); snap('c5b-pip')
+        step('Rotate', 'drag the knob above the box; Shift steps by 15°')
+        k = preview_knob(); T.log(f"knob {k}")
+        if k:
+            drag(k[0], k[1], k[0] + 70, k[1] + 12, dur=1.4); pause(1.2); rest(); snap('c5b-rotated')
+        step('Transform menu', 'right-click the preview: fit, stretch, centre, flip and rotate')
+        b = preview_box() or b; x0, y0, x1, y1 = b
+        click((x0 + x1) // 2, (y0 + y1) // 2, button=3); pause(1.5); snap('c5b-menu')
+        # The menu's items aren't in the AT-SPI tree under Xvfb; close it and flip
+        # through the same action the item runs.
+        keysym(K_ESC); pause(0.5); act('transform-flip-h'); pause(1.2); rest(); snap('c5b-flipped')
+    step('Edit Transform', 'Ctrl+T shows exact values beside the preview; every change is one undo step')
+    act('transform-edit'); pause(3); snap('c5b-dialog')
+    # Its own window, and Esc only reaches it with focus, which Xvfb doesn't give.
+    press_in('Edit Transform', 'Close'); pause(0.8)
+    act('play-pause'); pause(4); act('play-pause'); pause(0.8)
 
+    pass
+# ---------------------------------------------------------------- 5c image sequence
+if on('sequence'):
+    # Numbered frames generated at runtime from a staged clip; nothing goes in the repo.
+    step('Import Image Sequence', 'Ctrl+Alt+I: pick any image of a numbered run and it comes in as one clip, one image per frame')
+    act('import-image-sequence'); center_dialogs(1.0)
+    set_location(SEQ_FIRST); keysym(K_RETURN); pause(1.2)
+    if find('Open', exact=True, timeout=1):   # Enter may only navigate
+        press('Open', exact=True)
+    pause(3); T.log(f"sequence status {status()!r}")
+    press('Show or hide the media browser'); pause(1.5)
+    for _ in range(14):
+        mouse(230, 400, 'b5c'); time.sleep(0.08)
+    pause(1.2); snap('c5c-browser')
+    v3 = clips_in_row(YB(0))
+    v3_end = max(r[1] for r in v3) if v3 else 200
+    drop_x = v3_end + 40
+    drag(70, 695, drop_x, YB(0), dur=1.6); pause(2); rest(); snap('c5c-dropped')   # the newest asset is the last row
+    press('Show or hide the media browser'); pause(1)
+    seek_x(drop_x + 8); pause(0.8)   # playhead onto the sequence
+    act('zoom-in', 4, gap=0.3); pause(1)
+    act('play-pause'); pause(1.5); snap('c5c-playing'); pause(1.2); act('play-pause'); pause(0.8)
+    act('undo'); pause(1); act('zoom-fit'); rest()   # keep the later chapters' timeline as it was
+
+    pass
+# ---------------------------------------------------------------- 5d titles (U Stu Titles)
+if on('titles'):
+    PACK = os.path.join(WORK, 'stream-kit.zip')
+    subprocess.run(['python3', os.path.join(T.DEMO, 'make_demo_pack.py'), PACK], check=True)
+
+    step('Titles', 'New Title (Shift+T): a title clip at the playhead on the active track, and U Stu Titles opens on it')
+    v3 = clips_in_row(YB(0))
+    title_x = (max(r[1] for r in v3) if v3 else 300) + 60
+    click(1500, YB(0)); pause(0.6)                 # the empty end of V3: make it the active track
+    seek_x(title_x); pause(0.8)
+    act('titles-new'); pause(5)
+    titles_window(); snap('c5d-gallery')
+    step('Template gallery', 'lower thirds, bugs and badges, cards, end screens, countdowns, live and social, and your own')
+    for _ in range(10):
+        mouse(960, 600, 'b5c'); time.sleep(0.12)
+    pause(1.5)
+    for _ in range(10):
+        mouse(960, 600, 'b4c'); time.sleep(0.12)
+    pause(1)
+    step('Template packs', 'Open Pack… shows what a shared pack holds before installing it; Save as Pack… makes one')
+    press('Open Pack…'); pause(1.5); set_location(PACK); keysym(K_RETURN); pause(1.2)
+    if find('Open', exact=True, timeout=1):
+        press('Open', exact=True)
+    pause(2.5); snap('c5d-pack')
+    press('Install', exact=True); pause(2.5)
+    for _ in range(40):
+        mouse(960, 600, 'b5c'); time.sleep(0.06)
+    pause(2); snap('c5d-pack-installed')
+    for _ in range(40):
+        mouse(960, 600, 'b4c'); time.sleep(0.06)
+    pause(1)
+    press('Lower third, two lines', exact=True); pause(3); snap('c5d-template')
+    step('Designing over the picture', 'the video at the playhead shows behind the title: layers on the left, the inspector on the right')
+    layer = find('{{name}}', roles=('label',), timeout=3)
+    if layer:
+        click(*centre_of(layer)); pause(1.5)
+    dump('c5d-layer'); snap('c5d-layer')
+    step('Brand kit', 'the Unicorn Tears colours, gradients and fonts sit next to every colour and font; Apply Brand restyles a title')
+    # The brand fonts aren't installed here (they fall back), so point at the kit
+    # rather than click a font that would look unchanged.
+    a = find('Anton', roles=('button',), exact=True, timeout=2)
+    if a:
+        ax, ay = centre_of(a)
+        move(ax, ay - 40); pause(0.8); move(ax, ay + 110, dur=1.2); pause(1)
+    b = where('Apply Brand')
+    if b:
+        move(*b, dur=1.0); pause(2)
+    snap('c5d-brand')
+    step('Animation', 'Add In…, Out… and Loop… show each behaviour on your own layer; the strip shows intro, hold and outro')
+    press('Add In…', roles=TG, exact=True); pause(3)
+    p = find('Pop', roles=('table cell',), exact=True, timeout=2)
+    if p:
+        click(*centre_of(p)); pause(1.2)
+    else:
+        keysym(K_ESC); pause(0.6)
+    press('Add Loop…', roles=TG, exact=True); pause(2.5)
+    p = find('Glow breathe', roles=('table cell',), exact=True, timeout=2)
+    if p:
+        click(*centre_of(p)); pause(1.2)
+    else:
+        keysym(K_ESC); pause(0.6)
+    press('Play the intro'); pause(5); snap('c5d-playing'); press('Play the intro'); pause(0.6)
+    step('Export for OBS', 'Ctrl+E: ProRes 4444, WebM or a PNG sequence with transparency, or H.264, at any length')
+    keysym(ord('e'), mods=('ctrl',)); pause(2); snap('c5d-export'); dump('c5d-export')
+    keysym(K_ESC); pause(1)
+    step('Save the title', 'Ctrl+S: the editor picks it up at once, with clean transparent edges over the video')
+    keysym(ord('s'), mods=('ctrl',)); pause(2)
+    press('Close', exact=True); pause(2)
+    use_app(None)
+    act('zoom-in', 4, gap=0.3); pause(1)
+    # The playhead is at the title's first frame: step back one so the title is
+    # the "next" clip on the active track, select it, then go into the hold.
+    act('step-backward'); act('select-next-clip'); T.log(f"select title: {status()!r}")
+    act('step-forward-10', 5, gap=0.2); pause(1.5); snap('c5d-editor')
+    step('Title fields', 'the inspector’s Title page: one lower third for every guest, and the preview follows as you type')
+    inspector(True); pause(1.2); dump('c5d-titlepage'); snap('c5d-titlepage')
+    fields = [n for n in walk(app_node()) if info(n)[2] in ('text', 'entry') and extents(n)[0] > 1400]
+    T.log(f"title fields: {[info(f)[0] for f in fields]}")
+    for f, text in zip(fields, ('DJ Unicorn', 'Resident, Neon Grove')):
+        click(*centre_of(f)); pause(0.4); keysym(ord('a'), mods=('ctrl',)); typestr(text); pause(1.2)
+    pause(1.5); snap('c5d-fields')
+    step('Bake', 'Bake… renders the title to a ProRes 4444 file and plays that instead; Ctrl+Z brings the live title back')
+    if press('Bake…'):
+        ff_start(); st = wait_status(('Baked', "Couldn't bake"), 180); ff_end(); T.log(f"bake status {st!r}")
+    pause(2); snap('c5d-baked')
+    act('undo'); pause(1.5)
+    inspector(False)
+    act('zoom-fit'); pause(1)
+
+    pass
 # ---------------------------------------------------------------- 6 save
 PROJECT = os.path.join(WORK, 'unicorn-demo.ustudio')
 HDR = {'save': where('Save project'), 'render': where('Render…')}   # the header changed in 0.67; find, don't guess
@@ -476,7 +501,7 @@ press('Close', exact=True); pause(1.5); snap('c10-caution')
 press('Quit', exact=True); wait_exit(40)
 shutil.move(EXTRA, os.path.join(WORK, 'archive', 'zizzle-extra.mp4'))   # the file "goes missing"
 step('Reopen', 'the last project opens by itself, and the unfinished render is offered')
-launch(); pause(3); snap('c10-relaunch')
+launch(); pause(3); inspector(False); snap('c10-relaunch')
 press('Restart', exact=True); pause(2.5); rest(); snap('c10-restarted')
 step('Missing media', 'a moved file shows as red striped clips and a banner; rendering asks you to relink first')
 if find('Relink First', exact=True, timeout=3):

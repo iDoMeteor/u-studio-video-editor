@@ -53,5 +53,88 @@
       "Settings: Shortcuts",
       "Project format"
     ]
+  },
+  "basics-4": {
+    "title": "Basics 4",
+    "subtitle": "Rendering, the queue, and quitting mid-render",
+    "narration": "narration/basics-4.txt",
+    "chapters": [
+      "Render",
+      "Queue another render",
+      "Cancel or queue",
+      "Render finished",
+      "Quit while rendering",
+      "Reopen"
+    ],
+    "skip": [
+      "transform",
+      "sequence",
+      "titles"
+    ],
+    "dropins_off": [
+      "effects",
+      "titles"
+    ]
+  },
+  "mixed-media": {
+    "title": "Mixed media",
+    "subtitle": "Stills, image sequences, proxies and relinking",
+    "narration": "narration/mixed-media.txt",
+    "chapters": [
+      "Import a folder",
+      "Media browser",
+      "Proxies",
+      "Import Image Sequence",
+      "Missing media",
+      "Relink"
+    ],
+    "skip": [
+      "transform",
+      "titles"
+    ],
+    "dropins_off": [
+      "effects",
+      "titles"
+    ]
+  },
+  "settings-help": {
+    "title": "Settings and Help",
+    "subtitle": "Preferences, shortcuts, help and diagnostics",
+    "narration": "narration/settings-help.txt",
+    "chapters": [
+      "Settings",
+      "Settings: Toggles",
+      "Settings: Performance",
+      "Settings: Locations",
+      "Settings: Render",
+      "Settings: Drop-ins",
+      "Settings: Shortcuts",
+      "Help",
+      "Release notes",
+      "About and diagnostics"
+    ],
+    "skip": [
+      "transform",
+      "sequence",
+      "titles"
+    ],
+    "dropins_off": [
+      "effects"
+    ]
+  },
+  "captions": {
+    "title": "Captions",
+    "subtitle": "Import subtitles, fix them, export them",
+    "narration": "narration/captions.txt",
+    "script": "captions.py",
+    "chapters": [
+      "Import captions",
+      "Captions play over the video",
+      "Fix a caption",
+      "Export captions"
+    ],
+    "dropins_off": [
+      "effects"
+    ]
   }
 }

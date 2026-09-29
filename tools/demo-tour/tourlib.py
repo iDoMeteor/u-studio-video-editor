@@ -373,11 +373,12 @@ def selected_box(row_top, x_hint=None, timeout=2.5):
 def _selected_box(row_top, x_hint=None):
     img = shot()
     for dy in range(14, 24):
-        runs = [r for r in cyan_runs(row_top + dy, img) if r[1] - r[0] > 8]
+        # The outline's top edge spans the clip; short cyan runs are thumbnail
+        # pixels or the playhead's head (2026-09-29: one was taken for a clip).
+        runs = [r for r in cyan_runs(row_top + dy, img) if r[1] - r[0] > 30]
         if runs:
-            if x_hint is not None:
-                runs.sort(key=lambda r: 0 if r[0] <= x_hint <= r[1] else min(abs(r[0]-x_hint), abs(r[1]-x_hint)))
-            return runs[0]
+            inside = [r for r in runs if x_hint is not None and r[0] <= x_hint <= r[1]]
+            return inside[0] if inside else max(runs, key=lambda r: r[1] - r[0])
     return None
 
 def focused_text(timeout=4):
