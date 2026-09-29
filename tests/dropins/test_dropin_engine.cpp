@@ -12,9 +12,11 @@
 #include "dropins/registry.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
+#include "engine/gpu_session.h"
 #include "engine/test_extension.h"
 #include "platform/process.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -410,4 +412,140 @@ TEST_CASE("FX4: a saved project plays its adjustment lanes in melt as the editor
         CHECK(std::memcmp(editor, played, size_t{1920} * 1080 * 3) == 0);
     }
     std::filesystem::remove(project);
+}
+
+// VE GPU's check of the FX4 nesting on the GPU pipeline (2026-09-28): the
+// lane scenes above, rendered frame by frame through the GPU graph and the
+// CPU one, with a third row for two nested lanes. Skips without GL.
+namespace {
+
+struct Frame1080
+{
+    std::vector<uint8_t> rgba;
+    double ms = 0;
+};
+
+std::vector<Frame1080> renderAll(EngineSync &sync)
+{
+    std::vector<Frame1080> frames;
+    for (int position = 0; position < 60; ++position) {
+        const auto t0 = std::chrono::steady_clock::now();
+        sync.tractor().seek(position);
+        std::unique_ptr<Mlt::Frame> frame(sync.tractor().get_frame());
+        frame->set("consumer.rescale", "bilinear");
+        mlt_image_format format = mlt_image_rgba;
+        int fw = 1920, fh = 1080;
+        const uint8_t *image = frame->get_image(format, fw, fh);
+        REQUIRE(image);
+        Frame1080 f;
+        f.rgba.assign(image, image + static_cast<size_t>(fw) * fh * 4);
+        f.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        frames.push_back(std::move(f));
+    }
+    return frames;
+}
+
+double meanDiff(const std::vector<uint8_t> &a, const std::vector<uint8_t> &b)
+{
+    double s = 0;
+    for (size_t i = 0; i < a.size(); i += 4)
+        s += std::abs(a[i] - b[i]) + std::abs(a[i + 1] - b[i + 1]) + std::abs(a[i + 2] - b[i + 2]);
+    return s / static_cast<double>(a.size() / 4 * 3);
+}
+
+const uint8_t *at(const std::vector<uint8_t> &img, int x, int y)
+{
+    return img.data() + (static_cast<size_t>(y) * 1920 + static_cast<size_t>(x)) * 4;
+}
+
+void compareGpuToCpu(const Model &model, const char *what, double &inBlockMs, double &outsideMs)
+{
+    std::vector<Frame1080> cpu;
+    {
+        EngineSync sync(model);
+        REQUIRE(sync.verify().empty());
+        cpu = renderAll(sync);
+    }
+    std::string error;
+    std::shared_ptr<GpuSession> session = GpuSession::acquire(error);
+    REQUIRE(session);
+    REQUIRE(session->renderThreadStarted());
+    std::vector<Frame1080> gpu;
+    {
+        EngineSync sync(model);
+        sync.setPipeline(EngineSync::Pipeline::Gpu, {});
+        CHECK(sync.verify().empty());
+        gpu = renderAll(sync);
+    }
+    session->renderThreadStopped();
+    double worst = 0;
+    int worstAt = -1;
+    inBlockMs = outsideMs = 0;
+    for (int p = 0; p < 60; ++p) {
+        const double d = meanDiff(cpu[static_cast<size_t>(p)].rgba, gpu[static_cast<size_t>(p)].rgba);
+        if (d > worst)
+            worst = d, worstAt = p;
+        (p >= 10 && p < 30 ? inBlockMs : outsideMs) += gpu[static_cast<size_t>(p)].ms;
+    }
+    inBlockMs /= 20;
+    outsideMs /= 40;
+    MESSAGE(std::string(what) << ": worst mean diff GPU vs CPU " << worst << " at frame " << worstAt
+                              << "; GPU ms/frame in block " << inBlockMs << ", outside " << outsideMs);
+    CHECK(worst <= 3.0);
+    // The samples of the CPU test, on the GPU frames.
+    const auto &in = gpu[15].rgba;
+    CHECK(at(in, 1600, 900)[0] < 30);            // V1 darkened in the block
+    CHECK(at(gpu[40].rgba, 1600, 900)[0] > 200); // red again after it
+    CHECK(at(gpu[5].rgba, 1600, 900)[0] > 200);  // and before it
+}
+
+bool gpuHere()
+{
+    std::string error;
+    return GpuSession::acquire(error) != nullptr;
+}
+
+} // namespace
+
+TEST_CASE("FX4 on the GPU pipeline: a lane-1 block nests, filters and matches the CPU frame by frame")
+{
+    sharedFactoryPolicy();
+    registerTestDropIn();
+    if (!gpuHere()) {
+        MESSAGE("no GPU pipeline here");
+        return;
+    }
+    LaneScene scene;
+    scene.addBlock(1);
+    double inBlock = 0, outside = 0;
+    compareGpuToCpu(scene.model, "lane 1", inBlock, outside); // V2, above the lane, matches the CPU's too
+}
+
+TEST_CASE("FX4 on the GPU pipeline: two nested lanes match the CPU frame by frame")
+{
+    sharedFactoryPolicy();
+    registerTestDropIn();
+    if (!gpuHere()) {
+        MESSAGE("no GPU pipeline here");
+        return;
+    }
+    LaneScene scene;
+    // A third row on top: green in the bottom-right quarter.
+    const TrackId third = scene.model.addTrack(Track::Kind::Video, 0, "V3");
+    Asset green;
+    green.path = "color:#00c000";
+    green.info.hasVideo = true;
+    green.info.lengthInSequenceFrames = 10'000;
+    const ClipId picture = scene.model.insertClip(third, scene.model.addAsset(green), 0, 0, 59);
+    Transform placed;
+    placed.bounds = Transform::Bounds::None;
+    placed.x.value = 1440;
+    placed.y.value = 270;
+    placed.width.value = 960;
+    placed.height.value = 540;
+    scene.model.setClipTransform(picture, placed);
+    scene.addBlock(1); // rows 1-2 (V2, V1)
+    scene.addBlock(2); // row 2 (V1), nested inside lane 1's
+    double inBlock = 0, outside = 0;
+    compareGpuToCpu(scene.model, "lanes 1+2", inBlock, outside);
 }
