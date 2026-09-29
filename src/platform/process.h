@@ -39,4 +39,13 @@ int64_t processStartTime(int64_t pid);
 // Diagnostics). False on other platforms.
 bool runningInFlatpak();
 
+// Hands memory the process has freed back to the OS, after a large, short
+// job (a worker closing a decoder): the C library otherwise keeps it for
+// reuse, so RSS stays at the job's peak. Linux (glibc): malloc_trim(0),
+// which returned about 100 MB of a closed 1080p decoder's 180 MB
+// (2026-09-29); a musl build would need a guard. Windows: a no-op
+// (_heapmin is deprecated for this in the UCRT). Off the main thread only:
+// it walks and locks every malloc arena, tens of ms on a big heap.
+void releaseFreeMemory();
+
 } // namespace ustudio::platform

@@ -114,6 +114,18 @@ It reuses `tools/packaging-smoke/drive.py` for each step; screenshots and
 logs land in `<outdir>`. Activated services get their own runtime directory,
 as for the titles smoke test.
 
+`tools/effects-smoke/run.sh <builddir> <outdir> soak_steps.sh` is the
+drop-in's playback memory soak (about 15 minutes): a 1080p H.264 clip,
+selected, the Browser shown and then hidden while a fresh profile's health
+scan runs, and 9 s looped for 12 minutes (on the GPU pipeline when it's
+on). It fails if anything opens the clip while the Browser is hidden or if
+the idle frame renderer never closes it. The slope of the RSS floor (each
+60 s window's minimum after a 120 s warm-up) is reported against 1 MB/min
+as a WARN only: an effects-free build's GPU playback reads +7 to +23
+MB/min under Xvfb, the core pipeline's to settle. Run it for changes to the
+drop-in's frame renderer or anything it keeps open (why: [effects
+notes](notes/effects.md#frame-renderer-memory)).
+
 ## Notable tests
 
 - **Undo property test** (`core-undo-fuzz`, the same binary filtered to

@@ -4,6 +4,16 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.78.3-beta.1
+
+- Effects: the Add page no longer renders its tiles while it's hidden, and
+  its previews let go of a clip's memory a moment after they're drawn
+  (about 180 MB for a 1080p clip, which the editor used to keep).
+- Effects: fixed two crashes, one when a selected title couldn't be opened
+  for the Add page's tiles and one at quit; effects that only run on a
+  graphics card's compute interfaces (Vulkan, OpenCL, CUDA, VAAPI) are no
+  longer offered.
+
 ## 0.78.0-beta.1
 
 - Titles: two built-in templates with a ringing bell, a lower third and a

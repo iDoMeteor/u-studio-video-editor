@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.78.3-beta.1" date="2026-09-29" type="development">
+      <description>
+        <p>New since 0.77.0-beta.1: two title templates with an animated bell (Lower third with ringing bell and Subscribe with ringing bell, in New Title's gallery), and less memory with the Effects add-on. The Add page no longer renders its tiles while it's hidden, and its previews let go of your clip a moment after they're drawn: about 180 MB less for a 1080p clip. Two crashes with the add-on are fixed (a title selected before its template was picked, and quitting), and effects that need a graphics card's Vulkan, OpenCL, CUDA or VAAPI are no longer offered.</p>
+        <p>Try playing a long project with the Effects add-on installed and GPU acceleration on, with the Add page open for a while first, and watch the editor's memory stay level.</p>
+      </description>
+    </release>
     <release version="0.78.0-beta.1" date="2026-09-29" type="development">
       <description>
         <p>New since 0.77.0-beta.1: two title templates with an animated bell. In New Title's gallery, Lower third with ringing bell and Subscribe with ringing bell (under Bugs and badges) have a bell that rings every few seconds with a notification dot, in the Unicorn Tears colours.</p>
