@@ -90,6 +90,12 @@ struct EffectDescriptor
 // The family of a service id: its prefix before '.', or "mlt" (MLT's own).
 std::string familyOf(const std::string &service);
 
+// An FFmpeg filter that runs only on hardware frames (Vulkan, OpenCL, CUDA,
+// VAAPI, QSV, AMF, ...) or moves frames to and from it: never a user
+// effect. MLT hands them software frames, and without the device some
+// crash in their teardown (blackdetect_vulkan on Xvfb, 2026-09-29).
+bool isHardwareOnlyFilter(const std::string &service);
+
 // One parameter as MLT's metadata YAML describes it, read into strings by
 // the engine (engine/registry.cpp) so normalisation is pure and testable.
 struct RawParam
