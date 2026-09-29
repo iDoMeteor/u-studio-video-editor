@@ -1666,6 +1666,15 @@ class Rack
             previewTools(m_host).hideRect();
             m_rectKey.reset();
         }
+        // Focus on a card that goes (a mask's drop-down, say) would pass to
+        // the next focusable widget: the Transform card's X field, a text
+        // entry, which turns the single-key shortcuts (E, P, T, C) off. The
+        // scope drop-down takes it instead.
+        GtkRoot *root = gtk_widget_get_root(m_cards);
+        GtkWidget *focus = root ? gtk_root_get_focus(root) : nullptr;
+        const bool focusGoes = focus && gtk_widget_is_ancestor(focus, m_cards);
+        if (focusGoes)
+            gtk_widget_grab_focus(m_scope);
         while (GtkWidget *child = gtk_widget_get_first_child(m_cards))
             gtk_box_remove(GTK_BOX(m_cards), child);
         m_controls.clear();

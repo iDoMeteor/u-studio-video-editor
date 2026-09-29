@@ -356,10 +356,10 @@ printf 'TITLE "smoke warm"\nLUT_3D_SIZE 2\n' > "$M/smoke-warm.cube"
 for _ in 1 2 3 4 5 6 7 8; do echo "1.0 0.6 0.2" >> "$M/smoke-warm.cube"; done
 d act effects-browser; sleep 1
 # Out of any text field first: with no window manager the dialog doesn't
-# take the keyboard, and the path would be typed where the focus is. Below
-# the first clip's curve lanes (three by now: two transform curves, Blur),
-# on empty timeline, so the Rack doesn't take the page back.
-d click 900 955; sleep 0.5
+# take the keyboard, and the path would be typed where the focus is. On
+# empty timeline: below the first clip's curve lanes and clear of the
+# playhead.
+d click 1100 955; sleep 0.5
 shot 25a-before-import
 d press "Import LUTs"; sleep 2.5
 d loc "$M/smoke-warm.cube"; d enter; sleep 2
