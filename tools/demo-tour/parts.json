@@ -137,5 +137,25 @@
       "effects"
     ],
     "caption_margin_v": 150
+  },
+  "pip": {
+    "title": "Picture in picture",
+    "subtitle": "Scale, move, crop, rotate and flip on the preview",
+    "narration": "narration/pip.txt",
+    "chapters": [
+      "Transform on the preview",
+      "Crop (Alt+drag a side)",
+      "Rotate",
+      "Transform menu",
+      "Edit Transform"
+    ],
+    "skip": [
+      "sequence",
+      "titles"
+    ],
+    "dropins_off": [
+      "effects",
+      "titles"
+    ]
   }
 }

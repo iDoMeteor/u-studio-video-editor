@@ -259,15 +259,22 @@ def titles_window():
 # ---------------------------------------------------------------- 5b transform
 if on('transform'):
     step('Transform on the preview', 'click a picture to select it; drag a corner to scale, the body to move; guides snap')
-    act('zoom-fit'); act('seek-home'); act('step-forward-10', 6, gap=0.1); pause(1.5)
+    # At ~0:32 V3 is empty, so the top picture is a zizzle clip on V2: footage
+    # without baked-in black bars, so the box hugs the picture (VE Core, 2026-09-29).
+    act('zoom-fit'); act('seek-home'); act('step-forward-10', 96, gap=0.03); pause(1.5)
     click(960, 385); pause(1.2)
     b = preview_box(); T.log(f"preview box {b}")
     if b:
         x0, y0, x1, y1 = b
-        drag(x0 + 1, y0 + 1, x0 + (x1 - x0) // 2, y0 + (y1 - y0) // 2, dur=1.4); pause(1.2)
-        b = preview_box() or b; x0, y0, x1, y1 = b
+        drag(x0 + 4, y0 + 4, x0 + (x1 - x0) // 2, y0 + (y1 - y0) // 2, dur=1.4); pause(1.2)
+        nb = preview_box(); T.log(f"after corner drag {nb} (scaled: {bool(nb) and nb[2] - nb[0] < (x1 - x0) * 0.8})")
+        b = nb or b; x0, y0, x1, y1 = b
         cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-        drag(cx, cy, cx + 40, cy - 60, dur=1.4); pause(1.2); rest(); snap('c5b-pip')
+        drag(cx, cy, cx + 40, cy - 40, dur=1.4); pause(1.2); rest(); snap('c5b-pip')
+        step('Crop (Alt+drag a side)', 'hold Alt and drag a side handle to crop the picture instead of scaling it')
+        b = preview_box() or b; x0, y0, x1, y1 = b
+        drag(x1 - 3, (y0 + y1) // 2, x1 - 110, (y0 + y1) // 2, dur=1.4, mods=('alt',)); pause(1.2); rest()
+        T.log(f"after crop {preview_box()}"); snap('c5b-crop')
         step('Rotate', 'drag the knob above the box; Shift steps by 15°')
         k = preview_knob(); T.log(f"knob {k}")
         if k:

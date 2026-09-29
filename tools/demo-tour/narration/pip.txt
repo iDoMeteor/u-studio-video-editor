@@ -1,0 +1,22 @@
+# Picture in picture. Voice cedar.
+
+## intro
+In this video, we'll put one picture inside another: scale it, move it, crop it, rotate it and flip it, right on the preview.
+
+## Transform on the preview
+Click a picture in the preview to select it. Drag a corner to scale it, and drag the middle to move it. Guides appear, and snap it into line with the frame's centre and edges.
+
+## Crop (Alt+drag a side)
+Hold Alt and drag a side handle to crop the picture, instead of squashing it.
+
+## Rotate
+Drag the round handle above the box to rotate the picture. Hold Shift to turn it in fifteen-degree steps.
+
+## Transform menu
+Right-click the picture for quick moves: fit or stretch it to the frame, centre it, flip it, or give it a quarter turn.
+
+## Edit Transform
+And Control T shows the exact numbers beside the preview, for pixel-perfect placement. Every change is a single undo step.
+
+## outro
+That's picture in picture in U Stu Video Editor. Thanks for watching!
