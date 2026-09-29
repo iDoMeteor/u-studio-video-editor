@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.78.1-beta.1
+
+- Exporting or baking a title can no longer crash as it finishes (the
+  encoder's last thread is now waited for).
+
 ## 0.78.0-beta.1
 
 - Titles: two built-in templates with a ringing bell, a lower third and a

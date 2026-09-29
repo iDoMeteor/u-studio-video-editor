@@ -28,6 +28,12 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.78.1-beta.1" date="2026-09-29" type="development">
+      <description>
+        <p>New since 0.78.0-beta.1: a fix. Exporting a title on its own, or baking a title clip, could crash as the export finished; it now waits for the encoder to finish first.</p>
+        <p>Try exporting a title a few times in a row, in different formats.</p>
+      </description>
+    </release>
     <release version="0.78.0-beta.1" date="2026-09-29" type="development">
       <description>
         <p>New since 0.77.0-beta.1: two title templates with an animated bell. In New Title's gallery, Lower third with ringing bell and Subscribe with ringing bell (under Bugs and badges) have a bell that rings every few seconds with a notification dot, in the Unicorn Tears colours.</p>
