@@ -256,5 +256,21 @@
       "GPU acceleration off"
     ],
     "script": "gpu_desktop2.sh (real desktop, by hand)"
+  },
+  "effects-2": {
+    "title": "Effects 2",
+    "subtitle": "Keyframes, curve lanes, masks, adjustment blocks and LUTs",
+    "narration": "narration/effects-2.txt",
+    "script": "effects2.py",
+    "chapters": [
+      "Keyframes",
+      "Curve lanes",
+      "Masks",
+      "Adjustment blocks",
+      "LUTs"
+    ],
+    "dropins_off": [
+      "titles"
+    ]
   }
 }

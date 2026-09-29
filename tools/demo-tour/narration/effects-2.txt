@@ -1,0 +1,22 @@
+# Effects 2: keyframes, curve lanes, masks, adjustment blocks, LUTs. Voice cedar.
+
+## intro
+In this video, we'll make effects change over time, limit them to part of the picture, apply them to a whole stretch of the edit, and add colour grades with LUTs.
+
+## Keyframes
+Set a value and click the star, or press P, to pin it at the playhead. Move the playhead, change the value, and it's pinned there too. Now the glow fades in as the clip plays.
+
+## Curve lanes
+Press C, and a lane opens under the clip for each value that changes, showing its curve. Drag the dots to reshape it.
+
+## Masks
+A mask limits an effect to a rectangle or an ellipse. Here, the kaleidoscope only fills an ellipse; you can soften its edge, or invert it.
+
+## Adjustment blocks
+An adjustment block sits in the thin FX lane above the tracks. Draw one, add effects to it, and they change everything beneath it for that stretch of time.
+
+## LUTs
+And LUTs bring in colour grades as .cube files. Each one gets a tile; point at it to see the grade on your picture, and click to add it.
+
+## outro
+That's effects in depth. Thanks for watching!

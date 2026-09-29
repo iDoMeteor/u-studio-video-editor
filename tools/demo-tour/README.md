@@ -106,4 +106,4 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | captions | Import SRT/VTT, colours and top placement, fix a line, export | 2026-09-29 (0.78.0-beta.1, file -2) |
 | gpu | GPU acceleration, on the real desktop (screencast.py + gpu_desktop2.sh; the owner consents in the portal) | 2026-09-29 (0.78.5-beta.1) |
 | effects-1 | The Add page, trying effects, the Effects page, Looks, Compare | 2026-09-29 (0.78.3-beta.1) |
-| effects-2 | Keyframes, curve lanes, masks, adjustment blocks, LUTs | |
+| effects-2 | Keyframes, curve lanes, masks, adjustment blocks, LUTs | 2026-09-29 (0.78.5-beta.1) |
