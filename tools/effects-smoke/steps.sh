@@ -2,52 +2,7 @@
 # run.sh's steps, inside the private D-Bus session. Every check prints PASS
 # or FAIL; the last line is "RESULT: <n> failed".
 set -u
-OUT=$SMOKE_OUT; M=$SMOKE_MEDIA
-FAILED=0
-pass() { echo "PASS $1"; }
-fail() { echo "FAIL $1"; FAILED=$((FAILED + 1)); }
-check() { name=$1; shift; if "$@"; then pass "$name"; else fail "$name"; fi; }
-d() { python3 "$SMOKE_DRIVE/drive.py" "$@" 2>/dev/null; }
-shot() { import -window root "$OUT/$1.png" 2>/dev/null; }
-saved_has() { grep -q "$1" "$OUT/smoke.ustudio"; }
-saved_lacks() { ! grep -q "$1" "$OUT/smoke.ustudio"; }
-
-dbus-update-activation-environment XDG_RUNTIME_DIR="$SMOKE_RUNTIME" GIO_USE_VFS=local
-
-exec 3>"$OUT/display"
-Xvfb -displayfd 3 -screen 0 1920x1080x24 -nolisten tcp >"$OUT/xvfb.log" 2>&1 &
-XVFB=$!
-for _ in $(seq 1 40); do [ -s "$OUT/display" ] && break; sleep 0.25; done
-export DISPLAY=":$(cat "$OUT/display")"
-/usr/libexec/at-spi-bus-launcher --launch-immediately >/dev/null 2>&1 &
-LAUNCHER=$!
-for _ in $(seq 1 40); do
-    gdbus call --session --dest org.a11y.Bus --object-path /org/a11y/bus --method org.a11y.Bus.GetAddress \
-        >/dev/null 2>&1 && break
-    sleep 0.25
-done
-/usr/libexec/at-spi2-registryd >/dev/null 2>&1 &
-REGISTRY=$!
-sleep 1
-
-# Test media: generated, never real footage (CLAUDE.md).
-mkdir -p "$M"
-ffmpeg -loglevel error -y -f lavfi -i testsrc2=size=1280x720:rate=30:duration=6 \
-    -f lavfi -i sine=frequency=440:duration=6:sample_rate=48000 \
-    -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$M/clip.mp4"
-
-SDL_AUDIODRIVER=dummy USTUDIO_LOG_LEVEL=debug GTK_A11Y=atspi USTUDIO_SMOKE_RUN="$OUT" \
-    "$SMOKE_APP" >"$OUT/app.log" 2>&1 &
-APP=$!
-for _ in $(seq 1 60); do
-    python3 -c "import sys; sys.path.insert(0, '$SMOKE_DRIVE'); import drive; sys.exit(0 if drive.app_node() else 1)" \
-        2>/dev/null && break
-    sleep 0.5
-done
-# The whole screen, as the editor opens maximised on a desktop: wide
-# enough for the inspector to dock beside the picture.
-python3 "$SMOKE_DRIVE/fitwin.py" >/dev/null 2>&1
-sleep 2
+. "$SMOKE_HERE/start.sh"
 
 # A clip on the timeline, selected; the Rack open.
 d act import; sleep 1.5; d loc "$M/clip.mp4"; d enter; sleep 4
@@ -86,13 +41,15 @@ shot 4-undone
 
 # Keyframes: redo the effect, set Blur, pin it at frame 0 (P), move 60
 # frames on and change it (a second key, added by changing the value).
+# With one clip selected the Transform card comes first: its five spin
+# buttons (X, Y, Width, Height, Rotation) are 0-4, Blur is 5.
 v() { python3 "$SMOKE_HERE/value.py" "$@" 2>>"$OUT/helpers.err"; }
 d act redo; sleep 1.5
 d act seek-home; sleep 0.5
-v 0 0.5; sleep 1
+v 5 0.5; sleep 1
 d act effects-pin; sleep 1.5
 for _ in 1 2 3 4 5 6; do d act step-forward-10 >/dev/null; done; sleep 1
-v 0 1.0; sleep 1.5
+v 5 1.0; sleep 1.5
 shot 5-keyframed
 d act save; sleep 2
 check "saved animated: two keys" grep -q '<property name="0">0=0.5;60=1</property>' "$OUT/smoke.ustudio"
@@ -165,6 +122,9 @@ d act effects-add-transition; sleep 2
 shot 13-transition-added
 d act save; sleep 2
 check "T adds a transition" grep -q "ustudio:transition_id" "$OUT/smoke.ustudio"
+sleep 3
+shot 13b-tiles-from-clips
+check "the tiles are drawn from the two clips" grep -q "transition tiles: rendering" "$OUT/app.log"
 # The first wipe's tile (the list scrolls; later tiles may be out of view).
 WIPE=$(python3 "$SMOKE_HERE/where.py" "Wipe Right" 2>>"$OUT/helpers.err")
 echo "wipe tile at $WIPE" >>"$OUT/steps.log"
@@ -186,13 +146,15 @@ check "undo takes the wipe back" saved_lacks ">wipe.left<"
 d act seek-home; sleep 0.5
 d act select-next-clip; sleep 1
 d press "Effects" exact; sleep 1
-ARM=$(python3 "$SMOKE_HERE/where.py" "Touch-record" 1 2>>"$OUT/helpers.err")
+# Blur's is the 7th Touch-record button, its spin the 6th (the Transform
+# card's five, then the mix's, come first).
+ARM=$(python3 "$SMOKE_HERE/where.py" "Touch-record" 6 2>>"$OUT/helpers.err")
 echo "arm at $ARM" >>"$OUT/steps.log"
 # shellcheck disable=SC2086
 [ -n "$ARM" ] && d click $ARM; sleep 0.5
 shot 15-armed
 d act play-pause; sleep 0.3
-python3 "$SMOKE_HERE/ramp.py" 0 0.1 0.9 40 0.05 2>>"$OUT/helpers.err"
+python3 "$SMOKE_HERE/ramp.py" 5 0.1 0.9 40 0.05 2>>"$OUT/helpers.err"
 d act play-pause; sleep 2
 shot 16-recorded
 d act save; sleep 2
@@ -241,6 +203,51 @@ check "a dragged keyframe moves (same number of keys)" moved
 d act undo; sleep 1
 d act save; sleep 2
 check "the drag is one undo step" [ "$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)" = "$BEFORE" ]
+
+
+# Keyframed transform (M5 box 2): the first clip's Transform card. X set
+# at the start and pinned (P), then set 60 frames on: two keys, a placed
+# picture, and an animated rect in the render graph. Then Rotation armed
+# and ramped while playing: touch-record keys it, thinned.
+d act seek-home; sleep 0.5
+v 0 400; sleep 1
+d act effects-pin; sleep 1.5
+for _ in 1 2 3 4 5 6; do d act step-forward-10 >/dev/null; done; sleep 1
+v 0 1000; sleep 1.5
+shot 18b-transform-keyed
+d act save; sleep 2
+check "the Transform card keys X: two keys" python3 - "$OUT/smoke.ustudio" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r'ustudio:transform\.x\.keyframes">([^<]*)<', text)
+print(m.group(1) if m else None)
+sys.exit(0 if m and len([k for k in m.group(1).split(";") if k]) == 2 else 1)
+PY
+check "the picture is placed (keys need it)" grep -q 'ustudio:transform.bounds">none<' "$OUT/smoke.ustudio"
+check "the render graph animates the placement" grep -qE 'transition.rect">[^<]*;' "$OUT/smoke.ustudio"
+d act seek-home; sleep 0.5
+ROT=$(python3 "$SMOKE_HERE/where.py" "Touch-record" 4 2>>"$OUT/helpers.err")
+echo "rotation arm at $ROT" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+[ -n "$ROT" ] && d click $ROT; sleep 0.5
+d act play-pause; sleep 0.3
+python3 "$SMOKE_HERE/ramp.py" 4 0 30 40 0.05 2>>"$OUT/helpers.err"
+d act play-pause; sleep 2
+# shellcheck disable=SC2086
+[ -n "$ROT" ] && d click $ROT; sleep 0.5 # disarmed again
+shot 18c-rotation-recorded
+d act save; sleep 2
+check "touch-record keys the rotation, thinned" python3 - "$OUT/smoke.ustudio" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r'ustudio:transform\.rotation\.keyframes">([^<]*)<', text)
+print(m.group(1) if m else None)
+keys = [k for k in m.group(1).split(";") if k] if m else []
+ats = [int(k.split(":")[0]) for k in keys]
+# A steady ramp thins to as few as two keys (a line needs no more), far
+# fewer than the frames it spans.
+sys.exit(0 if len(keys) >= 2 and max(ats) - min(ats) >= 20 and len(keys) * 4 < max(ats) - min(ats) + 1 else 1)
+PY
 
 
 # The FX lane (FX4): a thin lane above the tracks. Drawing across it adds
@@ -349,8 +356,11 @@ printf 'TITLE "smoke warm"\nLUT_3D_SIZE 2\n' > "$M/smoke-warm.cube"
 for _ in 1 2 3 4 5 6 7 8; do echo "1.0 0.6 0.2" >> "$M/smoke-warm.cube"; done
 d act effects-browser; sleep 1
 # Out of any text field first: with no window manager the dialog doesn't
-# take the keyboard, and the path would be typed where the focus is.
-d click 900 900; sleep 0.5
+# take the keyboard, and the path would be typed where the focus is. On
+# empty timeline: below the first clip's curve lanes and clear of the
+# playhead.
+d click 1100 955; sleep 0.5
+shot 25a-before-import
 d press "Import LUTs"; sleep 2.5
 d loc "$M/smoke-warm.cube"; d enter; sleep 2
 shot 25-luts

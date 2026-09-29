@@ -4,6 +4,49 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.80.0-beta.1
+
+- Effects: a picture's position, size and rotation can change over time:
+  the Transform card at the top of the Effects page pins, steps, eases and
+  records them like an effect's values, with curves in the curve lanes;
+  dragging a keyframed picture on the preview sets its keyframe at the
+  playhead.
+- Transitions: a transition's sound can cut at its middle instead of
+  crossfading (Sound: Cut).
+- Transitions: Additive, Screen and Lighten blend dissolves; a styled
+  dissolve opened without the Effects add-on plays as a plain one instead
+  of refusing the project.
+- Effects: a health check still running when the editor quits no longer
+  outlives it; adding to an adjustment block says so.
+
+## 0.79.0-beta.1
+
+- Transitions: Zoom In and Spin In (either way) join the motion styles; a
+  transition's sound can be an even (equal-power) crossfade instead of a
+  straight one; the style tiles show your own two clips half-way through.
+- Effects: a LUT or other file inside the project's folder is saved
+  relative to it, so the project keeps it when the folder moves. Such a
+  project needs this version or newer to open.
+
+## 0.78.5-beta.1
+
+- Dragging a picture in the preview is smoother: audio waveforms on the
+  timeline are no longer redrawn from scratch on every step.
+
+## 0.78.4-beta.1
+
+- With GPU acceleration on, a flipped clip now shows mirrored in place; before, a cropped or rotated flipped clip could come out turned and smeared, or slide out of its box.
+
+## 0.78.3-beta.1
+
+- Effects: the Add page no longer renders its tiles while it's hidden, and
+  its previews let go of a clip's memory a moment after they're drawn
+  (about 180 MB for a 1080p clip, which the editor used to keep).
+- Effects: fixed two crashes, one when a selected title couldn't be opened
+  for the Add page's tiles and one at quit; effects that only run on a
+  graphics card's compute interfaces (Vulkan, OpenCL, CUDA, VAAPI) are no
+  longer offered.
+
 ## 0.78.2-beta.1
 
 - U Stu Titles no longer crashes when you close it with a layer selected.

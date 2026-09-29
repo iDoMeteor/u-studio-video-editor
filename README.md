@@ -35,6 +35,11 @@ flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/fl
 wget https://software.unicornviz.com/u-studio-video-editor-latest.flatpak
 # Install the package
 flatpak install --user ./u-studio-video-editor-latest.flatpak
+# Optional add-ons (same version as the app): titles and effects
+wget https://software.unicornviz.com/u-studio-video-editor-dropin-titles-latest.flatpak
+flatpak install --user ./u-studio-video-editor-dropin-titles-latest.flatpak
+wget https://software.unicornviz.com/u-studio-video-editor-dropin-effects-latest.flatpak
+flatpak install --user ./u-studio-video-editor-dropin-effects-latest.flatpak
 # Launch from your app launcher & pin to dash!
 # Or, from command line:
 flatpak run com.ustudio.VideoEditor
@@ -97,10 +102,11 @@ permissions · [Getting started](docs/user/getting-started.md)
 - Effects (an [add-on](docs/user/installing.md#add-ons)): hundreds of
   colour, light, blur, keying and audio effects on clips, tracks or the
   whole picture, tried on your picture before you add them, with
-  keyframes (drawn as curves, or performed live), looks, masks, LUTs,
+  keyframes (drawn as curves, or performed live) for effects and for a
+  picture's position, size and rotation, looks, masks, LUTs,
   adjustment blocks over several tracks, copy and paste, before/after
-  compare, audio plugins, and dissolves that dip, flash, slide, push or
-  wipe.
+  compare, audio plugins, and dissolves that dip, flash, blend, slide,
+  push, zoom, spin or wipe.
   → [Effects](docs/user/effects.md)
 - Titles and captions (an [add-on](docs/user/installing.md#add-ons)): a
   title designer with templates and animated (Lottie) layers, and
@@ -122,8 +128,7 @@ relinking and clip transforms (M4, shipped as the 0.50 beta).
 - **Effects, keyframes and transitions** (M5): effects, keyframes,
   looks, transitions, curve lanes, touch-record, the FX lane, masks, LUTs
   and audio plugins are in (FX1-FX5), as a drop-in add-on; still to come:
-  zoom, spin and blend transitions, audio curves on transitions, and live
-  tile previews. → [doc 15](docs/plans/v2/15-effects-and-transitions.md),
+  blend-mode track compositing. → [doc 15](docs/plans/v2/15-effects-and-transitions.md),
   [ADR-013](docs/plans/v2/adr/013-effects-and-titles-as-drop-in-modules.md)
 - **Titles**: a companion title designer with animation and reusable
   templates. → [doc 16](docs/plans/v2/16-titles-tool.md)

@@ -16,6 +16,7 @@
 
 #include <libxml/tree.h>
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -64,6 +65,23 @@ std::vector<Keyframe> decodeKeyframes(const std::string &text);
 
 // A list of parameters as indexed ustudio properties: `<prefix>count`,
 // `<prefix>N.name`, `<prefix>N.value`, `<prefix>N.keyframes`.
+// While a project is saved or loaded on this thread: its folder. A string
+// value naming a file inside it (a LUT in its luts folder) is saved relative
+// ("f:luts/grade.cube") and loaded against the folder the project is in
+// now, so a moved project keeps its files; the model always holds the
+// absolute path (MLT's filters open it themselves).
+class ProjectFolderScope
+{
+  public:
+    explicit ProjectFolderScope(const std::filesystem::path &folder);
+    ~ProjectFolderScope();
+    ProjectFolderScope(const ProjectFolderScope &) = delete;
+    ProjectFolderScope &operator=(const ProjectFolderScope &) = delete;
+
+  private:
+    std::optional<std::filesystem::path> m_previous;
+};
+
 void writeParams(xmlNodePtr parent, const std::string &prefix, const std::vector<Param> &params);
 std::vector<Param> readParams(xmlNodePtr parent, const std::string &prefix);
 

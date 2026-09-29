@@ -33,10 +33,10 @@ There's no UI yet: the Rack and Browser are FX2, and the build option stays
 | `engine/` | `EffectRegistry` (every MLT filter, from `Mlt::Repository` metadata), frei0r discovery and curation (IP4), `EffectsExtension` (IP3), `u-studio-render --probe-effect` and `--effects-registry` (IP6), and `FrameRenderer` (a clip's frame through a stack, on a thread of its own with throwaway producers: the Browser's tiles and audition, never the live graph) | `src/engine`, mlt++, GLib |
 | `app/` | The Effect Rack, the Browser and the Transitions page (inspector pages, IP5; the page also outlines its transition on the timeline and claims a double-click on one), the catalog they read (registry and health), and the editor's background health scan (the registry and one probe child per effect, featured first) | GTK, GIO, `engine/` headers without MLT; never MLT (checked by the build) |
 | `data/overlays/` | Curated names, categories, featured flags, defaults MLT doesn't give, parameter kinds and file extensions (`lut3d`'s `.cube`), hidden plumbing, known-unstable plugins, one JSON file per family | — |
-| `data/transitions/` | Transition recipes (dissolves, dips, flashes, slides, pushes, 20 wipes): each a name and the `Transition::params` it resolves into (`src/core/model/transition_native.h` says what they mean; the wipe maps are generated there) | — |
+| `data/transitions/` | Transition recipes (dissolves, dips, flashes, slides, pushes, zooms, spins, 20 wipes): each a name and the `Transition::params` it resolves into (`src/core/model/transition_native.h` says what they mean; the wipe maps are generated there) | — |
 | `data/looks/` | Brand Looks (`brand.json`): stacks of filters with settings, no LUT files (a LUT library is FX5's) | — |
 | `register.cpp` | The drop-in's describe function and its integration points | the drop-in host API |
-| `tests/` | `effects-core`, `effects-engine`, `effects-scan`; `frei0r/broken_plugin.cpp` builds two frei0r plugins broken on purpose (one crashes, one hangs) | doctest |
+| `tests/` | `effects-core`, `effects-engine`, `effects-gpu` (the frame renderer with a GPU session live; skipped without GL), `effects-scan` and `effects-render` (M5 box 2: preview = `u-studio-render --frames`; both need the render tool); `frei0r/broken_plugin.cpp` builds two frei0r plugins broken on purpose (one crashes, one hangs) | doctest |
 
 A transition recipe is data too: `core/transitions.h` loads the recipes and
 changes a transition's with one undo step (`SetTransitionRecipe`);
@@ -118,7 +118,7 @@ the GPU engine's help: until then they're for the CPU pipeline only.
 ```sh
 meson configure builddir -Ddropin_effects=builtin   # or module
 meson compile -C builddir
-meson test -C builddir effects-core effects-engine effects-scan
+meson test -C builddir effects-core effects-engine effects-gpu effects-scan effects-render
 ./builddir/src/render/u-studio-render --effects-registry
 ./builddir/src/render/u-studio-render --probe-effect frei0r.glow
 ```

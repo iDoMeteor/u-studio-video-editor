@@ -40,9 +40,9 @@ Transform transformAt(const Transform &t, FrameIndex frame);
 Placement placementAt(const Transform &t, FrameIndex frame, int sourceWidth, int sourceHeight, const Profile &profile);
 
 // `t` edited to show `placed`'s values at `frame`, for the preview's handles
-// and the inspector: an animated value gets a keyframe there (replacing one
-// at that frame, keeping its easing; a new one is linear), a static one
-// takes the new value. Bounds and flips, never animated, come from
+// and the inspector: an animated value that changes gets a keyframe there
+// (replacing one at that frame, keeping its easing; a new one is linear;
+// an unchanged one gets none), a static one takes the new value. Bounds and flips, never animated, come from
 // `placed`. `placed` is a static transform, typically transformAt() of `t`
 // with the user's edit applied.
 Transform withTransformAt(const Transform &t, FrameIndex frame, const Transform &placed);
@@ -94,9 +94,10 @@ std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, 
 
 // The same transform for the GPU pipeline (ADR-019 point 5): the mirrors
 // become movit.mirror (horizontal) and movit.flip (vertical), and the
-// placement movit.rect, since no movit service rotates. A rotated transform
-// keeps transformFilters()' CPU chain whole (one CPU island in the GPU
-// graph, not two). Crop stays the core `crop` filter.
+// placement movit.rect (mirrored with the flips, which act on the placed
+// frame), since no movit service rotates. A rotated transform keeps
+// transformFilters()' crop and affine as one CPU island in the GPU graph,
+// with the movit flips before it. Crop stays the core `crop` filter.
 std::vector<NativeFilter> gpuTransformFilters(const Transform &t, int sourceWidth, int sourceHeight,
                                               const Profile &profile, double outputScale = 1.0,
                                               double sourceScale = 1.0, FrameIndex offset = 0, FrameIndex length = 0);

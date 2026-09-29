@@ -107,6 +107,10 @@ TEST_CASE("transform: keyframed values ease to a static transform at a frame, an
     REQUIRE(out.rotation.keyframes.size() == 2);
     CHECK(out.rotation.keyframes[0] == Keyframe{10, 15, Easing::CubicIn});
     CHECK(transformAt(out, 10) == edited);
+    // A keyed value the edit leaves as it was gets no key.
+    Transform same = mid;
+    same.y.value = 600;
+    CHECK(withTransformAt(t, 10, same).x.keyframes == t.x.keyframes);
 }
 
 TEST_CASE("transform: keyframes become affine's animated rect and rotation for each cut")
@@ -149,6 +153,15 @@ TEST_CASE("transform: keyframes become affine's animated rect and rotation for e
     level.rotation = {};
     CHECK(property(gpuTransformFilters(level, 1920, 1080, hd(), 1.0, 1.0, 0, 60), "rect") ==
           "0=0 0 960 540;40$=1200 0 480 540");
+    // movit's flips act on the frame movit.rect has placed, so the rect is
+    // mirrored with them, key for key.
+    Transform flipped = level;
+    flipped.flipH = true;
+    flipped.flipV = true;
+    CHECK(property(gpuTransformFilters(flipped, 1920, 1080, hd(), 1.0, 1.0, 0, 60), "rect") ==
+          "0=960 540 960 540;40$=240 540 480 540");
+    CHECK(property(gpuTransformFilters(flipped, 1920, 1080, hd(), 0.5, 1.0, 0, 60), "rect") ==
+          "0=480 270 480 270;40$=120 270 240 270");
     // Not animated: never an identity or a plain compositor fit.
     Transform turning;
     turning.bounds = Transform::Bounds::None;

@@ -18,10 +18,12 @@
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
 #include "engine/effects_extension.h"
+#include "engine/frame_renderer.h"
 #include "engine/plugins.h"
 #include "engine/probe.h"
 #include "engine/registry.h"
 
+#include <gio/gio.h>
 #include <glib.h>
 
 #include <algorithm>
@@ -60,6 +62,13 @@ void contributeFactoryPaths(ustudio::dropins::FactoryPaths *paths)
     const std::vector<Frei0rPlugin> plugins = findFrei0rPlugins(frei0rSearchDirs());
     const Frei0rCuration curation = curateFrei0r(plugins, health, effectsCacheDir() / "effects-frei0r-qt.json");
     paths->frei0rPaths = curation.paths;
+    // ADR-022: the curated MLT directory links only listed modules. The
+    // catalogue scans every filter the repository has, so these are the
+    // filter modules that loaded before the allowlist (the editor's own
+    // are listed by FactoryPolicy; decklink and vorbis have no filters).
+    for (const char *module : {"frei0r", "sox", "jackrack", "ladspa", "oldfilm", "plusgpl", "kdenlive", "vidstab",
+                               "rubberband", "rnnoise", "opencv"})
+        paths->allowModules.emplace_back(module);
     for (const std::string &why : curation.excluded)
         ustudio::core::Log::info("[effects] frei0r plugin left out: " + why);
     ustudio::core::Log::debug("[effects] " + std::to_string(plugins.size()) + " frei0r plugins found, " +
@@ -106,6 +115,8 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
     host->log("[effects] registered in " + host->program());
     // IP3: effects on clips, tracks and the sequence, in every graph.
     host->addEngineExtension([] { return makeEffectsExtension(); });
+    // The blend dissolves' service, allowed only where frei0r has it.
+    registerTransitionServices();
     // IP6: the health and cost probe, and the registry for the editor's cache.
     host->addRenderSubcommand(
         {"probe-effect", "Health and cost of one effect; one JSON line (the effects scan)", &runProbeEffect});
@@ -129,6 +140,16 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         if (scanning)
             return; // one scan per process, however many windows
         scanning = true;
+        // The renderers' threads hold MLT producers, and the pages that own
+        // them are statics destroyed at exit(), after main() has closed the
+        // factory: stop them all when the application shuts down.
+        if (GApplication *application = g_application_get_default())
+            g_signal_connect(application, "shutdown",
+                             G_CALLBACK(+[](GApplication *, gpointer) {
+                                 stopEditorHealthScan();
+                                 FrameRenderer::stopAll();
+                             }),
+                             nullptr);
         // What was loaded at start-up (the experimental families), and
         // whether the recommended audio pack is there.
         catalog.experimental = loadExperimentalFamilies();

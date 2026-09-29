@@ -3,7 +3,9 @@
 #include <cerrno>
 #include <cstdlib>
 #include <fstream>
+#include <malloc.h>
 #include <signal.h>
+#include <sys/prctl.h>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -97,6 +99,21 @@ bool runningInFlatpak()
     // Flatpak puts this file at the sandbox's root (flatpak-metadata(5)).
     std::error_code ec;
     return std::filesystem::exists("/.flatpak-info", ec);
+}
+
+void releaseFreeMemory()
+{
+    malloc_trim(0);
+}
+
+void exitWithParent(int64_t expectedParent)
+{
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+    // The parent died between the fork and the call: the child was
+    // re-parented (to a subreaper such as the user's systemd, not
+    // necessarily pid 1), and the death signal will never come.
+    if (expectedParent > 0 && static_cast<int64_t>(getppid()) != expectedParent)
+        _exit(1);
 }
 
 } // namespace ustudio::platform

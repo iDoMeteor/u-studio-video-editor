@@ -587,6 +587,10 @@ void writeAdjustmentBlocksAndLooks(xmlNodePtr mlt, const Project &project, const
 
 std::string saveProject(const Model &model, const std::string &path)
 {
+    // Files inside the project's folder are saved relative to it
+    // (xml_detail::ProjectFolderScope); the render graph keeps them absolute.
+    std::error_code folderEc;
+    const xml_detail::ProjectFolderScope folder(std::filesystem::absolute(std::filesystem::path(path), folderEc).parent_path());
     const Project &project = model.project();
     const Sequence &seq = model.sequence();
     fs::path targetPath(path);

@@ -39,4 +39,23 @@ int64_t processStartTime(int64_t pid);
 // Diagnostics). False on other platforms.
 bool runningInFlatpak();
 
+// Hands memory the process has freed back to the OS, after a large, short
+// job (a worker closing a decoder): the C library otherwise keeps it for
+// reuse, so RSS stays at the job's peak. Linux (glibc): malloc_trim(0),
+// which returned about 100 MB of a closed 1080p decoder's 180 MB
+// (2026-09-29); a musl build would need a guard. Windows: a no-op
+// (_heapmin is deprecated for this in the UCRT). Off the main thread only:
+// it walks and locks every malloc arena, tens of ms on a big heap.
+void releaseFreeMemory();
+
+// Ends this process when its parent does (a child that must not outlive
+// the program that started it, even when that one crashes: the effects
+// scan's probes). Call first thing in the child, with the pid the parent
+// passed it (0: unknown); a parent already gone by then (the child isn't
+// its child any more) ends it at once. Linux: PR_SET_PDEATHSIG with
+// SIGKILL, which fires when the thread that spawned the child ends, so
+// spawn from a thread that outlives its children. Windows: to come with
+// the port (a job object).
+void exitWithParent(int64_t expectedParent);
+
 } // namespace ustudio::platform

@@ -110,11 +110,28 @@ moves to the next point: **Linear** (steady), **Smooth**, **Ease in**,
 **Ease out**, **Snap**, **Bounce**, **Elastic**, or **Hold** (it stays put,
 then jumps), plus every other curve in the list.
 
+### Moving, sizing and turning a picture over time
+
+With one clip selected, the **Effects** page starts with a **Transform**
+card: the picture's **X** and **Y** (its centre, in pixels from the
+frame's top left), **Width**, **Height** and **Rotation** (degrees
+clockwise). They pin, step and feel exactly like an effect's values, and
+record the same way, so a picture can glide in, grow, or spin over the
+clip.
+
+- A picture that's fitted or stretched to the frame is placed where it
+  shows the first time you change its position or size, or pin any value.
+- Crops don't change over time.
+- On a picture that changes over time, dragging it or its handles on the
+  preview, nudging it, and **Edit Transform** (`Ctrl+T`) change the
+  keyframe at the playhead (or add one there) for the values you move,
+  just as the card does.
+
 ### Seeing and shaping the curve (curve lanes)
 
 Select a clip and press **C**: a lane opens under it on the timeline for
-each value that changes over time, showing its curve, with a dot for each
-keyframe.
+each value that changes over time (its transform's first, then its
+effects'), showing its curve, with a dot for each keyframe.
 
 - **Drag a dot** left or right to move the keyframe in time, up or down to
   change its value. The whole drag is one undo step.
@@ -185,8 +202,11 @@ effect.
 ## Transition styles
 
 With the add-on, a dissolve between two clips can play in another style:
-a **dip to black**, a **flash**, a **slide** or **push** (the next clip
-slides in over this one, or pushes it out, from any side), or one of 20
+a **dip to black**, a **flash**, a **blend** (**Additive**, **Screen** or
+**Lighten**: both clips at once half-way, brighter than a plain
+dissolve), a **slide** or **push** (the next clip
+slides in over this one, or pushes it out, from any side), a **zoom** or
+**spin** (it grows in from the middle, turning as it comes), or one of 20
 **wipes** (left, right, up, down and the diagonals, circle, clock,
 diamond, barn doors, blinds, checkerboard, blocks, star, sparkle and the
 unicorn horn).
@@ -195,8 +215,9 @@ unicorn horn).
    Or press **T** to add a dissolve at the cut nearest the playhead on the
    active track (about half a second, like **Add Transition**).
 2. The **Transitions** page opens in the inspector, and the dissolve it's
-   about is outlined on the timeline. Each tile shows its style: the
-   outgoing clip in pink, the incoming one in blue.
+   about is outlined on the timeline. Each tile shows its style with your
+   own two clips, half-way through the transition (a drawing, the outgoing
+   clip in pink and the incoming one in blue, until the picture is ready).
 3. Click a tile to play the dissolve that way. **Ctrl+Z** puts the last
    style back.
 
@@ -204,8 +225,15 @@ A wipe has two settings above the tiles: **Softness** (how blurred its
 edge is) and **Reverse** (run it the other way). A slider drag is one undo
 step.
 
+**Sound** chooses how the two clips' sound crosses: **Even crossfade**
+(the default), **Equal power**, which keeps the level up through the
+middle, better for music and ambience, or **Cut**: the first clip's sound
+plays to the middle of the transition and the second's from there, with
+no blend (for dialogue, or a beat). It stays when you change the style.
+
 The style is saved with the project, and a render plays it exactly as the
-preview does. A saved project with wipes gets a small `ustudio-wipes`
+preview does. Opened where the add-on isn't installed, a styled
+dissolve plays as a plain one; the style comes back with the add-on. A saved project with wipes gets a small `ustudio-wipes`
 folder beside it: keep it with the project file.
 
 With GPU acceleration on, a wipe can stutter in the preview at **Full**
@@ -225,8 +253,8 @@ or a colourist. U Stu keeps a library of them:
    try it, click to add it, as with any effect.
 
 **LUT (.cube)** among the effects does the same with any file you choose.
-Keep a project and its `luts` folder together: a project moved to another
-folder can't find its LUTs yet.
+Keep a project and its `luts` folder together: move or copy the whole
+folder and the project finds its LUTs where they are now.
 
 ## Before and after
 
@@ -265,3 +293,8 @@ An effect that fails is **turned off**: it's hidden from the **Add** page,
 and a project that already uses it plays without it (its card says so).
 Tick **Unstable** on the **Add** page to see them anyway; they may take the
 editor down. See [Troubleshooting](troubleshooting.md#an-effect-is-missing-or-turned-off).
+
+Effects that only run on a graphics card's own compute interfaces (FFmpeg's
+Vulkan, OpenCL, CUDA, VAAPI and similar versions, such as "Gblur Vulkan")
+aren't offered at all: the editor hands effects ordinary pictures, which
+they can't use. Their ordinary versions ("Gblur") are there.

@@ -55,6 +55,10 @@ click the picture in the preview to select its clip:
   beside the preview where you can type exact position, size, rotation and
   crop values.
 - Each drag, and each Edit Transform session, is one undo step.
+- To make a picture move, grow or turn over time, keyframe it on the
+  Transform card of the Effects page (the Effects add-on). Once it has
+  keyframes, dragging it here sets the keyframe at the playhead. See
+  [Moving, sizing and turning a picture over time](effects.md#moving-sizing-and-turning-a-picture-over-time).
 - Transforms are saved with the project, look exactly the same in the
   render, and stay with the clip when you trim, split, copy or ripple it.
 

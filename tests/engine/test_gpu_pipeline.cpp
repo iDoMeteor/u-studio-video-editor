@@ -278,6 +278,33 @@ TEST_CASE("GPU pipeline: a rotated clip keeps the CPU chain and matches")
     checkSame(cpu, gpu);
 }
 
+TEST_CASE("GPU pipeline: rotation, crop and flips together match the CPU")
+{
+    // A rotated clip is a CPU island (crop, mirror, affine on the cut) inside
+    // the GPU graph; the demo's picture-in-picture (a 1344x768 source fitted,
+    // cropped, rotated and flipped) came out turned and smeared there.
+    sharedFactoryPolicy();
+    // Only the demo's shape: a 1344x768 source shows both faults, and every
+    // variant is a CPU and a GPU render (the test's time budget).
+    const std::string source = utf8String(generate("halves-1344.mp4", 1344, 768, "color:#2040c0", "color:#20c040"));
+    for (const double rotation : {0.0, 20.0})
+        for (const bool crop : {false, true})
+            for (int flips = 1; flips < 4; ++flips) {
+                Scene scene(source, 1344, 768);
+                Transform t = placed(900, 500, 960, 540, rotation);
+                if (crop)
+                    t.cropRight.value = 270;
+                t.flipH = flips & 1;
+                t.flipV = flips & 2;
+                scene.model.setClipTransform(scene.clip, t);
+                INFO("rotation " << rotation << ", crop " << crop << ", flipH " << t.flipH << ", flipV " << t.flipV);
+                Image cpu, gpu;
+                if (!renderBoth(scene.model, 5, cpu, gpu))
+                    return;
+                checkSame(cpu, gpu);
+            }
+}
+
 TEST_CASE("GPU pipeline: a 4:3 clip is fitted and centred, the track below showing either side")
 {
     sharedFactoryPolicy();
@@ -528,6 +555,29 @@ TEST_CASE("GPU pipeline: a push plays as the CPU's, frame by frame")
         INFO("frame " << position << ": cpu edge " << greenEdge(cpu) << ", gpu edge " << greenEdge(gpu));
         CHECK(std::abs(greenEdge(cpu) - greenEdge(gpu)) <= 8);
         CHECK(greenEdge(gpu) > 0);
+    }
+}
+
+// FX3 leftover: a spin (the affine transition with an animated rect and
+// rotation) plays on the GPU as the CPU's, a CPU island like slide and push.
+TEST_CASE("GPU pipeline: a spin plays as the CPU's")
+{
+    sharedFactoryPolicy();
+    TwoClipScene two;
+    REQUIRE(two.transition.value != 0);
+    two.scene.model.setTransitionRecipe(
+        two.transition, "spin.in.right",
+        {{"video.service", std::string("affine"), {}},
+         {"video.rect", std::string("ramp:50% 50% 0% 0%|0% 0% 100% 100%"), {}},
+         {"video.fix_rotate_x", std::string("ramp:-180,0"), {}}});
+    REQUIRE(two.scene.model.check().empty());
+    for (int position : {34, 40, 46}) {
+        Image cpu, gpu;
+        if (!renderBoth(two.scene.model, position, cpu, gpu))
+            return;
+        const Difference d = compare(cpu, gpu);
+        INFO("frame " << position << ": mean " << d.mean << ", outliers " << d.outliers * 100 << "%");
+        CHECK(d.mean <= 3.0);
     }
 }
 

@@ -140,6 +140,7 @@ class Browser
         // The renderer's thread holds MLT producers: it stops with the
         // window, before Mlt::Factory::close().
         g_signal_connect(m_root, "destroy", G_CALLBACK(&onDestroyTrampoline), this);
+        g_signal_connect(m_root, "map", G_CALLBACK(&onMapTrampoline), this);
         refill();
     }
 
@@ -153,7 +154,8 @@ class Browser
             if (std::find(services.begin(), services.end(), service) == services.end())
                 continue;
             setBadge(*tile);
-            requestTile(*tile, m_tileGeneration);
+            if (tilesVisible())
+                requestTile(*tile, m_tileGeneration);
         }
     }
 
@@ -268,10 +270,14 @@ class Browser
         if (m_recent.size() > static_cast<size_t>(kRecentMax))
             m_recent.resize(kRecentMax);
         const core::Model::EffectTarget &target = targets.front();
-        m_host.showStatus((look ? "Applied " : "Added ") + name +
-                          (target.kind != core::Model::EffectTarget::Kind::Clip ? " to the whole sequence"
-                           : targets.size() > 1 ? " to " + std::to_string(targets.size()) + " clips"
-                                                : " to the clip"));
+        std::string where = " to the clip";
+        if (target.kind == core::Model::EffectTarget::Kind::AdjustmentBlock)
+            where = " to the adjustment block";
+        else if (target.kind != core::Model::EffectTarget::Kind::Clip)
+            where = " to the whole sequence";
+        else if (targets.size() > 1)
+            where = " to " + std::to_string(targets.size()) + " clips";
+        m_host.showStatus((look ? "Applied " : "Added ") + name + where);
     }
 
     void onSearchActivate()
@@ -505,8 +511,30 @@ class Browser
         return request;
     }
 
+    // Only while the page shows: a render opens the clip's media in this
+    // process (about 180 MB for a 1080p H.264 decoder), and a scan result,
+    // an edit or a pause in playback would otherwise render tiles nobody
+    // sees (the GPU soak's step, 2026-09-29). Shown again, it catches up.
+    bool tilesVisible()
+    {
+        if (gtk_widget_get_mapped(m_root))
+            return true;
+        m_tilesStale = true;
+        return false;
+    }
+
+    void onMap()
+    {
+        if (!m_tilesStale)
+            return;
+        m_tilesStale = false;
+        requestTiles();
+    }
+
     void requestTiles()
     {
+        if (!tilesVisible())
+            return;
         const uint64_t generation = ++m_tileGeneration;
         for (const std::unique_ptr<Tile> &tile : m_tiles)
             requestTile(*tile, generation);
@@ -863,6 +891,10 @@ class Browser
     {
         static_cast<Browser *>(self)->onBrowserAction();
     }
+    static void onMapTrampoline(GtkWidget *, gpointer self)
+    {
+        static_cast<Browser *>(self)->onMap();
+    }
     static void onDestroyTrampoline(GtkWidget *, gpointer self)
     {
         static_cast<Browser *>(self)->onDestroy();
@@ -942,6 +974,7 @@ class Browser
     std::vector<std::string> m_categories, m_recent;
     std::string m_auditioning;
     uint64_t m_tileGeneration = 0, m_auditionGeneration = 0;
+    bool m_tilesStale = false; // tiles asked for while the page was hidden
     core::FrameIndex m_lastFrame = -1;
     size_t m_projectLooks = 0;
     GtkWidget *m_importLuts = nullptr, *m_families = nullptr, *m_vst2 = nullptr, *m_openfx = nullptr;

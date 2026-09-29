@@ -26,6 +26,19 @@ effects_test_engine = executable(
 )
 test('effects-engine', effects_test_engine, timeout: 300)
 
+# The frame renderer with a GPU session live: alone, since its glsl.manager
+# outlives the session and would switch every later graph to movit.
+effects_test_gpu = executable(
+  'test_effects_gpu',
+  files('test_gpu.cpp') + effects_engine_sources,
+  cpp_args: effects_engine_args,
+  include_directories: [src_inc, effects_inc],
+  dependencies: [effects_doctest_dep, effects_core_dep, libustudio_engine_dep, libustudio_dropins_dep,
+                 libustudio_platform_dep, glib_dep],
+  install: false,
+)
+test('effects-gpu', effects_test_gpu, timeout: 120)
+
 # Two frei0r plugins broken on purpose (frei0r/broken_plugin.cpp), alone in
 # their directory, which the scan test uses as the whole FREI0R_PATH.
 effects_broken_plugins = []
@@ -64,4 +77,22 @@ if get_option('render_tool')
     install: false,
   )
   test('effects-scan', effects_test_scan, depends: effects_broken_plugins, timeout: 180)
+
+  # M5's gate, box 2: one project with a keyframed transform, a masked
+  # effect, a dissolve with effects and an adjustment block, the live
+  # Engine's frames against the render tool's --frames hashes.
+  effects_render_args = effects_engine_args + ['-DEFFECTS_RENDER_TOOL="' + meson.project_build_root() / 'src' / 'render' / 'u-studio-render' + '"']
+  if get_option('dropin_effects') == 'module'
+    effects_render_args += '-DEFFECTS_DROPIN_MODULE_DIR="' + meson.current_build_dir() / '..' + '"'
+  endif
+  effects_test_render = executable(
+    'test_effects_render',
+    files('test_render.cpp', '../register.cpp') + effects_engine_sources + effects_app_sources,
+    cpp_args: effects_render_args,
+    include_directories: [src_inc, effects_inc],
+    dependencies: [effects_doctest_dep, effects_core_dep, libustudio_engine_dep, libustudio_dropins_dep,
+                   libustudio_platform_dep, glib_dep, gio_dep, gtk4_dep],
+    install: false,
+  )
+  test('effects-render', effects_test_render, timeout: 300, is_parallel: false)
 endif

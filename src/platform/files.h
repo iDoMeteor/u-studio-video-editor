@@ -23,4 +23,8 @@ bool linkFile(const std::filesystem::path &target, const std::filesystem::path &
 // on Windows). Empty if neither is known. Not created.
 std::filesystem::path userCacheDirectory();
 
+// A shared library's file-name ending here: ".so" on Linux (".dll" on
+// Windows). MLT's modules are "libmlt<name>" plus this.
+const char *sharedLibrarySuffix();
+
 } // namespace ustudio::platform

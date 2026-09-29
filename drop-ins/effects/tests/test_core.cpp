@@ -13,7 +13,9 @@
 #include "core/json.h"
 #include "core/keyframes.h"
 #include "core/looks.h"
+#include "core/transform_edit.h"
 #include "core/transitions.h"
+#include "core/model/transform.h"
 #include "core/blocks.h"
 #include "core/model/effect_native.h"
 #include "core/model/animation.h"
@@ -120,6 +122,15 @@ TEST_CASE("Descriptors: family, media, overlays, and the cache's round trip")
     CHECK(familyOf("avfilter.gblur") == "avfilter");
     CHECK(familyOf("brightness") == "mlt");
     CHECK(familyOf("some.thing") == "mlt");
+    // Hardware-only FFmpeg filters are never offered (a crash in teardown
+    // without the device); their software namesakes are.
+    for (const char *hw : {"avfilter.blackdetect_vulkan", "avfilter.avgblur_opencl", "avfilter.scale_cuda",
+                           "avfilter.denoise_vaapi", "avfilter.vpp_qsv", "avfilter.sr_amf", "avfilter.hwupload_cuda",
+                           "avfilter.hwdownload", "avfilter.hwmap", "avfilter.libplacebo"})
+        CHECK_MESSAGE(isHardwareOnlyFilter(hw), hw);
+    for (const char *sw :
+         {"avfilter.blackdetect", "avfilter.avgblur", "avfilter.gblur", "frei0r.glow", "brightness", "avfilter.vflip"})
+        CHECK_MESSAGE(!isHardwareOnlyFilter(sw), sw);
 
     RawEffect raw{"frei0r.glow",
                   "Glow",
@@ -855,4 +866,45 @@ TEST_CASE("Overlays: a parameter's kind and file extensions, kept through the re
     std::optional<Json> odd = parseJson(R"({"params":{"av.file":{"kind":"spaceship"}}})");
     applyOverlay(d, *odd);
     CHECK(d.params[0].kind == ParamKind::File);
+}
+
+TEST_CASE("Transform card: a value placed, pinned, then keyed at another frame; check() accepts each")
+{
+    const core::Profile profile; // 1920x1080
+    const core::Transform fit;   // the default: fitted, 1280x720 source
+    const core::Transform placed = core::explicitTransform(fit, 1280, 720, profile);
+    REQUIRE(placed.bounds == core::Transform::Bounds::None);
+    CHECK(placed.x.value == doctest::Approx(960));
+    CHECK(placed.width.value == doctest::Approx(1920));
+
+    // A position change places the picture where it shows, then moves it.
+    core::Transform moved = withValue(fit, placed, TransformField::X, 0, 400);
+    CHECK(moved.bounds == core::Transform::Bounds::None);
+    CHECK(moved.x.value == doctest::Approx(400));
+    CHECK(moved.width.value == doctest::Approx(1920));
+    CHECK(core::transformProblem(moved).empty());
+    // Rotation alone leaves a fitted picture fitted.
+    const core::Transform turned = withValue(fit, placed, TransformField::Rotation, 0, 15);
+    CHECK(turned.bounds == core::Transform::Bounds::Fit);
+    CHECK(turned.rotation.value == doctest::Approx(15));
+
+    // Pin X at frame 0 (a key at the value shown), then change it at 30: a
+    // key there; Y, never pinned, stays one value.
+    core::Transform keyed = withKeys(moved, TransformField::X, withKeyAt({}, 0, 400), 400);
+    CHECK(core::isAnimated(keyed));
+    CHECK(core::transformProblem(keyed).empty());
+    keyed = withValue(keyed, keyed, TransformField::X, 30, 1000);
+    keyed = withValue(keyed, keyed, TransformField::Y, 30, 200);
+    REQUIRE(keyed.x.keyframes.size() == 2);
+    CHECK(core::transformAt(keyed, 0).x.value == doctest::Approx(400));
+    CHECK(core::transformAt(keyed, 15).x.value == doctest::Approx(700)); // linear between
+    CHECK(core::transformAt(keyed, 30).x.value == doctest::Approx(1000));
+    CHECK(keyed.y.keyframes.empty());
+    CHECK(keyed.y.value == doctest::Approx(200));
+    CHECK(core::transformProblem(keyed).empty());
+
+    // Unpinning the last key leaves the value shown.
+    const core::Transform unkeyed = withKeys(keyed, TransformField::X, {}, 700);
+    CHECK_FALSE(core::isAnimated(unkeyed));
+    CHECK(unkeyed.x.value == doctest::Approx(700));
 }

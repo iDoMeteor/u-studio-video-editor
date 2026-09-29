@@ -28,6 +28,24 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.78.4-beta.1" date="2026-09-29" type="development">
+      <description>
+        <p>New since 0.78.0-beta.1 (fixes):</p>
+        <ul>
+          <li>With GPU acceleration on, a flipped clip shows mirrored in place; a cropped or rotated flipped clip no longer comes out turned, smeared or out of its box.</li>
+          <li>Effects: the Add page no longer holds on to a clip's memory (about 180 MB for a 1080p clip), and two crashes are fixed, one on the Add page and one at quit.</li>
+          <li>U Stu Titles no longer crashes when you close it with a layer selected, and exporting or baking a title no longer crashes as it finishes.</li>
+          <li>A dissolve into a still or a colour clip works from its first frame.</li>
+        </ul>
+        <p>Try long GPU playback with effects installed and watch the editor's memory, and flip a cropped or rotated clip with GPU acceleration on. Install the Titles and Effects add-ons of this same version with the app.</p>
+      </description>
+    </release>
+    <release version="0.78.3-beta.1" date="2026-09-29" type="development">
+      <description>
+        <p>New since 0.78.2-beta.1: fixes for the Effects add-on. The Add page no longer renders its tiles while it's hidden, and its previews let go of your clip a moment after they're drawn: about 180 MB less for a 1080p clip. Two crashes with the add-on are fixed (a title selected before its template was picked, and quitting), and effects that need a graphics card's Vulkan, OpenCL, CUDA or VAAPI are no longer offered.</p>
+        <p>Try playing a long project with the Effects add-on installed and GPU acceleration on, with the Add page open for a while first, and watch the editor's memory stay level.</p>
+      </description>
+    </release>
     <release version="0.78.2-beta.1" date="2026-09-29" type="development">
       <description>
         <p>New since 0.78.0-beta.1: fixes in titles. U Stu Titles could crash when you closed it with a layer selected; it closes cleanly now. Exporting a title on its own, or baking a title clip, could crash as the export finished; it now waits for the encoder to finish first. And a caption clip's name on the timeline now follows its words when you edit them on the Title page, unless you renamed the clip.</p>

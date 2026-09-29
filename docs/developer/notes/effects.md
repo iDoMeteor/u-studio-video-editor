@@ -142,4 +142,98 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   (5), kdenlive (3), vid.stab (2), rubberband, rnnoise, opencv (1 each).
 - **LUTs:** `avfilter.lut3d`'s `av.file` is a path avfilter opens itself, so
   it isn't resolved against the project (unlike a producer's `resource`):
-  the LUT library keeps absolute paths.
+  the model and the render graph keep absolute paths, and only the saved
+  model record names a file inside the project's folder relatively (`f:`
+  values, read back against where the project is now).
+
+## Frame renderer memory
+
+Found 2026-09-29 (VE Effects), after the 0.78.0 Flatpak's GPU playback
+soak read +40 MB/min with the Effects add-on installed and +2.5 without.
+
+- **It was one step, not a slope.** RSS sat flat, jumped about 60–120 MB
+  once, and stayed flat; a least-squares line from 30 s on reads such a
+  step as tens of MB a minute. The step was the drop-in's frame renderer
+  (`engine/frame_renderer.cpp`) opening the selected 1080p clip: the
+  hidden Browser re-rendered a tile each time the health scan checked an
+  effect, and the worker kept the media open for good.
+- **An open 1080p H.264 producer costs about 180 MB** in a worker: the
+  avformat producer's `threads` defaults to 0, so FFmpeg starts a frame
+  thread a core, each with its own buffers (`producer_avformat.c`,
+  `thread_count = 0`). `threads=1` halves it (84 MB) but makes seeks two
+  to four times slower, so the renderer keeps the default and closes the
+  media after `FrameRenderer::kReleaseIdleMedia` (2 s) without a request.
+- **Freed isn't returned.** Closing the producer gave back only about
+  20 MB of RSS: glibc keeps the decoder threads' arenas for reuse.
+  `platform::releaseFreeMemory()` (`malloc_trim(0)` on Linux) after the
+  close brought it to +58 MB over the start (the rest is FFmpeg's and
+  MLT's one-time state). Repro: a `FrameRenderer` rendering 20 frames of
+  a 1080p30 clip, RSS from `/proc/self/status` before, after, and 3 s
+  after.
+- **Hidden pages don't render.** The Browser renders tiles only while its
+  page is mapped, and catches up on `map`; the eyedropper, Compare and the
+  audition render only on a user action.
+- **Two crashes in the renderer, found with it (the demo tour, 2026-09-29).**
+  A clip that doesn't open (a title whose template isn't picked yet) was
+  kept, invalid, under its key; the next tile for it cut and seeked the
+  invalid producer (`mlt_producer_seek` on a cut forwards to its parent).
+  An unopened clip now stays unopened for its key. And the pages that own
+  renderers are statics destroyed at `exit()`, after `main()` has closed
+  the factory: a worker still holding media closed it through a function
+  pointer into an unloaded module. The drop-in calls
+  `FrameRenderer::stopAll()` on the application's `shutdown` signal.
+- **Hardware-only FFmpeg filters** (`*_vulkan`, `*_opencl`, `*_cuda`,
+  `*_vaapi`, `*_qsv`, `*_amf`, `hwupload`/`hwdownload`/`hwmap`,
+  `libplacebo`; 50 on Fedora 44's FFmpeg) are left out of the registry
+  (`isHardwareOnlyFilter()`): MLT hands them software frames, and
+  `blackdetect_vulkan` crashed in its teardown without Vulkan (Xvfb).
+- The soak that guards this: `tools/effects-smoke/run.sh <builddir> <outdir>
+  soak_steps.sh` ([testing](../testing.md#the-effects-smoke-test)).
+
+## Health scan children
+
+- **A probe can outlive its editor.** VE Demos saw `u-studio-render
+  --probe-effect deshake` still running after the editor quit, re-parented
+  to the user's systemd (not pid 1) and ignoring SIGTERM (a probe inside a
+  plugin never checks the render tool's cancel; 2026-09-29). The scan now
+  stops on the application's `shutdown` signal (its thread kills its
+  children and reaps them), not at `exit()`, and the probe subcommand calls
+  `platform::exitWithParent()` (Linux: `PR_SET_PDEATHSIG` with SIGKILL, which
+  fires when the *thread* that spawned the child ends: the scan's worker,
+  which outlives its children). Repro: a probe under a throwaway parent,
+  the parent SIGKILLed: the probe was gone within a second.
+
+## Blend dissolves
+
+Found 2026-09-29 (VE Effects), for the Blends recipes (`dissolves.json`).
+
+- **A blend mode alone doesn't dissolve.** `frei0r.cairoblend` with its
+  opacity (`"0"`) rising 0 to 1 in `add` or `screen` mode ends on
+  `add(A, B)`, not on B, so the picture would jump at the end. The recipes
+  fade the outgoing clip too: B's opacity `ramp:0,1,1`, A's `brightness`
+  `ramp:1,1,0` (`rgb_only`). With A at black the light modes (`add`,
+  `screen`, `lighten`) give exactly B; the dark ones (`multiply`,
+  `darken`) would need A fading to white, so they aren't offered.
+- **The service is registered, not core's.** `frei0r.cairoblend` is in no
+  core list: the drop-in registers it (`core::registerTransitionService()`)
+  when MLT's repository has it, and a build without it plays such a recipe
+  as the plain dissolve (`nativeTransition()`), keeping the recipe.
+- **MLT's `color:` generator reads differently through a transition.**
+  `color:0x600000ff` reads 96 red as RGBA on its own but 87 through a
+  plain `luma` dissolve and 88 through `cairoblend` (a 709/601 matrix
+  mismatch: reds dim, greens brighten, 96 green read 113). PNG and H.264
+  (BT.709-tagged) sources read the same on every path. Tests that compare
+  colours across a transition's edge use generated FFV1 or H.264 clips,
+  not `color:` directly (the drop-in's test_engine "Blend dissolve").
+- The blend tiles show the real clips like the others; GPU: the transition
+  is a CPU island in the movit graph, like the wipes (not yet measured by
+  VE GPU).
+- **A sound cut** (the Sound row's Cut, doc 15's third curve): `mix` with
+  `start=1 sum=1` adds the incoming track unscaled, and a `volume` filter
+  on each side (cut filter 9, clear of the styles' own) holds it at -100 dB
+  on its half: `hold:0,-100` / `hold:-100,0`, core's discrete form of
+  `ramp:` (`"0|=0;<length/2>|=-100"`). `volume`'s `level` is in dB and
+  animated (`filter_volume.yml`). Test: engine-xml-playback "A transition's
+  sound can cut at the middle" (two tones 240 degrees apart: a cut keeps one
+  tone's level on both sides; an even crossfade halves it at the middle).
+

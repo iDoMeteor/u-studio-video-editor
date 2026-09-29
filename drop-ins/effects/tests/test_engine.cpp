@@ -11,6 +11,7 @@
 #include "core/commands/undo_stack.h"
 #include "core/media/utf8_path.h"
 #include "core/model/model.h"
+#include "core/model/transition_native.h"
 #include "core/xml/writer.h"
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
@@ -28,6 +29,7 @@
 #include <glib.h>
 #include <mlt++/Mlt.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -572,6 +574,41 @@ TEST_CASE("FrameRenderer: results on the main loop, cached, stale generations dr
     }
     CHECK(delivered == 1);
 
+    // Idle, the worker closes its media (an open decoder is its largest
+    // cost: about 180 MB for 1080p H.264), and opens it again when asked.
+    CHECK(renderer.holdsMedia());
+    const auto idleSince = std::chrono::steady_clock::now();
+    while (renderer.holdsMedia() && std::chrono::steady_clock::now() - idleSince < std::chrono::seconds(10))
+        g_usleep(50000);
+    CHECK_FALSE(renderer.holdsMedia());
+    CHECK(std::chrono::steady_clock::now() - idleSince >= FrameRenderer::kReleaseIdleMedia / 2);
+    bool reopened = false;
+    renderer.request(greyRequest({brightness(0.3)}), 1, 6,
+                     [&](const RenderedFrame &frame) { reopened = !frame.rgba.empty(); });
+    waitFor(reopened);
+    CHECK(reopened);
+    CHECK(renderer.holdsMedia());
+
+    // A clip that doesn't open, asked for twice (the second time from the
+    // same open slot): an empty frame both times, never a seek on it.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        FrameRequest missing = greyRequest({brightness(0.2 + 0.1 * attempt)});
+        missing.resource = (scratch() / "no-such-clip.mp4").string();
+        bool answered = false, empty = false;
+        renderer.request(std::move(missing), 1, 7 + static_cast<uint64_t>(attempt), [&](const RenderedFrame &frame) {
+            answered = true;
+            empty = frame.rgba.empty();
+        });
+        waitFor(answered);
+        CHECK(answered);
+        CHECK(empty);
+    }
+
+    // At the application's shutdown every renderer stops (FrameRenderer::
+    // stopAll()), before main() closes the factory; its own stop() later is
+    // a no-op.
+    FrameRenderer::stopAll();
+    CHECK_FALSE(renderer.holdsMedia());
     renderer.stop();
     bool afterStop = false;
     renderer.request(greyRequest({brightness(0.9)}), 1, 9, [&](const RenderedFrame &) { afterStop = true; });
@@ -952,5 +989,152 @@ TEST_CASE("M5 gate: preview and export give the same frames for effects, masks, 
         INFO("melt " << red(melt, 0.4, 0.5) << " preview " << red(preview.tractor(), 0.4, 0.5));
         CHECK(near(red(melt, 0.4, 0.5), red(preview.tractor(), 0.4, 0.5), 3));
         CHECK(near(red(melt, 0.9, 0.1), red(preview.tractor(), 0.9, 0.1), 3));
+    }
+}
+
+// FX3 leftover: the Transitions page's tiles are the real two clips half-way
+// through each style, rendered off the live graph.
+TEST_CASE("FrameRenderer: a transition's frame from the two clips, as the style plays it")
+{
+    setUp();
+    FrameRequest request;
+    request.resource = "color:0xff0000ff";
+    request.profile.fps = {30, 1};
+    request.clipIn = 0;
+    request.clipOut = 19;
+    request.width = 160;
+    request.height = 90;
+    FrameRequest::Transition wipe;
+    wipe.resource = "color:0x0000ffff";
+    wipe.in = 0;
+    wipe.out = 19;
+    wipe.position = 10;
+    wipe.params = {{"video.service", std::string("luma"), {}}, {"video.luma", std::string("left"), {}}};
+    request.transition = wipe;
+    const RenderedFrame frame = FrameRenderer::renderNow(request);
+    REQUIRE(frame.width == 160);
+    auto at = [&](int x, int channel) {
+        return frame.rgba[(static_cast<size_t>(45) * 160 + static_cast<size_t>(x)) * 4 + static_cast<size_t>(channel)];
+    };
+    CHECK(at(10, 2) > 200);  // the incoming blue on the left
+    CHECK(at(150, 0) > 200); // the outgoing red on the right
+    // The plain dissolve: the two blended, the same everywhere.
+    request.transition->params.clear();
+    const RenderedFrame dissolve = FrameRenderer::renderNow(request);
+    REQUIRE(!dissolve.rgba.empty());
+    const size_t middle = (static_cast<size_t>(45) * 160 + 80) * 4;
+    CHECK(near(dissolve.rgba[middle], 128, 20));
+    CHECK(near(dissolve.rgba[middle + 2], 128, 20));
+    CHECK(request.key() != FrameRequest{}.key());
+
+    // Motion: the affine transition, and for a push an affine filter on the
+    // outgoing cut too (the smoke crashed here once).
+    for (const bool push : {false, true}) {
+        request.transition->params = {{"video.service", std::string("affine"), {}},
+                                      {"video.rect", std::string("ramp:100% 0% 100% 100%|0% 0% 100% 100%"), {}}};
+        if (push) {
+            request.transition->params.push_back({"a.0.service", std::string("affine"), {}});
+            request.transition->params.push_back(
+                {"a.0.transition.rect", std::string("ramp:0% 0% 100% 100%|-100% 0% 100% 100%"), {}});
+        }
+        const RenderedFrame moving = FrameRenderer::renderNow(request);
+        REQUIRE(!moving.rgba.empty());
+        CHECK(moving.rgba[(static_cast<size_t>(45) * 160 + 150) * 4 + 2] > 200); // the incoming blue on the right
+    }
+}
+
+// A solid-colour 1080p clip, `frames` long, rendered from MLT's color:
+// generator to lossless FFV1 (color: itself reads differently as RGBA and
+// through a transition's YUV path; notes/effects.md).
+fs::path solidClip(const std::string &name, const char *colour, int frames)
+{
+    const fs::path path = scratch() / name;
+    if (fs::exists(path))
+        return path;
+    Mlt::Profile profile("atsc_1080p_30");
+    Mlt::Producer producer(profile, colour);
+    producer.set_in_and_out(0, frames - 1);
+    Mlt::Consumer consumer(profile, "avformat", utf8String(path).c_str());
+    consumer.set("vcodec", "ffv1"); // consumer_avformat.yml: vcodec
+    consumer.set("real_time", -1);
+    consumer.connect(producer);
+    consumer.run();
+    consumer.stop();
+    return path;
+}
+
+// FX3 leftover: blend dissolves (data/transitions/blends.json). The incoming
+// clip is added through frei0r.cairoblend (a service this drop-in registers
+// with core) while the outgoing one fades from half-way: it starts where the
+// plain dissolve does, is their sum half-way, ends on the incoming clip as
+// it plays after the transition, and melt plays the saved project the same.
+TEST_CASE("Blend dissolve: additive, from the outgoing clip through their sum to the incoming one")
+{
+    setUp();
+    REQUIRE(core::transitionServiceAllowed("frei0r.cairoblend"));
+    auto makeModel = [](std::vector<Param> recipe) {
+        Model model = Model::createEmpty();
+        const TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+        auto colour = [&](const char *path) {
+            Asset asset;
+            asset.path = path;
+            asset.info.hasVideo = true;
+            asset.info.lengthInSequenceFrames = 1000;
+            return model.addAsset(asset);
+        };
+        static const std::string red = utf8String(solidClip("red.mkv", "color:0x600000ff", 300));
+        static const std::string green = utf8String(solidClip("green.mkv", "color:0x006000ff", 300));
+        const ClipId a = model.insertClip(track, colour(red.c_str()), 0, 100, 199);
+        const ClipId b = model.insertClip(track, colour(green.c_str()), 100, 100, 199);
+        const TransitionId t = model.addTransition(track, a, b, 10, 10); // frames 90-109
+        if (!recipe.empty())
+            model.setTransitionRecipe(t, "blend.add", std::move(recipe));
+        return model;
+    };
+    const Model blend = makeModel({{"video.service", std::string("frei0r.cairoblend"), {}},
+                                   {"video.0", std::string("ramp:0,1,1"), {}},
+                                   {"video.1", std::string("add"), {}},
+                                   {"a.0.service", std::string("brightness"), {}},
+                                   {"a.0.level", std::string("ramp:1,1,0"), {}},
+                                   {"a.0.rgb_only", true, {}}});
+    const Model dissolve = makeModel({});
+    REQUIRE(blend.check().empty());
+    engine::EngineSync sync(blend, engine::PreviewScale::Full, engine::EngineSync::FrameReads::ProfileSize);
+    engine::EngineSync plain(dissolve, engine::PreviewScale::Full, engine::EngineSync::FrameReads::ProfileSize);
+    CHECK(sync.verify().empty());
+    auto rgb = [](Mlt::Producer &producer, int position) {
+        producer.seek(position);
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 64, h = 36;
+        const uint8_t *image = frame->get_image(format, w, h);
+        const size_t at = (static_cast<size_t>(h / 2) * static_cast<size_t>(w) + static_cast<size_t>(w / 2)) * 4;
+        return std::pair<int, int>{image[at], image[at + 1]};
+    };
+    const auto [r0, g0] = rgb(sync.tractor(), 90);
+    const auto [rm, gm] = rgb(sync.tractor(), 99);
+    const auto [r1, g1] = rgb(sync.tractor(), 109);
+    const auto [p0r, p0g] = rgb(plain.tractor(), 90);
+    const auto [pmr, pmg] = rgb(plain.tractor(), 99);
+    const auto [p1r, p1g] = rgb(plain.tractor(), 150); // the incoming clip on its own
+    INFO("blend " << r0 << "," << g0 << " | " << rm << "," << gm << " | " << r1 << "," << g1 << "; dissolve " << p0r
+                  << "," << p0g << " | " << pmr << "," << pmg << " | " << p1r << "," << p1g);
+    CHECK(near(r0, p0r, 3)); // starts on the outgoing clip, as the dissolve does
+    CHECK(near(g0, p0g, 3));
+    CHECK(rm > pmr + 20); // half-way both at (nearly) full: brighter than the dissolve's halves
+    CHECK(gm > pmg + 20);
+    CHECK(near(r1, p1r, 3)); // ends on the incoming clip, as it plays after
+    CHECK(near(g1, p1g, 3));
+
+    const fs::path path = scratch() / "blend.ustudio";
+    REQUIRE(saveProject(blend, utf8String(path)).empty());
+    Mlt::Producer melt(sync.profile(), ("xml:" + utf8String(path)).c_str());
+    REQUIRE(melt.is_valid());
+    for (int position : {90, 99, 109}) {
+        INFO("frame " << position);
+        const auto [mr, mg] = rgb(melt, position);
+        const auto [er, eg] = rgb(sync.tractor(), position);
+        CHECK(near(mr, er, 3));
+        CHECK(near(mg, eg, 3));
     }
 }

@@ -1106,6 +1106,7 @@ class AppWindow : public ShellHost
     uint64_t m_projectGeneration = 0;
     bool m_closeWhenSaved = false;
     timeline::TextureCache m_thumbnailTextures{600};
+    timeline::TextureCache m_waveformTextures{64}; // timeline_renderer.h: one per visible waveform and zoom
     std::vector<ClipDisplay> m_clips;
     // doc 06's TimelineController: gesture state, drag preview and the
     // clip selection.
