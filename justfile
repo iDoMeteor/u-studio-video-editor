@@ -35,19 +35,37 @@ fmt:
 #   These libraries don't define malloc, so ASan's interception still works.
 asan_ffmpeg := "/lib64/libavutil.so.60 /lib64/libavcodec.so.62 /lib64/libavformat.so.62 /lib64/libswscale.so.9 /lib64/libswresample.so.6 /lib64/libx264.so.165"
 # The same for MLT's movit module (ADR-019), so its glsl.manager, which MLT
-# never frees (docs/developer/notes/gpu.md), can be suppressed by name.
+# never frees (docs/developer/notes/gpu.md), can be suppressed by name. Only
+# for the GPU tests (names with "gpu"): preloaded, its exported
+# filter_*_init functions override same-named ones in modules loaded later,
+# so plus's lift_gamma_gain becomes movit's, which fails without GL (both
+# export filter_lift_gamma_gain_init; the effects drop-in's brand looks use
+# plus's).
 asan_movit := "/usr/lib64/mlt-7/libmltmovit.so"
 # The same for the avformat and frei0r modules' own leaks (the effects
 # drop-in's tests; tests/sanitizers/lsan.supp).
 asan_modules := "/usr/lib64/mlt-7/libmltavformat.so /usr/lib64/mlt-7/libmltfrei0r.so"
 asan *tests:
+    #!/usr/bin/env bash
+    set -u
     [ -d builddir-asan ] || meson setup builddir-asan -Db_sanitize=address,undefined -Db_lundef=false -Dtests=enabled
-    meson compile -C builddir-asan
-    LD_PRELOAD="{{asan_ffmpeg}} {{asan_movit}} {{asan_modules}}" \
-    ASAN_OPTIONS=detect_leaks=1:fast_unwind_on_malloc=0:verify_asan_link_order=0:detect_stack_use_after_return=1:halt_on_error=1 \
-    UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-    LSAN_OPTIONS=suppressions={{justfile_directory()}}/tests/sanitizers/lsan.supp \
-        meson test -C builddir-asan -t 6 --print-errorlogs {{tests}}
+    meson compile -C builddir-asan || exit 1
+    wanted="{{tests}}"
+    [ -n "$wanted" ] || wanted=$(meson test -C builddir-asan --list 2>/dev/null | sed 's/^[^:]*://')
+    gpu=(); rest=()
+    for t in $wanted; do case "$t" in *gpu*) gpu+=("$t") ;; *) rest+=("$t") ;; esac; done
+    run() { # preload, tests...
+        local preload=$1; shift
+        LD_PRELOAD="$preload" \
+        ASAN_OPTIONS=detect_leaks=1:fast_unwind_on_malloc=0:verify_asan_link_order=0:detect_stack_use_after_return=1:halt_on_error=1 \
+        UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+        LSAN_OPTIONS=suppressions={{justfile_directory()}}/tests/sanitizers/lsan.supp \
+            meson test -C builddir-asan -t 6 --print-errorlogs "$@"
+    }
+    status=0
+    if [ ${#rest[@]} -gt 0 ]; then run "{{asan_ffmpeg}} {{asan_modules}}" "${rest[@]}" || status=1; fi
+    if [ ${#gpu[@]} -gt 0 ]; then run "{{asan_ffmpeg}} {{asan_movit}} {{asan_modules}}" "${gpu[@]}" || status=1; fi
+    exit $status
 
 # Both sanitizer recipes take optional test names (`just tsan engine-thread`)
 # to run only those tests; with none they run the whole suite.
@@ -134,6 +152,26 @@ dist artifact:
     (cd "{{dist_dir}}" && sha256sum "$(basename "$dest")" > "$(basename "$dest").sha256")
     echo "dist: $dest"
     cat "$dest.sha256"
+
+# The effects drop-in's Flatpak extension (packaging/flatpak/
+# com.ustudio.VideoEditor.DropIn.Effects.yml), bundled as
+# build-flatpak/u-studio-video-editor-dropin-effects-<version>.flatpak, with
+# frei0r and MLT's frei0r module inside it. Built like flatpak-titles:
+# against the installed app of this same version (FLATPAK_USER_DIR for a
+# scratch installation).
+# The effects extension bundle, built against the installed app.
+flatpak-effects:
+    python3 tools/check_release_notes.py
+    flatpak-builder --user --force-clean --state-dir=build-flatpak/state \
+        build-flatpak/effects packaging/flatpak/com.ustudio.VideoEditor.DropIn.Effects.yml
+    python3 tools/check_bundle_clean.py build-flatpak/effects/files
+    flatpak-builder --user --export-only --state-dir=build-flatpak/state --repo=build-flatpak/repo \
+        build-flatpak/effects packaging/flatpak/com.ustudio.VideoEditor.DropIn.Effects.yml
+    flatpak build-bundle --runtime --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+        build-flatpak/repo build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak \
+        com.ustudio.VideoEditor.DropIn.Effects
+    @ls -lh build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak
+    just dist build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak
 
 # Publishes a packaged artifact to the public download bucket (owner,
 # 2026-09-28): s3://ut-software-dist/ under its versioned name and its

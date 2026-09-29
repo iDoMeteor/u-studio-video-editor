@@ -33,13 +33,15 @@ just flatpak
 
 ### Drop-in extensions
 
-`com.ustudio.VideoEditor.DropIn.Titles.yml` builds the titles drop-in as an
-extension of the app's `com.ustudio.VideoEditor.DropIn` extension point:
+`com.ustudio.VideoEditor.DropIn.Titles.yml` and
+`com.ustudio.VideoEditor.DropIn.Effects.yml` build the titles and effects
+drop-ins as extensions of the app's `com.ustudio.VideoEditor.DropIn` extension point:
 
 ```sh
 just flatpak                                # the app first, same version
 flatpak install --user build-flatpak/u-studio-video-editor-<version>.flatpak
 just flatpak-titles
+just flatpak-effects                        # frei0r and MLT's frei0r module inside
 ```
 
 It builds against the installed app, so install that version first (into a

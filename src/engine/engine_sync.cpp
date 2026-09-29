@@ -1333,6 +1333,17 @@ void EngineSync::rebuildAll()
 
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         extension->decorateTractor(*newTractor, m_model, *m_profile);
+    // Lane 0's adjustment blocks cover every track (the lanes below the
+    // first row come with FX4's sub-tractors).
+    std::vector<const core::AdjustmentBlock *> laneZero;
+    for (const core::AdjustmentBlock &block : seq.adjustmentBlocks)
+        if (block.lane == 0)
+            laneZero.push_back(&block);
+    std::sort(laneZero.begin(), laneZero.end(),
+              [](const core::AdjustmentBlock *a, const core::AdjustmentBlock *b) { return a->start < b->start; });
+    if (!laneZero.empty())
+        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+            extension->decorateLane(*newTractor, m_model, 0, laneZero, *m_profile);
 
     newTractor->refresh();
     m_tractor = std::move(newTractor);

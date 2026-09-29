@@ -128,6 +128,12 @@ the suite.
   loader and module repository, FFmpeg worker threads, and SDL. Its header
   explains why a leaked mlt++ wrapper of ours still gets reported through
   it.
+- `just asan` runs the GPU tests (names with "gpu") separately, with MLT's
+  movit module preloaded for its leak's names; everything else runs without
+  it, because a preloaded movit overrides same-named functions in other
+  modules (plus's `lift_gamma_gain` became movit's, which fails without GL).
+- `lsan.supp` also names MLT's avfilter filter, which leaks a properties
+  object each time it sets up a graph ([MLT upstream candidates](notes/mlt-upstream.md)).
 - The `justfile` comments explain the non-default sanitizer options.
 - First run and findings:
   [2026-09-23 sanitizer report](../audit/2026-09-23-sanitizer-report.md).

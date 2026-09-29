@@ -15,6 +15,7 @@ extern "C" {
 #include <framework/mlt_factory.h>
 }
 
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -26,15 +27,20 @@ namespace {
 // FactoryPolicy's curated init, /proc/self/maps must contain no libQt
 // mapping (measured 0/27 on the dev machine, vs. 32 mappings with a plain
 // argument-less Factory::init()).
-bool hasLibQtMapping()
+bool hasMapping(const std::string &library)
 {
     std::ifstream maps("/proc/self/maps");
     std::string line;
     while (std::getline(maps, line)) {
-        if (line.find("libQt") != std::string::npos)
+        if (line.find(library) != std::string::npos)
             return true;
     }
     return false;
+}
+
+bool hasLibQtMapping()
+{
+    return hasMapping("libQt");
 }
 
 bool hasService(Mlt::Properties *services, const std::string &name)
@@ -60,6 +66,14 @@ TEST_CASE("FactoryPolicy: no Qt loaded, required services still present")
     CHECK_FALSE(policy.moduleDirectoryUsed().empty());
 
     CHECK_FALSE(hasLibQtMapping());
+
+    // Denied by default: openfx loads every .ofx under /usr/OFX/Plugins at
+    // init (ADR-007 note, 2026-09-28). MLT hard-codes that folder, so the
+    // test checks the module itself stays out, linked and mapped.
+    for (const auto &entry : std::filesystem::directory_iterator(policy.moduleDirectoryUsed()))
+        CHECK_MESSAGE(entry.path().filename().string().find("openfx") == std::string::npos,
+                      "openfx module linked: " << entry.path().filename().string());
+    CHECK_FALSE(hasMapping("libmltopenfx"));
 
     Mlt::Repository repo(mlt_factory_repository());
 

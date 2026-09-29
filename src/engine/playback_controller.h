@@ -204,6 +204,9 @@ class PlaybackController
     // (main thread) tearing down the consumer/event/tractor mid-callback
     // -- see both methods' comments.
     std::mutex m_frameShowMutex;
+    // Set by shutdown() around the consumer's stop(): handleFrameShow()
+    // drops the frames shown meanwhile (see there).
+    std::atomic<bool> m_stopping{false};
 
     std::atomic<bool> m_playing{false};
     std::atomic<double> m_speed{1.0};

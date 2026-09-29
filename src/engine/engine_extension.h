@@ -56,6 +56,15 @@ class EngineExtension
     virtual void decoratePlaylist(Mlt::Playlist &, const core::Model &, const core::Track &, Mlt::Profile &) {}
     // The whole tractor, after its tracks and transitions (master effects).
     virtual void decorateTractor(Mlt::Tractor &, const core::Model &, Mlt::Profile &) {}
+    // The adjustment blocks on one lane (AdjustmentBlock::lane, in start
+    // order): attach their filters to `target`, with each block's in/out
+    // (frames count from the sequence's 0). Lane 0's target is the whole
+    // tractor; a lane k > 0's is the sub-tractor of the video rows >= k,
+    // which EngineSync builds (FX4; until it does, only lane 0 is called).
+    // Called once per lane that has blocks, after decorateTractor().
+    virtual void decorateLane(Mlt::Service &, const core::Model &, int /*lane*/,
+                              const std::vector<const core::AdjustmentBlock *> & /*blocks*/, Mlt::Profile &)
+    {}
     // The producer a clip is cut from, for clips the drop-in generates
     // (titles: Clip::sourceParams). Null: the asset's media, as usual.
     // Open it with engine::openProducer(..., ProducerUse::Graph)
