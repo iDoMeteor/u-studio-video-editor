@@ -1,7 +1,7 @@
 # The command line, as a library so tests drive it with the test drop-in.
 libustudio_render_cli = static_library(
   'ustudio_render_cli',
-  files('render_cli.cpp', 'proxy_command.cpp', 'gpu_probe_command.cpp'),
+  files('render_cli.cpp', 'proxy_command.cpp', 'gpu_probe_command.cpp', 'frames_command.cpp'),
   dependencies: [libustudio_dropins_dep],
   install: false,
 )

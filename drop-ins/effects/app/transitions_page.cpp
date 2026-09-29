@@ -296,6 +296,7 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         }
 
         g_signal_connect(m_root, "destroy", G_CALLBACK(&onDestroyTrampoline), this);
+        g_signal_connect(m_root, "map", G_CALLBACK(&onMapTrampoline), this);
         m_host.addInspectorPage({"effects.transitions", "Transitions", "view-dual-symbolic", m_root});
         m_host.addTimelineOverlay(this);
         m_host.projectChanged().connect([this] { refresh(true); });
@@ -481,6 +482,13 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
     void requestPreviews()
     {
         m_previewTimer = 0;
+        // Only while the page shows (as the Browser's tiles): a render opens
+        // both clips in this process. Shown again, it catches up.
+        if (!gtk_widget_get_mapped(m_root)) {
+            m_previewsStale = true;
+            return;
+        }
+        m_previewsStale = false;
         const core::Model &model = m_host.model();
         if (!m_target.isValid() || !model.hasTransition(m_target))
             return;
@@ -700,6 +708,12 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         static_cast<TransitionsPage *>(self)->requestPreviews();
         return G_SOURCE_REMOVE;
     }
+    static void onMapTrampoline(GtkWidget *, gpointer self)
+    {
+        auto *page = static_cast<TransitionsPage *>(self);
+        if (page->m_previewsStale)
+            page->schedulePreviews();
+    }
     static void onDestroyTrampoline(GtkWidget *, gpointer self)
     {
         auto *page = static_cast<TransitionsPage *>(self);
@@ -759,6 +773,7 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
     std::vector<GtkWidget *> m_pictures; // the tiles' pictures, in m_recipes' order
     guint m_previewTimer = 0;
     uint64_t m_previewGeneration = 0;
+    bool m_previewsStale = false; // asked for while the page was hidden
     bool m_updatingSound = false;
 };
 

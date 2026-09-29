@@ -145,3 +145,48 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   the model and the render graph keep absolute paths, and only the saved
   model record names a file inside the project's folder relatively (`f:`
   values, read back against where the project is now).
+
+## Frame renderer memory
+
+Found 2026-09-29 (VE Effects), after the 0.78.0 Flatpak's GPU playback
+soak read +40 MB/min with the Effects add-on installed and +2.5 without.
+
+- **It was one step, not a slope.** RSS sat flat, jumped about 60–120 MB
+  once, and stayed flat; a least-squares line from 30 s on reads such a
+  step as tens of MB a minute. The step was the drop-in's frame renderer
+  (`engine/frame_renderer.cpp`) opening the selected 1080p clip: the
+  hidden Browser re-rendered a tile each time the health scan checked an
+  effect, and the worker kept the media open for good.
+- **An open 1080p H.264 producer costs about 180 MB** in a worker: the
+  avformat producer's `threads` defaults to 0, so FFmpeg starts a frame
+  thread a core, each with its own buffers (`producer_avformat.c`,
+  `thread_count = 0`). `threads=1` halves it (84 MB) but makes seeks two
+  to four times slower, so the renderer keeps the default and closes the
+  media after `FrameRenderer::kReleaseIdleMedia` (2 s) without a request.
+- **Freed isn't returned.** Closing the producer gave back only about
+  20 MB of RSS: glibc keeps the decoder threads' arenas for reuse.
+  `platform::releaseFreeMemory()` (`malloc_trim(0)` on Linux) after the
+  close brought it to +58 MB over the start (the rest is FFmpeg's and
+  MLT's one-time state). Repro: a `FrameRenderer` rendering 20 frames of
+  a 1080p30 clip, RSS from `/proc/self/status` before, after, and 3 s
+  after.
+- **Hidden pages don't render.** The Browser renders tiles only while its
+  page is mapped, and catches up on `map`; the eyedropper, Compare and the
+  audition render only on a user action.
+- **Two crashes in the renderer, found with it (the demo tour, 2026-09-29).**
+  A clip that doesn't open (a title whose template isn't picked yet) was
+  kept, invalid, under its key; the next tile for it cut and seeked the
+  invalid producer (`mlt_producer_seek` on a cut forwards to its parent).
+  An unopened clip now stays unopened for its key. And the pages that own
+  renderers are statics destroyed at `exit()`, after `main()` has closed
+  the factory: a worker still holding media closed it through a function
+  pointer into an unloaded module. The drop-in calls
+  `FrameRenderer::stopAll()` on the application's `shutdown` signal.
+- **Hardware-only FFmpeg filters** (`*_vulkan`, `*_opencl`, `*_cuda`,
+  `*_vaapi`, `*_qsv`, `*_amf`, `hwupload`/`hwdownload`/`hwmap`,
+  `libplacebo`; 50 on Fedora 44's FFmpeg) are left out of the registry
+  (`isHardwareOnlyFilter()`): MLT hands them software frames, and
+  `blackdetect_vulkan` crashed in its teardown without Vulkan (Xvfb).
+- The soak that guards this: `tools/effects-smoke/run.sh <builddir> <outdir>
+  soak_steps.sh` ([testing](../testing.md#the-effects-smoke-test)).
+

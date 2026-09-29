@@ -28,6 +28,7 @@
 #include <glib.h>
 #include <mlt++/Mlt.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -572,6 +573,41 @@ TEST_CASE("FrameRenderer: results on the main loop, cached, stale generations dr
     }
     CHECK(delivered == 1);
 
+    // Idle, the worker closes its media (an open decoder is its largest
+    // cost: about 180 MB for 1080p H.264), and opens it again when asked.
+    CHECK(renderer.holdsMedia());
+    const auto idleSince = std::chrono::steady_clock::now();
+    while (renderer.holdsMedia() && std::chrono::steady_clock::now() - idleSince < std::chrono::seconds(10))
+        g_usleep(50000);
+    CHECK_FALSE(renderer.holdsMedia());
+    CHECK(std::chrono::steady_clock::now() - idleSince >= FrameRenderer::kReleaseIdleMedia / 2);
+    bool reopened = false;
+    renderer.request(greyRequest({brightness(0.3)}), 1, 6,
+                     [&](const RenderedFrame &frame) { reopened = !frame.rgba.empty(); });
+    waitFor(reopened);
+    CHECK(reopened);
+    CHECK(renderer.holdsMedia());
+
+    // A clip that doesn't open, asked for twice (the second time from the
+    // same open slot): an empty frame both times, never a seek on it.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        FrameRequest missing = greyRequest({brightness(0.2 + 0.1 * attempt)});
+        missing.resource = (scratch() / "no-such-clip.mp4").string();
+        bool answered = false, empty = false;
+        renderer.request(std::move(missing), 1, 7 + static_cast<uint64_t>(attempt), [&](const RenderedFrame &frame) {
+            answered = true;
+            empty = frame.rgba.empty();
+        });
+        waitFor(answered);
+        CHECK(answered);
+        CHECK(empty);
+    }
+
+    // At the application's shutdown every renderer stops (FrameRenderer::
+    // stopAll()), before main() closes the factory; its own stop() later is
+    // a no-op.
+    FrameRenderer::stopAll();
+    CHECK_FALSE(renderer.holdsMedia());
     renderer.stop();
     bool afterStop = false;
     renderer.request(greyRequest({brightness(0.9)}), 1, 9, [&](const RenderedFrame &) { afterStop = true; });

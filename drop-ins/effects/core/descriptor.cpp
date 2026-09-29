@@ -213,6 +213,20 @@ std::string familyOf(const std::string &service)
     return "mlt";
 }
 
+bool isHardwareOnlyFilter(const std::string &service)
+{
+    if (familyOf(service) != "avfilter")
+        return false;
+    const std::string name = service.substr(service.find('.') + 1);
+    if (name.starts_with("hwupload") || name == "hwdownload" || name == "hwmap" || name.starts_with("libplacebo"))
+        return true;
+    for (const char *api :
+         {"_vulkan", "_opencl", "_cuda", "_npp", "_vaapi", "_qsv", "_amf", "_vt", "_videotoolbox", "_d3d11", "_d3d12"})
+        if (name.ends_with(api))
+            return true;
+    return false;
+}
+
 core::Param::Value parseValue(ParamKind kind, const std::string &text)
 {
     switch (kind) {

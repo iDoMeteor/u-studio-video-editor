@@ -38,6 +38,31 @@ std::optional<Effect> readEffectFilter(xmlNodePtr filter);
 // Every model <filter> directly under `parent`, in order.
 std::vector<Effect> readEffectFilters(xmlNodePtr parent);
 
+// The format version a save writes: the lowest that holds everything in it.
+// A record an older build would misread (and lose on its next save) raises
+// it, so that build refuses the file instead; a project without such
+// records stays readable by it. Outside a save, raising does nothing.
+class FormatVersionScope
+{
+  public:
+    explicit FormatVersionScope(int base);
+    ~FormatVersionScope();
+    FormatVersionScope(const FormatVersionScope &) = delete;
+    FormatVersionScope &operator=(const FormatVersionScope &) = delete;
+    int needed() const;
+
+  private:
+    int *m_previous;
+    int m_needed;
+};
+// 7: clip transform keyframes (older builds drop them).
+void requireFormatVersion(int version);
+
+// Keyframes with their easing, for ustudio:* properties:
+// "at:value:easing;..." (easing as its number).
+std::string encodeKeyframes(const std::vector<Keyframe> &keyframes);
+std::vector<Keyframe> decodeKeyframes(const std::string &text);
+
 // A list of parameters as indexed ustudio properties: `<prefix>count`,
 // `<prefix>N.name`, `<prefix>N.value`, `<prefix>N.keyframes`.
 // While a project is saved or loaded on this thread: its folder. A string

@@ -69,6 +69,13 @@ resources.
 
 `<property name="ustudio:format_version">5</property>` on the root tractor.
 
+> REVIEW: VE Core, 2026-09-29: the writer now writes the lowest version that
+> holds the file's content. 6 (clip transforms, ADR-018) is the base; 7 only
+> when the file has something an older build would silently lose and then
+> drop on its next save (transform keyframes; VE Effects' project-relative
+> file values next), so that build refuses the file instead of damaging it.
+> Records that raise it call `xml_detail::requireFormatVersion()`.
+
 > REVIEW: VE Core, 2026-09-25: format 5 (IP2, doc 15 "Persistence") adds effects as `<filter>`s (the model record in `ustudio:*` properties on the record entry, record playlist or sequence tractor; native properties on every render cut, keyframes as per-cut MLT animation strings), clip source parameters, transition recipes and parameters, and adjustment blocks and looks in never-played playlists. It only adds, so formats 3 and 4 still load directly; `tests/core/data/format4.ustudio` is a file the format-4 writer produced, kept as the migration fixture.
 
 > REVIEW: (Claude, 2026-09-24) Current version is 4. Format 4 writes each track

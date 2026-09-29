@@ -3,6 +3,7 @@
 #include "dropins/registry.h"
 #include "engine/factory_policy.h"
 #include "platform/process.h"
+#include "render/frames_command.h"
 #include "render/gpu_probe_command.h"
 #include "render/proxy_command.h"
 #include "render/render_cli.h"
@@ -30,12 +31,13 @@ int main(int argc, char **argv)
     ustudio::dropins::BasicDropInHost host("render");
     dropIns.registerAll(host);
 
-    // Core subcommands first (M4 C: --proxy; ADR-019: --gpu-probe), then the drop-ins'; a drop-in
+    // Core subcommands first (M4 C: --proxy; ADR-019: --gpu-probe; M6: --frames), then the drop-ins'; a drop-in
     // can't take a core one's name.
     static std::atomic<bool> cancelled{false};
     ustudio::platform::onTerminationRequest(&cancelled);
     std::vector<ustudio::dropins::RenderSubcommand> subcommands{ustudio::render::proxySubcommand(&cancelled),
-                                                                ustudio::render::gpuProbeSubcommand()};
+                                                                ustudio::render::gpuProbeSubcommand(),
+                                                                ustudio::render::framesSubcommand(&cancelled)};
     for (const ustudio::dropins::RenderSubcommand &subcommand : host.renderSubcommands()) {
         if (std::any_of(subcommands.begin(), subcommands.end(),
                         [&](const auto &core) { return core.name == subcommand.name; })) {

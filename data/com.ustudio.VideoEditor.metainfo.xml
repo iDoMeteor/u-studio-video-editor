@@ -28,6 +28,24 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.78.3-beta.1" date="2026-09-29" type="development">
+      <description>
+        <p>New since 0.78.2-beta.1: fixes for the Effects add-on. The Add page no longer renders its tiles while it's hidden, and its previews let go of your clip a moment after they're drawn: about 180 MB less for a 1080p clip. Two crashes with the add-on are fixed (a title selected before its template was picked, and quitting), and effects that need a graphics card's Vulkan, OpenCL, CUDA or VAAPI are no longer offered.</p>
+        <p>Try playing a long project with the Effects add-on installed and GPU acceleration on, with the Add page open for a while first, and watch the editor's memory stay level.</p>
+      </description>
+    </release>
+    <release version="0.78.2-beta.1" date="2026-09-29" type="development">
+      <description>
+        <p>New since 0.78.0-beta.1: fixes in titles. U Stu Titles could crash when you closed it with a layer selected; it closes cleanly now. Exporting a title on its own, or baking a title clip, could crash as the export finished; it now waits for the encoder to finish first. And a caption clip's name on the timeline now follows its words when you edit them on the Title page, unless you renamed the clip.</p>
+        <p>Try selecting a layer in U Stu Titles, saving and closing it; and exporting a title a few times in a row, in different formats.</p>
+      </description>
+    </release>
+    <release version="0.78.0-beta.1" date="2026-09-29" type="development">
+      <description>
+        <p>New since 0.77.0-beta.1: two title templates with an animated bell. In New Title's gallery, Lower third with ringing bell and Subscribe with ringing bell (under Bugs and badges) have a bell that rings every few seconds with a notification dot, in the Unicorn Tears colours.</p>
+        <p>Try one on a stream recording, change its text on the Title page, and export: the bell rings in the export as in the preview.</p>
+      </description>
+    </release>
     <release version="0.77.0-beta.1" date="2026-09-29" type="development">
       <description>
         <p>New since 0.73.1-beta.1, the last download: effects, transitions and animated titles. With the Effects add-on, press E for a tile of every effect on your clip; point to try one, click to add it. Keyframe values by pinning them, see and drag their curves under the clip (C), or record them as you play. Save sets of effects as looks, limit an effect to a rectangle or ellipse of the picture, pick colours from the picture, grade with .cube LUTs, and add adjustment blocks in the FX lane above the tracks to change everything beneath them for a stretch of time, fading in and out. Dissolves can dip, flash, slide, push or wipe (20 shapes): press T at a cut. Titles can carry Lottie animations. Importing thousands of clips is fast, playback restarts faster after an edit, and OpenFX plugins installed on the computer are no longer loaded unless you choose them.</p>

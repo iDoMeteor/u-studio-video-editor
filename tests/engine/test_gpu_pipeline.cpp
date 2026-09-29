@@ -86,6 +86,7 @@ fs::path generate(const std::string &name, int width, int height, const char *le
     consumer.set("real_time", -1);
     consumer.connect(tractor);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return path;
 }
 

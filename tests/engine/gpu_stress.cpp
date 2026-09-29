@@ -71,6 +71,7 @@ fs::path generate(const std::string &name, int width, int height, int fps, int f
     consumer.set("real_time", -1);
     consumer.connect(producer);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return path;
 }
 
