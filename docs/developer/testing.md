@@ -36,8 +36,12 @@ The short version:
   MLT-lifetime changes, in the tiers CLAUDE.md sets out. See
   [Building](building.md#sanitizers). Don't preload MLT's movit module for
   every test: preloaded, it replaces same-named functions in other modules
-  (plus's `lift_gamma_gain`), so `just asan` preloads it for the "gpu"
-  tests only.
+  (plus's `lift_gamma_gain`), so `just asan` preloads it only for tests
+  that start a GPU session: the "gpu" ones, `dropin-engine` (FX4's GPU
+  lane cases) and `engine-hardware-decode`. A new test that opens a GPU
+  session goes on that list in the justfile, or LeakSanitizer reports
+  movit's `glsl.manager`, which MLT never frees, without a name to
+  suppress.
 - **No fixed time limits in tests.** A loaded machine (other suites, a
   Flatpak build) fails any absolute limit. A test times its work against a
   yardstick measured under the same load (as `engine-thread` and

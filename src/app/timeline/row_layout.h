@@ -11,7 +11,9 @@ namespace ustudio::app::timeline {
 // below it. A row may carry an extra lane under its clips (doc 15 IP5: a
 // drop-in's curve lane or FX lane, TimelineOverlayProvider::laneHeight());
 // with no lanes every row is `rowHeight` and the arithmetic is the uniform
-// one it always was. Doc 06's per-track heights replace the constants here
+// one it always was. A drop-in may also add a lane above the first row
+// (TimelineOverlayProvider::topLaneHeight(): the effects FX lane); every row
+// then starts `topLane` lower, and with none it's 0 and nothing moves. Doc 06's per-track heights replace the constants here
 // without touching callers.
 struct RowLayout
 {
@@ -19,6 +21,8 @@ struct RowLayout
     double labelHeight = 14.0;
     // Extra height under row i's clips; missing entries are 0.
     std::vector<double> lanes;
+    // Extra height above the first row.
+    double topLane = 0.0;
 
     double laneHeight(int row) const
     {
@@ -30,8 +34,14 @@ struct RowLayout
         return rowHeight + laneHeight(row);
     }
     // May be out of range (negative, or >= the track count); callers clamp.
+    // In the top lane it's -1.
     int rowAt(double y) const
     {
+        if (topLane > 0.0) {
+            if (y < topLane)
+                return -1;
+            y -= topLane;
+        }
         if (lanes.empty() || y < 0.0)
             return static_cast<int>(y / rowHeight);
         double top = 0.0;
@@ -48,7 +58,7 @@ struct RowLayout
     }
     double rowTop(int row) const
     {
-        double top = row * rowHeight;
+        double top = topLane + row * rowHeight;
         for (int i = 0; i < row && static_cast<size_t>(i) < lanes.size(); ++i)
             top += lanes[static_cast<size_t>(i)];
         return top;
@@ -60,11 +70,17 @@ struct RowLayout
     }
     bool inNameStrip(double y) const
     {
-        return y - rowTop(rowAt(y)) <= labelHeight;
+        return !inTopLane(y) && y - rowTop(rowAt(y)) <= labelHeight;
+    }
+    bool inTopLane(double y) const
+    {
+        return y < topLane;
     }
     // Inside row's lane (below its clips), if it has one.
     bool inLane(double y) const
     {
+        if (inTopLane(y))
+            return false;
         const int row = rowAt(y);
         return laneHeight(row) > 0.0 && y >= laneTop(row);
     }

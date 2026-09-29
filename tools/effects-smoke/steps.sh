@@ -179,6 +179,192 @@ d act undo; sleep 1
 d act save; sleep 2
 check "undo takes the wipe back" saved_lacks ">wipe.left<"
 
+
+# Touch-record (FX4): the first clip's Blur armed, the value moved in a
+# steady ramp while playing; when the hand stops, the keys over what was
+# performed are thinned, fewer than the frames they span.
+d act seek-home; sleep 0.5
+d act select-next-clip; sleep 1
+d press "Effects" exact; sleep 1
+ARM=$(python3 "$SMOKE_HERE/where.py" "Touch-record" 1 2>>"$OUT/helpers.err")
+echo "arm at $ARM" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+[ -n "$ARM" ] && d click $ARM; sleep 0.5
+shot 15-armed
+d act play-pause; sleep 0.3
+python3 "$SMOKE_HERE/ramp.py" 0 0.1 0.9 40 0.05 2>>"$OUT/helpers.err"
+d act play-pause; sleep 2
+shot 16-recorded
+d act save; sleep 2
+# One recording of the whole ramp, not one per value.
+check "touch-record took the ramp as one performance" \
+    [ "$(grep -o 'touch-record: [0-9]* values recorded' "$OUT/app.log" | tail -1 | grep -o '[0-9]*')" -ge 20 ]
+check "a recorded curve: fewer keys than frames" python3 - "$OUT/smoke.ustudio" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+curves = [m for m in re.findall(r'<property name="0">([^<]*)</property>', text) if ";" in m]
+best = None
+for curve in curves:
+    keys = [int(k.split("=")[0]) for k in curve.split(";")]
+    span = max(keys) - min(keys) + 1
+    if len(keys) >= 3 and (best is None or span > best[1]):
+        best = (len(keys), span, curve)
+print(best)
+# Fewer keys than frames (doc 15's FX4 acceptance), with room to spare:
+# under Xvfb the frames come unevenly, so the ramp isn't quite straight.
+sys.exit(0 if best and best[0] * 2 < best[1] else 1)
+PY
+
+
+# Curve lanes (FX4): C under the selected clip shows its animated values.
+d act effects-curve-lanes; sleep 1.5
+shot 17-curve-lanes
+check "C shows curve lanes" grep -q "curve lanes shown: [1-9]" "$OUT/app.log"
+# Drag the last keyframe right and down: same number of keys, one moved.
+d act save; sleep 2
+BEFORE=$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)
+KEY=$(python3 "$SMOKE_HERE/rightmost.py" "$OUT/17-curve-lanes.png" "#ff2bd6" 2>>"$OUT/helpers.err")
+echo "key at $KEY" >>"$OUT/steps.log"
+if [ -n "$KEY" ]; then
+    # The dot is 7 px across: its centre is 3 px in from its rightmost pixel.
+    set -- $KEY
+    python3 "$SMOKE_HERE/drag.py" "$(($1 - 3))" "$2" "$(($1 + 37))" "$(($2 + 14))" 2>>"$OUT/helpers.err"
+fi
+sleep 1.5
+shot 18-key-dragged
+d act save; sleep 2
+AFTER=$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)
+echo "before $BEFORE" >>"$OUT/steps.log"; echo "after  $AFTER" >>"$OUT/steps.log"
+count() { echo "$1" | tr -cd ';' | wc -c; }
+moved() { [ -n "$AFTER" ] && [ "$BEFORE" != "$AFTER" ] && [ "$(count "$BEFORE")" = "$(count "$AFTER")" ]; }
+check "a dragged keyframe moves (same number of keys)" moved
+d act undo; sleep 1
+d act save; sleep 2
+check "the drag is one undo step" [ "$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)" = "$BEFORE" ]
+
+
+# The FX lane (FX4): a thin lane above the tracks. Drawing across it adds
+# an adjustment block, selected for the Rack; an effect added there goes
+# on the block; dragging its right end resizes it; undo takes that back.
+d click 900 900; sleep 0.5 # away from any hover tooltip
+python3 "$SMOKE_HERE/drag.py" 700 765 900 765 2>>"$OUT/helpers.err"; sleep 1.5
+shot 19-fx-block
+d act save; sleep 2
+check "drawing on the FX lane adds a block" grep -q 'ustudio:adjustment_block_id' "$OUT/smoke.ustudio"
+check "the Rack shows the block" grep -q "adjustment block drawn" "$OUT/app.log"
+d act effects-browser; sleep 1
+e "Search effects" glow; sleep 3
+d press "Search effects"; sleep 0.3; d enter; sleep 2
+d press "Effects" exact; sleep 1
+shot 20-block-effect
+d act save; sleep 2
+on_block() { python3 - "$OUT/smoke.ustudio" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+block = re.search(r'<playlist id="adjustment_[0-9]+">(.*?)</playlist>', text, re.S)
+sys.exit(0 if block and "frei0r.glow" in block.group(1) else 1)
+PY
+}
+check "an effect added with the block selected goes on the block" on_block
+LENGTH=$(grep -o '<property name="ustudio:length">[0-9]*' "$OUT/smoke.ustudio" | head -1 | grep -o '[0-9]*$')
+# The selected block's right end: its cyan outline in the FX lane.
+EDGE=$(python3 "$SMOKE_HERE/rightmost.py" "$OUT/20-block-effect.png" "#19e3ff" 752 778 1500 10 2>>"$OUT/helpers.err")
+echo "block edge at $EDGE" >>"$OUT/steps.log"
+if [ -n "$EDGE" ]; then
+    set -- $EDGE
+    python3 "$SMOKE_HERE/drag.py" "$(($1 - 1))" 765 "$(($1 + 100))" 765 2>>"$OUT/helpers.err"
+fi
+sleep 1.5
+d act save; sleep 2
+LONGER=$(grep -o '<property name="ustudio:length">[0-9]*' "$OUT/smoke.ustudio" | head -1 | grep -o '[0-9]*$')
+echo "block length $LENGTH -> $LONGER" >>"$OUT/steps.log"
+check "dragging the block's end lengthens it" [ "${LONGER:-0}" -gt "${LENGTH:-0}" ]
+d act undo; sleep 1; d act save; sleep 2
+check "undo gives the old length back" grep -q "<property name=\"ustudio:length\">$LENGTH<" "$OUT/smoke.ustudio"
+
+
+# The eyedropper (FX4): Blue Screen on the first clip, its colour picked
+# from the middle of the picture; the saved colour is the frame's there,
+# not the effect's default green.
+d act seek-home; sleep 0.5
+d act select-next-clip; sleep 1
+d act effects-browser; sleep 1
+e "Search effects" "blue screen"; sleep 3
+d press "Search effects"; sleep 0.3; d enter; sleep 2
+d press "Effects" exact; sleep 1
+d press "Pick a colour from the picture"; sleep 1
+PICTURE=$(python3 "$SMOKE_HERE/where.py" "Effects picture tools" 2>>"$OUT/helpers.err" || echo "700 350")
+echo "picture tools at $PICTURE" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+d click $PICTURE; sleep 3
+shot 21-eyedropper
+d act save; sleep 2
+check "the eyedropper picks from the picture" grep -q "eyedropper picked #" "$OUT/app.log"
+PICKED=$(grep -o "eyedropper picked #[0-9a-f]*" "$OUT/app.log" | tail -1 | grep -o '#.*' | tr -d '#')
+echo "picked $PICKED" >>"$OUT/steps.log"
+picked_saved() { grep -q "<property name=\"0\">0x${PICKED}ff</property>" "$OUT/smoke.ustudio"; }
+check "the picked colour is Blue Screen's colour" picked_saved
+
+
+# Rect handles (FX4): Spot Remover's rectangle shown on the picture; its
+# bottom-right handle dragged makes the saved rectangle bigger.
+d act effects-browser; sleep 1
+e "Search effects" "spot remover"; sleep 3
+d press "Search effects"; sleep 0.3; d enter; sleep 2
+d press "Effects" exact; sleep 1
+d press "Edit on the picture"; sleep 1
+shot 22-rect-handles
+d act save; sleep 2
+RECT0=$(grep -o '<property name="rect">[^<]*' "$OUT/smoke.ustudio" | tail -1)
+HANDLE=$(python3 "$SMOKE_HERE/rightmost.py" "$OUT/22-rect-handles.png" "#19e3ff" 50 700 1500 5 5 2>>"$OUT/helpers.err")
+echo "rect handle at $HANDLE ($RECT0)" >>"$OUT/steps.log"
+if [ -n "$HANDLE" ]; then
+    set -- $HANDLE
+    python3 "$SMOKE_HERE/drag.py" "$(($1 - 2))" "$(($2 - 2))" "$(($1 + 120))" "$(($2 + 70))" 2>>"$OUT/helpers.err" # from the handle's middle
+fi
+sleep 1.5
+shot 23-rect-dragged
+d act save; sleep 2
+RECT1=$(grep -o '<property name="rect">[^<]*' "$OUT/smoke.ustudio" | tail -1)
+echo "rect $RECT0 -> $RECT1" >>"$OUT/steps.log"
+rect_grew() { [ -n "$RECT1" ] && [ "$RECT0" != "$RECT1" ]; }
+check "dragging a rect handle on the picture changes the rectangle" rect_grew
+
+
+# Masks (FX4): Spot Remover's card gets a rectangle mask from its Mask
+# drop-down; the saved effect carries the mask, and it plays through
+# frei0r.alphaspot in the saved graph (so melt masks it too).
+# The last card's Mask drop-down (named for its choice, "None").
+python3 "$SMOKE_HERE/choose.py" "None" 1 -1 2>>"$OUT/helpers.err"; sleep 1.5
+shot 24-mask
+d act save; sleep 2
+check "a mask from the card is saved" grep -q 'ustudio:mask.shape">rectangle<' "$OUT/smoke.ustudio"
+check "the saved graph masks with alphaspot" grep -q "frei0r.alphaspot" "$OUT/smoke.ustudio"
+
+
+# The LUT library (FX5): a generated .cube imported with Import LUTs is
+# copied into the saved project's luts folder, listed under LUTs, and
+# applied from the search: avfilter.lut3d with the copy's path.
+printf 'TITLE "smoke warm"\nLUT_3D_SIZE 2\n' > "$M/smoke-warm.cube"
+for _ in 1 2 3 4 5 6 7 8; do echo "1.0 0.6 0.2" >> "$M/smoke-warm.cube"; done
+d act effects-browser; sleep 1
+# Out of any text field first: with no window manager the dialog doesn't
+# take the keyboard, and the path would be typed where the focus is.
+d click 900 900; sleep 0.5
+d press "Import LUTs"; sleep 2.5
+d loc "$M/smoke-warm.cube"; d enter; sleep 2
+shot 25-luts
+check "an imported LUT is copied beside the project" [ -s "$OUT/luts/smoke-warm.cube" ]
+e "Search effects" "smoke-warm"; sleep 3
+# Its tile, clicked (a click adds it; after the file dialog the search
+# entry isn't reachable to press Enter in).
+LUT=$(python3 "$SMOKE_HERE/where.py" "smoke-warm" 2>>"$OUT/helpers.err")
+echo "LUT tile at $LUT" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+[ -n "$LUT" ] && d click $LUT; sleep 2
+d act save; sleep 2
+check "a LUT from the library is applied" grep -q "luts/smoke-warm.cube</property>" "$OUT/smoke.ustudio"
+
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
 echo "RESULT: $FAILED failed"

@@ -9,6 +9,7 @@
 #include "inspector.h"
 #include "layers_panel.h"
 
+#include "core/lottie_check.h"
 #include "core/template_library.h"
 #include "core/title_edit.h"
 
@@ -62,6 +63,10 @@ class TitlesWindow
     void chooseBackdropImage();
     // A PNG for a new picture layer, or for `replaceId`'s.
     void choosePicture(const std::optional<std::string> &replaceId);
+    // Add Animation… (T6): a Lottie file, checked off the main thread, as an
+    // animated layer.
+    void chooseAnimation();
+    void addAnimation(const std::string &path, const lottie::Facts &facts);
     // Export (T2d): the format and length, then where.
     void showExportDialog();
     void chooseExportPath(const std::string &format, double seconds);

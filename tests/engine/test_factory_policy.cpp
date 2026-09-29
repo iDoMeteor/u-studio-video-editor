@@ -19,6 +19,7 @@ extern "C" {
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
 #include <string>
 
 using namespace ustudio::engine;
@@ -151,4 +152,18 @@ TEST_CASE("FactoryPolicy: a start sweeps curated dirs whose process is gone, and
     CHECK(fs::exists(recentOldForm)); // an older editor may still be running with it
     CHECK(fs::exists(other));
     fs::remove_all(base);
+}
+
+// FX5: a drop-in may lift a default-denied module (the effects drop-in's
+// OpenFX opt-in lifts "openfx"), never a Qt one.
+TEST_CASE("FactoryPolicy: a drop-in lifts a denied module, never a Qt one")
+{
+    const std::vector<std::string> none = effectiveDenylist({});
+    CHECK(std::find(none.begin(), none.end(), "openfx") != none.end());
+    const std::vector<std::string> lifted = effectiveDenylist({"openfx"});
+    CHECK(std::find(lifted.begin(), lifted.end(), "openfx") == lifted.end());
+    CHECK(std::find(lifted.begin(), lifted.end(), "qt6") != lifted.end());
+    const std::vector<std::string> qt = effectiveDenylist({"qt6", "glaxnimate-qt6"});
+    CHECK(std::find(qt.begin(), qt.end(), "qt6") != qt.end());
+    CHECK(std::find(qt.begin(), qt.end(), "glaxnimate-qt6") != qt.end());
 }

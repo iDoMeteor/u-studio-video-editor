@@ -35,9 +35,9 @@ struct FactoryPaths
     std::vector<std::string> mltModuleDirs;
     // MLT's own modules a drop-in needs beyond the editor's (ADR-022: the
     // curated directory links only listed modules), by name: "frei0r" for
-    // libmltfrei0r. A Qt module stays out even when listed (ADR-007). VE Effects
-    // added it to lift a denied module (openfx, FX5); ADR-022 makes it a plain
-    // allow.
+    // libmltfrei0r. Naming a default-denied module lifts its denylist entry
+    // too ("openfx": the effects drop-in's OpenFX opt-in, after its own Qt
+    // scan). Deny wins for anything Qt: an entry naming "qt" is ignored.
     std::vector<std::string> allowModules;
 };
 
@@ -49,6 +49,10 @@ const std::vector<std::string> &editorModules();
 // no longer runs, or of the old unnamed form and more than a day old. Ones
 // this user can't remove are left. Returns how many it removed.
 int sweepStaleCuratedDirs(const std::string &base);
+
+// The denylist FactoryPolicy applies: the default one (or
+// USTUDIO_MLT_DENYLIST's), less the entries `allow` lifts, never a Qt one.
+std::vector<std::string> effectiveDenylist(const std::vector<std::string> &allow);
 
 class FactoryPolicy
 {

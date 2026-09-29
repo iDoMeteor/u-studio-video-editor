@@ -46,3 +46,11 @@ structural there.
 > experimental preference, after scanning every bundle for a Qt dependency
 > (FX5). A module allowlist that replaces the denylist is planned as an
 > ADR that amends this one.
+
+> REVIEW: VE Effects, 2026-09-28: the lift is `FactoryPaths::allowModules`
+> (drop-in API 14): a drop-in names the denylist entries it lifts, and
+> `effectiveDenylist()` ignores any entry naming "qt", so Qt stays denied
+> whatever a drop-in asks. The effects drop-in lifts `openfx` only when its
+> OpenFX preference is on and `openfxBundlesNamingQt()` finds no bundle in
+> the fixed folders or `OFX_PLUGIN_PATH` whose files name Qt; otherwise it
+> logs which bundle kept OpenFX off. Tested in `engine-factory-policy`.

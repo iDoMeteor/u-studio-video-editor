@@ -50,6 +50,40 @@ TEST_CASE("row layout: a lane lengthens its row and moves the rows below")
     CHECK(layout.clipTop(1) == doctest::Approx(72.0 + 16.0));
 }
 
+TEST_CASE("row layout: a top lane moves every row down; none leaves the layout exactly as before")
+{
+    const RowLayout none{60.0, 14.0, {12.0, 0.0}};
+    RowLayout zero = none;
+    zero.topLane = 0.0;
+    for (int row = 0; row < 4; ++row) {
+        CHECK(zero.rowTop(row) == none.rowTop(row));
+        CHECK(zero.clipTop(row) == none.clipTop(row));
+    }
+    for (double y : {-1.0, 0.0, 30.0, 65.0, 100.0, 250.0}) {
+        CHECK(zero.rowAt(y) == none.rowAt(y));
+        CHECK(zero.inNameStrip(y) == none.inNameStrip(y));
+        CHECK(zero.inLane(y) == none.inLane(y));
+        CHECK_FALSE(zero.inTopLane(y < 0.0 ? 0.0 : y));
+    }
+
+    RowLayout top = none;
+    top.topLane = 20.0;
+    CHECK(top.inTopLane(5.0));
+    CHECK(top.rowAt(5.0) == -1);
+    CHECK_FALSE(top.inNameStrip(5.0));
+    CHECK_FALSE(top.inLane(5.0));
+    CHECK(top.rowTop(0) == doctest::Approx(20.0));
+    CHECK(top.rowTop(1) == doctest::Approx(92.0));
+    CHECK(top.rowAt(20.0) == 0);
+    CHECK(top.rowAt(20.0 + 65.0) == 0); // row 0's lane
+    CHECK(top.inLane(20.0 + 65.0));
+    CHECK(top.rowAt(92.0) == 1);
+    CHECK(top.inNameStrip(92.0 + 5.0));
+    CHECK(top.clipTop(0) == doctest::Approx(20.0 + 16.0));
+    CHECK(top.contentHeight(2) == doctest::Approx(none.contentHeight(2) + 20.0));
+    CHECK(top.clampedRowAt(5.0, 3) == 0);
+}
+
 TEST_CASE("preview mapping: letterboxed and pillarboxed frames, both ways round")
 {
     // 16:9 in a wide widget: bars left and right.

@@ -112,7 +112,7 @@ fs::path moduleCacheBaseDir()
 // curated directory path, or empty on any failure (caller falls back to
 // default init).
 std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDirs,
-                                  const std::vector<std::string> &dropInModules)
+                                  const std::vector<std::string> &allowModules)
 {
     fs::path base = moduleCacheBaseDir();
     if (base.empty())
@@ -157,13 +157,15 @@ std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDir
         return {};
     }
 
-    std::vector<std::string> deny = denylist();
+    // A drop-in's allowModules both list a module and lift its denylist
+    // entry (openfx), never a Qt one.
+    std::vector<std::string> deny = effectiveDenylist(allowModules);
     // ADR-022: only listed modules, the editor's and the drop-ins'. The rest
     // (decklink, opencv, openfx...) never load: a module that pulls in
     // plugins or libraries at init (openfx's system-wide .ofx scan) can't
     // reach the process unless someone asked for it.
     std::vector<std::string> allowed = editorModules();
-    allowed.insert(allowed.end(), dropInModules.begin(), dropInModules.end());
+    allowed.insert(allowed.end(), allowModules.begin(), allowModules.end());
     int linked = 0;
     int skipped = 0;
     int unlisted = 0;
@@ -403,6 +405,19 @@ int sweepStaleCuratedDirs(const std::string &base)
             ++removed; // another user's (the /tmp fallback) fails, and stays
     }
     return removed;
+}
+
+std::vector<std::string> effectiveDenylist(const std::vector<std::string> &allow)
+{
+    std::vector<std::string> deny = denylist();
+    std::erase_if(deny, [&](const std::string &entry) {
+        const bool qt = entry.find("qt") != std::string::npos;
+        const bool lifted = std::find(allow.begin(), allow.end(), entry) != allow.end();
+        if (lifted && !qt)
+            Log::info("[engine] FactoryPolicy: " + entry + " lifted from the denylist by a drop-in");
+        return lifted && !qt;
+    });
+    return deny;
 }
 
 } // namespace ustudio::engine

@@ -337,3 +337,28 @@ lavfi black (600+ ms per far seek). A source in another colour space than
 the profile (an SD 601 file in an HD project) is still composited
 unconverted, as in MLT generally. `tests/engine/test_colour` (generated
 709 bars, preview and a render).
+
+**Adjustment lanes below the first row are nested sub-tractors (FX4,
+2026-09-28).** A block on lane k > 0 affects only the video rows at and
+below k (row 0 is the top). `core::adjustmentLayers()`, shared by
+EngineSync and the writer, groups them. The video rows at and below the
+deepest lane form a tractor G(k) whose track 0 is the background. The next
+lane up forms G(k') with G(k) as its track 0, and so on. The main tractor's
+track 0 is then the shallowest G, followed by the audio tracks and the video
+rows above every lane.
+- Each G(k) plants the same composites and mixes as the main tractor (the
+  shared `plantLayer`), so a video clip's own sound under a block keeps
+  its level. A test checks this to within 1%.
+- The drop-in's `decorateLane()` gets G(k) for lane k and the main tractor
+  for lane 0.
+- With no block below the first row the graph is the flat one.
+- `verify()` walks down through each track's depth (`m_trackSlots`) and
+  checks every G's length.
+- The writer nests `<tractor id="lane_k">` the same way, before the
+  sequence tractor, since MLT's xml producer wants a producer defined before
+  its use. A saved project plays frame-identical in melt
+  (`tests/dropins/test_dropin_engine`, "FX4: a saved project plays its
+  adjustment lanes in melt").
+- A block's filters in the file carry its own frames as their in/out. Fades
+  follow once the writer uses the effects drop-in's `core::blockEffects()`.
+

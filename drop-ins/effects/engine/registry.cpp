@@ -214,6 +214,9 @@ std::string registryFingerprint()
                        std::to_string(kRegistrySchema);
     for (const Json &overlay : loadOverlays(effectsDataDir() / "overlays"))
         salt += "\n" + effects::toJson(overlay);
+    // LADSPA and VST2 plugins register services too: a new one re-runs it.
+    for (AudioHost host : {AudioHost::Ladspa, AudioHost::Vst2})
+        salt += "\n" + pluginSetFingerprint(audioHostFiles(host), "");
     return pluginSetFingerprint(findFrei0rPlugins(frei0rSearchDirs()), salt);
 }
 

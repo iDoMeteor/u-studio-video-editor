@@ -77,9 +77,11 @@ the libraries' sources):
    bad UTF-8, external image and font paths, `..`, expressions,
    self-referencing precompositions and oversized pictures.
 4. **Where the file lives.** The layer's `src` is the `.json` file,
-   copied beside the title like pictures (`<title name> images/`) when
-   added, and so moved, packed and templated like one. dotLottie
-   (`.lottie`, a zip) and Telegram's `.tgs` (gzip) aren't read in T6.
+   referenced like a picture: relative when it's beside (or under) the
+   title, absolute otherwise. It's copied beside the title with it when
+   the title is saved elsewhere, made into a template, or packed
+   (`lottie/` in a pack, decision 10). dotLottie (`.lottie`, a zip) and
+   Telegram's `.tgs` (gzip) aren't read in T6.
 5. **Timing is frame-exact and deterministic.** At title frame `t`, a
    title rate `num/den`, a layer `speed` `s` (0.25 to 4), and the
    animation's `ip`, `op` and `fr`, the frame shown is

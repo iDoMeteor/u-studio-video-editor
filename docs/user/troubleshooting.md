@@ -99,6 +99,9 @@ These are planned; see the [roadmap](../../README.md#roadmap).
 - Effects (the Effects add-on) can't draw masks yet. Transitions come in
   dissolve, dip, flash, slide, push and wipe styles; zoom, spin and blend
   styles aren't there yet.
+- A project moved to another folder loses its LUTs (they're found by their
+  full path); move it back, or add the LUT again from the project's `luts`
+  folder.
 - Titles (the Titles drop-in, not yet in the packages) have no template
   gallery yet, and a moved title can't be relinked yet ([Titles](titles.md)).
 - Renders are MP4 (H.264 + AAC) only.

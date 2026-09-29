@@ -38,7 +38,7 @@ enum class MixTransition
 const char *mixTransitionService(MixTransition transition);
 
 // Whether `effect` needs the mask_start / mask_apply pair: a mix that isn't
-// a constant 1.
+// a constant 1, or a mask.
 bool needsMixWrap(const Effect &effect);
 
 // MLT's form of a constant value (0xRRGGBBAA colours, "x y w h" rects).
@@ -49,10 +49,21 @@ std::string nativeParam(const Param &param, FrameIndex offset, FrameIndex length
 
 // The filters for `effect` on that cut, in attach order: the effect alone;
 // or mask_start, mask_apply (a constant mix); or mask_start, brightness
-// (the keyframed mix as its alpha), mask_apply. "disable" is set on each
+// (the keyframed mix as its alpha), mask_apply; or, with a mask and
+// cairoblend (frei0r loaded: the effects drop-in's), mask_start,
+// frei0r.alphaspot (the shape as alpha, the mix inside it), mask_apply.
+// Without frei0r a mask can't be drawn: the effect applies unmasked. "disable" is set on each
 // when the effect is off. In/out are the caller's (engine::attachToCut(),
 // the writer's cutIn).
 std::vector<NativeFilter> nativeFilters(const Effect &effect, FrameIndex offset, FrameIndex length,
                                         MixTransition mix = MixTransition::Cairoblend);
+
+// An adjustment block's effects as they play (doc 15, "FX lane"): each
+// effect's mix scaled by the block's fade envelope (0 at its first frame, 1
+// after fadeIn, back to 0 at its last after fadeOut; an animated mix keeps
+// its shape under it). Keys count from the block's start. Without fades the
+// effects are unchanged. The engine's effects extension and the project
+// writer both play blocks through this.
+std::vector<Effect> blockEffects(const AdjustmentBlock &block);
 
 } // namespace ustudio::core

@@ -280,16 +280,15 @@ double importMs(int count)
 // captions benchmark (bench_captions.cpp), not a test: fixed limits fail on a
 // loaded machine (2026-09-28: 4.2 s beside two other suites, 0.6 s alone).
 // Here, the load-proof part, against 250 cues timed under the same load
-// moments before: four times the cues take at most 40 times as long. That's
-// quadratic (16x) with room to spare, not linear: core::Model re-sorts a
-// track's clips on every insert (sortTrackClips), so a bulk import grows
-// about quadratically (measured 2026-09-28: 115x for ten times the cues).
-// A worse curve than that fails here.
-TEST_CASE("1,000 cues read, place and import no worse than quadratically against 250")
+// moments before: four times the cues take at most 16 times as long, linear
+// with room. (Before core::Model placed clips by binary search, 0.74.1, each
+// insert re-sorted the track and ten times the cues took 115 times as long;
+// since, 1,000 cues take about 20 ms and 20,000 about 0.5 s.)
+TEST_CASE("1,000 cues read, place and import in proportion to 250")
 {
     const double small = importMs(250), large = importMs(1000);
     MESSAGE("250 cues: " << small << " ms; 1,000 cues: " << large << " ms");
-    CHECK(large < 40.0 * std::max(small, 1.0));
+    CHECK(large < 16.0 * std::max(small, 1.0));
 }
 
 namespace {

@@ -791,17 +791,20 @@ packs, packaging). Built in slices, each landed on its own:
    optional dependency of the titles render library (`dependency('thorvg-1',
    required: false)`), with `TITLES_HAVE_THORVG`. Without it the layer
    draws nothing and warns.
-4. **Designer.** **Add Animation…** (in the Add menu; the UI says
+4. **Designer** (landed 2026-09-28). **Add Animation…** (in the Add menu; the UI says
    "animated layer" and names Lottie only as the file type, owner
    2026-09-28) picks a `.json`, validates it, copies it beside the title,
    and adds a layer sized to the animation and centred. The inspector has
    Loop/Once and Speed; the animation keeps its aspect in the layer's box.
    The animation strip shows the layer's run, and play and scrub move the
    animation with the title. Refusals are toasts naming the reason.
-5. **Editor and packs.** Titles with Lottie layers play in the editor
-   (through the module) and bake. Packs accept `lottie/*.json` (ADR-021
-   decision 10). The generator gets one built-in template with a small
-   generated Lottie sting.
+5. **Editor and packs** (landed 2026-09-28). Titles with Lottie layers
+   play in the editor (through the module) and bake. Packs accept
+   `lottie/*.json` (ADR-021 decision 10), validated like an added file.
+   Built-in animated templates followed once the Flatpak carried ThorVG
+   (slice 6): **Lower third with ringing bell** and **Subscribe with
+   ringing bell**, with a Lottie bell that `tools/gen_title_templates.py`
+   generates (`data/templates/animations/ringing-bell.json`).
 6. **Packaging request.** The ThorVG module snippet for VE Installers
    (ADR-021 decision 8); not built by Text.
 
@@ -824,13 +827,14 @@ Acceptance:
       `titles-render` on four threads at once.)
 - [x] A title without Lottie is still written as format 1; one with it
       as format 2, and it round-trips. (`titles-lottie`.)
-- [ ] Add Lottie…, Loop/Once, Speed and Fit work in the designer; the
-      strip plays and scrubs it (checked on a private Xvfb with
-      screenshots).
-- [ ] A pack with a Lottie template installs; one with a hostile Lottie
-      file is refused whole.
-- [ ] Built and tested with and without ThorVG; docs: titles.md
+- [x] Add Animation…, Plays (loop or once) and Speed work in the
+      designer; the strip plays and scrubs it (checked on a private Xvfb
+      with screenshots: added centred at its size, turning while playing).
+- [x] A pack with a Lottie template installs; one with a hostile Lottie
+      file is refused whole. (`titles-pack`.)
+- [x] Built and tested with and without ThorVG; docs: titles.md
       (users), notes (findings), building.md (the optional dependency).
+      (`-Dtitles_thorvg=disabled`: builds, titles tests pass.)
 
 ### Later
 
