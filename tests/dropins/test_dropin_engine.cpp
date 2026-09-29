@@ -202,3 +202,27 @@ TEST_CASE("IP3: the test drop-in built as a module plays its effect too")
     CHECK(isNear(redAt(sync, 94), kFullRed * 94 / 100));
     clearEngineExtensions();
 }
+
+TEST_CASE("IP3: decorateLane gets lane 0's adjustment blocks in start order, once per build")
+{
+    sharedFactoryPolicy();
+    registerTestDropIn();
+    Timeline t;
+    for (FrameIndex start : {150, 20}) {
+        AdjustmentBlock block;
+        block.lane = 0;
+        block.start = start;
+        block.length = 30;
+        t.model.addAdjustmentBlock(block);
+    }
+    AdjustmentBlock deeper; // lane 1: its sub-tractor comes with FX4, not called yet
+    deeper.lane = 1;
+    deeper.start = 60;
+    deeper.length = 10;
+    t.model.addAdjustmentBlock(deeper);
+    EngineSync sync(t.model);
+    const auto &lanes = testdropin::extensionLog().lanes;
+    REQUIRE(lanes.size() == 1);
+    CHECK(lanes[0].first == 0);
+    CHECK(lanes[0].second == std::vector<FrameIndex>{20, 150});
+}
