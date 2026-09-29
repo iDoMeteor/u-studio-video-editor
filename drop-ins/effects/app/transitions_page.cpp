@@ -220,6 +220,22 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         m_controls = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
         gtk_box_append(GTK_BOX(m_root), m_controls);
 
+        // The sound, whatever the style: MLT's mix crossfades evenly (start
+        // -1) or with equal power (-2: sin/cos gains, transition_mix.c), which
+        // doesn't dip in the middle.
+        GtkWidget *soundRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget *soundLabel = gtk_label_new("Sound");
+        gtk_label_set_xalign(GTK_LABEL(soundLabel), 0.0f);
+        gtk_widget_set_size_request(soundLabel, 80, -1);
+        gtk_box_append(GTK_BOX(soundRow), soundLabel);
+        const char *sounds[] = {"Even crossfade", "Equal power", nullptr};
+        m_sound = gtk_drop_down_new_from_strings(sounds);
+        gtk_widget_set_hexpand(m_sound, TRUE);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_sound), GTK_ACCESSIBLE_PROPERTY_LABEL, "Sound", -1);
+        g_signal_connect(m_sound, "notify::selected", G_CALLBACK(&onSoundTrampoline), this);
+        gtk_box_append(GTK_BOX(soundRow), m_sound);
+        gtk_box_append(GTK_BOX(m_root), soundRow);
+
         GtkWidget *scroller = gtk_scrolled_window_new();
         gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
         gtk_widget_set_vexpand(scroller, TRUE);
@@ -390,6 +406,7 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         const bool has = m_target.isValid() && model.hasTransition(m_target);
         for (GtkWidget *flow : m_flows)
             gtk_widget_set_sensitive(flow, has);
+        gtk_widget_set_sensitive(m_sound, has);
         if (!has) {
             gtk_label_set_text(GTK_LABEL(m_title), "No transition here");
             gtk_label_set_text(GTK_LABEL(m_subtitle),
@@ -404,6 +421,11 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         const core::Transition &t = model.transition(m_target);
         const int index = recipeIndexOf(m_recipes, t);
         const TransitionRecipe *recipe = index >= 0 ? &m_recipes[static_cast<size_t>(index)] : nullptr;
+        m_updatingSound = true;
+        const core::Param *sound = findParam(t.params, "audio.start");
+        const double *start = sound ? std::get_if<double>(&sound->value) : nullptr;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_sound), start && *start < -1.0 ? 1 : 0);
+        m_updatingSound = false;
         gtk_label_set_text(GTK_LABEL(m_title), recipe ? recipe->name.c_str() : "Dissolve");
         auto nameOf = [&](core::ClipId id) {
             const core::Clip &clip = model.clip(id);
@@ -507,13 +529,37 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, std::move(params), gesture));
     }
 
+    void onSound()
+    {
+        const core::Model &model = m_host.model();
+        if (m_updatingSound || !m_target.isValid() || !model.hasTransition(m_target))
+            return;
+        const core::Transition &t = model.transition(m_target);
+        const int index = recipeIndexOf(m_recipes, t);
+        if (index < 0)
+            return;
+        const TransitionRecipe &recipe = m_recipes[static_cast<size_t>(index)];
+        std::vector<core::Param> params = t.params.empty() ? recipe.params : t.params;
+        const bool power = gtk_drop_down_get_selected(GTK_DROP_DOWN(m_sound)) == 1;
+        std::erase_if(params, [](const core::Param &p) { return p.name == "audio.start"; });
+        if (power)
+            params.push_back({"audio.start", -2.0, {}});
+        m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, std::move(params)));
+    }
+
     void onTileActivated(GtkFlowBoxChild *child)
     {
         const size_t i = GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(child), "ustudio-recipe"));
         if (i == 0 || i > m_recipes.size() || !m_target.isValid())
             return;
         const TransitionRecipe &recipe = m_recipes[i - 1];
-        if (!m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, recipe.params)))
+        // The sound is chosen apart from the style: it stays.
+        std::vector<core::Param> params = recipe.params;
+        const core::Model &model = m_host.model();
+        if (model.hasTransition(m_target))
+            if (const core::Param *sound = findParam(model.transition(m_target).params, "audio.start"))
+                params = withParam(std::move(params), *sound);
+        if (!m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, params)))
             m_host.showStatus("Couldn't change that transition (is its track locked?)");
         else
             core::Log::debug("[effects] transition style: " + recipe.id);
@@ -588,6 +634,10 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
     {
         static_cast<TransitionsPage *>(self)->addAtNearestCut();
     }
+    static void onSoundTrampoline(GtkDropDown *, GParamSpec *, gpointer self)
+    {
+        static_cast<TransitionsPage *>(self)->onSound();
+    }
     static void onTileActivatedTrampoline(GtkFlowBox *, GtkFlowBoxChild *child, gpointer self)
     {
         static_cast<TransitionsPage *>(self)->onTileActivated(child);
@@ -626,6 +676,8 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
     core::TransitionId m_target, m_pinned;
     uint64_t m_gesture = 0;
     bool m_dragging = false;
+    GtkWidget *m_sound = nullptr;
+    bool m_updatingSound = false;
 };
 
 } // namespace
