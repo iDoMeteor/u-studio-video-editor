@@ -246,6 +246,10 @@ many design tools export.
 - The file is kept with the title like a picture: it travels with a title
   saved elsewhere, made into a template, or shared in a template pack.
 
+Two templates start you off: **Lower third with ringing bell** and
+**Subscribe with ringing bell** (under Bugs and badges), with a bell that
+rings every few seconds.
+
 Some files can't be used, and U Stu says why when you add one:
 
 - files that use **expressions** (small scripts); export them again with

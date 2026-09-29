@@ -801,8 +801,10 @@ packs, packaging). Built in slices, each landed on its own:
 5. **Editor and packs** (landed 2026-09-28). Titles with Lottie layers
    play in the editor (through the module) and bake. Packs accept
    `lottie/*.json` (ADR-021 decision 10), validated like an added file.
-   A built-in animated template waits until the Flatpak carries ThorVG
-   (slice 6), so no build ships a built-in that draws nothing.
+   Built-in animated templates followed once the Flatpak carried ThorVG
+   (slice 6): **Lower third with ringing bell** and **Subscribe with
+   ringing bell**, with a Lottie bell that `tools/gen_title_templates.py`
+   generates (`data/templates/animations/ringing-bell.json`).
 6. **Packaging request.** The ThorVG module snippet for VE Installers
    (ADR-021 decision 8); not built by Text.
 

@@ -10,9 +10,14 @@ committed; edit this script and run it again rather than editing the
 files. titles-render checks every one (reads cleanly, fills its fields,
 draws, stays on the canvas).
 
+Animated layers (T6, ADR-021) use Lottie files generated here too, into
+animations/ beside the templates: plain JSON, brand-coloured, no
+expressions and no external assets (they pass the titles' own check).
+
 1080p sizes (owner review, 2026-09-28): a primary line at least 60 px, a
 secondary at least 40, a tag or label at least 30.
 """
+import json
 import os
 import sys
 from xml.sax.saxutils import escape, quoteattr
@@ -67,12 +72,94 @@ def text(id, x, y, w, content, family=SANS, size=64, weight=None, fills=None, al
     return s + "  </layer>\n"
 
 
+def animation(id, src, x, y, w, extra=""):
+    # An animated layer (T6): the file keeps its aspect; h follows it.
+    s = f"  <layer{attrs(id=id, kind='lottie', src=src, x=x, y=y, w=w, h=0)}>\n"
+    if extra:
+        s += f"    {extra}\n"
+    return s + "  </layer>\n"
+
+
+# --- Lottie animations (plain Bodymovin JSON) ---------------------------------
+
+def rgba(hex_colour, alpha=1.0):
+    h = hex_colour.lstrip("#")
+    return [round(int(h[i:i + 2], 16) / 255, 3) for i in (0, 2, 4)] + [alpha]
+
+
+def static(value):
+    return {"a": 0, "k": value}
+
+
+def keyed(frames, ease=True):
+    # [(t, value), ...]: eased in and out between keyframes.
+    keys = []
+    for t, value in frames:
+        key = {"t": t, "s": value if isinstance(value, list) else [value]}
+        if ease:
+            n = len(key["s"])
+            key["i"] = {"x": [0.4] * n, "y": [1] * n}
+            key["o"] = {"x": [0.6] * n, "y": [0] * n}
+        keys.append(key)
+    return {"a": 1, "k": keys}
+
+
+def transform(anchor, position, rotation=static(0), scale=static([100, 100]), opacity=static(100)):
+    return {"a": static(anchor), "p": static(position), "r": rotation, "s": scale, "o": opacity}
+
+
+def path(vertices, ins, outs, closed=True):
+    return {"ty": "sh", "ks": static({"v": vertices, "i": ins, "o": outs, "c": closed})}
+
+
+def group(name, items):
+    # A Lottie group: its shapes, then their fill, then its transform, so
+    # each fill paints only its own group.
+    return {"ty": "gr", "nm": name, "it": items + [{"ty": "tr", "a": static([0, 0]), "p": static([0, 0]),
+                                                     "r": static(0), "s": static([100, 100]), "o": static(100)}]}
+
+
+def shape_layer(index, name, ks, shapes, op):
+    return {"ty": 4, "ind": index, "nm": name, "ip": 0, "op": op, "st": 0, "sr": 1, "ks": ks, "shapes": shapes}
+
+
+def bell_lottie(body=MAG, clapper=PINKW, dot=RED):
+    # A bell that rings (a damped swing about its top) every three seconds,
+    # with a notification dot that pops in and pulses. 240 x 240, 30 fps.
+    op = 90
+    swing = keyed([(0, 0), (5, 20), (10, -17), (15, 13), (20, -9), (25, 5), (30, 0), (op - 1, 0)])
+    # The body: symmetric about x = 120 (each handle mirrors its partner).
+    outline = path([[120, 36], [170, 92], [176, 148], [198, 172], [42, 172], [64, 148], [70, 92]],
+                   [[-30, 0], [0, -34], [0, -22], [-10, -8], [0, 0], [-6, 12], [0, 22]],
+                   [[30, 0], [0, 22], [6, 12], [0, 0], [10, -8], [0, -22], [0, -34]])
+    # First in the list draws on top: the body over the clapper.
+    bell = shape_layer(2, "bell", transform([120, 36], [120, 36], rotation=swing), [
+        group("body", [outline, {"ty": "rc", "p": static([120, 30]), "s": static([18, 22]), "r": static(7)},
+                       {"ty": "fl", "c": static(rgba(body)), "o": static(100)}]),
+        group("clapper", [{"ty": "el", "p": static([120, 186]), "s": static([38, 38])},
+                          {"ty": "fl", "c": static(rgba(clapper)), "o": static(100)}]),
+    ], op)
+    pop = keyed([(0, [0, 0]), (8, [118, 118]), (14, [100, 100]), (45, [100, 100]), (52, [112, 112]),
+                 (60, [100, 100]), (op - 1, [100, 100])])
+    notification = shape_layer(1, "dot", transform([0, 0], [184, 60], scale=pop), [
+        group("dot", [{"ty": "el", "p": static([0, 0]), "s": static([44, 44])},
+                      {"ty": "fl", "c": static(rgba(dot)), "o": static(100)}]),
+    ], op)
+    # Layers draw top first in Lottie: the dot over the bell.
+    return {"v": "5.7.0", "fr": 30, "ip": 0, "op": op, "w": 240, "h": 240, "nm": "Ringing bell", "ddd": 0,
+            "assets": [], "layers": [notification, bell]}
+
+
+ANIMATIONS = {"ringing-bell.json": bell_lottie()}
+
 TEMPLATES = []
 
 
 def title(id, name, category, fields, layers, intro=18, hold=120, outro=15, background=None):
+    # Format 2 only where a title has an animated layer (ADR-021 decision 9).
+    version = 2 if any("kind=\"lottie\"" in layer for layer in layers) else 1
     x = '<?xml version="1.0" encoding="UTF-8"?>\n'
-    x += f"<ustitle{attrs(version=1, name=name, category=category, width=1920, height=1080, fps='30/1')}>\n"
+    x += f"<ustitle{attrs(version=version, name=name, category=category, width=1920, height=1080, fps='30/1')}>\n"
     x += f"  <timing{attrs(intro=intro, hold=hold, outro=outro)}/>\n"
     if background:
         x += f"  {background}\n"
@@ -113,6 +200,14 @@ title("lower-third-right", "Lower third, right", LT, [("name", "Name", "Jay Doe"
     text("name", 1030, 806, 690, "{{name}}", size=70, weight=700, align="right", extra=in_out("rise")),
     text("role", 1030, 896, 690, "{{role}}", size=46, fills=fill(CYAN), align="right", extra=in_out("fade")),
 ])
+title("lower-third-bell", "Lower third with ringing bell", LT,
+      [("name", "Name", "Jay Doe"), ("role", "Role", "Hit the bell for every stream")], [
+    shape("bar", "rounded-rect", 160, 790, 900, 180, fill(INK7, 0.92), radius=16, extra=in_out("wipe")),
+    shape("accent", "rect", 160, 790, 12, 180, fill(**TEARS), extra=in_out("fade")),
+    text("name", 206, 806, 700, "{{name}}", size=70, weight=700, extra=in_out("rise")),
+    text("role", 206, 896, 700, "{{role}}", size=42, fills=fill(CYAN), extra=in_out("fade")),
+    animation("bell", "animations/ringing-bell.json", 910, 800, 140, extra=in_out("pop")),
+])
 title("lower-third-tag", "Lower third with tag", LT,
       [("tag", "Tag", "GUEST"), ("name", "Name", "Jay Doe"), ("role", "Role", "Streamer")], [
     shape("tag-bg", "rounded-rect", 160, 730, 190, 56, fill(MAG), radius=10, extra=in_out("pop")),
@@ -152,6 +247,15 @@ title("subscribe-badge", "Subscribe reminder", BB, [("label", "Label", "Subscrib
           extra=beh("in", "pop") + beh("loop", "pulse") + beh("out", "fade")),
     text("label", 180, 876, 400, "{{label}}", size=58, weight=700, align="center", extra=in_out("fade")),
 ])
+
+title("subscribe-bell", "Subscribe with ringing bell", BB,
+      [("cta", "Call to action", "Subscribe"), ("handle", "Handle", "unicorntears")], [
+    shape("pill", "rounded-rect", 160, 850, 720, 136, fill(INK7, 0.92), radius=68, stroke=(MAG, 4),
+          extra=in_out("pop")),
+    animation("bell", "animations/ringing-bell.json", 180, 858, 120, extra=in_out("pop")),
+    text("cta", 320, 858, 520, "{{cta}}", size=64, weight=700, extra=in_out("rise")),
+    text("handle", 322, 930, 520, "@{{handle}}", size=40, fills=fill(CYAN), extra=in_out("fade")),
+], hold=240)
 
 CARDS = "Cards"
 title("chapter-card", "Chapter card", CARDS, [("number", "Number", "1"), ("title", "Title", "The beginning")], [
@@ -300,7 +404,12 @@ def main():
     for id, xml in TEMPLATES:
         with open(os.path.join(out, id + ".ustitle"), "w", encoding="utf-8") as f:
             f.write(xml)
-    print(f"{len(TEMPLATES)} templates in {out}")
+    os.makedirs(os.path.join(out, "animations"), exist_ok=True)
+    for name, lottie in ANIMATIONS.items():
+        with open(os.path.join(out, "animations", name), "w", encoding="utf-8") as f:
+            json.dump(lottie, f, separators=(",", ":"))
+            f.write("\n")
+    print(f"{len(TEMPLATES)} templates and {len(ANIMATIONS)} animations in {out}")
 
 
 if __name__ == "__main__":

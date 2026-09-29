@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ustitle version="2" name="Subscribe with ringing bell" category="Bugs and badges" width="1920" height="1080" fps="30/1">
+  <timing intro="18" hold="240" outro="15"/>
+  <field name="cta" label="Call to action" default="Subscribe"/>
+  <field name="handle" label="Handle" default="unicorntears"/>
+  <layer id="pill" kind="shape" shape="rounded-rect" x="160" y="850" w="720" h="136" radius="68">
+    <fill color="#1b1230" opacity="0.92"/>
+    <stroke color="#ff2bd6" width="4"/>
+    <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="bell" kind="lottie" src="animations/ringing-bell.json" x="180" y="858" w="120" h="0">
+    <behavior slot="in" id="pop"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="cta" kind="text" x="320" y="858" w="520" fit="shrink">
+    <text>{{cta}}</text>
+    <font family="Space Grotesk" weight="700" size="64"/>
+    <fill color="#ffffff"/>
+    <behavior slot="in" id="rise"/><behavior slot="out" id="fade"/>
+  </layer>
+  <layer id="handle" kind="text" x="322" y="930" w="520" fit="shrink">
+    <text>@{{handle}}</text>
+    <font family="Space Grotesk" size="40"/>
+    <fill color="#19e3ff"/>
+    <behavior slot="in" id="fade"/><behavior slot="out" id="fade"/>
+  </layer>
+</ustitle>
