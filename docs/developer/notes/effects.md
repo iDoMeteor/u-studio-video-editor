@@ -228,4 +228,12 @@ Found 2026-09-29 (VE Effects), for the Blends recipes (`dissolves.json`).
 - The blend tiles show the real clips like the others; GPU: the transition
   is a CPU island in the movit graph, like the wipes (not yet measured by
   VE GPU).
+- **A sound cut** (the Sound row's Cut, doc 15's third curve): `mix` with
+  `start=1 sum=1` adds the incoming track unscaled, and a `volume` filter
+  on each side (cut filter 9, clear of the styles' own) holds it at -100 dB
+  on its half: `hold:0,-100` / `hold:-100,0`, core's discrete form of
+  `ramp:` (`"0|=0;<length/2>|=-100"`). `volume`'s `level` is in dB and
+  animated (`filter_volume.yml`). Test: engine-xml-playback "A transition's
+  sound can cut at the middle" (two tones 240 degrees apart: a cut keeps one
+  tone's level on both sides; an even crossfade halves it at the middle).
 

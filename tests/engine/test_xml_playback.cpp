@@ -721,3 +721,50 @@ TEST_CASE("A transition recipe with a service not offered plays and renders as t
         CHECK(std::abs(red(melt, position) - red(dissolve.tractor(), position)) <= 3);
     }
 }
+
+// Doc 15's third sound: a cut at the transition's middle. mix adds the
+// incoming track unscaled (start=1 sum=1) and a volume on each side holds it
+// silent on its half ("hold:" values), so the level is one tone's, exactly,
+// on both sides of the middle, in the editor and in melt.
+TEST_CASE("A transition's sound can cut at the middle: one clip's level on each side, in melt too")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId audio = model.addTrack(Track::Kind::Audio, 0, "A1");
+    AssetId tone = addGenerator(model, "tone:", false, true);
+    ClipId a = model.insertClip(audio, tone, 0, 0, 59);
+    ClipId b = model.insertClip(audio, tone, 60, 20, 79);
+    TransitionId t = model.addTransition(audio, a, b, 10, 10); // [50, 70), middle 60
+    model.setTransitionRecipe(t, "dissolve",
+                              {{"audio.start", 1.0, {}},
+                               {"audio.sum", 1.0, {}},
+                               {"a.9.service", std::string("volume"), {}},
+                               {"a.9.level", std::string("hold:0,-100"), {}},
+                               {"b.9.service", std::string("volume"), {}},
+                               {"b.9.level", std::string("hold:-100,0"), {}}});
+    EngineSync sync(model);
+    CHECK(sync.verify().empty());
+    const std::filesystem::path path = tempProjectPath("ustudio-audio-cut");
+    RemoveOnExit cleanup{path};
+    REQUIRE(saveProject(model, path.string()).empty());
+    Mlt::Producer melt(sync.profile(), ("xml:" + path.string()).c_str());
+    REQUIRE(melt.is_valid());
+    auto rms = [](Mlt::Producer &producer, int position) {
+        producer.seek(position);
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_audio_format format = mlt_audio_float;
+        int frequency = 48000, channels = 2, samples = 1600;
+        const auto *pcm = static_cast<const float *>(frame->get_audio(format, frequency, channels, samples));
+        double sum = 0.0;
+        for (int i = 0; pcm && i < samples * channels; ++i)
+            sum += static_cast<double>(pcm[i]) * pcm[i];
+        return samples > 0 ? std::sqrt(sum / (samples * channels)) : 0.0;
+    };
+    const double one = rms(sync.tractor(), 30); // clip a alone
+    REQUIRE(one > 0.1);
+    for (int position : {51, 55, 59, 60, 64, 68}) {
+        INFO("frame " << position);
+        CHECK(rms(sync.tractor(), position) == doctest::Approx(one).epsilon(0.02));
+        CHECK(rms(melt, position) == doctest::Approx(one).epsilon(0.02));
+    }
+}

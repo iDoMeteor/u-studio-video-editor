@@ -105,6 +105,14 @@ TEST_CASE("nativeTransition: a wipe's video props, map name and a dip's filters 
     CHECK(property(native.headFilters[0], "rgb_only") == "1");
 }
 
+TEST_CASE("nativeTransition: a hold switches at its share of the length")
+{
+    const std::vector<Param> params{{"a.9.service", std::string("volume"), {}},
+                                    {"a.9.level", std::string("hold:0,-100"), {}}};
+    CHECK(property(nativeTransition(transitionWith(params, 20)).tailFilters[0], "level") == "0|=0;10|=-100");
+    CHECK(property(nativeTransition(transitionWith(params, 15)).tailFilters[0], "level") == "0|=0;7|=-100");
+}
+
 TEST_CASE("nativeTransition: a ramp follows the transition's length")
 {
     const std::vector<Param> params{{"a.0.service", std::string("brightness"), {}},

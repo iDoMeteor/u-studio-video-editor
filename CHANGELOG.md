@@ -11,6 +11,8 @@ docs-only changes are not listed (CLAUDE.md).
   records them like an effect's values, with curves in the curve lanes;
   dragging a keyframed picture on the preview sets its keyframe at the
   playhead.
+- Transitions: a transition's sound can cut at its middle instead of
+  crossfading (Sound: Cut).
 - Transitions: Additive, Screen and Lighten blend dissolves; a styled
   dissolve opened without the Effects add-on plays as a plain one instead
   of refusing the project.

@@ -55,9 +55,31 @@ std::string expandRamp(const std::string &value, FrameIndex length)
     return out;
 }
 
+// "hold:1,0" over `length` frames: each value held for its share, then a
+// jump (MLT's discrete keyframes, "|="): "0|=1;<length/2>|=0". A hard audio
+// cut at the transition's middle.
+std::string expandHold(const std::string &value, FrameIndex length)
+{
+    static constexpr std::string_view kHold = "hold:";
+    if (!value.starts_with(kHold))
+        return value;
+    const std::vector<std::string> points = split(value.substr(kHold.size()), ',');
+    if (points.size() < 2)
+        return points.empty() ? value : points.front();
+    std::string out;
+    for (size_t i = 0; i < points.size(); ++i) {
+        const auto at = static_cast<FrameIndex>(static_cast<double>(length) * static_cast<double>(i) /
+                                                static_cast<double>(points.size()));
+        if (!out.empty())
+            out += ';';
+        out += std::to_string(at) + "|=" + points[i];
+    }
+    return out;
+}
+
 std::string valueOf(const Param &param, FrameIndex length)
 {
-    return expandRamp(nativeValue(param.value), length);
+    return expandHold(expandRamp(nativeValue(param.value), length), length);
 }
 
 // "a.<n>.<prop>" -> (n, prop); false for anything else.

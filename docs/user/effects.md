@@ -226,8 +226,10 @@ edge is) and **Reverse** (run it the other way). A slider drag is one undo
 step.
 
 **Sound** chooses how the two clips' sound crosses: **Even crossfade**
-(the default) or **Equal power**, which keeps the level up through the
-middle, better for music and ambience. It stays when you change the style.
+(the default), **Equal power**, which keeps the level up through the
+middle, better for music and ambience, or **Cut**: the first clip's sound
+plays to the middle of the transition and the second's from there, with
+no blend (for dialogue, or a beat). It stays when you change the style.
 
 The style is saved with the project, and a render plays it exactly as the
 preview does. Opened where the add-on isn't installed, a styled
