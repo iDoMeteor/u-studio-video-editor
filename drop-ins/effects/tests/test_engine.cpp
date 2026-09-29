@@ -6,6 +6,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/blocks.h"
 #include "core/commands.h"
 #include "core/commands/undo_stack.h"
 #include "core/media/utf8_path.h"
@@ -803,4 +804,59 @@ TEST_CASE("OpenFX: a bundle naming Qt, at the top or one folder deep, is found")
     const std::vector<fs::path> dirs = openfxSearchDirs();
     REQUIRE(dirs.size() >= 2);
     CHECK(dirs[0] == "/usr/OFX/Plugins");
+}
+
+// FX4: an adjustment block on lane 0 (above every track) puts its effects
+// on the output for exactly its range, its fades ramping them, in the
+// editor and in melt; a value dragged in place keeps the fades.
+TEST_CASE("An adjustment block affects exactly its range, fades in, and plays the same in melt")
+{
+    setUp();
+    Timeline t; // grey, the whole timeline [0, 190)
+    AdjustmentBlock block;
+    block.lane = 0;
+    block.start = 120;
+    block.length = 40; // [120, 160)
+    block.fadeIn = FadeSpec{10};
+    Effect black;
+    black.service = "brightness";
+    black.owner = kOwner;
+    black.params = {{"level", 0.0, {}}, {"rgb_only", true, {}}};
+    block.effects = {black};
+    const AdjustmentBlockId id = t.model.addAdjustmentBlock(block);
+    REQUIRE(t.model.check().empty());
+    engine::EngineSync sync(t.model);
+    CHECK(near(redAt(sync.tractor(), 119), kGrey));      // before it
+    CHECK(near(redAt(sync.tractor(), 125), kGrey / 2));  // half-way through its fade
+    CHECK(redAt(sync.tractor(), 140) < 8);              // inside
+    CHECK(near(redAt(sync.tractor(), 160), kGrey));      // after it
+    const fs::path path = scratch() / "block.ustudio";
+    REQUIRE(saveProject(t.model, utf8String(path)).empty());
+    Mlt::Producer melt(sync.profile(), ("xml:" + utf8String(path)).c_str());
+    REQUIRE(melt.is_valid());
+    for (int frame : {119, 125, 140, 160})
+        CHECK(near(redAt(melt, frame), redAt(sync.tractor(), frame), 3));
+
+    // Its effect's value, dragged: in place, the fade still there.
+    int rebuilds = 0, inPlace = 0;
+    sync.rebuilt.connect([&] { ++rebuilds; });
+    sync.appliedInPlace.connect([&] { ++inPlace; });
+    const EffectId effect = t.model.adjustmentBlock(id).effects[0].id;
+    UndoStack undo(t.model);
+    REQUIRE(undo.execute(std::make_unique<SetParam>(effect, Param{"level", 0.5, {}}, 1)));
+    sync.setProject(t.model.snapshot());
+    CHECK(rebuilds == 0);
+    CHECK(inPlace == 1);
+    CHECK(near(redAt(sync.tractor(), 140), kGrey / 2));
+    CHECK(near(redAt(sync.tractor(), 125), kGrey * 3 / 4)); // half the fade of half the effect
+
+    // A fade-handle drag: in place too, the ramp following the new length.
+    for (FrameIndex fade : {20, 30})
+        REQUIRE(undo.execute(std::make_unique<SetAdjustmentBlockFades>(id, FadeSpec{fade}, std::nullopt, 2)));
+    sync.setProject(t.model.snapshot());
+    CHECK(rebuilds == 0);
+    CHECK(inPlace == 2);
+    // At 125, 5 frames into a 30-frame fade: a sixth of half the effect.
+    CHECK(near(redAt(sync.tractor(), 125), kGrey - kGrey / 12));
+    CHECK(near(redAt(sync.tractor(), 155), kGrey / 2)); // past the fade
 }

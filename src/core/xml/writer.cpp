@@ -1,5 +1,6 @@
 #include "writer.h"
 
+#include "core/model/effect_native.h"
 #include "core/model/transform.h"
 #include "core/model/transition_native.h"
 #include "core/log.h"
@@ -694,6 +695,14 @@ std::string saveProject(const Model &model, const std::string &path)
     }
     // Master effects on the output (Sequence::effects).
     writeEffects(tractor, seq.effects, 0, sequenceLength, true);
+    // Adjustment blocks on lane 0 (above every track): their effects, fades
+    // folded in (core::blockEffects()), on the output over each block's
+    // range, as the effects drop-in's decorateLane() attaches them. Their
+    // model records are the never-played playlists below. (Lanes > 0 need
+    // EngineSync's sub-tractor structure; the writer follows it there.)
+    for (const AdjustmentBlock &block : seq.adjustmentBlocks)
+        if (block.lane == 0)
+            writeEffects(tractor, blockEffects(block), 0, block.length, false, block.start);
 
     std::string tmpPath = path + ".tmp";
     int written = xmlSaveFormatFileEnc(tmpPath.c_str(), doc, "UTF-8", 1);

@@ -769,16 +769,40 @@ bool EngineSync::applyInPlace(const core::Project &next)
     // Only effect values may differ: the same graph input with every
     // parameter value, mix and mask value blanked out on both sides (a
     // mask's geometry, soft edge and invert are values of the same filters;
-    // adding or removing a mask, or changing its shape, rebuilds).
+    // adding or removing a mask, or changing its shape, rebuilds). An
+    // adjustment block's fades are values too: they shape its effects' mix
+    // (core::blockEffects()), so a fade drag changes each of its effects.
     core::Project before = *m_project;
     core::Project after = next;
+    std::unordered_map<uint64_t, const core::AdjustmentBlock *> blockOf; // effect id -> its block, as it is now
+    std::unordered_set<uint64_t> refaded;                               // effects whose block's fades changed
+    for (const core::Sequence &seq : next.sequences)
+        for (const core::AdjustmentBlock &block : seq.adjustmentBlocks) {
+            const core::AdjustmentBlock *old = nullptr;
+            for (const core::Sequence &was : m_project->sequences)
+                for (const core::AdjustmentBlock &candidate : was.adjustmentBlocks)
+                    if (candidate.id == block.id)
+                        old = &candidate;
+            for (const core::Effect &effect : block.effects) {
+                blockOf[effect.id.value] = &block;
+                if (old && (old->fadeIn != block.fadeIn || old->fadeOut != block.fadeOut))
+                    refaded.insert(effect.id.value);
+            }
+        }
+    for (core::Project *project : {&before, &after})
+        for (core::Sequence &seq : project->sequences)
+            for (core::AdjustmentBlock &block : seq.adjustmentBlocks) {
+                block.fadeIn.reset();
+                block.fadeOut.reset();
+            }
     std::unordered_map<uint64_t, core::Effect> oldEffects;
     forEachEffect(before, [&](core::Effect &effect) { oldEffects.emplace(effect.id.value, effect); });
     std::vector<core::Effect> changed;
     forEachEffect(after, [&](core::Effect &effect) {
         auto it = oldEffects.find(effect.id.value);
         if (it != oldEffects.end() &&
-            (it->second.params != effect.params || it->second.mix != effect.mix || it->second.mask != effect.mask))
+            (it->second.params != effect.params || it->second.mix != effect.mix || it->second.mask != effect.mask ||
+             refaded.contains(effect.id.value)))
             changed.push_back(effect);
     });
     auto blank = [](core::Effect &effect) {
@@ -807,6 +831,11 @@ bool EngineSync::applyInPlace(const core::Project &next)
             change.params.push_back("mix");
         if (effect.mask != old.mask)
             change.params.push_back("mask");
+        if (refaded.contains(effect.id.value) && std::find(change.params.begin(), change.params.end(), "mix") ==
+                                                     change.params.end())
+            change.params.push_back("mix");
+        if (auto block = blockOf.find(effect.id.value); block != blockOf.end())
+            change.block = block->second;
         bool applied = false;
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
             applied = extension->applyInPlace(change) || applied;
