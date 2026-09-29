@@ -265,6 +265,7 @@ std::string redWithTone()
         consumer.set("real_time", -1);
         consumer.connect(tractor);
         consumer.run();
+        consumer.stop(); // joins the render-ahead thread (notes/render.md)
         return out;
     }();
     return path;

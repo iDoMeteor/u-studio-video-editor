@@ -18,10 +18,12 @@
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
 #include "engine/effects_extension.h"
+#include "engine/frame_renderer.h"
 #include "engine/plugins.h"
 #include "engine/probe.h"
 #include "engine/registry.h"
 
+#include <gio/gio.h>
 #include <glib.h>
 
 #include <algorithm>
@@ -136,6 +138,12 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         if (scanning)
             return; // one scan per process, however many windows
         scanning = true;
+        // The renderers' threads hold MLT producers, and the pages that own
+        // them are statics destroyed at exit(), after main() has closed the
+        // factory: stop them all when the application shuts down.
+        if (GApplication *application = g_application_get_default())
+            g_signal_connect(application, "shutdown",
+                             G_CALLBACK(+[](GApplication *, gpointer) { FrameRenderer::stopAll(); }), nullptr);
         // What was loaded at start-up (the experimental families), and
         // whether the recommended audio pack is there.
         catalog.experimental = loadExperimentalFamilies();

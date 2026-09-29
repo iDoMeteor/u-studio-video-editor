@@ -68,6 +68,111 @@ TEST_CASE("transform: stretch, explicit placement, crop and the switch to explic
     CHECK(placementFor(placed, 1344, 768, hd()) == placementFor(fitted, 1344, 768, hd()));
 }
 
+TEST_CASE("transform: keyframed values ease to a static transform at a frame, and handles key at the frame")
+{
+    Transform t;
+    t.bounds = Transform::Bounds::None;
+    t.x.keyframes = {{0, 100, Easing::Linear}, {20, 300, Easing::Linear}};
+    t.y.value = 540;
+    t.width.value = 960;
+    t.height.value = 540;
+    t.rotation.keyframes = {{10, 0, Easing::Linear}, {30, 90, Easing::Linear}};
+
+    const Transform mid = transformAt(t, 10);
+    CHECK(mid.x.value == doctest::Approx(200));
+    CHECK(mid.x.keyframes.empty());
+    CHECK(mid.rotation.value == 0);
+    CHECK(mid.y.value == 540);
+    CHECK(transformAt(t, -5).x.value == 100); // holds outside the keys
+    CHECK(transformAt(t, 99).rotation.value == 90);
+    const Placement p = placementAt(t, 20, 1920, 1080, hd());
+    CHECK(p.cx == doctest::Approx(300));
+    CHECK(p.rotation == doctest::Approx(45));
+    Transform still;
+    still.rotation.value = 5;
+    CHECK(transformAt(still, 7) == still);
+
+    // Dragging at frame 10: x gains a key there, y (static) just changes,
+    // and rotation's key at 10 keeps its easing.
+    t.rotation.keyframes.front().easing = Easing::CubicIn;
+    Transform edited = mid;
+    edited.x.value = 250;
+    edited.y.value = 600;
+    edited.rotation.value = 15;
+    const Transform out = withTransformAt(t, 10, edited);
+    REQUIRE(out.x.keyframes.size() == 3);
+    CHECK(out.x.keyframes[1] == Keyframe{10, 250, Easing::Linear});
+    CHECK(out.y.value == 600);
+    CHECK(out.y.keyframes.empty());
+    REQUIRE(out.rotation.keyframes.size() == 2);
+    CHECK(out.rotation.keyframes[0] == Keyframe{10, 15, Easing::CubicIn});
+    CHECK(transformAt(out, 10) == edited);
+}
+
+TEST_CASE("transform: keyframes become affine's animated rect and rotation for each cut")
+{
+    Transform t;
+    t.bounds = Transform::Bounds::None;
+    t.x.keyframes = {{0, 480, Easing::Linear}, {40, 1440, Easing::SmoothNatural}};
+    t.y.value = 270;
+    t.width.keyframes = {{0, 960, Easing::Linear}, {40, 480, Easing::SmoothNatural}};
+    t.height.value = 540;
+    t.rotation.keyframes = {{10, 0, Easing::Linear}, {30, 90, Easing::Linear}};
+    auto property = [](const std::vector<NativeFilter> &filters, const std::string &name) {
+        for (const NativeFilter &f : filters)
+            for (const auto &[key, value] : f.properties)
+                if (key == name)
+                    return value;
+        return std::string();
+    };
+
+    // x and width share their keys: one rect key each, with their easing.
+    const auto whole = transformFilters(t, 1920, 1080, hd(), 1.0, 1.0, 0, 60);
+    CHECK(property(whole, "transition.rect") == "0=0 0 960 540 1;40$=1200 0 480 540 1");
+    CHECK(property(whole, "transition.fix_rotate_x") == "10=0;30=90");
+    // A cut 20 frames in, 20 long, at half preview scale: its edges carry
+    // the values there (frame 20: x 960, width 720; frame 39: x 1416,
+    // width 492), halved.
+    const auto cut = transformFilters(t, 1920, 1080, hd(), 0.5, 1.0, 20, 20);
+    CHECK(property(cut, "transition.rect") == "0=300 0 360 270 1;19=585 0 246 270 1");
+    CHECK(property(cut, "transition.fix_rotate_x") == "0=45;10=90");
+
+    // Keys on different frames: every frame from the first key to the last.
+    Transform apart = t;
+    apart.width.keyframes = {{5, 960, Easing::Linear}, {15, 480, Easing::Linear}};
+    const std::string sampled = property(transformFilters(apart, 1920, 1080, hd(), 1.0, 1.0, 0, 60), "transition.rect");
+    CHECK(std::count(sampled.begin(), sampled.end(), ';') == 40); // frames 0-40
+    CHECK(sampled.starts_with("0=0 0 960 540 1;1=24 0 960 540 1;"));
+
+    // The GPU's movit.rect: affine's opacity dropped from every key.
+    Transform level = t;
+    level.rotation = {};
+    CHECK(property(gpuTransformFilters(level, 1920, 1080, hd(), 1.0, 1.0, 0, 60), "rect") ==
+          "0=0 0 960 540;40$=1200 0 480 540");
+    // movit's flips act on the frame movit.rect has placed, so the rect is
+    // mirrored with them, key for key.
+    Transform flipped = level;
+    flipped.flipH = true;
+    flipped.flipV = true;
+    CHECK(property(gpuTransformFilters(flipped, 1920, 1080, hd(), 1.0, 1.0, 0, 60), "rect") ==
+          "0=960 540 960 540;40$=240 540 480 540");
+    CHECK(property(gpuTransformFilters(flipped, 1920, 1080, hd(), 0.5, 1.0, 0, 60), "rect") ==
+          "0=480 270 480 270;40$=120 270 240 270");
+    // Not animated: never an identity or a plain compositor fit.
+    Transform turning;
+    turning.bounds = Transform::Bounds::None;
+    turning.x.value = 960;
+    turning.y.value = 540;
+    turning.width.value = 1920;
+    turning.height.value = 1080;
+    CHECK(transformFilters(turning, 1920, 1080, hd()).size() == 1);
+    turning.bounds = Transform::Bounds::Fit;
+    CHECK(transformFilters(turning, 1920, 1080, hd()).empty());
+    turning.rotation.keyframes = {{0, 0, Easing::Linear}};
+    CHECK_FALSE(isIdentity(turning, 1920, 1080, hd()));
+    CHECK_FALSE(compositorFits(turning));
+}
+
 TEST_CASE("transform: check() refuses sizes, crops and values that make no sense")
 {
     Transform t;
@@ -81,6 +186,22 @@ TEST_CASE("transform: check() refuses sizes, crops and values that make no sense
     CHECK_FALSE(transformProblem(t).empty());
     t.cropTop.value = 0;
     t.rotation.value = std::nan("");
+    CHECK_FALSE(transformProblem(t).empty());
+    t.rotation.value = 0;
+
+    // Keyframes: placed pictures only, never crops, in order, sizes positive.
+    t.x.keyframes = {{0, 100, Easing::Linear}, {10, 200, Easing::Linear}};
+    CHECK(transformProblem(t).empty());
+    t.bounds = Transform::Bounds::Fit;
+    CHECK_FALSE(transformProblem(t).empty());
+    t.bounds = Transform::Bounds::None;
+    t.cropLeft.keyframes = {{0, 10, Easing::Linear}};
+    CHECK_FALSE(transformProblem(t).empty());
+    t.cropLeft.keyframes.clear();
+    t.x.keyframes = {{10, 100, Easing::Linear}, {10, 200, Easing::Linear}};
+    CHECK_FALSE(transformProblem(t).empty());
+    t.x.keyframes.clear();
+    t.width.keyframes = {{0, 100, Easing::Linear}, {10, 0, Easing::Linear}};
     CHECK_FALSE(transformProblem(t).empty());
 }
 

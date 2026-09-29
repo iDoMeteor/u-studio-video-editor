@@ -331,6 +331,8 @@ class EngineSync
     {
         std::string shape; // the services in order: a change of shape rebuilds
         std::vector<std::vector<std::shared_ptr<Mlt::Filter>>> cuts;
+        // Each cut's place in its clip: an animated transform's keys differ per cut.
+        std::vector<std::pair<core::FrameIndex, core::FrameIndex>> spans; // offset, length
     };
     std::unordered_map<uint64_t, TransformFilters> m_transformFilters;
     // FX3: a transition sub-tractor's services, kept with its plan's shape
@@ -366,8 +368,11 @@ class EngineSync
         return m_pipeline == Pipeline::Gpu ? ProducerUse::GpuGraph : ProducerUse::CpuGraph;
     }
     std::vector<core::NativeFilter> transformNatives(const core::Transform &t, const core::MediaInfo &info,
-                                                     const core::Profile &profile, double sourceScale) const;
-    bool applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve = false);
+                                                     const core::Profile &profile, double sourceScale,
+                                                     core::FrameIndex offset, core::FrameIndex length) const;
+    // `in` and `out`: the cut's source frames, as decorateCut() takes them.
+    bool applyTransform(Mlt::Producer &cut, const core::Clip &clip, core::FrameIndex in, core::FrameIndex out,
+                        bool inDissolve = false);
     // Whether a clip's picture may have partial alpha: stills, image
     // sequences, drop-in producers (titles), transformed cuts. Those get
     // attachAlphaPairing() (engine_sync.cpp) before the track compositor.

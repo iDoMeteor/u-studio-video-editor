@@ -195,6 +195,7 @@ TEST_CASE("ThumbnailCache: a real 16:9 video decodes at its own aspect, not MLT'
         consumer.set("vcodec", h264Encoder().c_str());
         consumer.connect(producer);
         consumer.run();
+        consumer.stop(); // joins the render-ahead thread (notes/render.md)
     }
 
     std::mutex mutex;

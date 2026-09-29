@@ -90,6 +90,7 @@ void renderToneClip(Mlt::Profile &profile, const std::filesystem::path &path, in
     consumer.set("real_time", -1);
     consumer.connect(tractor);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
 }
 
 // The composited picture's centre pixel and the frame's audio RMS, pulled
@@ -299,6 +300,46 @@ TEST_CASE("A saved project with a dissolve, track volume and a muted clip plays 
     CHECK(sampleFrame(sync.tractor(), 70, width, height).g > 100);
     CHECK(sampleFrame(sync.tractor(), 10, width, height).rms > 100.0);
     CHECK(sampleFrame(sync.tractor(), 60, width, height).rms < 1.0);
+}
+
+TEST_CASE("A dissolve into a generator from its first frame plays the same outside the editor")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId red = addGenerator(model, "color:red", true, false);
+    Asset boundless; // no known length, as a generator or still: boundless
+    boundless.path = "color:blue";
+    boundless.displayName = "color:blue";
+    boundless.info.hasVideo = true;
+    AssetId blue = model.addAsset(boundless);
+    ClipId a = model.insertClip(video, red, 0, 0, 29);
+    ClipId b = model.insertClip(video, blue, 30, 0, 39); // in 0: no head room as placed
+    // Model::addTransition() would give b in -5 (VE Effects, 2026-09-28);
+    // the command slips b's window forward instead.
+    REQUIRE(AddTransition(video, a, b, 5, 5).apply(model));
+    CHECK(model.clip(b).in == 0);
+    REQUIRE(model.check().empty());
+    EngineSync sync(model);
+    CHECK(sync.verify().empty());
+
+    std::filesystem::path path = tempProjectPath("ustudio-xml-boundless-dissolve");
+    RemoveOnExit cleanup{path};
+    REQUIRE(saveProject(model, path.string()).empty());
+    Mlt::Producer loaded(sync.profile(), ("xml:" + path.string()).c_str());
+    REQUIRE(loaded.is_valid());
+    CHECK(loaded.get_length() == sync.tractor().get_length());
+    const int width = sync.profile().width(), height = sync.profile().height();
+    for (int position : {20, 25, 30, 34, 40, 69}) {
+        INFO("frame " << position);
+        FrameSample live = sampleFrame(sync.tractor(), position, width, height);
+        FrameSample saved = sampleFrame(loaded, position, width, height);
+        CHECK(std::abs(live.r - saved.r) <= 2);
+        CHECK(std::abs(live.b - saved.b) <= 2);
+    }
+    FrameSample mid = sampleFrame(sync.tractor(), 30, width, height);
+    CHECK(mid.r > 40);
+    CHECK(mid.b > 40);
 }
 
 // FX3 (doc 15): a transition recipe (a wipe's map, a dip's brightness ramps)

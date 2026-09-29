@@ -620,3 +620,31 @@ TEST_CASE("xml: the sequence background is saved as #rrggbb; anything else reads
     CHECK_FALSE(parseBackgroundHex("#3366cg").has_value());
     CHECK_FALSE(parseBackgroundHex("#3366cc; rm").has_value());
 }
+
+TEST_CASE("XML format 7 only where an older build would lose data: transform keyframes")
+{
+    TempProjectFile file("format7");
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    ClipId clip = model.insertClip(track, addTestAsset(model, "color:red"), 0, 0, 99);
+    Transform placed;
+    placed.bounds = Transform::Bounds::None;
+    placed.x.value = 960;
+    placed.y.value = 540;
+    placed.width.value = 960;
+    placed.height.value = 540;
+    model.setClipTransform(clip, placed);
+    REQUIRE(saveProject(model, file.path.string()).empty());
+    // Static values: format 6 still, so older builds open it.
+    CHECK(readFile(file.path).find("<property name=\"ustudio:format_version\">6</property>") != std::string::npos);
+
+    // Keys: an older build would keep the value and drop them, and lose
+    // them for good on its next save, so it must refuse the file (7).
+    placed.x.keyframes = {{0, 480, Easing::Linear}, {50, 1440, Easing::CubicOut}};
+    model.setClipTransform(clip, placed);
+    REQUIRE(saveProject(model, file.path.string()).empty());
+    CHECK(readFile(file.path).find("<property name=\"ustudio:format_version\">7</property>") != std::string::npos);
+    auto loaded = loadProject(file.path.string());
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->clip(clip).transform.get() == placed);
+}

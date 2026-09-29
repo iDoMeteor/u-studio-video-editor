@@ -38,6 +38,9 @@ class SetClipFields : public core::Command
     std::map<std::string, std::string> m_values;
     uint64_t m_gesture;
     std::vector<core::Param> m_old, m_new;
+    // A caption clip's name follows its first line (captionName()) unless
+    // the user renamed it.
+    std::string m_oldName, m_newName;
 };
 
 } // namespace ustudio::titles

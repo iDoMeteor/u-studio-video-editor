@@ -36,6 +36,7 @@ TEST_CASE("a picture smaller than the project fills the frame")
         consumer.set("vcodec", h264Encoder().c_str());
         consumer.connect(producer);
         consumer.run();
+        consumer.stop(); // joins the render-ahead thread (notes/render.md)
     }
 
     Model model = Model::createEmpty(); // 1920x1080

@@ -56,6 +56,16 @@ titles_test_packs_app = executable(
 )
 test('titles-packs-app', titles_test_packs_app)
 
+# The designer's window closing with a selection (a demo blocker, 2026-09-29).
+titles_test_window = executable(
+  'test_titles_window',
+  files('test_titles_window.cpp'),
+  include_directories: [src_inc, titles_inc],
+  dependencies: [titles_doctest_dep, titles_app_dep],
+  install: false,
+)
+test('titles-window', titles_test_window, timeout: 120)
+
 # The designer's headless --install-pack, as the packaging smoke test uses it.
 test('titles-install-pack', find_program('sh'),
      args: [meson.current_source_dir() / 'install_pack.sh', titles_app_exe,
