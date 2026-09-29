@@ -562,7 +562,7 @@ void TitlesWindow::save(const std::string &path)
     if (!oldFolder.empty() && oldFolder != folder) {
         m_history.apply("Save As", [&](TitleDocument &doc) {
             for (Layer &layer : doc.layers) {
-                if (layer.kind != LayerKind::Image || layer.src.empty())
+                if (!drawnFromFile(layer))
                     continue;
                 const std::filesystem::path src = core::pathFromUtf8(layer.src);
                 if (src.is_absolute())

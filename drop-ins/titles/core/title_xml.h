@@ -15,7 +15,10 @@
 
 namespace ustudio::titles {
 
-constexpr int kTitleFormatVersion = 1;
+// The newest format this reads. Version 2 (T6, ADR-021) adds animated
+// (Lottie) layers, and is written only by a title that has one: every
+// other title stays version 1, readable by versions before T6.
+constexpr int kTitleFormatVersion = 2;
 
 // Whether `path` names a title file (".ustitle", any case).
 bool isTitleFile(std::string_view path);
