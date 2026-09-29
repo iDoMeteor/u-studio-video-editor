@@ -4,6 +4,9 @@
 #include "tokens.h"
 
 #include <algorithm>
+#include <vector>
+#include <string>
+#include <cstdint>
 #include <cmath>
 
 namespace ustudio::app::timeline {
@@ -155,7 +158,61 @@ void drawThumbnails(GtkSnapshot *s, const TimelineScene &scene, const core::Clip
     gtk_snapshot_pop(s);
 }
 
-void drawWaveform(GtkSnapshot *s, const std::vector<float> &peaks, const ClipBox &box, double width, double handleWidth)
+// A waveform's columns (each `halves[i]` tall above and below the middle,
+// in logical px) as an RGBA texture at `scale` device px per logical px,
+// cached by content. Each device pixel's alpha is its coverage, so edges
+// are anti-aliased as the path's fill was.
+GdkTexture *waveformTexture(TextureCache &cache, const std::vector<double> &halves, double height, int scale)
+{
+    const int columns = static_cast<int>(halves.size());
+    const int w = columns * scale, h = std::max(1, static_cast<int>(std::ceil(height * scale)));
+    // FNV-1a over the sizes and the columns, quantised to 1/64 device px.
+    uint64_t hash = 14695981039346656037ull;
+    auto mix = [&](uint64_t v) {
+        for (int b = 0; b < 8; ++b) {
+            hash ^= (v >> (8 * b)) & 0xff;
+            hash *= 1099511628211ull;
+        }
+    };
+    mix(static_cast<uint64_t>(w));
+    mix(static_cast<uint64_t>(h));
+    for (double half : halves)
+        mix(static_cast<uint64_t>(std::llround(half * scale * 64.0)));
+    const std::string key = "wave:" + std::to_string(hash);
+    static const std::vector<uint8_t> none;
+    if (GdkTexture *cached = cache.get(key, none, 0, 0))
+        return cached;
+    std::vector<uint8_t> rgba(static_cast<size_t>(w) * static_cast<size_t>(h) * 4, 0);
+    const tokens::Rgb v = tokens::kBrandViolet;
+    const auto channel = [](double c) { return static_cast<uint8_t>(std::lround(std::clamp(c, 0.0, 1.0) * 255.0)); };
+    const uint8_t r = channel(v.r), g = channel(v.g), b = channel(v.b);
+    const double mid = height * scale / 2.0;
+    for (int column = 0; column < columns; ++column) {
+        const double top = mid - halves[static_cast<size_t>(column)] * scale;
+        const double bottom = mid + halves[static_cast<size_t>(column)] * scale;
+        const int first = std::max(0, static_cast<int>(std::floor(top)));
+        const int last = std::min(h - 1, static_cast<int>(std::ceil(bottom)) - 1);
+        for (int y = first; y <= last; ++y) {
+            const double coverage = std::min(bottom, y + 1.0) - std::max(top, static_cast<double>(y));
+            if (coverage <= 0.0)
+                continue;
+            const uint8_t alpha = channel(0.85 * coverage);
+            for (int dx = 0; dx < scale; ++dx) {
+                uint8_t *px =
+                    rgba.data() +
+                    (static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(column * scale + dx)) * 4;
+                px[0] = r;
+                px[1] = g;
+                px[2] = b;
+                px[3] = alpha;
+            }
+        }
+    }
+    return cache.get(key, rgba, w, h);
+}
+
+void drawWaveform(GtkSnapshot *s, const std::vector<float> &peaks, const ClipBox &box, double width, double handleWidth,
+                  TextureCache *textures, int scale)
 {
     // Doc 06: waveforms drop out on narrow clips, where they'd be a smear
     // and among the most expensive things in the snapshot.
@@ -184,6 +241,17 @@ void drawWaveform(GtkSnapshot *s, const std::vector<float> &peaks, const ClipBox
         return std::max(static_cast<double>(peak) * maxHalf, 1.0);
     };
 
+    if (textures && endPx > firstPx) {
+        std::vector<double> halves;
+        halves.reserve(static_cast<size_t>(endPx - firstPx));
+        for (int px = firstPx; px < endPx; ++px)
+            halves.push_back(halfAt(px));
+        if (GdkTexture *texture = waveformTexture(*textures, halves, box.height, std::max(scale, 1))) {
+            graphene_rect_t where = rect(box.x + firstPx, box.top, endPx - firstPx, box.height);
+            gtk_snapshot_append_scaled_texture(s, texture, GSK_SCALING_FILTER_NEAREST, &where);
+            return;
+        }
+    }
 #if GTK_CHECK_VERSION(4, 14, 0)
     // One filled path of 1 px columns: an order of magnitude cheaper to
     // snapshot than a cairo node per clip (measured in
@@ -352,7 +420,7 @@ void snapshotTimeline(GtkSnapshot *s, const TimelineScene &scene, double width, 
                         wave.height = box.height * 0.4;
                         wave.top = box.top + box.height - wave.height;
                     }
-                    drawWaveform(s, *peaks, wave, width, scene.handleWidth);
+                    drawWaveform(s, *peaks, wave, width, scene.handleWidth, scene.waveformTextures, scene.scaleFactor);
                 }
             }
         }

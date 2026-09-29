@@ -327,31 +327,54 @@ std::vector<NativeFilter> gpuTransformFilters(const Transform &t, int sourceWidt
 {
     std::vector<NativeFilter> filters =
         transformFilters(t, sourceWidth, sourceHeight, profile, outputScale, sourceScale, offset, length);
+    bool rotated = false;
     for (const NativeFilter &filter : filters)
         for (const auto &[name, value] : filter.properties)
-            if (name == "transition.fix_rotate_x" && value != "0")
-                return filters;
-    for (NativeFilter &filter : filters) {
+            rotated = rotated || (name == "transition.fix_rotate_x" && value != "0");
+    // The CPU mirror filter can't stand in a GPU graph: it asks for yuv422,
+    // and in a rotated island a source that isn't frame-sized (1344x768 in
+    // 1080p) then reached affine sheared, turned and smeared (not traced
+    // further into movit's CPU conversion). movit.mirror/movit.flip flip the whole frame
+    // the chain has at that point: in a rotated island that's the fitted
+    // source affine then places, as the CPU mirror does; unrotated it's the
+    // frame after movit.rect's resize (the loader's movit.resize reads
+    // resize.rect below every cut filter), so the rect is mirrored to put
+    // the picture back. Both verified against the CPU by test_gpu_pipeline.
+    for (NativeFilter &filter : filters)
         if (filter.service == "mirror") {
             const bool horizontal = filter.properties.front().second == "flip";
             filter = {horizontal ? "movit.mirror" : "movit.flip", {}};
-        } else if (filter.service == "affine") {
-            // "x y w h 1": the same rect without affine's opacity, from
-            // every key of an animated one. Property names from
-            // /usr/share/mlt-7/movit/filter_movit_rect.yml.
-            std::string rect;
-            for (const auto &[name, value] : filter.properties)
-                if (name == "transition.rect")
-                    for (size_t start = 0; start < value.size();) {
-                        size_t end = value.find(';', start);
-                        if (end == std::string::npos)
-                            end = value.size();
-                        const std::string key = value.substr(start, end - start);
-                        rect += (rect.empty() ? "" : ";") + key.substr(0, key.rfind(' '));
-                        start = end + 1;
-                    }
-            filter = {"movit.rect", {{"rect", rect}, {"distort", "1"}}};
         }
+    if (rotated)
+        return filters;
+    const double frameWidth = profile.width * outputScale, frameHeight = profile.height * outputScale;
+    for (NativeFilter &filter : filters) {
+        if (filter.service != "affine")
+            continue;
+        // "x y w h 1": the same rect without affine's opacity, from every key
+        // of an animated one, mirrored with the flips. Property names from
+        // /usr/share/mlt-7/movit/filter_movit_rect.yml.
+        std::string rect;
+        for (const auto &[name, value] : filter.properties)
+            if (name == "transition.rect")
+                for (size_t start = 0; start < value.size();) {
+                    size_t end = value.find(';', start);
+                    if (end == std::string::npos)
+                        end = value.size();
+                    const std::string key = value.substr(start, end - start);
+                    const size_t equals = key.find('=');
+                    const size_t numbers = equals == std::string::npos ? 0 : equals + 1;
+                    double x = 0, y = 0, w = 0, h = 0;
+                    std::sscanf(key.c_str() + numbers, "%lf %lf %lf %lf", &x, &y, &w, &h);
+                    if (t.flipH)
+                        x = frameWidth - x - w;
+                    if (t.flipV)
+                        y = frameHeight - y - h;
+                    rect += (rect.empty() ? "" : ";") + key.substr(0, numbers) + number(x) + " " + number(y) + " " +
+                            number(w) + " " + number(h);
+                    start = end + 1;
+                }
+        filter = {"movit.rect", {{"rect", rect}, {"distort", "1"}}};
     }
     return filters;
 }

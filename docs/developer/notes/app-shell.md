@@ -102,6 +102,22 @@ means the overlay's last-drawn playhead position stays correctly
 composited on top even on a frame where only `m_timeline` redrew, so
 nothing needed to force both together.
 
+
+**Waveforms are textures, not paths (2026-09-29).** A waveform was one
+`GskPath` of 1 px columns, cheap to snapshot, but GTK's GPU renderer
+(Vulkan, GTK 4.22) rasterises a fill node with cairo on the CPU every time
+it repaints it (`gsk_gpu_upload_cairo_op_draw` → `cairo_fill` →
+`active_edges_to_traps` in `perf`). A preview drag repaints the window each
+step, so a long clip's waveform cost the main loop 10 ms and more a step
+and doubled the drag's stall time (300 scripted transform steps on the
+Wayland desktop: 11.7 s of stalls against 5.8 s with waveforms off, the
+same load). Now `timeline_renderer.cpp` draws each waveform once into an
+RGBA texture at the widget's scale factor (coverage as alpha, so the edges
+match the path's anti-aliasing), cached by a hash of its columns in
+`m_waveformTextures`, and appends it with nearest filtering: the textured
+runs matched waveforms-off (5.4-5.7 s). The transform overlay is still a
+full-preview `GtkDrawingArea`, whose cairo surface GTK clears and uploads
+on every redraw (`sse2_fill`, about 2-3 ms a drag step): a follow-up.
 The timecode ruler (`onRulerDraw()`, enhancement #12, 2026-09-23) is its
 own fixed-height widget stacked ABOVE `m_timeline` in the layout, not
 overlapping it -- unlike the playhead overlay, it doesn't need to sit on

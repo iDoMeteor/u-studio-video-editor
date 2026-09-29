@@ -124,3 +124,85 @@ TEST_CASE("Timeline snapshot: 10 tracks x 500 clips on screen")
     CHECK(zoomed < kBudgetMs);
 #endif
 }
+
+namespace {
+
+// Every texture-scale and fill node under `node`, in order.
+void collect(GskRenderNode *node, std::vector<GdkTexture *> &textures, int &fills)
+{
+    switch (gsk_render_node_get_node_type(node)) {
+    case GSK_TEXTURE_SCALE_NODE:
+        textures.push_back(gsk_texture_scale_node_get_texture(node));
+        return;
+    case GSK_FILL_NODE:
+        ++fills;
+        return;
+    case GSK_CONTAINER_NODE:
+        for (guint i = 0; i < gsk_container_node_get_n_children(node); ++i)
+            collect(gsk_container_node_get_child(node, i), textures, fills);
+        return;
+    case GSK_CLIP_NODE:
+        collect(gsk_clip_node_get_child(node), textures, fills);
+        return;
+    case GSK_ROUNDED_CLIP_NODE:
+        collect(gsk_rounded_clip_node_get_child(node), textures, fills);
+        return;
+    case GSK_TRANSFORM_NODE:
+        collect(gsk_transform_node_get_child(node), textures, fills);
+        return;
+    case GSK_OPACITY_NODE:
+        collect(gsk_opacity_node_get_child(node), textures, fills);
+        return;
+    default:
+        return;
+    }
+}
+
+} // namespace
+
+TEST_CASE("Timeline waveforms are cached textures, not paths GTK re-rasterises every frame")
+{
+    // GTK's GPU renderer rasterised a waveform's filled path with cairo on
+    // every repaint (10 ms and more a frame for a long clip on screen,
+    // 2026-09-29). With a cache they're textures, made once per content.
+    Scene scene;
+    scene.viewport.zoomAround(22.0, 12.0);
+    TextureCache cache(64);
+    PangoFontMap *fontMap = pango_cairo_font_map_get_default();
+    PangoContext *context = pango_font_map_create_context(fontMap);
+    PangoLayout *layout = pango_layout_new(context);
+    TimelineScene timeline{.model = scene.model,
+                           .viewport = scene.viewport,
+                           .controller = scene.controller,
+                           .layout = RowLayout{},
+                           .handleWidth = 22.0,
+                           .activeRow = 0,
+                           .nameEditRow = -1,
+                           .waveformFor = [&](const Clip &) { return &scene.peaks; },
+                           .thumbnailFor = nullptr,
+                           .overlays = {},
+                           .waveformTextures = &cache,
+                           .scaleFactor = 2,
+                           .labelLayout = layout};
+    auto snapshot = [&](std::vector<GdkTexture *> &textures, int &fills) {
+        GtkSnapshot *s = gtk_snapshot_new();
+        snapshotTimeline(s, timeline, 1920.0, 600.0);
+        GskRenderNode *node = gtk_snapshot_free_to_node(s);
+        REQUIRE(node);
+        collect(node, textures, fills);
+        gsk_render_node_unref(node);
+    };
+    std::vector<GdkTexture *> first, second;
+    int fills = 0;
+    snapshot(first, fills);
+    CHECK(fills == 0);
+    REQUIRE(!first.empty());
+    // At the scale factor: 2 device px per logical px each way.
+    CHECK(gdk_texture_get_height(first.front()) >= 2 * 10);
+    snapshot(second, fills);
+    CHECK(second == first); // the same textures again: nothing re-made or re-uploaded
+    // Equal waveforms share one texture.
+    CHECK(std::count(first.begin(), first.end(), first.front()) > 1);
+    g_object_unref(layout);
+    g_object_unref(context);
+}

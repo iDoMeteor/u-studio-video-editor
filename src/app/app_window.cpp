@@ -3960,6 +3960,8 @@ void AppWindow::snapshotTimelineView(GtkSnapshot *snapshot, int width, int heigh
                                            data->rgba, data->width, data->height);
         },
         .overlays = {m_timelineOverlays.begin(), m_timelineOverlays.end()},
+        .waveformTextures = &m_waveformTextures,
+        .scaleFactor = gtk_widget_get_scale_factor(m_timeline),
         .labelLayout = layout,
     };
     // Settings > Toggles: without a callback the renderer neither draws nor
