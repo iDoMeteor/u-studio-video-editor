@@ -139,8 +139,9 @@ relinking and clip transforms (M4, shipped as the 0.50 beta).
   machine), motion tracking, speed ramps. → [doc 17](docs/plans/v2/17-drop-in-catalogue-and-distribution.md)
 - **Export** (M6): a standalone render tool, presets, and hardware
   encoders. → [doc 10](docs/plans/v2/10-export-and-rendering.md)
-- **Polish and 2.0** (M7): kdenlive project import, accessibility, and the
-  first stable release. → [doc 11](docs/plans/v2/11-build-test-ci-packaging.md)
+- **Polish and 2.0** (M7): accessibility and the first stable release. A
+  project importer (Lightworks or an interchange format) is being
+  considered instead of kdenlive import. → [doc 11](docs/plans/v2/11-build-test-ci-packaging.md)
 - **Later**: Windows 10/11 ([ADR-017](docs/plans/v2/adr/017-windows-secondary-target.md)),
   and screen and mic capture, cross-track transitions and more
   (post-2.0 candidates).

@@ -10,6 +10,7 @@
 #include "core/lottie_check.h"
 #include "core/media/utf8_path.h"
 #include "core/template_library.h"
+#include "core/title_edit.h"
 #include "core/title_xml.h"
 
 #include <algorithm>
@@ -372,4 +373,21 @@ TEST_CASE("an animation travels with a title made into a template, like a pictur
     REQUIRE(read.has_value());
     CHECK(read->document.layers[0].src == "images/sting.json");
     fs::remove_all(root);
+}
+
+TEST_CASE("an added animation's box has its aspect, height included, centred (Demos, 2026-09-29)")
+{
+    TitleDocument doc; // 1920 x 1080
+    const Layer square = makeAnimationLayer(doc, "square.json", 512, 512);
+    CHECK(square.kind == LayerKind::Lottie);
+    CHECK(square.src == "square.json");
+    CHECK(square.w == 512);
+    CHECK(square.h == 512); // was 0 ("follow the aspect"), shown as Height 0
+    CHECK(square.x == (1920 - 512) / 2.0);
+    CHECK(square.y == (1080 - 512) / 2.0);
+    const Layer wide = makeAnimationLayer(doc, "wide.json", 3000, 1000); // capped at half the canvas
+    CHECK(wide.w == 960);
+    CHECK(wide.h == 320);
+    doc.layers.push_back(square);
+    CHECK(makeAnimationLayer(doc, "again.json", 10, 10).id != square.id);
 }

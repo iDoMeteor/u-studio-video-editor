@@ -1,4 +1,5 @@
 #include "render_profiles_page.h"
+#include "number_row.h"
 
 #include "render_profiles.h"
 #include "settings.h"
@@ -26,7 +27,7 @@ struct RenderPage
     RenderProfileStore *store = nullptr;
     Settings *settings = nullptr;
     std::function<void(int)> onThreadsChanged;
-    AdwSpinRow *threadsRow = nullptr;
+    GtkSpinButton *threadsRow = nullptr;
     GtkWidget *threadsWarning = nullptr;
     AdwComboRow *profileRow = nullptr;
     std::vector<std::string> names; // parallel to profileRow's model
@@ -38,14 +39,14 @@ struct RenderPage
     AdwComboRow *resolutionRow = nullptr;
     AdwComboRow *rateRow = nullptr;
     AdwComboRow *qualityRow = nullptr;
-    AdwSpinRow *videoRow = nullptr;
-    AdwSpinRow *audioRow = nullptr;
+    GtkSpinButton *videoRow = nullptr;
+    GtkSpinButton *audioRow = nullptr;
     std::string shown; // the profile the fields show
     bool updating = false;
 };
 
 void profileSelectedTrampoline(AdwComboRow *row, GParamSpec *pspec, gpointer userData);
-void threadsChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
+void threadsChangedTrampoline(GtkSpinButton *row, GParamSpec *pspec, gpointer userData);
 void qualityChangedTrampoline(AdwComboRow *row, GParamSpec *pspec, gpointer userData);
 void newClickedTrampoline(GtkButton *button, gpointer userData);
 void duplicateClickedTrampoline(GtkButton *button, gpointer userData);
@@ -59,19 +60,19 @@ constexpr int kThreadsWarnAbove = 80;
 // anything).
 void updateThreadsRow(RenderPage &page)
 {
-    const int percent = static_cast<int>(adw_spin_row_get_value(page.threadsRow));
+    const int percent = static_cast<int>(gtk_spin_button_get_value(page.threadsRow));
     const int hardware = static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
     std::string subtitle =
         std::to_string(core::renderThreadBudget(percent, hardware)) + " of " + std::to_string(hardware) + " threads";
     const bool warn = percent > kThreadsWarnAbove;
     if (warn)
         subtitle += ". Above 80% the desktop may stutter while rendering";
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(page.threadsRow), subtitle.c_str());
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(numberRowOf(page.threadsRow)), subtitle.c_str());
     gtk_widget_set_visible(page.threadsWarning, warn);
     if (warn)
-        gtk_widget_add_css_class(GTK_WIDGET(page.threadsRow), "warning");
+        gtk_widget_add_css_class(numberRowOf(page.threadsRow), "warning");
     else
-        gtk_widget_remove_css_class(GTK_WIDGET(page.threadsRow), "warning");
+        gtk_widget_remove_css_class(numberRowOf(page.threadsRow), "warning");
 }
 
 core::RenderProfile shownProfile(const RenderPage &page)
@@ -88,8 +89,8 @@ std::string defaultName(const RenderPage &page)
 void updateBitrateRows(RenderPage &page)
 {
     const bool bitrate = kQualities[adw_combo_row_get_selected(page.qualityRow)] == Quality::Bitrate;
-    gtk_widget_set_visible(GTK_WIDGET(page.videoRow), bitrate);
-    gtk_widget_set_visible(GTK_WIDGET(page.audioRow), bitrate);
+    gtk_widget_set_visible(numberRowOf(page.videoRow), bitrate);
+    gtk_widget_set_visible(numberRowOf(page.audioRow), bitrate);
 }
 
 void showProfile(RenderPage &page, const std::string &name)
@@ -108,15 +109,15 @@ void showProfile(RenderPage &page, const std::string &name)
     adw_combo_row_set_selected(
         page.qualityRow, static_cast<guint>(std::find(std::begin(kQualities), std::end(kQualities), profile.quality) -
                                             std::begin(kQualities)));
-    adw_spin_row_set_value(page.videoRow, std::round(static_cast<double>(profile.videoBitrate) / 1000.0));
-    adw_spin_row_set_value(page.audioRow, std::round(static_cast<double>(profile.audioBitrate) / 1000.0));
+    gtk_spin_button_set_value(page.videoRow, std::round(static_cast<double>(profile.videoBitrate) / 1000.0));
+    gtk_spin_button_set_value(page.audioRow, std::round(static_cast<double>(profile.audioBitrate) / 1000.0));
     page.updating = false;
     updateBitrateRows(page);
 
     const bool editable = !profile.builtIn;
     for (GtkWidget *row :
          {GTK_WIDGET(page.nameRow), GTK_WIDGET(page.resolutionRow), GTK_WIDGET(page.rateRow),
-          GTK_WIDGET(page.qualityRow), GTK_WIDGET(page.videoRow), GTK_WIDGET(page.audioRow), page.saveButton})
+          GTK_WIDGET(page.qualityRow), numberRowOf(page.videoRow), numberRowOf(page.audioRow), page.saveButton})
         gtk_widget_set_sensitive(row, editable);
     gtk_widget_set_sensitive(page.removeButton, editable);
     gtk_widget_set_visible(page.defaultButton, defaultName(page) != profile.name); // room for the name
@@ -199,15 +200,14 @@ AdwPreferencesPage *buildRenderProfilesPage(RenderProfileStore &store, Settings 
     AdwPreferencesGroup *renderingGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
     adw_preferences_group_set_title(renderingGroup, "Rendering");
     adw_preferences_page_add(prefs, renderingGroup);
-    page->threadsRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(10.0, 100.0, 5.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(page->threadsRow), "Render threads (%)");
-    setTooltip(GTK_WIDGET(page->threadsRow), "render-profiles.threads");
-    adw_spin_row_set_digits(page->threadsRow, 0);
-    adw_spin_row_set_value(page->threadsRow, static_cast<double>(settings.renderThreadsPercent()));
+    page->threadsRow = newNumberRow("Render threads (%)", 10.0, 100.0, 5.0);
+    setTooltip(numberRowOf(page->threadsRow), "render-profiles.threads");
+    gtk_spin_button_set_digits(page->threadsRow, 0);
+    gtk_spin_button_set_value(page->threadsRow, static_cast<double>(settings.renderThreadsPercent()));
     page->threadsWarning = gtk_image_new_from_icon_name("dialog-warning-symbolic");
-    adw_action_row_add_prefix(ADW_ACTION_ROW(page->threadsRow), page->threadsWarning);
+    adw_action_row_add_prefix(ADW_ACTION_ROW(numberRowOf(page->threadsRow)), page->threadsWarning);
     g_signal_connect(page->threadsRow, "notify::value", G_CALLBACK(threadsChangedTrampoline), page);
-    adw_preferences_group_add(renderingGroup, GTK_WIDGET(page->threadsRow));
+    adw_preferences_group_add(renderingGroup, numberRowOf(page->threadsRow));
     updateThreadsRow(*page);
 
     AdwPreferencesGroup *profilesGroup = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
@@ -278,12 +278,10 @@ AdwPreferencesPage *buildRenderProfilesPage(RenderProfileStore &store, Settings 
     g_signal_connect(page->qualityRow, "notify::selected", G_CALLBACK(qualityChangedTrampoline), page);
     adw_preferences_group_add(page->editGroup, GTK_WIDGET(page->qualityRow));
 
-    page->videoRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(100.0, 200000.0, 100.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(page->videoRow), "Video bitrate (kbit/s)");
-    adw_preferences_group_add(page->editGroup, GTK_WIDGET(page->videoRow));
-    page->audioRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(32.0, 512.0, 32.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(page->audioRow), "Audio bitrate (kbit/s)");
-    adw_preferences_group_add(page->editGroup, GTK_WIDGET(page->audioRow));
+    page->videoRow = newNumberRow("Video bitrate (kbit/s)", 100.0, 200000.0, 100.0);
+    adw_preferences_group_add(page->editGroup, numberRowOf(page->videoRow));
+    page->audioRow = newNumberRow("Audio bitrate (kbit/s)", 32.0, 512.0, 32.0);
+    adw_preferences_group_add(page->editGroup, numberRowOf(page->audioRow));
 
     g_signal_connect(page->profileRow, "notify::selected", G_CALLBACK(profileSelectedTrampoline), page);
     refreshList(*page, defaultName(*page));
@@ -304,10 +302,10 @@ void profileSelectedTrampoline(AdwComboRow *row, GParamSpec *, gpointer userData
     showProfile(*page, page->names[selected]);
 }
 
-void threadsChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+void threadsChangedTrampoline(GtkSpinButton *row, GParamSpec *, gpointer userData)
 {
     auto *page = static_cast<RenderPage *>(userData);
-    const int percent = static_cast<int>(adw_spin_row_get_value(row));
+    const int percent = static_cast<int>(gtk_spin_button_get_value(row));
     page->settings->setRenderThreadsPercent(percent);
     updateThreadsRow(*page);
     if (page->onThreadsChanged)
@@ -364,8 +362,8 @@ void saveClickedTrampoline(GtkButton *, gpointer userData)
     profile.frameRate = core::renderFrameRates()[adw_combo_row_get_selected(page->rateRow)];
     profile.quality = kQualities[adw_combo_row_get_selected(page->qualityRow)];
     if (profile.quality == Quality::Bitrate) {
-        profile.videoBitrate = std::llround(adw_spin_row_get_value(page->videoRow) * 1000.0);
-        profile.audioBitrate = std::llround(adw_spin_row_get_value(page->audioRow) * 1000.0);
+        profile.videoBitrate = std::llround(gtk_spin_button_get_value(page->videoRow) * 1000.0);
+        profile.audioBitrate = std::llround(gtk_spin_button_get_value(page->audioRow) * 1000.0);
     }
     const std::string previous = page->shown;
     if (std::string error = page->store->save(profile, previous); !error.empty()) {

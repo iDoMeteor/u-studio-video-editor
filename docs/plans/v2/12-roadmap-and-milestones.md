@@ -398,11 +398,17 @@ Acceptance:
       (child is independent); cancelling from the UI removes the partial file.
 - [ ] Rendered frame count equals the range length for all fixtures.
 
-## M7 — Polish, kdenlive import, Flatpak
+## M7 — Polish, Flatpak (kdenlive import deferred)
 
 **Effort:** ~3 weeks. **Depends on:** M6.
 
-Deliverables: kdenlive best-effort importer with warning report; Flatpak
+> DEFERRED (owner decision, 2026-09-29): the kdenlive importer is out of
+> M7 and not planned. An importer for Lightworks or an interchange format
+> is under consideration instead, as a research spike (Post-2.0
+> candidates, below).
+
+Deliverables: ~~kdenlive best-effort importer with warning report~~
+(deferred, above); Flatpak
 manifest with MLT built without Qt modules and fonts bundled; preferences
 dialog; About; keyboard shortcuts window; accessibility pass; screenshots
 in metainfo; first tagged release `2.0.0`.
@@ -410,11 +416,17 @@ in metainfo; first tagged release `2.0.0`.
 Acceptance:
 - [ ] `flatpak-builder` produces a bundle in CI; the app runs from it with
       audio on a stock Fedora Workstation and GNOME OS.
-- [ ] Three real `.kdenlive` projects from `~/Repos/kdenlive/tests` (or the
-      team's own) import with a warning list and play.
+- [ ] ~~Three real `.kdenlive` projects from `~/Repos/kdenlive/tests` (or
+      the team's own) import with a warning list and play.~~ DEFERRED
+      with the kdenlive importer (above).
 - [ ] `appstreamcli validate` passes.
 
 ## Post-2.0 candidates (not planned)
+
+- **Project importer research spike** (owner, 2026-09-29): Lightworks or an
+  interchange format (e.g. OpenTimelineIO, FCP XML, EDL) instead of the
+  deferred kdenlive importer. A spike first: which format the owner's
+  sources can export, and what survives the trip.
 
 Nested sequences in UI, audio mixer panel with meters, GL/dmabuf preview
 upload, drop-frame timecode, OpenTimelineIO export, captions (titles T5),

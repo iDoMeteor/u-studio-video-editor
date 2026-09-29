@@ -318,7 +318,7 @@ std::expected<Model, std::string> loadProject(const std::string &path)
     if (!formatVersionStr) {
         xmlFreeDoc(doc);
         return std::unexpected(
-            path + ": not a ustudio project (no ustudio:format_version) -- kdenlive import is a separate path (M7)");
+            path + ": not a ustudio project (no ustudio:format_version)");
     }
     int formatVersion = static_cast<int>(toI64(*formatVersionStr));
     if (formatVersion < kOldestReadableFormatVersion || formatVersion > kFormatVersion) {

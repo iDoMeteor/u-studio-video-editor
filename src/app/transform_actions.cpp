@@ -4,6 +4,7 @@
 // the dialog is one undo step for all its changes (one gesture id).
 
 #include "app_window.h"
+#include "number_row.h"
 
 #include "core/commands/primitives.h"
 
@@ -32,8 +33,8 @@ struct EditTransformState
     uint64_t gesture = 0;
     int sourceWidth = 0, sourceHeight = 0;
     AdwComboRow *bounds = nullptr;
-    AdwSpinRow *x = nullptr, *y = nullptr, *width = nullptr, *height = nullptr, *rotation = nullptr;
-    AdwSpinRow *crop[4] = {}; // left, top, right, bottom
+    GtkSpinButton *x = nullptr, *y = nullptr, *width = nullptr, *height = nullptr, *rotation = nullptr;
+    GtkSpinButton *crop[4] = {}; // left, top, right, bottom
     AdwSwitchRow *keepAspect = nullptr, *flipH = nullptr, *flipV = nullptr;
     bool updating = false;
     void (*show)(EditTransformState *) = nullptr; // the rows from the clip's transform
@@ -270,12 +271,11 @@ void AppWindow::showEditTransformDialog()
     };
     auto spin = [&](AdwPreferencesGroup *g, const char *title, double min, double max, int digits, Field field,
                     const char *hint) {
-        AdwSpinRow *row = ADW_SPIN_ROW(adw_spin_row_new_with_range(min, max, digits > 0 ? 0.1 : 1.0));
-        adw_spin_row_set_digits(row, static_cast<guint>(digits));
-        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+        GtkSpinButton *row = newNumberRow(title, min, max, digits > 0 ? 0.1 : 1.0);
+        gtk_spin_button_set_digits(row, static_cast<guint>(digits));
         g_object_set_data(G_OBJECT(row), "field", GINT_TO_POINTER(static_cast<int>(field)));
-        setTooltip(GTK_WIDGET(row), hint);
-        adw_preferences_group_add(g, GTK_WIDGET(row));
+        setTooltip(numberRowOf(row), hint);
+        adw_preferences_group_add(g, numberRowOf(row));
         return row;
     };
     auto toggle = [&](AdwPreferencesGroup *g, const char *title, const char *hint) {
@@ -325,15 +325,15 @@ void AppWindow::showEditTransformDialog()
         adw_combo_row_set_selected(s->bounds, t.bounds == core::Transform::Bounds::Fit       ? 0
                                               : t.bounds == core::Transform::Bounds::Stretch ? 1
                                                                                              : 2);
-        adw_spin_row_set_value(s->x, p.cx);
-        adw_spin_row_set_value(s->y, p.cy);
-        adw_spin_row_set_value(s->width, p.w);
-        adw_spin_row_set_value(s->height, p.h);
-        adw_spin_row_set_value(s->rotation, t.rotation.value);
-        adw_spin_row_set_value(s->crop[0], t.cropLeft.value);
-        adw_spin_row_set_value(s->crop[1], t.cropTop.value);
-        adw_spin_row_set_value(s->crop[2], t.cropRight.value);
-        adw_spin_row_set_value(s->crop[3], t.cropBottom.value);
+        gtk_spin_button_set_value(s->x, p.cx);
+        gtk_spin_button_set_value(s->y, p.cy);
+        gtk_spin_button_set_value(s->width, p.w);
+        gtk_spin_button_set_value(s->height, p.h);
+        gtk_spin_button_set_value(s->rotation, t.rotation.value);
+        gtk_spin_button_set_value(s->crop[0], t.cropLeft.value);
+        gtk_spin_button_set_value(s->crop[1], t.cropTop.value);
+        gtk_spin_button_set_value(s->crop[2], t.cropRight.value);
+        gtk_spin_button_set_value(s->crop[3], t.cropBottom.value);
         adw_switch_row_set_active(s->flipH, t.flipH);
         adw_switch_row_set_active(s->flipV, t.flipV);
         s->updating = false;
@@ -358,9 +358,9 @@ void AppWindow::showEditTransformDialog()
                                            static_cast<core::FrameIndex>(s->window->m_engine->currentFrame())),
                 s->sourceWidth, s->sourceHeight, s->window->m_model.sequence().profile);
             if (field == Field::Width && p.w > 0)
-                adw_spin_row_set_value(s->height, adw_spin_row_get_value(s->width) * p.h / p.w);
+                gtk_spin_button_set_value(s->height, gtk_spin_button_get_value(s->width) * p.h / p.w);
             else if (field == Field::Height && p.h > 0)
-                adw_spin_row_set_value(s->width, adw_spin_row_get_value(s->height) * p.w / p.h);
+                gtk_spin_button_set_value(s->width, gtk_spin_button_get_value(s->height) * p.w / p.h);
         }
         s->updating = false;
         core::Transform t;
@@ -368,16 +368,16 @@ void AppWindow::showEditTransformDialog()
                    : bounds == 1 ? core::Transform::Bounds::Stretch
                                  : core::Transform::Bounds::None;
         if (t.bounds == core::Transform::Bounds::None) {
-            t.x.value = adw_spin_row_get_value(s->x);
-            t.y.value = adw_spin_row_get_value(s->y);
-            t.width.value = adw_spin_row_get_value(s->width);
-            t.height.value = adw_spin_row_get_value(s->height);
+            t.x.value = gtk_spin_button_get_value(s->x);
+            t.y.value = gtk_spin_button_get_value(s->y);
+            t.width.value = gtk_spin_button_get_value(s->width);
+            t.height.value = gtk_spin_button_get_value(s->height);
         }
-        t.rotation.value = adw_spin_row_get_value(s->rotation);
-        t.cropLeft.value = adw_spin_row_get_value(s->crop[0]);
-        t.cropTop.value = adw_spin_row_get_value(s->crop[1]);
-        t.cropRight.value = adw_spin_row_get_value(s->crop[2]);
-        t.cropBottom.value = adw_spin_row_get_value(s->crop[3]);
+        t.rotation.value = gtk_spin_button_get_value(s->rotation);
+        t.cropLeft.value = gtk_spin_button_get_value(s->crop[0]);
+        t.cropTop.value = gtk_spin_button_get_value(s->crop[1]);
+        t.cropRight.value = gtk_spin_button_get_value(s->crop[2]);
+        t.cropBottom.value = gtk_spin_button_get_value(s->crop[3]);
         t.flipH = adw_switch_row_get_active(s->flipH);
         t.flipV = adw_switch_row_get_active(s->flipV);
         t = gestures::transformEditedAt(s->window->m_model, s->clip,
@@ -386,8 +386,8 @@ void AppWindow::showEditTransformDialog()
             s->window->showStatus("That transform isn't valid.");
         s->show(s);
     };
-    for (AdwSpinRow *row : {state->x, state->y, state->width, state->height, state->rotation, state->crop[0],
-                            state->crop[1], state->crop[2], state->crop[3]})
+    for (GtkSpinButton *row : {state->x, state->y, state->width, state->height, state->rotation, state->crop[0],
+                               state->crop[1], state->crop[2], state->crop[3]})
         g_signal_connect(row, "notify::value", G_CALLBACK(changed), state);
     for (AdwSwitchRow *row : {state->flipH, state->flipV})
         g_signal_connect(row, "notify::active", G_CALLBACK(changed), state);

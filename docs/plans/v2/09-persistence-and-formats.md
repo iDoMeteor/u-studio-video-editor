@@ -124,6 +124,11 @@ report deterministically. This is the main reason commands are data
 
 ## kdenlive import (best effort, M7)
 
+> DEFERRED (owner decision, 2026-09-29): not planned; a Lightworks or
+> interchange-format importer is under consideration instead
+> ([doc 12](12-roadmap-and-milestones.md), M7 and Post-2.0). This section
+> is kept as the design if kdenlive import is ever picked up again.
+
 Reader path 2: if the root has `kdenlive:docproperties`, run the *kdenlive
 importer*: walk the MLT graph rather than our properties.
 

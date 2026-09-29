@@ -754,13 +754,20 @@ void TitlesWindow::showExportDialog()
     g_object_unref(labels);
     const TitleDocument &doc = m_history.document();
     const double designed = static_cast<double>(std::max<int64_t>(1, doc.timing.length())) * doc.fpsDen / doc.fpsNum;
-    GtkWidget *seconds = adw_spin_row_new_with_range(0.1, 3600, 0.5);
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(seconds), "Length (seconds)");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(seconds), "The hold stretches; intro and outro keep their timing");
-    adw_spin_row_set_digits(ADW_SPIN_ROW(seconds), 1);
-    adw_spin_row_set_value(ADW_SPIN_ROW(seconds), designed);
+    // An action row with a spin button, not an AdwSpinRow, which isn't in
+    // the AT-SPI tree (libadwaita 1.9.2; notes/gtk-upstream.md).
+    GtkWidget *lengthRow = adw_action_row_new();
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(lengthRow), "Length (seconds)");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(lengthRow), "The hold stretches; intro and outro keep their timing");
+    GtkWidget *seconds = gtk_spin_button_new_with_range(0.1, 3600, 0.5);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(seconds), 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(seconds), designed);
+    gtk_widget_set_valign(seconds, GTK_ALIGN_CENTER);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(seconds), GTK_ACCESSIBLE_PROPERTY_LABEL, "Length (seconds)", -1);
+    adw_action_row_add_suffix(ADW_ACTION_ROW(lengthRow), seconds);
+    adw_action_row_set_activatable_widget(ADW_ACTION_ROW(lengthRow), seconds);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), format);
-    adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), seconds);
+    adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), lengthRow);
     GtkWidget *go = gtk_button_new_with_label("Export…");
     gtk_widget_add_css_class(go, "suggested-action");
     gtk_widget_add_css_class(go, "pill");
@@ -957,19 +964,8 @@ void TitlesWindow::chooseAnimation()
 
 void TitlesWindow::addAnimation(const std::string &path, const lottie::Facts &facts)
 {
-    const TitleDocument &doc = m_history.document();
-    Layer layer;
-    layer.id = uniqueLayerId(doc, "animation");
-    layer.kind = LayerKind::Lottie;
-    layer.src = pictureSource(path);
-    // At its own size, or half the canvas wide if it's bigger; its height
-    // follows its aspect (h = 0). Centred.
-    const double w = std::min(static_cast<double>(facts.width), doc.width / 2.0);
-    const double h = w * facts.height / facts.width;
-    layer.w = w;
-    layer.x = (doc.width - w) / 2.0;
-    layer.y = (doc.height - h) / 2.0;
-    addLayerOf(layer, "Add Animation");
+    addLayerOf(makeAnimationLayer(m_history.document(), pictureSource(path), facts.width, facts.height),
+               "Add Animation");
     if (facts.hasText)
         toast("Its text is drawn in your system's fonts, which may differ from the file's");
 }
@@ -1213,7 +1209,7 @@ void TitlesWindow::onExportChosen(GtkButton *, gpointer data)
 {
     auto *choice = static_cast<ExportChoice *>(data);
     const guint index = adw_combo_row_get_selected(ADW_COMBO_ROW(choice->format));
-    const double seconds = adw_spin_row_get_value(ADW_SPIN_ROW(choice->seconds));
+    const double seconds = gtk_spin_button_get_value(GTK_SPIN_BUTTON(choice->seconds));
     TitlesWindow *window = choice->window;
     const std::vector<ExportFormat> &formats = exportFormats();
     const std::string format = index < formats.size() ? formats[index].name : formats.front().name;
