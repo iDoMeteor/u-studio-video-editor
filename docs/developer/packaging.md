@@ -70,7 +70,10 @@ Two checks guard every package, Flatpak or Snap:
      imports, `u-studio-render --title-export` in the sandbox renders it
      with alpha, Edit Title starts U Stu Titles, and U Stu Titles
      installs a template pack made by `tools/make_test_pack.py` (fails on
-     an extension built without libarchive; needs 0.68 or later).
+     an extension built without libarchive; needs 0.68 or later). The bell
+     template's animated (Lottie) layer must render: its box shows at
+     least 5 distinct pictures over frames 20–80 of an export (ThorVG;
+     0.78 or later).
   10. Effects, when the effects extension is installed: the drop-in loads
      from the extension mount, `u-studio-render --probe-effect frei0r.glow`
      reports it usable in the sandbox, the health scan runs, Glow is added

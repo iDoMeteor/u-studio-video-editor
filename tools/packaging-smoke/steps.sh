@@ -259,8 +259,9 @@ if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Ti
         -f null - 2>&1 | sed -n 's/.*YMAX=\([0-9]*\).*/\1/p' | tail -1)
     echo "  title export: pix_fmt $pix, alpha max ${alpha:-none}"
     check "title renders with alpha in the sandbox" sh -c "echo '$pix' | grep -q yuva && [ '${alpha:-0}' -gt 0 ]"
-    d act select-all; d act titles-edit; sleep 4
-    designer=$(ours u-studio-titles)
+    d act select-all; d act titles-edit
+    # The designer can take several seconds to start in the sandbox.
+    for _ in $(seq 1 20); do designer=$(ours u-studio-titles); [ -n "$designer" ] && break; sleep 1; done
     check "Edit Title opens U Stu Titles in the sandbox" test -n "$designer"
     d shot 08c-designer
     [ -n "$designer" ] && kill "$designer"
@@ -274,6 +275,20 @@ if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Ti
     echo "  install-pack (exit $rc): $pack"
     check "U Stu Titles installs a template pack (libarchive in the extension)" \
         sh -c "[ $rc = 0 ] && echo \"\$1\" | grep -q '^installed test/smoke-pack '" _ "$pack"
+    # Animated (Lottie) layers (ADR-021, from 0.78): the bell template's
+    # ringing bell, drawn by the extension's ThorVG. It rings in bursts with
+    # rests between (one resting pose), so count the distinct pictures of
+    # its box over the hold (frames 20-80): without ThorVG it's the pill's
+    # flat fill, one picture.
+    mkdir -p "$M/bell"
+    cp "$H/../../drop-ins/titles/data/templates/subscribe-bell.ustitle" "$M/bell/"
+    cp -r "$H/../../drop-ins/titles/data/templates/animations" "$M/bell/"
+    flatpak run --user --no-documents-portal --command=u-studio-render "$SMOKE_APP_ID" \
+        --title-export "$M/bell/subscribe-bell.ustitle" "$M/bell.mov" prores --seconds 3 >"$OUT/bell-export.log" 2>&1
+    bell_pictures=$(ffmpeg -v error -i "$M/bell.mov" -vf "select='between(n,20,80)',crop=120:120:180:858" -vsync 0 \
+        -f framemd5 - 2>/dev/null | grep -v '^#' | awk -F', ' '{print $6}' | sort -u | wc -l)
+    echo "  bell box: $bell_pictures distinct pictures over frames 20-80"
+    check "an animated (Lottie) title layer renders in the sandbox" test "$bell_pictures" -ge 5
 fi
 
 # --- 8d: the effects add-on (a Flatpak extension carrying frei0r and MLT's
