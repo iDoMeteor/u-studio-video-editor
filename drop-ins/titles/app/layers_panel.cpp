@@ -1,4 +1,5 @@
 #include "layers_panel.h"
+#include "signal_guard.h"
 
 #include <adwaita.h>
 
@@ -134,6 +135,8 @@ LayersPanel::LayersPanel(Callbacks callbacks) : m_callbacks(std::move(callbacks)
 
 LayersPanel::~LayersPanel()
 {
+    // Before the window's dispose: its list's remove_all emits row-selected.
+    disconnectFromTree(m_root, this, {G_CALLBACK(onSignal), G_CALLBACK(onDrop)});
     g_object_unref(m_root);
 }
 

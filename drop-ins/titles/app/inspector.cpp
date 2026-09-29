@@ -1,4 +1,5 @@
 #include "inspector.h"
+#include "signal_guard.h"
 
 #include "behavior_drawer.h"
 
@@ -219,6 +220,8 @@ Inspector::Inspector(Callbacks callbacks, BrandKit kit) : m_callbacks(std::move(
 
 Inspector::~Inspector()
 {
+    // Its rows' closures: a dropdown or spin row notifies as it's disposed.
+    disconnectFromTree(m_scroller, this, {G_CALLBACK(onNotify), G_CALLBACK(onSignal)});
     if (m_rebuildSource)
         g_source_remove(m_rebuildSource);
     g_object_unref(m_scroller);

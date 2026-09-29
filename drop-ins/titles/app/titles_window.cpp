@@ -1,4 +1,5 @@
 #include "titles_window.h"
+#include "signal_guard.h"
 
 #include "view_settings.h"
 
@@ -170,6 +171,10 @@ TitlesWindow::TitlesWindow(GtkApplication *app, const std::string &path, const s
 
 TitlesWindow::~TitlesWindow()
 {
+    // Called from "destroy", before GTK disposes the widgets: nothing in the
+    // window may call back into this object after it (the text editor's
+    // focus-leave, the banner, the play button; the parts do their own).
+    disconnectFromTree(GTK_WIDGET(m_window), this);
     stopPlaying();
     g_cancellable_cancel(m_cancellable);
     g_object_unref(m_cancellable);
