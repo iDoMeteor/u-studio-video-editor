@@ -201,7 +201,9 @@ effect.
 ## Transition styles
 
 With the add-on, a dissolve between two clips can play in another style:
-a **dip to black**, a **flash**, a **slide** or **push** (the next clip
+a **dip to black**, a **flash**, a **blend** (**Additive**, **Screen** or
+**Lighten**: both clips at once half-way, brighter than a plain
+dissolve), a **slide** or **push** (the next clip
 slides in over this one, or pushes it out, from any side), a **zoom** or
 **spin** (it grows in from the middle, turning as it comes), or one of 20
 **wipes** (left, right, up, down and the diagonals, circle, clock,
@@ -227,7 +229,8 @@ step.
 middle, better for music and ambience. It stays when you change the style.
 
 The style is saved with the project, and a render plays it exactly as the
-preview does. A saved project with wipes gets a small `ustudio-wipes`
+preview does. Opened where the add-on isn't installed, a styled
+dissolve plays as a plain one; the style comes back with the add-on. A saved project with wipes gets a small `ustudio-wipes`
 folder beside it: keep it with the project file.
 
 With GPU acceleration on, a wipe can stutter in the preview at **Full**

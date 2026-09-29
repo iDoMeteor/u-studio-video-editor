@@ -871,6 +871,13 @@ Acceptance:
 > by the drop-in's frame renderer (the drawing stays until a frame comes).
 > They are stills, not animated, and scroll-to-cycle is still to come.
 
+> REVIEW: VE Effects, 2026-09-29: blend dissolves (Additive, Screen,
+> Lighten) are recipes on `frei0r.cairoblend`, registered by the drop-in
+> with `core::registerTransitionService()`; a recipe naming a service a
+> build doesn't offer plays as the plain dissolve and keeps its params
+> (VE Core's review), so a styled project opens anywhere. Blend-mode track
+> compositing remains a leftover.
+
 ### FX4 — Timeline and preview manipulation (about 2–3 weeks, needs M3)
 
 Integration points: IP5 timeline overlay/lane provider; possibly a

@@ -203,3 +203,29 @@ soak read +40 MB/min with the Effects add-on installed and +2.5 without.
   which outlives its children). Repro: a probe under a throwaway parent,
   the parent SIGKILLed: the probe was gone within a second.
 
+## Blend dissolves
+
+Found 2026-09-29 (VE Effects), for the Blends recipes (`dissolves.json`).
+
+- **A blend mode alone doesn't dissolve.** `frei0r.cairoblend` with its
+  opacity (`"0"`) rising 0 to 1 in `add` or `screen` mode ends on
+  `add(A, B)`, not on B, so the picture would jump at the end. The recipes
+  fade the outgoing clip too: B's opacity `ramp:0,1,1`, A's `brightness`
+  `ramp:1,1,0` (`rgb_only`). With A at black the light modes (`add`,
+  `screen`, `lighten`) give exactly B; the dark ones (`multiply`,
+  `darken`) would need A fading to white, so they aren't offered.
+- **The service is registered, not core's.** `frei0r.cairoblend` is in no
+  core list: the drop-in registers it (`core::registerTransitionService()`)
+  when MLT's repository has it, and a build without it plays such a recipe
+  as the plain dissolve (`nativeTransition()`), keeping the recipe.
+- **MLT's `color:` generator reads differently through a transition.**
+  `color:0x600000ff` reads 96 red as RGBA on its own but 87 through a
+  plain `luma` dissolve and 88 through `cairoblend` (a 709/601 matrix
+  mismatch: reds dim, greens brighten, 96 green read 113). PNG and H.264
+  (BT.709-tagged) sources read the same on every path. Tests that compare
+  colours across a transition's edge use generated FFV1 or H.264 clips,
+  not `color:` directly (the drop-in's test_engine "Blend dissolve").
+- The blend tiles show the real clips like the others; GPU: the transition
+  is a CPU island in the movit graph, like the wipes (not yet measured by
+  VE GPU).
+

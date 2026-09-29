@@ -52,6 +52,12 @@ std::vector<TransitionRecipe> recipesFromJson(const Json &json)
             core::Log::warn("[effects] transition recipe " + recipe.id + " skipped: " + problem);
             continue;
         }
+        // A style this install can't play (a blend without frei0r's
+        // cairoblend) isn't offered; debug: it's expected on such installs.
+        if (!core::transitionServicesOffered(probe)) {
+            core::Log::debug("[effects] transition recipe " + recipe.id + " skipped: a service not offered here");
+            continue;
+        }
         recipes.push_back(std::move(recipe));
     }
     return recipes;
@@ -107,7 +113,7 @@ bool SetTransitionRecipe::apply(core::Model &model)
         return false;
     core::Transition next = current;
     next.params = m_params;
-    if (!core::transitionProblem(next).empty())
+    if (!core::transitionProblem(next).empty() || !core::transitionServicesOffered(next))
         return false;
     m_oldRecipe = current.recipe;
     m_oldParams = current.params;

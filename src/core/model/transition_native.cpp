@@ -9,7 +9,9 @@
 #include <fstream>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <random>
+#include <set>
 #include <sstream>
 
 namespace ustudio::core {
@@ -184,7 +186,52 @@ NativeTransition nativeTransition(const Transition &transition)
     for (auto &[index, filter] : head)
         if (!filter.service.empty())
             out.headFilters.push_back(std::move(filter));
+    // A service this build doesn't offer (a drop-in's, the drop-in not
+    // here): the whole recipe plays as the plain dissolve, as an unknown
+    // wipe map does, never a load failure (doc 15). Its params stay in the
+    // model, so a build with the drop-in plays the style again.
+    bool offered = transitionServiceAllowed(out.video.service);
+    for (const auto *filters : {&out.tailFilters, &out.headFilters})
+        for (const NativeFilter &filter : *filters)
+            offered = offered && transitionServiceAllowed(filter.service);
+    if (!offered) {
+        out.video = {"luma", {}};
+        out.luma.clear();
+        out.tailFilters.clear();
+        out.headFilters.clear();
+    }
+    if (!transitionServiceAllowed(out.audio.service))
+        out.audio = {"mix", {{"start", "-1"}}};
     return out;
+}
+
+namespace {
+std::mutex g_registeredMutex;
+std::set<std::string> &registeredServices()
+{
+    static std::set<std::string> services;
+    return services;
+}
+} // namespace
+
+bool transitionServicesOffered(const Transition &transition)
+{
+    if (!transition.service.empty() && !transitionServiceAllowed(transition.service))
+        return false;
+    for (const Param &param : transition.params) {
+        const std::string &name = param.name;
+        const bool service = name == "video.service" || name == "audio.service" ||
+                             ((name.starts_with("a.") || name.starts_with("b.")) && name.ends_with(".service"));
+        if (service && !transitionServiceAllowed(valueOf(param, transition.length)))
+            return false;
+    }
+    return true;
+}
+
+void registerTransitionService(const std::string &service)
+{
+    std::lock_guard lock(g_registeredMutex);
+    registeredServices().insert(service);
 }
 
 bool transitionServiceAllowed(const std::string &service)
@@ -193,7 +240,10 @@ bool transitionServiceAllowed(const std::string &service)
     // service (ADR-007), never anything that runs arbitrary code or files.
     static const char *kAllowed[] = {"luma",     "mix",           "composite",  "affine",   "brightness",
                                      "volume",   "movit.luma_mix", "movit.mix", "movit.rect"};
-    return std::find(std::begin(kAllowed), std::end(kAllowed), service) != std::end(kAllowed);
+    if (std::find(std::begin(kAllowed), std::end(kAllowed), service) != std::end(kAllowed))
+        return true;
+    std::lock_guard lock(g_registeredMutex);
+    return registeredServices().contains(service);
 }
 
 std::string transitionProblem(const Transition &transition)

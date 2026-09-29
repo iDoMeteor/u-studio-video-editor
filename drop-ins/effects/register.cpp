@@ -115,6 +115,8 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
     host->log("[effects] registered in " + host->program());
     // IP3: effects on clips, tracks and the sequence, in every graph.
     host->addEngineExtension([] { return makeEffectsExtension(); });
+    // The blend dissolves' service, allowed only where frei0r has it.
+    registerTransitionServices();
     // IP6: the health and cost probe, and the registry for the editor's cache.
     host->addRenderSubcommand(
         {"probe-effect", "Health and cost of one effect; one JSON line (the effects scan)", &runProbeEffect});

@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <random>
@@ -666,5 +667,57 @@ TEST_CASE("A saved zoom and spin play frame-identically outside the editor")
         // Early on only the middle is the incoming clip; by the end, all of it.
         CHECK(sampleFrame(sync.tractor(), 25, w, h).b > 150);
         CHECK(sampleFrame(sync.tractor(), 39, w, h).b > 150);
+    }
+}
+
+// A recipe naming a service this build doesn't offer (a drop-in's, the
+// drop-in not here) plays as the plain dissolve: the engine's graph verifies
+// against its own plan, the render graph never names the service, and melt
+// and the editor show the same frames as a plain dissolve's.
+TEST_CASE("A transition recipe with a service not offered plays and renders as the plain dissolve")
+{
+    sharedFactoryPolicy();
+    auto build = [](bool blend) {
+        Model model = Model::createEmpty();
+        TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+        AssetId red = addGenerator(model, "color:red", true, false);
+        AssetId blue = addGenerator(model, "color:blue", true, false);
+        ClipId a = model.insertClip(track, red, 0, 0, 59);
+        ClipId b = model.insertClip(track, blue, 60, 20, 79);
+        TransitionId t = model.addTransition(track, a, b, 10, 10);
+        if (blend)
+            model.setTransitionRecipe(t, "blend.add",
+                                      {{"video.service", std::string("frei0r.cairoblend"), {}},
+                                       {"video.0", std::string("ramp:0,1,1"), {}},
+                                       {"a.0.service", std::string("brightness"), {}},
+                                       {"a.0.level", std::string("ramp:1,1,0"), {}}});
+        return model;
+    };
+    REQUIRE_FALSE(transitionServiceAllowed("frei0r.cairoblend")); // nothing registers it here
+    const Model blend = build(true), plain = build(false);
+    REQUIRE(blend.check().empty());
+    EngineSync degraded(blend), dissolve(plain);
+    CHECK(degraded.verify().empty());
+    const std::filesystem::path path = tempProjectPath("ustudio-unoffered");
+    RemoveOnExit cleanup{path};
+    REQUIRE(saveProject(blend, path.string()).empty());
+    std::ifstream in(path);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(text.find(">frei0r.cairoblend<") == std::string::npos);
+    CHECK(text.find("blend.add") != std::string::npos); // the recipe is kept
+    Mlt::Producer melt(degraded.profile(), ("xml:" + path.string()).c_str());
+    REQUIRE(melt.is_valid());
+    auto red = [](Mlt::Producer &producer, int position) {
+        producer.seek(position);
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 64, h = 36;
+        const uint8_t *image = frame->get_image(format, w, h);
+        return static_cast<int>(image[(18 * 64 + 32) * 4]);
+    };
+    for (int position : {50, 55, 60, 65, 69}) {
+        INFO("frame " << position);
+        CHECK(std::abs(red(degraded.tractor(), position) - red(dissolve.tractor(), position)) <= 2);
+        CHECK(std::abs(red(melt, position) - red(dissolve.tractor(), position)) <= 3);
     }
 }

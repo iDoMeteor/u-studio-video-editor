@@ -45,8 +45,19 @@ NativeTransition nativeTransition(const Transition &transition);
 // untrusted input; never a Qt service, ADR-007). An unknown wipe map is
 // fine: it plays as the plain dissolve.
 std::string transitionProblem(const Transition &transition);
-// The services a transition's params may name.
+// The services a transition's params may name: core's own, and those a
+// drop-in registered at start-up.
 bool transitionServiceAllowed(const std::string &service);
+// A drop-in's transition service (the effects drop-in's frei0r.cairoblend
+// for blend dissolves), registered before any project is read, by the
+// drop-in's own trusted code: never from a project file. Without it, a
+// recipe naming the service plays as the plain dissolve.
+void registerTransitionService(const std::string &service);
+// Whether every service `transition`'s params name is one this build
+// offers (allowed or registered): what a recipe list or an edit checks
+// before offering or setting a style that would otherwise play as the
+// plain dissolve.
+bool transitionServicesOffered(const Transition &transition);
 
 // The wipe maps' generator version: part of every map's path, so a map
 // written by an older generator is never reused. Bump it whenever any map
