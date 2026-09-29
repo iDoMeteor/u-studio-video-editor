@@ -789,6 +789,33 @@ TEST_CASE("AddTransition refuses when clip b lacks head handle for the requested
     CHECK(model == before);
 }
 
+TEST_CASE("AddTransition slips a boundless b short of head room forward, never to a negative in")
+{
+    Model model = Model::createEmpty();
+    TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId asset = addTestAsset(model);
+    Asset still;
+    still.path = "/tmp/still.png";
+    still.info.hasVideo = true;
+    still.info.isStillImage = true;
+    AssetId stillAsset = model.addAsset(still);
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);
+    ClipId b = model.insertClip(track, stillAsset, 50, 3, 52); // in 3: 7 frames short of 10
+    Model before = model;
+
+    AddTransition cmd(track, a, b, 0, 10);
+    REQUIRE(cmd.apply(model));
+    CHECK(model.clip(b).in == 0);
+    CHECK(model.clip(b).out == 59); // the window slipped 7 frames, then the head extended 10
+    CHECK(model.clip(b).position == 40);
+    CHECK(model.check().empty());
+    cmd.revert(model);
+    CHECK(equalIgnoringIdAllocator(model, before));
+    REQUIRE(cmd.apply(model)); // redo
+    CHECK(model.clip(b).in == 0);
+    CHECK(model.check().empty());
+}
+
 TEST_CASE("RemoveTransition: apply then revert restores an equal model, regardless of the original split")
 {
     Model model = Model::createEmpty();

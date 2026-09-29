@@ -949,8 +949,14 @@ bool AddTransition::apply(Model &model)
         if (!assetA.info.isBoundless() && clipA.out + m_extendA >= assetA.info.lengthInSequenceFrames)
             return false;
     }
-    if (m_extendB > 0 && clipB.in - m_extendB < 0)
-        return false;
+    m_slipB = 0;
+    if (m_extendB > 0 && clipB.in - m_extendB < 0) {
+        // A boundless source (Model::addTransition() would otherwise give
+        // it a negative in, which MLT clamps to 0: VE Effects, 2026-09-28).
+        if (!model.hasAsset(clipB.asset) || !model.asset(clipB.asset).info.isBoundless())
+            return false;
+        m_slipB = m_extendB - clipB.in;
+    }
 
     // Same bound Model::check() enforces on the result; checking it here
     // too, before mutating, also keeps b's new position from crossing
@@ -984,6 +990,8 @@ bool AddTransition::apply(Model &model)
             return false;
     }
 
+    if (m_slipB > 0)
+        model.resizeClip(m_b, clipB.in + m_slipB, clipB.out + m_slipB, clipB.position);
     m_transitionId = model.addTransition(m_track, m_a, m_b, m_extendA, m_extendB,
                                          m_appliedBefore ? std::optional<TransitionId>(m_transitionId) : std::nullopt);
     m_appliedBefore = true;
@@ -993,6 +1001,10 @@ bool AddTransition::apply(Model &model)
 void AddTransition::revert(Model &model)
 {
     model.removeTransition(m_transitionId);
+    if (m_slipB > 0) {
+        const Clip &clipB = model.clip(m_b);
+        model.resizeClip(m_b, clipB.in - m_slipB, clipB.out - m_slipB, clipB.position);
+    }
 }
 
 RemoveTransition::RemoveTransition(TransitionId transition) : m_transition(transition) {}

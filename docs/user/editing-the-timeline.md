@@ -93,7 +93,8 @@ same track. It shows as a hatched area.
 - **Resize:** drag either edge of the hatched area.
 - **Remove:** right-click it and choose **Remove Transition**.
 - A dissolve uses the extra footage each clip has beyond its cut, so
-  nothing else on the track moves.
+  nothing else on the track moves. Stills and colour clips never run out,
+  so a dissolve into one works even from its first frame.
 - Moving, trimming or splitting a clip into a dissolve removes that
   dissolve.
 - With the Effects add-on, **T** adds a dissolve at the cut nearest the

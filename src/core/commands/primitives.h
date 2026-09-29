@@ -564,7 +564,9 @@ class RenameClip : public Command
 // `b`. Refuses if the clips aren't exactly adjacent, either side lacks
 // the source-media handle it's asked to use, or the requested combined
 // length would exceed either clip's own resulting length (the same bound
-// Model::check() enforces on the result).
+// Model::check() enforces on the result). A boundless `b` (a still, a
+// generator) short of head room first has its source window slipped
+// forward by the shortfall, which it has in any amount; revert slips it back.
 class AddTransition : public Command
 {
   public:
@@ -584,6 +586,7 @@ class AddTransition : public Command
     TrackId m_track;
     ClipId m_a, m_b;
     FrameIndex m_extendA, m_extendB;
+    FrameIndex m_slipB = 0; // frames b's source window moved forward first
     TransitionId m_transitionId;
     bool m_appliedBefore = false;
 };
