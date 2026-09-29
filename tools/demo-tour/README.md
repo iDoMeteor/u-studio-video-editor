@@ -107,3 +107,10 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | gpu | GPU acceleration, on the real desktop (screencast.py + gpu_desktop2.sh; the owner consents in the portal) | 2026-09-29 (0.78.5-beta.1) |
 | effects-1 | The Add page, trying effects, the Effects page, Looks, Compare | 2026-09-29 (0.78.3-beta.1) |
 | effects-2 | Keyframes, curve lanes, masks, adjustment blocks, LUTs | 2026-09-29 (0.78.5-beta.1) |
+
+## Browsing the videos
+
+Next to the videos is a dated index (`INDEX-<date>.md`) for the owner:
+every video in suggested order, with its topic, length and version, plus
+the superseded takes. Nothing in that folder is ever overwritten, so an
+updated index is a new dated file.
