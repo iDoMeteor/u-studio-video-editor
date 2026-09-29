@@ -4,6 +4,15 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.79.0-beta.1
+
+- Transitions: Zoom In and Spin In (either way) join the motion styles; a
+  transition's sound can be an even (equal-power) crossfade instead of a
+  straight one; the style tiles show your own two clips half-way through.
+- Effects: a LUT or other file inside the project's folder is saved
+  relative to it, so the project keeps it when the folder moves. Such a
+  project needs this version or newer to open.
+
 ## 0.78.5-beta.1
 
 - Dragging a picture in the preview is smoother: audio waveforms on the
