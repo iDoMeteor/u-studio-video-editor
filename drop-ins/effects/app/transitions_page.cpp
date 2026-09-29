@@ -4,6 +4,7 @@
 #include "core/commands/primitives.h"
 #include "core/log.h"
 #include "core/model/transition_native.h"
+#include "engine/frame_renderer.h"
 #include "tokens.h"
 
 #include <gtk/gtk.h>
@@ -220,6 +221,22 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         m_controls = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
         gtk_box_append(GTK_BOX(m_root), m_controls);
 
+        // The sound, whatever the style: MLT's mix crossfades evenly (start
+        // -1) or with equal power (-2: sin/cos gains, transition_mix.c), which
+        // doesn't dip in the middle.
+        GtkWidget *soundRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget *soundLabel = gtk_label_new("Sound");
+        gtk_label_set_xalign(GTK_LABEL(soundLabel), 0.0f);
+        gtk_widget_set_size_request(soundLabel, 80, -1);
+        gtk_box_append(GTK_BOX(soundRow), soundLabel);
+        const char *sounds[] = {"Even crossfade", "Equal power", nullptr};
+        m_sound = gtk_drop_down_new_from_strings(sounds);
+        gtk_widget_set_hexpand(m_sound, TRUE);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_sound), GTK_ACCESSIBLE_PROPERTY_LABEL, "Sound", -1);
+        g_signal_connect(m_sound, "notify::selected", G_CALLBACK(&onSoundTrampoline), this);
+        gtk_box_append(GTK_BOX(soundRow), m_sound);
+        gtk_box_append(GTK_BOX(m_root), soundRow);
+
         GtkWidget *scroller = gtk_scrolled_window_new();
         gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
         gtk_widget_set_vexpand(scroller, TRUE);
@@ -257,6 +274,9 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
                 g_object_unref(texture);
                 gtk_picture_set_can_shrink(GTK_PICTURE(picture), FALSE);
                 gtk_box_append(GTK_BOX(tile), picture);
+                // Replaced by the real clips' frame when there is one.
+                m_pictures.resize(m_recipes.size(), nullptr);
+                m_pictures[i] = picture;
                 GtkWidget *name = gtk_label_new(recipe.name.c_str());
                 gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
                 gtk_label_set_max_width_chars(GTK_LABEL(name), 12);
@@ -275,6 +295,8 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
             }
         }
 
+        g_signal_connect(m_root, "destroy", G_CALLBACK(&onDestroyTrampoline), this);
+        g_signal_connect(m_root, "map", G_CALLBACK(&onMapTrampoline), this);
         m_host.addInspectorPage({"effects.transitions", "Transitions", "view-dual-symbolic", m_root});
         m_host.addTimelineOverlay(this);
         m_host.projectChanged().connect([this] { refresh(true); });
@@ -390,6 +412,7 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         const bool has = m_target.isValid() && model.hasTransition(m_target);
         for (GtkWidget *flow : m_flows)
             gtk_widget_set_sensitive(flow, has);
+        gtk_widget_set_sensitive(m_sound, has);
         if (!has) {
             gtk_label_set_text(GTK_LABEL(m_title), "No transition here");
             gtk_label_set_text(GTK_LABEL(m_subtitle),
@@ -404,6 +427,12 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         const core::Transition &t = model.transition(m_target);
         const int index = recipeIndexOf(m_recipes, t);
         const TransitionRecipe *recipe = index >= 0 ? &m_recipes[static_cast<size_t>(index)] : nullptr;
+        schedulePreviews();
+        m_updatingSound = true;
+        const core::Param *sound = findParam(t.params, "audio.start");
+        const double *start = sound ? std::get_if<double>(&sound->value) : nullptr;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_sound), start && *start < -1.0 ? 1 : 0);
+        m_updatingSound = false;
         gtk_label_set_text(GTK_LABEL(m_title), recipe ? recipe->name.c_str() : "Dissolve");
         auto nameOf = [&](core::ClipId id) {
             const core::Clip &clip = model.clip(id);
@@ -436,6 +465,72 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
                 continue;
             addControl(name, *param);
         }
+    }
+
+    // --- The tiles from the real clips --------------------------------------
+
+    // After a pause (a drag's edits come in bursts): each tile's style
+    // half-way through the transition, from its two clips, off the live
+    // graph (engine/frame_renderer.h). Until a frame comes, the drawing.
+    void schedulePreviews()
+    {
+        if (m_previewTimer)
+            g_source_remove(m_previewTimer);
+        m_previewTimer = g_timeout_add(200, &onPreviewTimerTrampoline, this);
+    }
+
+    void requestPreviews()
+    {
+        m_previewTimer = 0;
+        // Only while the page shows (as the Browser's tiles): a render opens
+        // both clips in this process. Shown again, it catches up.
+        if (!gtk_widget_get_mapped(m_root)) {
+            m_previewsStale = true;
+            return;
+        }
+        m_previewsStale = false;
+        const core::Model &model = m_host.model();
+        if (!m_target.isValid() || !model.hasTransition(m_target))
+            return;
+        const core::Transition &t = model.transition(m_target);
+        if (!model.hasClip(t.a) || !model.hasClip(t.b))
+            return;
+        const core::Clip &a = model.clip(t.a), &b = model.clip(t.b);
+        if (!model.hasAsset(a.asset) || !model.hasAsset(b.asset) || !model.asset(a.asset).info.hasVideo ||
+            !model.asset(b.asset).info.hasVideo)
+            return;
+        const uint64_t generation = ++m_previewGeneration;
+        for (size_t i = 0; i < m_recipes.size() && i < m_pictures.size(); ++i) {
+            FrameRequest request;
+            request.resource = model.asset(a.asset).path;
+            request.profile = model.sequence().profile;
+            request.clipIn = a.out - t.length + 1;
+            request.clipOut = a.out;
+            request.width = 96;
+            request.height = 54;
+            FrameRequest::Transition part;
+            part.resource = model.asset(b.asset).path;
+            part.in = b.in;
+            part.out = b.in + t.length - 1;
+            part.params = m_recipes[i].params;
+            part.position = t.length / 2;
+            request.transition = part;
+            GtkWidget *picture = m_pictures[i];
+            if (!picture)
+                continue;
+            m_renderer.request(
+                std::move(request), 1, generation, [this, picture, generation](const RenderedFrame &frame) {
+                    if (generation != m_previewGeneration || frame.rgba.empty())
+                        return;
+                    GBytes *bytes = g_bytes_new(frame.rgba.data(), frame.rgba.size());
+                    GdkTexture *texture = gdk_memory_texture_new(frame.width, frame.height, GDK_MEMORY_R8G8B8A8, bytes,
+                                                                 static_cast<gsize>(frame.width) * 4);
+                    g_bytes_unref(bytes);
+                    gtk_picture_set_paintable(GTK_PICTURE(picture), GDK_PAINTABLE(texture));
+                    g_object_unref(texture);
+                });
+        }
+        core::Log::debug("[effects] transition tiles: rendering " + std::to_string(m_recipes.size()));
     }
 
     void clearControls()
@@ -507,13 +602,37 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, std::move(params), gesture));
     }
 
+    void onSound()
+    {
+        const core::Model &model = m_host.model();
+        if (m_updatingSound || !m_target.isValid() || !model.hasTransition(m_target))
+            return;
+        const core::Transition &t = model.transition(m_target);
+        const int index = recipeIndexOf(m_recipes, t);
+        if (index < 0)
+            return;
+        const TransitionRecipe &recipe = m_recipes[static_cast<size_t>(index)];
+        std::vector<core::Param> params = t.params.empty() ? recipe.params : t.params;
+        const bool power = gtk_drop_down_get_selected(GTK_DROP_DOWN(m_sound)) == 1;
+        std::erase_if(params, [](const core::Param &p) { return p.name == "audio.start"; });
+        if (power)
+            params.push_back({"audio.start", -2.0, {}});
+        m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, std::move(params)));
+    }
+
     void onTileActivated(GtkFlowBoxChild *child)
     {
         const size_t i = GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(child), "ustudio-recipe"));
         if (i == 0 || i > m_recipes.size() || !m_target.isValid())
             return;
         const TransitionRecipe &recipe = m_recipes[i - 1];
-        if (!m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, recipe.params)))
+        // The sound is chosen apart from the style: it stays.
+        std::vector<core::Param> params = recipe.params;
+        const core::Model &model = m_host.model();
+        if (model.hasTransition(m_target))
+            if (const core::Param *sound = findParam(model.transition(m_target).params, "audio.start"))
+                params = withParam(std::move(params), *sound);
+        if (!m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, params)))
             m_host.showStatus("Couldn't change that transition (is its track locked?)");
         else
             core::Log::debug("[effects] transition style: " + recipe.id);
@@ -584,9 +703,32 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
 
     // --- GTK signal trampolines ---------------------------------------------
 
+    static gboolean onPreviewTimerTrampoline(gpointer self)
+    {
+        static_cast<TransitionsPage *>(self)->requestPreviews();
+        return G_SOURCE_REMOVE;
+    }
+    static void onMapTrampoline(GtkWidget *, gpointer self)
+    {
+        auto *page = static_cast<TransitionsPage *>(self);
+        if (page->m_previewsStale)
+            page->schedulePreviews();
+    }
+    static void onDestroyTrampoline(GtkWidget *, gpointer self)
+    {
+        auto *page = static_cast<TransitionsPage *>(self);
+        if (page->m_previewTimer)
+            g_source_remove(page->m_previewTimer);
+        page->m_previewTimer = 0;
+        page->m_renderer.stop(); // its thread holds MLT producers
+    }
     static void onAddActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
     {
         static_cast<TransitionsPage *>(self)->addAtNearestCut();
+    }
+    static void onSoundTrampoline(GtkDropDown *, GParamSpec *, gpointer self)
+    {
+        static_cast<TransitionsPage *>(self)->onSound();
     }
     static void onTileActivatedTrampoline(GtkFlowBox *, GtkFlowBoxChild *child, gpointer self)
     {
@@ -626,6 +768,13 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
     core::TransitionId m_target, m_pinned;
     uint64_t m_gesture = 0;
     bool m_dragging = false;
+    GtkWidget *m_sound = nullptr;
+    FrameRenderer m_renderer{120};
+    std::vector<GtkWidget *> m_pictures; // the tiles' pictures, in m_recipes' order
+    guint m_previewTimer = 0;
+    uint64_t m_previewGeneration = 0;
+    bool m_previewsStale = false; // asked for while the page was hidden
+    bool m_updatingSound = false;
 };
 
 } // namespace

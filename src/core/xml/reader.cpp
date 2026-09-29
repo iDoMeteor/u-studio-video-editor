@@ -282,6 +282,10 @@ std::map<std::string, std::string> parseSettingsJson(const std::string &json)
 
 std::expected<Model, std::string> loadProject(const std::string &path)
 {
+    // Files named relative to the project (a LUT in its luts folder) are
+    // read against the folder it's in now (xml_detail::ProjectFolderScope).
+    std::error_code folderEc;
+    const xml_detail::ProjectFolderScope folder(std::filesystem::absolute(std::filesystem::path(path), folderEc).parent_path());
     xmlDocPtr doc = xmlReadFile(path.c_str(), nullptr, XML_PARSE_NOBLANKS);
     if (!doc)
         return std::unexpected("failed to parse " + path);

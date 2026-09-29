@@ -127,8 +127,7 @@ relinking and clip transforms (M4, shipped as the 0.50 beta).
 - **Effects, keyframes and transitions** (M5): effects, keyframes,
   looks, transitions, curve lanes, touch-record, the FX lane, masks, LUTs
   and audio plugins are in (FX1-FX5), as a drop-in add-on; still to come:
-  zoom, spin and blend transitions, audio curves on transitions, and live
-  tile previews. → [doc 15](docs/plans/v2/15-effects-and-transitions.md),
+  blend transitions. → [doc 15](docs/plans/v2/15-effects-and-transitions.md),
   [ADR-013](docs/plans/v2/adr/013-effects-and-titles-as-drop-in-modules.md)
 - **Titles**: a companion title designer with animation and reusable
   templates. → [doc 16](docs/plans/v2/16-titles-tool.md)

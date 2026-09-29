@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -38,6 +39,17 @@ struct FrameRequest
     std::vector<core::Effect> effects; // in order (the stack, plus the one auditioned)
     int width = 160;
     int height = 90;
+    // A transition's frame instead (the Transitions page's tiles): this
+    // request's resource and clipIn..clipOut are the outgoing clip's tail,
+    // these the incoming clip's head; `effects` are ignored.
+    struct Transition
+    {
+        std::string resource;             // the incoming clip's media
+        core::FrameIndex in = 0, out = 0; // its head's source range (as long as the tail)
+        std::vector<core::Param> params;  // the recipe (core::nativeTransition())
+        core::FrameIndex position = 0;    // the frame of the transition shown
+    };
+    std::optional<Transition> transition;
 
     // Identity for the cache: everything above.
     std::string key() const;

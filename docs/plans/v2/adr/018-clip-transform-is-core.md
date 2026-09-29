@@ -53,3 +53,18 @@ unscaled in the corner, and a 4:3 one still sits left.
   (F1, 2026-09-25). So Auto preview scale plays at Half once any clip has
   a non-default transform (0.47.2), which holds one transformed track at
   real time; more is MT4's (doc 19).
+
+> REVIEW: VE Effects with VE Core, 2026-09-29: keyframed transforms (M5's
+> gate). Keys live in `Transform`'s `KeyframedValue`s, relative to the
+> clip's start: x, y, width, height and rotation; crops stay constant (MLT's
+> `crop` isn't animatable) and a keyed placement is `Bounds::None`, both
+> refused otherwise by `transformProblem()`. Core owns the model helpers
+> (`transformAt()`, `withTransformAt()`, `placementAt()`), the animated
+> `affine` rect and rotation in `transformFilters()` (every key scaled for
+> preview and proxies; sampled only where x/y/w/h keys don't line up, then
+> merged where linear), the writer's per-cut offsets, splitting, the
+> key-aware preview handles and the in-place path; `movit.rect` animates on
+> the GPU pending VE GPU, and a keyed rotation stays on the CPU chain. The
+> effects drop-in owns the keyframing UI: a Transform card in the Rack
+> (pins, previous/next, feel), transform curves in the curve lanes, and
+> touch-record, all writing through `withTransformAt()`.
