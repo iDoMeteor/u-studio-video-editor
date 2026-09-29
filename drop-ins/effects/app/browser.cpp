@@ -270,10 +270,14 @@ class Browser
         if (m_recent.size() > static_cast<size_t>(kRecentMax))
             m_recent.resize(kRecentMax);
         const core::Model::EffectTarget &target = targets.front();
-        m_host.showStatus((look ? "Applied " : "Added ") + name +
-                          (target.kind != core::Model::EffectTarget::Kind::Clip ? " to the whole sequence"
-                           : targets.size() > 1 ? " to " + std::to_string(targets.size()) + " clips"
-                                                : " to the clip"));
+        std::string where = " to the clip";
+        if (target.kind == core::Model::EffectTarget::Kind::AdjustmentBlock)
+            where = " to the adjustment block";
+        else if (target.kind != core::Model::EffectTarget::Kind::Clip)
+            where = " to the whole sequence";
+        else if (targets.size() > 1)
+            where = " to " + std::to_string(targets.size()) + " clips";
+        m_host.showStatus((look ? "Applied " : "Added ") + name + where);
     }
 
     void onSearchActivate()

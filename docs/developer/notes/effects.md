@@ -190,3 +190,16 @@ soak read +40 MB/min with the Effects add-on installed and +2.5 without.
 - The soak that guards this: `tools/effects-smoke/run.sh <builddir> <outdir>
   soak_steps.sh` ([testing](../testing.md#the-effects-smoke-test)).
 
+## Health scan children
+
+- **A probe can outlive its editor.** VE Demos saw `u-studio-render
+  --probe-effect deshake` still running after the editor quit, re-parented
+  to the user's systemd (not pid 1) and ignoring SIGTERM (a probe inside a
+  plugin never checks the render tool's cancel; 2026-09-29). The scan now
+  stops on the application's `shutdown` signal (its thread kills its
+  children and reaps them), not at `exit()`, and the probe subcommand calls
+  `platform::exitWithParent()` (Linux: `PR_SET_PDEATHSIG` with SIGKILL, which
+  fires when the *thread* that spawned the child ends: the scan's worker,
+  which outlives its children). Repro: a probe under a throwaway parent,
+  the parent SIGKILLed: the probe was gone within a second.
+

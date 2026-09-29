@@ -5,6 +5,7 @@
 #include <fstream>
 #include <malloc.h>
 #include <signal.h>
+#include <sys/prctl.h>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -103,6 +104,14 @@ bool runningInFlatpak()
 void releaseFreeMemory()
 {
     malloc_trim(0);
+}
+
+void exitWithParent()
+{
+    // An orphan is re-parented to a subreaper (the user's systemd), not
+    // to pid 1, so a parent that died before this call isn't detectable
+    // here; that window is the child's first milliseconds.
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
 }
 
 } // namespace ustudio::platform

@@ -143,7 +143,11 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         // factory: stop them all when the application shuts down.
         if (GApplication *application = g_application_get_default())
             g_signal_connect(application, "shutdown",
-                             G_CALLBACK(+[](GApplication *, gpointer) { FrameRenderer::stopAll(); }), nullptr);
+                             G_CALLBACK(+[](GApplication *, gpointer) {
+                                 stopEditorHealthScan();
+                                 FrameRenderer::stopAll();
+                             }),
+                             nullptr);
         // What was loaded at start-up (the experimental families), and
         // whether the recommended audio pack is there.
         catalog.experimental = loadExperimentalFamilies();
