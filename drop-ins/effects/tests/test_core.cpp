@@ -807,3 +807,30 @@ TEST_CASE("blockEffects: fades ramp each effect's mix in and out")
     CHECK(core::easedValue(shaped, 50.0) == doctest::Approx(0.75));
     CHECK(core::easedValue(shaped, 100.0) == doctest::Approx(0.0));
 }
+
+TEST_CASE("blockEffects: an eased mix keeps its easing between the fades, and follows it through them")
+{
+    core::AdjustmentBlock block;
+    block.length = 201;
+    block.fadeIn = core::FadeSpec{20};
+    block.fadeOut = core::FadeSpec{20};
+    block.effects = {glowEffect()};
+    // Ease in from 0.2 to 1 across the whole block: a fade boundary cuts
+    // the one segment at each end.
+    const std::vector<core::Keyframe> own{{0, 0.2, core::Easing::CubicInOut}, {200, 1.0, core::Easing::Linear}};
+    block.effects[0].mix.keyframes = own;
+    const std::vector<core::Keyframe> keys = core::blockEffects(block)[0].mix.keyframes;
+    auto envelope = [](double f) { return std::clamp(std::min(f / 20.0, (200.0 - f) / 20.0), 0.0, 1.0); };
+    for (double f : {0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 137.0, 180.0, 190.0, 200.0})
+        CHECK(core::easedValue(keys, f) == doctest::Approx(core::easedValue(own, f) * envelope(f)).epsilon(0.002));
+
+    // A segment wholly between the fades keeps its own key and easing.
+    const std::vector<core::Keyframe> inner{{40, 0.2, core::Easing::CubicIn}, {160, 1.0, core::Easing::Linear}};
+    block.effects[0].mix.keyframes = inner;
+    const std::vector<core::Keyframe> kept = core::blockEffects(block)[0].mix.keyframes;
+    auto at40 = std::find_if(kept.begin(), kept.end(), [](const core::Keyframe &k) { return k.at == 40; });
+    REQUIRE(at40 != kept.end());
+    CHECK(at40->easing == core::Easing::CubicIn);
+    CHECK(core::easedValue(kept, 100.0) == doctest::Approx(core::easedValue(inner, 100.0)));
+    CHECK(kept.size() < 60); // only the fades are sampled
+}

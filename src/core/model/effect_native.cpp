@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <set>
 
 namespace ustudio::core {
@@ -183,27 +184,50 @@ std::vector<Effect> blockEffects(const AdjustmentBlock &block)
     const bool fadeOut = block.fadeOut && block.fadeOut->length > 0;
     if (!fadeIn && !fadeOut)
         return effects;
-    // Keys where the envelope bends and wherever the mix had its own, each
-    // the mix there times the envelope (linear between: the envelope is
-    // linear, and the mix's own keys are kept as points).
+    // Where the envelope is 1 (between the fades) the mix keeps its own keys
+    // and easings. Inside the fades, and across any segment of the mix that
+    // a fade boundary cuts, the product is sampled every frame (fades are
+    // short), linear between samples.
     const FrameIndex last = block.length - 1;
+    const FrameIndex flatStart = fadeIn ? std::min(block.fadeIn->length, last) : 0;
+    const FrameIndex flatEnd = fadeOut ? std::max<FrameIndex>(last - block.fadeOut->length, 0) : last;
     for (Effect &effect : effects) {
-        std::set<FrameIndex> at{0, last};
-        if (fadeIn)
-            at.insert(std::min(block.fadeIn->length, last));
-        if (fadeOut)
-            at.insert(std::max<FrameIndex>(last - block.fadeOut->length, 0));
-        for (const Keyframe &key : effect.mix.keyframes)
-            if (key.at >= 0 && key.at <= last)
-                at.insert(key.at);
-        std::vector<Keyframe> keys;
-        for (FrameIndex frame : at) {
-            const double mix = effect.mix.keyframes.empty()
-                                   ? effect.mix.value
-                                   : easedValue(effect.mix.keyframes, static_cast<double>(frame));
-            keys.push_back({frame, mix * envelope(block, static_cast<double>(frame)), Easing::Linear});
+        const std::vector<Keyframe> &own = effect.mix.keyframes;
+        auto mixAt = [&](FrameIndex frame) {
+            return own.empty() ? effect.mix.value : easedValue(own, static_cast<double>(frame));
+        };
+        std::set<FrameIndex> sampled;
+        for (FrameIndex f = 0; fadeIn && f <= flatStart; ++f)
+            sampled.insert(f);
+        for (FrameIndex f = flatEnd; fadeOut && f <= last; ++f)
+            sampled.insert(f);
+        for (size_t i = 0; i + 1 < own.size(); ++i) {
+            const FrameIndex a = own[i].at, b = own[i + 1].at;
+            const bool cut = (fadeIn && a < flatStart && flatStart < b) || (fadeOut && a < flatEnd && flatEnd < b);
+            for (FrameIndex f = std::max<FrameIndex>(a, 0); cut && f <= std::min(b, last); ++f)
+                sampled.insert(f);
         }
-        effect.mix.keyframes = std::move(keys);
+        std::map<FrameIndex, Keyframe> keys;
+        for (FrameIndex f : sampled)
+            keys[f] = {f, mixAt(f) * envelope(block, static_cast<double>(f)), Easing::Linear};
+        // The mix's own keys between the fades, with their easings: a key that
+        // was also sampled keeps its easing when the segment after it isn't.
+        for (size_t i = 0; i < own.size(); ++i) {
+            const Keyframe &key = own[i];
+            if (key.at < flatStart || key.at > flatEnd)
+                continue;
+            const bool nextSampled = i + 1 < own.size() && sampled.contains(std::min(key.at + 1, last)) &&
+                                     sampled.contains(own[i + 1].at);
+            if (!keys.contains(key.at) || !nextSampled)
+                keys[key.at] = {key.at, key.value, nextSampled ? Easing::Linear : key.easing};
+        }
+        // Held values between the fades (before the first key, after the last).
+        for (FrameIndex f : {flatStart, flatEnd})
+            if (!keys.contains(f))
+                keys[f] = {f, mixAt(f) * envelope(block, static_cast<double>(f)), Easing::Linear};
+        effect.mix.keyframes.clear();
+        for (auto &[frame, key] : keys)
+            effect.mix.keyframes.push_back(key);
     }
     return effects;
 }

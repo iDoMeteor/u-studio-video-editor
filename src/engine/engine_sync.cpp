@@ -763,8 +763,8 @@ bool EngineSync::applyInPlace(const core::Project &next)
 {
     // Only effect values may differ: the same graph input with every
     // parameter value, mix and mask value blanked out on both sides (a
-    // mask's shape, geometry, soft edge and invert are values of the same
-    // filters; adding or removing a mask changes the filters: a rebuild).
+    // mask's geometry, soft edge and invert are values of the same filters;
+    // adding or removing a mask, or changing its shape, rebuilds).
     core::Project before = *m_project;
     core::Project after = next;
     std::unordered_map<uint64_t, core::Effect> oldEffects;
@@ -782,8 +782,10 @@ bool EngineSync::applyInPlace(const core::Project &next)
             param.keyframes.clear();
         }
         effect.mix = {};
+        // The shape stays: it chooses the filters (Model::check() allows
+        // only the ones nativeFilters() draws), so a change of it rebuilds.
         if (effect.mask)
-            effect.mask = core::EffectMask{};
+            effect.mask = core::EffectMask{effect.mask->shape, {}, {}, false};
     };
     forEachEffect(before, blank);
     forEachEffect(after, blank);

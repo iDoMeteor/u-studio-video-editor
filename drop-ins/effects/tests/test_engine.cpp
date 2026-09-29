@@ -672,3 +672,46 @@ TEST_CASE("A mask limits an effect to its shape, in the editor and in melt")
             CHECK(near(redAt(melt, 20, u, v), redAt(sync.tractor(), 20, u, v), 3));
     }
 }
+
+TEST_CASE("A masked effect's mix, invert and geometry apply in place; a new shape rebuilds")
+{
+    setUp();
+    Timeline t;
+    const EffectId black = t.addBrightness(Model::EffectTarget::clip(t.a), 0.0);
+    t.model.setEffectMask(black, centredMask("rectangle"));
+    engine::EngineSync sync(t.model);
+    int rebuilds = 0, inPlace = 0;
+    sync.rebuilt.connect([&] { ++rebuilds; });
+    sync.appliedInPlace.connect([&] { ++inPlace; });
+    UndoStack undo(t.model);
+    auto apply = [&](std::unique_ptr<core::Command> command) {
+        REQUIRE(undo.execute(std::move(command)));
+        sync.setProject(t.model.snapshot());
+    };
+
+    // The mix lives in alphaspot's inside alpha now, not the transition.
+    apply(std::make_unique<SetMix>(black, KeyframedValue{0.5, {}}));
+    CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey / 2));
+    CHECK(near(redAt(sync.tractor(), 20, 0.05, 0.05), kGrey));
+    // Inverted: the mix moves to the outside alpha.
+    EffectMask inverted = centredMask("rectangle", true);
+    apply(std::make_unique<SetEffectMask>(black, inverted));
+    CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey));
+    CHECK(near(redAt(sync.tractor(), 20, 0.05, 0.05), kGrey / 2));
+    // The shape moved left: its old middle is outside now (effect there).
+    inverted.params = {{"x", 0.2, {}}, {"y", 0.5, {}}, {"width", 0.2, {}}, {"height", 0.5, {}}};
+    apply(std::make_unique<SetEffectMask>(black, inverted));
+    CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey / 2));
+    CHECK(near(redAt(sync.tractor(), 20, 0.2, 0.5), kGrey));
+    CHECK(rebuilds == 0);
+    CHECK(inPlace == 3);
+    // Another shape: other filter values chosen at build time: a rebuild.
+    inverted.shape = "ellipse";
+    apply(std::make_unique<SetEffectMask>(black, inverted));
+    CHECK(rebuilds == 1);
+    // And one the editor can't draw is refused by the model's check.
+    Model broken = t.model;
+    inverted.shape = "polygon";
+    broken.setEffectMask(black, inverted);
+    CHECK_FALSE(broken.check().empty());
+}
