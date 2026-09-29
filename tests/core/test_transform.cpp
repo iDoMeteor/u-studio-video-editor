@@ -68,6 +68,47 @@ TEST_CASE("transform: stretch, explicit placement, crop and the switch to explic
     CHECK(placementFor(placed, 1344, 768, hd()) == placementFor(fitted, 1344, 768, hd()));
 }
 
+TEST_CASE("transform: keyframed values ease to a static transform at a frame, and handles key at the frame")
+{
+    Transform t;
+    t.bounds = Transform::Bounds::None;
+    t.x.keyframes = {{0, 100, Easing::Linear}, {20, 300, Easing::Linear}};
+    t.y.value = 540;
+    t.width.value = 960;
+    t.height.value = 540;
+    t.rotation.keyframes = {{10, 0, Easing::Linear}, {30, 90, Easing::Linear}};
+
+    const Transform mid = transformAt(t, 10);
+    CHECK(mid.x.value == doctest::Approx(200));
+    CHECK(mid.x.keyframes.empty());
+    CHECK(mid.rotation.value == 0);
+    CHECK(mid.y.value == 540);
+    CHECK(transformAt(t, -5).x.value == 100); // holds outside the keys
+    CHECK(transformAt(t, 99).rotation.value == 90);
+    const Placement p = placementAt(t, 20, 1920, 1080, hd());
+    CHECK(p.cx == doctest::Approx(300));
+    CHECK(p.rotation == doctest::Approx(45));
+    Transform still;
+    still.rotation.value = 5;
+    CHECK(transformAt(still, 7) == still);
+
+    // Dragging at frame 10: x gains a key there, y (static) just changes,
+    // and rotation's key at 10 keeps its easing.
+    t.rotation.keyframes.front().easing = Easing::CubicIn;
+    Transform edited = mid;
+    edited.x.value = 250;
+    edited.y.value = 600;
+    edited.rotation.value = 15;
+    const Transform out = withTransformAt(t, 10, edited);
+    REQUIRE(out.x.keyframes.size() == 3);
+    CHECK(out.x.keyframes[1] == Keyframe{10, 250, Easing::Linear});
+    CHECK(out.y.value == 600);
+    CHECK(out.y.keyframes.empty());
+    REQUIRE(out.rotation.keyframes.size() == 2);
+    CHECK(out.rotation.keyframes[0] == Keyframe{10, 15, Easing::CubicIn});
+    CHECK(transformAt(out, 10) == edited);
+}
+
 TEST_CASE("transform: check() refuses sizes, crops and values that make no sense")
 {
     Transform t;

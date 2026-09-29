@@ -31,6 +31,22 @@ double croppedHeight(const Transform &t, int sourceHeight);
 // as the frame's own size) in `profile`'s frame.
 Placement placementFor(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile);
 
+// `t` as it stands `frame` frames into its clip: every animated value eased
+// there (easedValue(), as MLT animates it), its keyframes dropped. A
+// transform without keyframes comes back unchanged.
+Transform transformAt(const Transform &t, FrameIndex frame);
+
+// placementFor() of transformAt(): where the picture is at `frame`.
+Placement placementAt(const Transform &t, FrameIndex frame, int sourceWidth, int sourceHeight, const Profile &profile);
+
+// `t` edited to show `placed`'s values at `frame`, for the preview's handles
+// and the inspector: an animated value gets a keyframe there (replacing one
+// at that frame, keeping its easing; a new one is linear), a static one
+// takes the new value. Bounds and flips, never animated, come from
+// `placed`. `placed` is a static transform, typically transformAt() of `t`
+// with the user's edit applied.
+Transform withTransformAt(const Transform &t, FrameIndex frame, const Transform &placed);
+
 // The same placement as explicit None bounds: what the handles switch to
 // when a Fit or Stretch picture is first moved or scaled.
 Transform explicitTransform(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile);

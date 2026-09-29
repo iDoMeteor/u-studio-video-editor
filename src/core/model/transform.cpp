@@ -1,5 +1,7 @@
 #include "core/model/transform.h"
 
+#include "core/model/animation.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -7,6 +9,11 @@
 namespace ustudio::core {
 
 namespace {
+
+// Transform's animatable values, in declaration order.
+constexpr KeyframedValue Transform::*kValues[] = {&Transform::x,       &Transform::y,         &Transform::width,
+                                                  &Transform::height,  &Transform::rotation,  &Transform::cropLeft,
+                                                  &Transform::cropTop, &Transform::cropRight, &Transform::cropBottom};
 
 double frameAspect(const Profile &profile)
 {
@@ -52,6 +59,47 @@ Placement placementFor(const Transform &t, int sourceWidth, int sourceHeight, co
         break;
     }
     return p;
+}
+
+Transform transformAt(const Transform &t, FrameIndex frame)
+{
+    Transform out = t;
+    for (KeyframedValue Transform::*member : kValues) {
+        KeyframedValue &v = out.*member;
+        if (v.keyframes.empty())
+            continue;
+        v.value = easedValue(v.keyframes, static_cast<double>(frame));
+        v.keyframes.clear();
+    }
+    return out;
+}
+
+Placement placementAt(const Transform &t, FrameIndex frame, int sourceWidth, int sourceHeight, const Profile &profile)
+{
+    return placementFor(transformAt(t, frame), sourceWidth, sourceHeight, profile);
+}
+
+Transform withTransformAt(const Transform &t, FrameIndex frame, const Transform &placed)
+{
+    Transform out = t;
+    out.bounds = placed.bounds;
+    out.flipH = placed.flipH;
+    out.flipV = placed.flipV;
+    for (KeyframedValue Transform::*member : kValues) {
+        KeyframedValue &v = out.*member;
+        const double value = (placed.*member).value;
+        if (v.keyframes.empty()) {
+            v.value = value;
+            continue;
+        }
+        auto at = std::lower_bound(v.keyframes.begin(), v.keyframes.end(), frame,
+                                   [](const Keyframe &k, FrameIndex f) { return k.at < f; });
+        if (at != v.keyframes.end() && at->at == frame)
+            at->value = value;
+        else
+            v.keyframes.insert(at, Keyframe{frame, value, Easing::Linear});
+    }
+    return out;
 }
 
 Transform explicitTransform(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile)
