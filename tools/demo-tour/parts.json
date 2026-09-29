@@ -302,5 +302,21 @@
     "dropins_off": [
       "titles"
     ]
+  },
+  "whats-new-078": {
+    "title": "What's new in 0.78",
+    "subtitle": "Effects, transitions, animated titles, captions and GPU",
+    "narration": "narration/whats-new-078.txt",
+    "script": "(cut from the day's raw recordings by hand)",
+    "chapters": [
+      "Effects",
+      "Before and after",
+      "Transitions",
+      "Animated titles",
+      "Title templates",
+      "Captions",
+      "GPU acceleration"
+    ],
+    "caption_margin_v": 150
   }
 }

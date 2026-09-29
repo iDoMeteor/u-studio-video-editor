@@ -1,0 +1,28 @@
+# What's new in 0.78: a highlight reel for testers. Voice cedar.
+
+## intro
+Here's what's new in U Stu Video Editor zero point seven eight, in under three minutes. Everything you see is in this beta, ready to try.
+
+## Effects
+Effects are here. Select a clip, press E, and just point at a tile to preview it on your own picture. Click to add it.
+
+## Before and after
+Compare splits the picture, before on the left and after on the right, even while it plays.
+
+## Transitions
+Press T at a cut for a transition, and pick a style: dissolves, wipes, slides, and now zoom and spin.
+
+## Animated titles
+Titles can now hold animations, like this star from a Lottie file, and some templates come with a ringing bell.
+
+## Title templates
+The template gallery has lower thirds, badges, cards and countdowns, ready for streams and social posts.
+
+## Captions
+Import subtitle files as captions, fix them in place, and export them again for YouTube.
+
+## GPU acceleration
+And GPU acceleration hands the heavy lifting to your graphics card. On our test laptop, playback went from about twenty to about twenty-six frames a second.
+
+## outro
+Please try them out, and tell us what you find. Copy Diagnostics in Help gathers what a bug report needs. Thanks for testing!
