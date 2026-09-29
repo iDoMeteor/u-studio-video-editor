@@ -94,7 +94,9 @@ ass = ["[Script Info]", "ScriptType: v4.00+", "PlayResX: 1920", "PlayResY: 1080"
        "[V4+ Styles]",
        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
        # ASS colours are &HAABBGGRR; magenta #ff2bd6 -> &H00D62BFF ; box ink #0e0b1a @ ~20% transparent
-       "Style: Title,Space Grotesk,46,&H00D62BFF,&H00FFFFFF,&H330E0B1A,&H330E0B1A,1,0,0,0,100,100,0,0,3,16,0,2,80,80,380,1",
+       # MarginV 380 sits on the preview's lower edge; a part about on-screen
+       # text (captions) moves ours down over the timeline ("caption_margin_v").
+       f"Style: Title,Space Grotesk,46,&H00D62BFF,&H00FFFFFF,&H330E0B1A,&H330E0B1A,1,0,0,0,100,100,0,0,3,16,0,2,80,80,{(part or {}).get('caption_margin_v', 380)},1",
        "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
 for i, (t, title, sub, key) in enumerate(ch):
     if title == '(end)' or not kept(t + 0.2):

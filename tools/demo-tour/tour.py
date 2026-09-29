@@ -86,16 +86,7 @@ def step(title, sub=''):
     last_title = title
     chapter(title, sub)
 
-# TOUR_GPU=0 presets GPU acceleration off in the run's private dconf (dconf
-# honours XDG_CONFIG_HOME, so the owner's settings are untouched).
-OFF = [d for d in os.environ.get('TOUR_DROPINS_OFF', '').split(',') if d]
-if OFF:
-    subprocess.run(['dconf', 'write', '/com/ustudio/VideoEditor/disabled-drop-ins', str(OFF)], check=True)
-    T.log(f'drop-ins off: {OFF}')
-if os.environ.get('TOUR_GPU', '1') == '0':
-    subprocess.run(['dconf', 'write', '/com/ustudio/VideoEditor/gpu-acceleration', 'false'], check=True)
-    T.log('GPU acceleration preset off')
-launch(); inspector(False)
+launch(); inspector(False)   # launch() applies TOUR_GPU / TOUR_DROPINS_OFF first
 step('U Stu Video Editor', 'a GNOME-native multi-track video editor')
 pause(3)
 

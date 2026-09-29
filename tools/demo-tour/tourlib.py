@@ -48,8 +48,27 @@ def pause(s):
     time.sleep(s)
 
 # ---------- app lifecycle
+_presets_done = False
+
+def presets():
+    """Settings a run starts with, in its private dconf (dconf honours
+    XDG_CONFIG_HOME, so the owner's settings are untouched): TOUR_GPU=0 turns
+    GPU acceleration off, TOUR_DROPINS_OFF=effects,titles disables drop-ins."""
+    global _presets_done
+    if _presets_done:
+        return
+    _presets_done = True
+    off = [d for d in os.environ.get('TOUR_DROPINS_OFF', '').split(',') if d]
+    if off:
+        subprocess.run(['dconf', 'write', '/com/ustudio/VideoEditor/disabled-drop-ins', str(off)], check=True)
+        log(f'drop-ins off: {off}')
+    if os.environ.get('TOUR_GPU', '1') == '0':
+        subprocess.run(['dconf', 'write', '/com/ustudio/VideoEditor/gpu-acceleration', 'false'], check=True)
+        log('GPU acceleration preset off')
+
 def launch(extra_env=None):
     global proc
+    presets()
     env = dict(os.environ)
     env.update(extra_env or {})
     proc = subprocess.Popen([BIN], env=env, stdout=open(os.path.join(OUT, 'app.stdout'), 'a'),

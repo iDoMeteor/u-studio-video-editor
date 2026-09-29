@@ -135,6 +135,7 @@
     ],
     "dropins_off": [
       "effects"
-    ]
+    ],
+    "caption_margin_v": 150
   }
 }

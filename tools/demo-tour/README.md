@@ -102,5 +102,6 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | relink | Missing media and relink; proxies | |
 | transitions | Dissolves | |
 | settings-help | Settings, shortcuts, Help, diagnostics | |
+| captions | Import SRT/VTT, colours and top placement, fix a line, export | 2026-09-29 (0.78.0-beta.1, file -2) |
 | gpu | GPU acceleration (after VE GPU's fix; maybe on the real desktop) | |
 | effects | Effects (after FX2) | |

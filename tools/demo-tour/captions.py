@@ -52,7 +52,7 @@ def step(title, sub=''):
 os.makedirs(WORK, exist_ok=True)
 SRT = os.path.join(WORK, 'unicorn-dj.srt')
 cues = [
-    (1.0, 4.0, 'Far from the city lights,\na lonely unicorn plays for nobody.'),
+    (1.0, 4.0, 'Far from the city lights, a lonley unicorn plays for nobody.'),   # the typo is fixed on screen
     (4.5, 7.5, 'Every night, the same <font color="cyan">neon dream</font>.'),
     (8.0, 11.0, '<i>What if somebody is listening?</i>'),
     (11.5, 14.5, '{\\an8}♪ soft house music ♪'),
@@ -81,10 +81,24 @@ click(1800, 752 + 38); pause(0.6)             # the Captions track (top row) bec
 act('seek-home'); act('select-next-clip'); T.log(f"select caption: {status()!r}")
 act('zoom-in', 5, gap=0.25); pause(1)
 inspector(True); pause(1.2)
-dump('cap-inspector'); snap('cap-inspector')
+field = find('caption', roles=('text',), exact=True, timeout=3)
+if field:
+    click(*centre_of(field)); pause(0.4); keysym(ord('a'), mods=('ctrl',)); pause(0.3)
+    typestr('Far from the city lights, a lonely unicorn plays for nobody.'); pause(1.5)
+dump('cap-inspector'); snap('cap-fixed')
+act('seek-home'); act('play-pause'); pause(2.6); act('play-pause'); pause(1.2); snap('cap-fixed-preview')   # the fixed line on screen
 
 step('Export captions', 'Export Captions… writes every caption, fixes included, as .srt or .vtt')
-act('titles-export-captions'); center_dialogs(1.2); snap('cap-export'); dump('cap-export')
-keysym(K_ESC); pause(1)
+press('Export Captions…'); center_dialogs(1.2); snap('cap-export'); dump('cap-export')
+VTT = os.path.join(WORK, 'unicorn-dj-fixed.vtt')
+for n in walk(app_node()):
+    nm, ds, rl = info(n)
+    if rl in ('text', 'entry') and nm.startswith('Name'):
+        n.get_editable_text_iface().set_text_contents(VTT); break
+pause(1.2); press('Save', exact=True); pause(2)
+T.log(f"export status {status()!r}; exists {os.path.exists(VTT)}")
+if os.path.exists(VTT):
+    T.log('vtt head: ' + open(VTT, encoding='utf-8').read()[:200].replace('\n', ' | '))
+snap('cap-exported')
 
 step('(done)', '')
