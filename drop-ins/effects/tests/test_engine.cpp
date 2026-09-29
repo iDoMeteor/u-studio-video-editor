@@ -859,4 +859,98 @@ TEST_CASE("An adjustment block affects exactly its range, fades in, and plays th
     // At 125, 5 frames into a 30-frame fade: a sixth of half the effect.
     CHECK(near(redAt(sync.tractor(), 125), kGrey - kGrey / 12));
     CHECK(near(redAt(sync.tractor(), 155), kGrey / 2)); // past the fade
+
+    // The first fade on a fadeless block, and the last one removed, change
+    // its effects' filters (a plain filter against the mix wrap): rebuilds,
+    // with the right picture each time (VE Core's case).
+    REQUIRE(undo.execute(std::make_unique<SetAdjustmentBlockFades>(id, std::nullopt, std::nullopt)));
+    sync.setProject(t.model.snapshot());
+    REQUIRE(undo.execute(std::make_unique<SetParam>(effect, Param{"level", 0.0, {}}, 3)));
+    sync.setProject(t.model.snapshot());
+    const int before = rebuilds;
+    CHECK(redAt(sync.tractor(), 125) < 8); // no fade: black from the block's start
+    REQUIRE(undo.execute(std::make_unique<SetAdjustmentBlockFades>(id, FadeSpec{10}, std::nullopt)));
+    sync.setProject(t.model.snapshot());
+    CHECK(rebuilds == before + 1);
+    CHECK(near(redAt(sync.tractor(), 125), kGrey / 2));
+    REQUIRE(undo.execute(std::make_unique<SetAdjustmentBlockFades>(id, std::nullopt, std::nullopt)));
+    sync.setProject(t.model.snapshot());
+    CHECK(rebuilds == before + 2);
+    CHECK(redAt(sync.tractor(), 125) < 8);
+}
+
+namespace {
+
+// A whole frame, hashed (FNV-1a over its RGBA at the profile's size).
+uint64_t frameHash(Mlt::Producer &producer, int position, int width, int height)
+{
+    producer.seek(position);
+    std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+    mlt_image_format format = mlt_image_rgba;
+    int w = width, h = height;
+    const uint8_t *image = frame->get_image(format, w, h);
+    uint64_t hash = 1469598103934665603ull;
+    for (size_t i = 0; i < static_cast<size_t>(w) * static_cast<size_t>(h) * 4; ++i)
+        hash = (hash ^ image[i]) * 1099511628211ull;
+    return hash;
+}
+
+} // namespace
+
+// M5's gate (doc 12): a keyframed effect (a keyframed transform isn't in
+// the model yet: ADR-018's transforms are single values), a masked effect,
+// a dissolve with effects on both sides and an adjustment block give the
+// same frames in the preview's graph and the export's (renderProject()
+// builds its own EngineSync at full size), hash for hash; melt plays the
+// saved project within rounding. (Exports are H.264 until M6, so the
+// encoded file can't be compared hash for hash.)
+TEST_CASE("M5 gate: preview and export give the same frames for effects, masks, a dissolve and a block")
+{
+    setUp();
+    Timeline t; // a [0, 100) and b [100, 200), a 10-frame dissolve across 100
+    t.addBrightness(Model::EffectTarget::clip(t.a), 1.0, {{0, 0.4, Easing::CubicInOut}, {104, 1.6, Easing::Linear}});
+    const EffectId masked = t.addBrightness(Model::EffectTarget::clip(t.b), 0.3);
+    EffectMask mask;
+    mask.shape = "ellipse";
+    mask.params = {{"x", 0.4, {}}, {"y", 0.5, {}}, {"width", 0.5, {}}, {"height", 0.6, {}}};
+    mask.feather = {0.1, {}};
+    t.model.setEffectMask(masked, mask);
+    AdjustmentBlock block;
+    block.start = 60;
+    block.length = 80; // across the dissolve
+    block.fadeIn = FadeSpec{15};
+    block.fadeOut = FadeSpec{15};
+    Effect grade;
+    grade.service = "brightness";
+    grade.owner = kOwner;
+    grade.params = {{"level", 1.3, {}}, {"rgb_only", true, {}}};
+    block.effects = {grade};
+    t.model.addAdjustmentBlock(block);
+    REQUIRE(t.model.check().empty());
+
+    engine::EngineSync preview(t.model, engine::PreviewScale::Full, engine::EngineSync::FrameReads::ProfileSize);
+    engine::EngineSync render(t.model, engine::PreviewScale::Full, engine::EngineSync::FrameReads::ProfileSize);
+    CHECK(preview.verify().empty());
+    const int w = preview.profile().width(), h = preview.profile().height();
+    const fs::path path = scratch() / "m5-gate.ustudio";
+    REQUIRE(saveProject(t.model, utf8String(path)).empty());
+    Mlt::Producer melt(preview.profile(), ("xml:" + utf8String(path)).c_str());
+    REQUIRE(melt.is_valid());
+    for (int frame : {0, 50, 65, 94, 97, 100, 103, 110, 130, 150, 190}) {
+        INFO("frame " << frame);
+        CHECK(frameHash(preview.tractor(), frame, w, h) == frameHash(render.tractor(), frame, w, h));
+        // Both read at the profile's size, as the preview's graph is read.
+        auto red = [&](Mlt::Producer &producer, double u, double v) {
+            producer.seek(frame);
+            std::unique_ptr<Mlt::Frame> f(producer.get_frame());
+            mlt_image_format format = mlt_image_rgba;
+            int fw = w, fh = h;
+            const uint8_t *image = f->get_image(format, fw, fh);
+            return static_cast<int>(image[(static_cast<size_t>(v * fh) * static_cast<size_t>(fw) +
+                                           static_cast<size_t>(u * fw)) * 4]);
+        };
+        INFO("melt " << red(melt, 0.4, 0.5) << " preview " << red(preview.tractor(), 0.4, 0.5));
+        CHECK(near(red(melt, 0.4, 0.5), red(preview.tractor(), 0.4, 0.5), 3));
+        CHECK(near(red(melt, 0.9, 0.1), red(preview.tractor(), 0.9, 0.1), 3));
+    }
 }

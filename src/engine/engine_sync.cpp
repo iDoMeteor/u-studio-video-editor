@@ -776,13 +776,14 @@ bool EngineSync::applyInPlace(const core::Project &next)
     core::Project after = next;
     std::unordered_map<uint64_t, const core::AdjustmentBlock *> blockOf; // effect id -> its block, as it is now
     std::unordered_set<uint64_t> refaded;                               // effects whose block's fades changed
+    std::unordered_map<uint64_t, const core::AdjustmentBlock *> oldBlocks;
+    for (const core::Sequence &was : m_project->sequences)
+        for (const core::AdjustmentBlock &block : was.adjustmentBlocks)
+            oldBlocks[block.id.value] = &block;
     for (const core::Sequence &seq : next.sequences)
         for (const core::AdjustmentBlock &block : seq.adjustmentBlocks) {
-            const core::AdjustmentBlock *old = nullptr;
-            for (const core::Sequence &was : m_project->sequences)
-                for (const core::AdjustmentBlock &candidate : was.adjustmentBlocks)
-                    if (candidate.id == block.id)
-                        old = &candidate;
+            auto found = oldBlocks.find(block.id.value);
+            const core::AdjustmentBlock *old = found == oldBlocks.end() ? nullptr : found->second;
             for (const core::Effect &effect : block.effects) {
                 blockOf[effect.id.value] = &block;
                 if (old && (old->fadeIn != block.fadeIn || old->fadeOut != block.fadeOut))
