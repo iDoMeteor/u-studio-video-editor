@@ -4,6 +4,15 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.77.0-beta.1
+
+- Effects (the Effects add-on): adjustment blocks on an FX lane above the
+  tracks (effects over a stretch of time on the tracks beneath, with
+  fades), curve lanes under a clip (C), touch-record, masks (rectangle or
+  ellipse, soft edge, invert), an eyedropper and rectangles you drag on the
+  picture, a LUT library for .cube files, and LADSPA audio plugins (VST2 and
+  OpenFX behind a choice). OpenFX plugins can no longer load unasked.
+
 ## 0.76.0-beta.1
 
 - Titles: animated layers. Add a Lottie animation (a logo sting, a
