@@ -272,5 +272,35 @@
     "dropins_off": [
       "titles"
     ]
+  },
+  "titles-4": {
+    "title": "Titles 4",
+    "subtitle": "Animated layers: Lottie animations inside a title",
+    "narration": "narration/titles-4.txt",
+    "script": "animated.py",
+    "chapters": [
+      "Animated templates",
+      "Add an animation",
+      "Plays and Speed",
+      "In the editor"
+    ],
+    "dropins_off": [
+      "effects"
+    ]
+  },
+  "transitions-2": {
+    "title": "Transitions 2",
+    "subtitle": "Zoom, spin, tiles with your clips, and equal-power sound",
+    "narration": "narration/transitions-2.txt",
+    "script": "transitions2.py",
+    "chapters": [
+      "Your own clips on the tiles",
+      "Zoom",
+      "Spin",
+      "Sound: equal power"
+    ],
+    "dropins_off": [
+      "titles"
+    ]
   }
 }

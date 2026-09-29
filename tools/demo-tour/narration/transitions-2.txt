@@ -1,0 +1,19 @@
+# Transitions 2: tiles with your clips, zoom, spin, and the sound's crossfade. Voice cedar.
+
+## intro
+There's more to transitions in version zero point seven nine: new zoom and spin styles, tiles that show your own footage, and a better crossfade for music.
+
+## Your own clips on the tiles
+Press T at a cut, and the Transitions page opens. Every tile now shows your own two clips, half-way through that style, so you can see what you'll get before you click.
+
+## Zoom
+Zoom In grows the next clip in from the middle.
+
+## Spin
+And Spin In turns it as it grows, clockwise or the other way.
+
+## Sound: equal power
+The sound crosses too. Even crossfade is the default; Equal power keeps the level up through the middle, which sounds better for music and ambience. It stays when you change the style.
+
+## outro
+That's what's new in transitions. Thanks for watching!

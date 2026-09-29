@@ -1,0 +1,19 @@
+# Titles 4: animated layers. Voice cedar.
+
+## intro
+Titles can hold ready-made animations too: a logo sting, a sticker, or an icon that moves. In this video, we'll add one.
+
+## Animated templates
+Two built-in templates show how it looks: this lower third has a bell that rings every few seconds. The bell is an animated layer inside the title.
+
+## Add an animation
+To add your own, open the plus menu and choose Animation, then pick a Lottie file, the kind LottieFiles and After Effects export. It lands in the middle, and you move and size it like a picture. It stays sharp at any size.
+
+## Plays and Speed
+In the inspector, Plays repeats the animation over and over, or plays it once and holds the last frame. And Speed makes it faster or slower.
+
+## In the editor
+Save, and the editor plays the animation too, exactly as the designer does, and so does your export.
+
+## outro
+That's animated layers in U Stu Titles. Thanks for watching!
