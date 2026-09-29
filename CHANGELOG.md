@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.78.5-beta.1
+
+- Dragging a picture in the preview is smoother: audio waveforms on the
+  timeline are no longer redrawn from scratch on every step.
+
 ## 0.78.4-beta.1
 
 - With GPU acceleration on, a flipped clip now shows mirrored in place; before, a cropped or rotated flipped clip could come out turned and smeared, or slide out of its box.
