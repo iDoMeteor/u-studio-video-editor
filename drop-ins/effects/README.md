@@ -32,7 +32,7 @@ There's no UI yet: the Rack and Browser are FX2, and the build option stays
 | `core/` | `EffectDescriptor` and normalisation (every family's parameters to one set of kinds), curated overlays, the effect commands (add, remove, reorder, bypass, set parameter, set mix; gestures merge), probe results and `effect-health.json`, a small JSON reader and writer | std, `src/core` (never GTK, GLib or MLT: checked by the build) |
 | `engine/` | `EffectRegistry` (every MLT filter, from `Mlt::Repository` metadata), frei0r discovery and curation (IP4), `EffectsExtension` (IP3), `u-studio-render --probe-effect` and `--effects-registry` (IP6), and `FrameRenderer` (a clip's frame through a stack, on a thread of its own with throwaway producers: the Browser's tiles and audition, never the live graph) | `src/engine`, mlt++, GLib |
 | `app/` | The Effect Rack, the Browser and the Transitions page (inspector pages, IP5; the page also outlines its transition on the timeline and claims a double-click on one), the catalog they read (registry and health), and the editor's background health scan (the registry and one probe child per effect, featured first) | GTK, GIO, `engine/` headers without MLT; never MLT (checked by the build) |
-| `data/overlays/` | Curated names, categories, featured flags, defaults MLT doesn't give, hidden plumbing, known-unstable plugins, one JSON file per family | — |
+| `data/overlays/` | Curated names, categories, featured flags, defaults MLT doesn't give, parameter kinds and file extensions (`lut3d`'s `.cube`), hidden plumbing, known-unstable plugins, one JSON file per family | — |
 | `data/transitions/` | Transition recipes (dissolves, dips, flashes, slides, pushes, 20 wipes): each a name and the `Transition::params` it resolves into (`src/core/model/transition_native.h` says what they mean; the wipe maps are generated there) | — |
 | `data/looks/` | Brand Looks (`brand.json`): stacks of filters with settings, no LUT files (a LUT library is FX5's) | — |
 | `register.cpp` | The drop-in's describe function and its integration points | the drop-in host API |
@@ -89,6 +89,15 @@ the GPU engine's help: until then they're for the CPU pipeline only.
   The frei0r module's data (`blacklist.txt`, `not_thread_safe.txt`,
   `resolution_scale.yml`, ...) is read from `MLT_DATA/frei0r/`, which the
   core package ships.
+- **LADSPA and VST2.** MLT's jackrack host opens every `.so` under
+  `LADSPA_PATH` and `VST_PATH` (recursively) when the factory starts, and
+  those variables replace its built-in folders, so `contributeFactoryPaths()`
+  sets them like `FREI0R_PATH`: the system folders as they are, or a private
+  folder of links to the files that don't name Qt. VST2 gets a folder that
+  isn't there unless chosen (`$XDG_CONFIG_HOME/ustudio/effects.ini`,
+  `[experimental] vst2`), as does OpenFX (lifted in FactoryPolicy by the
+  drop-in; MLT's openfx module always scans `/usr/OFX/Plugins` and
+  `/usr/local/OFX/Plugins`, so it's denied by default).
 - **The scan.** Once the window exists, on a thread of its own (forking a
   child from the editor blocks for tens of milliseconds), the editor gets
   the registry from

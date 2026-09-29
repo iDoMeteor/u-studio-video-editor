@@ -176,6 +176,36 @@ bool SetMix::isNoOp() const
     return m_old == m_mix;
 }
 
+bool SetEffectMask::apply(core::Model &model)
+{
+    if (!model.hasEffect(m_id))
+        return false;
+    if (m_mask && m_mask->shape != "rectangle" && m_mask->shape != "ellipse")
+        return false;
+    m_old = model.effect(m_id).mask;
+    model.setEffectMask(m_id, m_mask);
+    return true;
+}
+
+void SetEffectMask::revert(core::Model &model)
+{
+    model.setEffectMask(m_id, m_old);
+}
+
+bool SetEffectMask::mergeWith(const core::Command &next)
+{
+    const auto *other = dynamic_cast<const SetEffectMask *>(&next);
+    if (!other || m_gesture == 0 || other->m_gesture != m_gesture || other->m_id != m_id)
+        return false;
+    m_mask = other->m_mask;
+    return true;
+}
+
+bool SetEffectMask::isNoOp() const
+{
+    return m_mask == m_old;
+}
+
 std::unique_ptr<core::Command> pasteEffects(const core::Model &model, const std::vector<Target> &targets,
                                             const std::vector<core::Effect> &effects, PasteMode mode, std::string label)
 {

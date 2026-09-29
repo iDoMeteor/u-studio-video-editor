@@ -53,7 +53,9 @@ asan *tests:
     wanted="{{tests}}"
     [ -n "$wanted" ] || wanted=$(meson test -C builddir-asan --list 2>/dev/null | sed 's/^[^:]*://')
     gpu=(); rest=()
-    for t in $wanted; do case "$t" in *gpu*) gpu+=("$t") ;; *) rest+=("$t") ;; esac; done
+    # With movit preloaded: every test that starts a GPU session (its
+    # glsl.manager is only suppressible by name then), not just *gpu* names.
+    for t in $wanted; do case "$t" in *gpu*|dropin-engine|engine-hardware-decode) gpu+=("$t") ;; *) rest+=("$t") ;; esac; done
     run() { # preload, tests...
         local preload=$1; shift
         LD_PRELOAD="$preload" \

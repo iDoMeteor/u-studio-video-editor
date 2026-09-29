@@ -19,8 +19,10 @@ struct FactoryPaths;
 // 5: addShellExtension (IP5); 6: ShellHost::assetChangedOnDisk (IP5);
 // 7: ShellHost::projectFolder (IP5); 8: ShellHost::addHeaderButton (IP5);
 // 9: ShellHost::seek and playheadMoved (IP5); 10: ShellHost::showInspectorPage (IP5);
-// 11: EngineExtension::decorateLane (IP3)
-#define DROPIN_API_VERSION 11
+// 11: EngineExtension::decorateLane (IP3);
+// 12: TimelineOverlayProvider::topLaneHeight, dragged and dragCancelled (IP5);
+// 13: ParamChange::block (IP3); 14: FactoryPaths::allowModules (IP4)
+#define DROPIN_API_VERSION 14
 
 extern "C" {
 

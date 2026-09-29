@@ -316,14 +316,31 @@ and inspector keyframes, FX3 transitions library, FX4 curve lanes, FX lane
 and on-preview handles, FX5 optional plugin families.
 
 Acceptance (milestone gate):
-- [ ] Every installed frei0r service is usable or quarantined with a
+- [x] Every installed frei0r service is usable or quarantined with a
       reason; none can crash the editor (ADR-011).
 - [ ] Keyframed transform, masked effects, a dissolve with effects on both
       sides and an adjustment block render identically in preview and in
       `u-studio-render` output (frame hashes on a synthetic project).
-- [ ] Dissolves and wipes survive move/trim of either clip and undo/redo
+- [x] Dissolves and wipes survive move/trim of either clip and undo/redo
       (verifier + XML round-trip), and `melt` plays them.
-- [ ] Dragging any parameter does not restart the playback consumer.
+- [x] Dragging any parameter does not restart the playback consumer.
+
+> REVIEW: VE Effects, 2026-09-29 (0.77.0-beta.1). Box 1: the health scan
+> probes every effect in a child and quarantines what crashes, hangs or
+> spoils the picture, with the reason (`effects-scan`, the drop-in's
+> test_engine). Box 3: `engine-xml-playback` "M5 gate: a wipe and a dip
+> survive moves, trims, undo and redo". Box 4: effect values, masks,
+> transition recipe values and block values and fades apply in place
+> (tests in `effects-engine` and `engine-sync`; transforms were already, ADR-
+> 018); moving or resizing a block or clip is an edit, not a parameter, and
+> rebuilds. Box 2 stays open, for two reasons: a clip's transform can't be
+> keyframed yet (ADR-018's values are single), and exports are H.264 until
+> M6, so the encoded file can't match hash for hash. What is proven: the
+> drop-in's test_engine "M5 gate: preview and export give the same frames"
+> (a keyframed effect, an ellipse mask, a dissolve with effects on both
+> clips, a faded block) gives identical whole-frame hashes from the
+> preview's graph and the export's, and `melt` matches within rounding.
+> It closes with keyframed transforms and a lossless export (M6).
 
 ## Titles track (parallel to M3–M5)
 

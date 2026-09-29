@@ -17,6 +17,7 @@ extern "C" {
 
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
 #include <string>
 
 using namespace ustudio::engine;
@@ -100,4 +101,18 @@ TEST_CASE("FactoryPolicy: no Qt loaded, required services still present")
     for (const char *name : {"affine", "crop", "mirror", "volume", "deinterlace"})
         CHECK_MESSAGE(hasService(filters, name), "missing required filter: " << std::string(name));
     delete filters;
+}
+
+// FX5: a drop-in may lift a default-denied module (the effects drop-in's
+// OpenFX opt-in lifts "openfx"), never a Qt one.
+TEST_CASE("FactoryPolicy: a drop-in lifts a denied module, never a Qt one")
+{
+    const std::vector<std::string> none = effectiveDenylist({});
+    CHECK(std::find(none.begin(), none.end(), "openfx") != none.end());
+    const std::vector<std::string> lifted = effectiveDenylist({"openfx"});
+    CHECK(std::find(lifted.begin(), lifted.end(), "openfx") == lifted.end());
+    CHECK(std::find(lifted.begin(), lifted.end(), "qt6") != lifted.end());
+    const std::vector<std::string> qt = effectiveDenylist({"qt6", "glaxnimate-qt6"});
+    CHECK(std::find(qt.begin(), qt.end(), "qt6") != qt.end());
+    CHECK(std::find(qt.begin(), qt.end(), "glaxnimate-qt6") != qt.end());
 }

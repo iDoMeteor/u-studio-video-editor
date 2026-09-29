@@ -24,6 +24,7 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <map>
 #include <system_error>
 #include <thread>
 #include <variant>
@@ -329,6 +330,11 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
     // ADR-018: a drag changes only clip transforms; they're set on the live
     // filters, so the consumer never restarts.
     if (rebuild && applyTransformsInPlace(*project)) {
+        rebuild = false;
+        inPlace = true;
+    }
+    // Likewise a transition recipe's values (a wipe's softness).
+    if (rebuild && applyTransitionsInPlace(*project)) {
         rebuild = false;
         inPlace = true;
     }
@@ -762,15 +768,43 @@ template <class Visit> void forEachEffect(core::Project &project, const Visit &v
 bool EngineSync::applyInPlace(const core::Project &next)
 {
     // Only effect values may differ: the same graph input with every
-    // parameter value and mix blanked out on both sides.
+    // parameter value, mix and mask value blanked out on both sides (a
+    // mask's geometry, soft edge and invert are values of the same filters;
+    // adding or removing a mask, or changing its shape, rebuilds). An
+    // adjustment block's fades are values too: they shape its effects' mix
+    // (core::blockEffects()), so a fade drag changes each of its effects.
     core::Project before = *m_project;
     core::Project after = next;
+    std::unordered_map<uint64_t, const core::AdjustmentBlock *> blockOf; // effect id -> its block, as it is now
+    std::unordered_set<uint64_t> refaded;                               // effects whose block's fades changed
+    std::unordered_map<uint64_t, const core::AdjustmentBlock *> oldBlocks;
+    for (const core::Sequence &was : m_project->sequences)
+        for (const core::AdjustmentBlock &block : was.adjustmentBlocks)
+            oldBlocks[block.id.value] = &block;
+    for (const core::Sequence &seq : next.sequences)
+        for (const core::AdjustmentBlock &block : seq.adjustmentBlocks) {
+            auto found = oldBlocks.find(block.id.value);
+            const core::AdjustmentBlock *old = found == oldBlocks.end() ? nullptr : found->second;
+            for (const core::Effect &effect : block.effects) {
+                blockOf[effect.id.value] = &block;
+                if (old && (old->fadeIn != block.fadeIn || old->fadeOut != block.fadeOut))
+                    refaded.insert(effect.id.value);
+            }
+        }
+    for (core::Project *project : {&before, &after})
+        for (core::Sequence &seq : project->sequences)
+            for (core::AdjustmentBlock &block : seq.adjustmentBlocks) {
+                block.fadeIn.reset();
+                block.fadeOut.reset();
+            }
     std::unordered_map<uint64_t, core::Effect> oldEffects;
     forEachEffect(before, [&](core::Effect &effect) { oldEffects.emplace(effect.id.value, effect); });
     std::vector<core::Effect> changed;
     forEachEffect(after, [&](core::Effect &effect) {
         auto it = oldEffects.find(effect.id.value);
-        if (it != oldEffects.end() && (it->second.params != effect.params || it->second.mix != effect.mix))
+        if (it != oldEffects.end() &&
+            (it->second.params != effect.params || it->second.mix != effect.mix || it->second.mask != effect.mask ||
+             refaded.contains(effect.id.value)))
             changed.push_back(effect);
     });
     auto blank = [](core::Effect &effect) {
@@ -779,6 +813,10 @@ bool EngineSync::applyInPlace(const core::Project &next)
             param.keyframes.clear();
         }
         effect.mix = {};
+        // The shape stays: it chooses the filters (Model::check() allows
+        // only the ones nativeFilters() draws), so a change of it rebuilds.
+        if (effect.mask)
+            effect.mask = core::EffectMask{effect.mask->shape, {}, {}, false};
     };
     forEachEffect(before, blank);
     forEachEffect(after, blank);
@@ -793,6 +831,13 @@ bool EngineSync::applyInPlace(const core::Project &next)
                 change.params.push_back(effect.params[i].name);
         if (effect.mix != old.mix)
             change.params.push_back("mix");
+        if (effect.mask != old.mask)
+            change.params.push_back("mask");
+        if (refaded.contains(effect.id.value) && std::find(change.params.begin(), change.params.end(), "mix") ==
+                                                     change.params.end())
+            change.params.push_back("mix");
+        if (auto block = blockOf.find(effect.id.value); block != blockOf.end())
+            change.block = block->second;
         bool applied = false;
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
             applied = extension->applyInPlace(change) || applied;
@@ -963,6 +1008,80 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
     return changed;
 }
 
+EngineSync::TransitionPlan EngineSync::planTransition(const core::Transition &t)
+{
+    TransitionPlan plan;
+    plan.native = core::nativeTransition(t);
+    const core::NativeTransition &native = plan.native;
+    // A wipe's map; none for a dissolve, a dip or an unknown map name
+    // (which then plays as the dissolve).
+    plan.map = native.luma.empty() || native.video.service != "luma" ? std::string() : lumaMapFile(native.luma);
+    plan.gpuDissolve = m_pipeline == Pipeline::Gpu && native.video.service == "luma" && plan.map.empty();
+    // What the services are: equal shapes differ only in values.
+    plan.shape = std::string(plan.gpuDissolve ? "gpu;" : "") + native.video.service + "|" + plan.map + "|" +
+                 native.audio.service + "|";
+    for (const auto *filters : {&native.tailFilters, &native.headFilters}) {
+        for (const core::NativeFilter &filter : *filters)
+            plan.shape += filter.service + ";";
+        plan.shape += "|";
+    }
+    return plan;
+}
+
+bool EngineSync::applyTransitionsInPlace(const core::Project &next)
+{
+    // Only transition recipe values may differ: the same graph input with
+    // every transition's params blanked on both sides.
+    auto blank = [](core::Project project) {
+        for (core::Sequence &seq : project.sequences)
+            for (core::Transition &t : seq.transitions)
+                t.params.clear();
+        return project;
+    };
+    if (!sameGraphInput(blank(*m_project), blank(next)))
+        return false;
+    const core::Sequence *seq = nullptr;
+    for (const core::Sequence &candidate : next.sequences)
+        if (candidate.id == next.activeSequence)
+            seq = &candidate;
+    if (!seq)
+        return false;
+    // Each changed transition's new plan must have its live shape (the same
+    // services, the same map); then its values are set on them.
+    std::vector<std::pair<const LiveTransition *, TransitionPlan>> updates;
+    for (const core::Transition &t : seq->transitions) {
+        if (!m_model.hasTransition(t.id) || m_model.transition(t.id).params == t.params)
+            continue;
+        auto live = m_liveTransitions.find(t.id.value);
+        if (live == m_liveTransitions.end())
+            return false; // built by an extension, or not in the graph
+        TransitionPlan plan = planTransition(t);
+        if (plan.shape != live->second.shape)
+            return false;
+        updates.emplace_back(&live->second, std::move(plan));
+    }
+    if (updates.empty())
+        return false;
+    for (const auto &[live, plan] : updates) {
+        if (!plan.gpuDissolve && live->video)
+            for (const auto &[name, value] : plan.native.video.properties)
+                live->video->set(name.c_str(), value.c_str());
+        if (live->audio)
+            for (const auto &[name, value] : plan.native.audio.properties)
+                live->audio->set(name.c_str(), value.c_str());
+        size_t i = 0;
+        for (const auto *filters : {&plan.native.tailFilters, &plan.native.headFilters})
+            for (const core::NativeFilter &filter : *filters) {
+                if (i < live->filters.size())
+                    for (const auto &[name, value] : filter.properties)
+                        live->filters[i]->set(name.c_str(), value.c_str());
+                ++i;
+            }
+    }
+    Log::debug("[engine] " + std::to_string(updates.size()) + " transition value change(s) applied in place");
+    return true;
+}
+
 void EngineSync::decorateCut(Mlt::Producer &cut, const core::Clip &clip, core::FrameIndex in, core::FrameIndex out)
 {
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
@@ -1026,23 +1145,26 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // The transition's recipe (core/model/transition_native.h): the plain
     // dissolve for empty params, a wipe, a dip or a flash otherwise.
     // Model::check() has already refused any service outside its allowlist.
-    const core::NativeTransition native = core::nativeTransition(t);
+    const TransitionPlan plan = planTransition(t);
+    const core::NativeTransition &native = plan.native;
+    // Kept, with the plan's shape, so a value-only change (a softness drag)
+    // is set on them in place (applyTransitionsInPlace()).
+    LiveTransition &live = m_liveTransitions[t.id.value];
+    live = LiveTransition{plan.shape, {}, {}, {}};
     for (const auto &[filters, cut] : {std::pair{&native.tailFilters, tailA.get()}, {&native.headFilters, headB.get()}})
         for (const core::NativeFilter &spec : *filters) {
-            Mlt::Filter filter(*m_profile, spec.service.c_str());
-            if (!filter.is_valid()) {
+            auto filter = std::make_shared<Mlt::Filter>(*m_profile, spec.service.c_str());
+            if (!filter->is_valid()) {
                 Log::warn("[engine] transition filter unavailable: " + spec.service);
+                live.shape = kMixedShape; // never updated in place
                 continue;
             }
             for (const auto &[name, value] : spec.properties)
-                filter.set(name.c_str(), value.c_str());
-            attachToCut(*cut, filter);
+                filter->set(name.c_str(), value.c_str());
+            attachToCut(*cut, *filter);
+            live.filters.push_back(std::move(filter));
         }
-
-    // A wipe's map; none for a dissolve, a dip or an unknown map name
-    // (which then plays as the dissolve).
-    const std::string map =
-        native.luma.empty() || native.video.service != "luma" ? std::string() : lumaMapFile(native.luma);
+    const std::string &map = plan.map;
     // The GPU graph dissolves (and dips, whose brightness filters sit on the
     // cuts) with movit.luma_mix, a plain mix without a luma `resource`
     // (transition_movit_luma.yml). A wipe there stays the CPU `luma`, an
@@ -1052,15 +1174,17 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // plays exactly the CPU's wipe (edge within ~9 px at 1080p) at about
     // 140 ms a frame at Full. Keep the maps .pgm: another image format goes
     // through the default loader, the gap on a live GPU session.
-    const bool gpuDissolve = m_pipeline == Pipeline::Gpu && native.video.service == "luma" && map.empty();
-    Mlt::Transition luma(*m_profile, gpuDissolve ? "movit.luma_mix" : native.video.service.c_str());
+    const bool gpuDissolve = plan.gpuDissolve;
+    auto luma = std::make_shared<Mlt::Transition>(*m_profile,
+                                                  gpuDissolve ? "movit.luma_mix" : native.video.service.c_str());
     if (!gpuDissolve)
         for (const auto &[name, value] : native.video.properties)
-            luma.set(name.c_str(), value.c_str());
+            luma->set(name.c_str(), value.c_str());
     if (!map.empty())
-        luma.set("resource", map.c_str());
-    luma.set_in_and_out(0, static_cast<int>(t.length - 1));
-    field->plant_transition(luma, 0, 1);
+        luma->set("resource", map.c_str());
+    luma->set_in_and_out(0, static_cast<int>(t.length - 1));
+    field->plant_transition(*luma, 0, 1);
+    live.video = luma;
 
     // start=-1 ("automatic linear crossfade from 0 to 1", per the mix
     // module's own YAML) is the crossfade mode, NOT the sum=1/
@@ -1074,11 +1198,12 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // wasn't discriminating enough to prove it either way) -- flagged
     // here rather than claimed as verified. nativeTransition() supplies
     // start=-1 unless a recipe sets its own audio.
-    Mlt::Transition mix(*m_profile, native.audio.service.c_str());
+    auto mix = std::make_shared<Mlt::Transition>(*m_profile, native.audio.service.c_str());
     for (const auto &[name, value] : native.audio.properties)
-        mix.set(name.c_str(), value.c_str());
-    mix.set_in_and_out(0, static_cast<int>(t.length - 1));
-    field->plant_transition(mix, 0, 1);
+        mix->set(name.c_str(), value.c_str());
+    mix->set_in_and_out(0, static_cast<int>(t.length - 1));
+    field->plant_transition(*mix, 0, 1);
+    live.audio = mix;
 
     sub->refresh();
     if (pairAlpha)
@@ -1186,10 +1311,10 @@ void EngineSync::rebuildAll()
     m_clipProducers.clear();
     m_extensionProducers.clear();
     m_transformFilters.clear();
+    m_liveTransitions.clear();
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         extension->beginBuild();
     auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
-    std::vector<std::optional<core::TrackId>> order;
 
     // Index 0: black backing track (doc 03), not a model track -- gaps on
     // every real track composite over black instead of over nothing.
@@ -1233,8 +1358,6 @@ void EngineSync::rebuildAll()
     // accessors" note, docs/developer/notes/engine-sync.md); set_track() takes its own reference.
     std::unique_ptr<Mlt::Producer> black(
         m_blackMaster->cut(0, static_cast<int>(std::min<core::FrameIndex>(sequenceLength, kBlackMasterLength) - 1)));
-    newTractor->set_track(*black, 0);
-    order.emplace_back(std::nullopt);
 
     // core::mltTrackOrder: audio tracks first (model order), then video
     // tracks bottom-to-top (doc 03) -- shared with core/xml's writer so
@@ -1246,108 +1369,137 @@ void EngineSync::rebuildAll()
     // itself keeps the object alive (same pattern v1's MltEngine relies on
     // for locals passed to Playlist::insert()).
     std::vector<std::unique_ptr<Mlt::Playlist>> playlists;
+    m_trackSlots.clear();
 
-    for (core::TrackId trackId : core::mltTrackOrder(seq)) {
-        const core::Track &modelTrack = m_model.track(trackId);
-        auto playlist = std::make_unique<Mlt::Playlist>(*m_profile);
-        rebuildTrackPlaylist(modelTrack, *playlist);
+    // FX4: an adjustment block on lane k > 0 affects only the video rows at
+    // and below k (row 0 is the top). Those rows go into a sub-tractor,
+    // G(k), whose own track 0 is the next deeper lane's G or the background,
+    // with the same composites and audio mixes as here (a video clip's own
+    // sound keeps playing), and the block's filters on G(k) (decorateLane).
+    // G(k) is then the next layer's track 0. With no block below the first
+    // row the graph is exactly the flat one. Audio tracks always stay in
+    // the main tractor.
+    std::map<int, std::vector<const core::AdjustmentBlock *>> blocksByLane;
+    for (const core::AdjustmentBlock &block : seq.adjustmentBlocks)
+        blocksByLane[block.lane].push_back(&block);
+    for (auto &[lane, blocks] : blocksByLane)
+        std::sort(blocks.begin(), blocks.end(),
+                  [](const core::AdjustmentBlock *x, const core::AdjustmentBlock *y) { return x->start < y->start; });
+    const core::AdjustmentLayers layers = core::adjustmentLayers(seq);
+    const std::vector<int> &lanes = layers.lanes;
+    const std::vector<std::vector<core::TrackId>> &layerTracks = layers.layerTracks;
 
-        // Track-wide level (doc 03: "audio tracks and the audio part of
-        // video tracks"). A local, like `black` above -- attach() bumps
-        // the filter's own refcount on the service, so it's fine for this
-        // wrapper to go out of scope once the loop body ends.
-        if (modelTrack.volume != 1.0) {
-            Mlt::Filter volumeFilter(*m_profile, "volume");
-            volumeFilter.set("level", core::linearToDecibels(modelTrack.volume));
-            playlist->attach(volumeFilter);
-        }
+    // One layer: `bottom` on track 0, then its tracks' playlists in
+    // core::mltTrackOrder's order, every one composited onto track 0 and
+    // its audio mixed.
+    auto plantLayer = [&](Mlt::Tractor &tractor, Mlt::Producer &bottom, const std::vector<core::TrackId> &trackIds,
+                          int depth) {
+        tractor.set_track(bottom, 0);
+        for (core::TrackId trackId : trackIds) {
+            const core::Track &modelTrack = m_model.track(trackId);
+            auto playlist = std::make_unique<Mlt::Playlist>(*m_profile);
+            rebuildTrackPlaylist(modelTrack, *playlist);
 
-        // Track mute/hide: MLT's own per-track "hide" (1 = video, 2 = audio,
-        // 3 = both) on the track's producer, confirmed with a standalone
-        // repro (2026-09-24): a hidden top track showed what was under it,
-        // a muted one mixed to silence.
-        int hide = (modelTrack.hidden ? 1 : 0) | (modelTrack.muted ? 2 : 0);
-        if (hide != 0)
-            playlist->set("hide", hide);
-
-        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
-            extension->decoratePlaylist(*playlist, m_model, modelTrack, *m_profile);
-
-        newTractor->set_track(*playlist, static_cast<int>(order.size()));
-        order.emplace_back(trackId);
-        playlists.push_back(std::move(playlist));
-    }
-
-    // Video: every track composited onto track 0 (the background), bottom
-    // to top. Audio: mix chained across adjacent indexes, as v1's
-    // MltEngine::plantTrackTransitions did. Chaining the video compositor
-    // too (i-1 -> i) lost an upper clip's alpha: a transformed picture
-    // showed black instead of the tracks under it (the F spike, ADR-018,
-    // standalone repro 2026-09-25); onto track 0 (kdenlive's arrangement)
-    // it shows them.
-    // One owned Field wrapper for the whole tractor -- see
-    // buildTransitionSubTractor()'s comment (sanitizer report S1).
-    std::unique_ptr<Mlt::Field> field(newTractor->field());
-    for (int index = 1; index < newTractor->count(); ++index) {
-        // IP3: a drop-in may replace the compositor (effects: frei0r.cairoblend).
-        std::unique_ptr<Mlt::Transition> compositor;
-        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
-            if (!compositor)
-                compositor = extension->compositor(*m_profile, 0, index);
-        if (compositor) {
-            field->plant_transition(*compositor, 0, index);
-        } else {
-            // composite, with fill=1 (its YAML says that's the default; the
-            // code's is 0): it scales a same-aspect picture to the frame, and
-            // a transformed or other-aspect cut arrives frame-sized from its
-            // affine filter (ADR-018). An affine compositor fits any aspect
-            // itself but cost 21 ms a frame for one untransformed 1080p track
-            // against composite's 5 (39 against 7 for four). Standalone
-            // repros, MLT 7.40, 2026-09-25; docs/developer/notes/engine-sync.md.
-            // Centred (the YAML's values; defaults left/top) when frames are
-            // read at the profile's size (FrameReads), so a plain Fit of
-            // another aspect needs no affine filter: 20 ms a frame against
-            // 63 for a 1344x768 source in 1080p, the edges within a pixel
-            // (standalone repro, 2026-09-27).
-            // The GPU graph composites with movit.overlay (source over, its
-            // default `compositing`), the same fan-in onto track 0; each
-            // cut arrives placed (gpuTransformFilters()) or frame-sized
-            // from the loader's normalisers.
-            Mlt::Transition composite(*m_profile, m_pipeline == Pipeline::Gpu ? "movit.overlay" : "composite");
-            if (m_pipeline == Pipeline::Cpu) {
-                composite.set("fill", 1);
-                if (m_reads == FrameReads::ProfileSize) {
-                    composite.set("halign", "centre");
-                    composite.set("valign", "middle");
-                }
+            // Track-wide level (doc 03: "audio tracks and the audio part of
+            // video tracks"). A local, like `black` above -- attach() bumps
+            // the filter's own refcount on the service, so it's fine for this
+            // wrapper to go out of scope once the loop body ends.
+            if (modelTrack.volume != 1.0) {
+                Mlt::Filter volumeFilter(*m_profile, "volume");
+                volumeFilter.set("level", core::linearToDecibels(modelTrack.volume));
+                playlist->attach(volumeFilter);
             }
-            field->plant_transition(composite, 0, index);
+
+            // Track mute/hide: MLT's own per-track "hide" (1 = video, 2 = audio,
+            // 3 = both) on the track's producer, confirmed with a standalone
+            // repro (2026-09-24): a hidden top track showed what was under it,
+            // a muted one mixed to silence.
+            int hide = (modelTrack.hidden ? 1 : 0) | (modelTrack.muted ? 2 : 0);
+            if (hide != 0)
+                playlist->set("hide", hide);
+
+            for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+                extension->decoratePlaylist(*playlist, m_model, modelTrack, *m_profile);
+            const int index = tractor.count();
+            tractor.set_track(*playlist, index);
+            m_trackSlots.push_back({trackId, depth, index});
+            playlists.push_back(std::move(playlist));
         }
 
-        Mlt::Transition mix(*m_profile, "mix");
-        mix.set("start", 1.0);
-        mix.set("sum", 1);
-        mix.set("always_active", 1);
-        field->plant_transition(mix, index - 1, index);
+        // Video: every track composited onto track 0 (the background), bottom
+        // to top. Audio: mix chained across adjacent indexes, as v1's
+        // MltEngine::plantTrackTransitions did. Chaining the video compositor
+        // too (i-1 -> i) lost an upper clip's alpha: a transformed picture
+        // showed black instead of the tracks under it (the F spike, ADR-018,
+        // standalone repro 2026-09-25); onto track 0 (kdenlive's arrangement)
+        // it shows them.
+        // One owned Field wrapper for the whole tractor -- see
+        // buildTransitionSubTractor()'s comment (sanitizer report S1).
+        std::unique_ptr<Mlt::Field> field(tractor.field());
+        for (int index = 1; index < tractor.count(); ++index) {
+            // IP3: a drop-in may replace the compositor (effects: frei0r.cairoblend).
+            std::unique_ptr<Mlt::Transition> compositor;
+            for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+                if (!compositor)
+                    compositor = extension->compositor(*m_profile, 0, index);
+            if (compositor) {
+                field->plant_transition(*compositor, 0, index);
+            } else {
+                // composite, with fill=1 (its YAML says that's the default; the
+                // code's is 0): it scales a same-aspect picture to the frame, and
+                // a transformed or other-aspect cut arrives frame-sized from its
+                // affine filter (ADR-018). An affine compositor fits any aspect
+                // itself but cost 21 ms a frame for one untransformed 1080p track
+                // against composite's 5 (39 against 7 for four). Standalone
+                // repros, MLT 7.40, 2026-09-25; docs/developer/notes/engine-sync.md.
+                // Centred (the YAML's values; defaults left/top) when frames are
+                // read at the profile's size (FrameReads), so a plain Fit of
+                // another aspect needs no affine filter: 20 ms a frame against
+                // 63 for a 1344x768 source in 1080p, the edges within a pixel
+                // (standalone repro, 2026-09-27).
+                // The GPU graph composites with movit.overlay (source over, its
+                // default `compositing`), the same fan-in onto track 0; each
+                // cut arrives placed (gpuTransformFilters()) or frame-sized
+                // from the loader's normalisers.
+                Mlt::Transition composite(*m_profile, m_pipeline == Pipeline::Gpu ? "movit.overlay" : "composite");
+                if (m_pipeline == Pipeline::Cpu) {
+                    composite.set("fill", 1);
+                    if (m_reads == FrameReads::ProfileSize) {
+                        composite.set("halign", "centre");
+                        composite.set("valign", "middle");
+                    }
+                }
+                field->plant_transition(composite, 0, index);
+            }
+
+            Mlt::Transition mix(*m_profile, "mix");
+            mix.set("start", 1.0);
+            mix.set("sum", 1);
+            mix.set("always_active", 1);
+            field->plant_transition(mix, index - 1, index);
+        }
+    };
+
+    std::unique_ptr<Mlt::Producer> bottom = std::move(black);
+    for (size_t i = lanes.size(); i-- > 0;) {
+        auto group = std::make_unique<Mlt::Tractor>(*m_profile);
+        plantLayer(*group, *bottom, layerTracks[i + 1], static_cast<int>(i + 1));
+        group->set("ustudio.lane", lanes[i]);
+        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+            extension->decorateLane(*group, m_model, lanes[i], blocksByLane[lanes[i]], *m_profile);
+        bottom = std::move(group);
     }
+    plantLayer(*newTractor, *bottom, layerTracks[0], 0);
 
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         extension->decorateTractor(*newTractor, m_model, *m_profile);
-    // Lane 0's adjustment blocks cover every track (the lanes below the
-    // first row come with FX4's sub-tractors).
-    std::vector<const core::AdjustmentBlock *> laneZero;
-    for (const core::AdjustmentBlock &block : seq.adjustmentBlocks)
-        if (block.lane == 0)
-            laneZero.push_back(&block);
-    std::sort(laneZero.begin(), laneZero.end(),
-              [](const core::AdjustmentBlock *a, const core::AdjustmentBlock *b) { return a->start < b->start; });
-    if (!laneZero.empty())
+    // Lane 0's adjustment blocks cover every track: the whole tractor.
+    if (auto laneZero = blocksByLane.find(0); laneZero != blocksByLane.end())
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
-            extension->decorateLane(*newTractor, m_model, 0, laneZero, *m_profile);
+            extension->decorateLane(*newTractor, m_model, 0, laneZero->second, *m_profile);
 
     newTractor->refresh();
     m_tractor = std::move(newTractor);
-    m_mltTrackOrder = std::move(order);
     rebuilt.emit();
 }
 
@@ -1361,16 +1513,33 @@ std::vector<std::string> EngineSync::verify() const
                            std::to_string(seq.length()));
     }
 
-    for (size_t mltIndex = 0; mltIndex < m_mltTrackOrder.size(); ++mltIndex) {
-        if (!m_mltTrackOrder[mltIndex])
-            continue; // black backing track
-
-        core::TrackId trackId = *m_mltTrackOrder[mltIndex];
+    for (const TrackSlot &slot : m_trackSlots) {
+        core::TrackId trackId = slot.track;
         const core::Track &modelTrack = m_model.track(trackId);
+
+        // Down through the adjustment lanes' sub-tractors (track 0 of each
+        // layer), each checked for the sequence's length.
+        std::unique_ptr<Mlt::Tractor> layer = std::make_unique<Mlt::Tractor>(*m_tractor);
+        for (int depth = 0; depth < slot.depth && layer; ++depth) {
+            std::unique_ptr<Mlt::Producer> below(layer->track(0));
+            layer = below ? std::make_unique<Mlt::Tractor>(*below) : nullptr;
+            if (!layer || !layer->is_valid()) {
+                problems.push_back("track " + std::to_string(trackId.value) +
+                                   ": no adjustment-lane sub-tractor at depth " + std::to_string(depth + 1));
+                layer.reset();
+            } else if (layer->get_length() != m_tractor->get_length()) {
+                const char *lane = layer->get("ustudio.lane");
+                problems.push_back("adjustment lane " + std::string(lane ? lane : "?") + ": length " +
+                                   std::to_string(layer->get_length()) +
+                                   " != " + std::to_string(m_tractor->get_length()));
+            }
+        }
+        if (!layer)
+            continue;
 
         // Same new-wrapper-per-call behaviour as Tractor::field() (report
         // S1, and the 2026-09-20 audit's E7): owned, not borrowed.
-        std::unique_ptr<Mlt::Producer> raw(m_tractor->track(static_cast<int>(mltIndex)));
+        std::unique_ptr<Mlt::Producer> raw(layer->track(slot.index));
         if (!raw) {
             problems.push_back("track " + std::to_string(trackId.value) + ": no MLT producer at index");
             continue;

@@ -40,6 +40,9 @@ struct ParamChange
 {
     const core::Effect &effect;      // as it is now
     std::vector<std::string> params; // the parameter names that changed; "mix" for the mix
+    // The adjustment block the effect is on, as it is now (its fades shape
+    // how the effect plays); null for any other effect.
+    const core::AdjustmentBlock *block = nullptr;
 };
 
 class EngineExtension

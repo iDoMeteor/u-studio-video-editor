@@ -136,7 +136,9 @@ test_gpu_pipeline_exe = executable(
   dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_platform_dep],
   install: false,
 )
-test('engine-gpu-pipeline', test_gpu_pipeline_exe, timeout: 180)
+# Wipe maps go to $XDG_CACHE_HOME/ustudio/luma: the build tree's, not the user's.
+test('engine-gpu-pipeline', test_gpu_pipeline_exe, timeout: 180,
+     env: ['XDG_CACHE_HOME=' + meson.current_build_dir() / 'xdg-cache'])
 
 # ADR-019 G3: the GPU pipeline through Engine and the real consumer.
 test_gpu_engine_exe = executable(

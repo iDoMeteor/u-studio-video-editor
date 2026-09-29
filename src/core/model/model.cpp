@@ -1427,6 +1427,10 @@ std::vector<std::string> Model::check() const
                     mixInRange = mixInRange && keyframe.value >= 0.0 && keyframe.value <= 1.0;
                 if (!mixInRange)
                     problems.push_back(name + " has a mix outside 0-1");
+                // The shapes nativeFilters() can draw (a luma-map mask: not
+                // yet); anything else would play unmasked.
+                if (effect.mask && effect.mask->shape != "rectangle" && effect.mask->shape != "ellipse")
+                    problems.push_back(name + " has a mask of an unknown shape");
             }
         };
         for (const auto &[clipId, clipEntry] : seq.clips) {
