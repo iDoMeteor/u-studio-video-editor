@@ -85,9 +85,10 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
     host->addShellExtension([](ustudio::app::ShellHost &shell) {
         static Catalog catalog;
         static bool scanning = false;
+        // Compare first: the Rack's Compare button takes its hint.
+        addCompare(shell, catalog);
         addRack(shell, catalog);
         addBrowser(shell, catalog);
-        addCompare(shell, catalog);
         addCurveLanes(shell, catalog);
         addFxLane(shell, catalog);
         previewTools(shell); // the eyedropper's and rect handles' overlay, stacked now

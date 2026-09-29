@@ -1,5 +1,7 @@
 #include "app/catalog.h"
 
+#include <filesystem>
+
 #include "core/looks.h"
 #include "engine/effects_extension.h"
 
@@ -81,6 +83,23 @@ std::vector<core::Effect> Catalog::effectsFor(const core::Model &model, const st
 {
     if (const core::Look *look = lookFor(*this, model, item))
         return effectsOf(*look);
+    if (item.starts_with(kLutPrefix)) {
+        const EffectDescriptor *d = find("avfilter.lut3d");
+        if (!d)
+            return {};
+        core::Effect effect = makeEffect(*d);
+        auto set = [&](const std::string &name, const std::string &value) {
+            for (core::Param &p : effect.params)
+                if (p.name == name) {
+                    p.value = value;
+                    return;
+                }
+            effect.params.push_back({name, value, {}});
+        };
+        set("av.file", item.substr(kLutPrefix.size()));
+        set("av.interp", "tetrahedral");
+        return {effect};
+    }
     if (const EffectDescriptor *d = find(item))
         return {makeEffect(*d)};
     return {};
@@ -90,6 +109,8 @@ std::string Catalog::nameOf(const core::Model &model, const std::string &item) c
 {
     if (const core::Look *look = lookFor(*this, model, item))
         return look->name;
+    if (item.starts_with(kLutPrefix))
+        return std::filesystem::path(item.substr(kLutPrefix.size())).stem().string();
     const EffectDescriptor *d = find(item);
     return d ? d->name : item;
 }

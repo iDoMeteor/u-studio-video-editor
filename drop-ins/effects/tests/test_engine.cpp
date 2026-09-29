@@ -715,3 +715,32 @@ TEST_CASE("A masked effect's mix, invert and geometry apply in place; a new shap
     broken.setEffectMask(black, inverted);
     CHECK_FALSE(broken.check().empty());
 }
+
+// FX5: a LUT library item (Catalog "lut:<path>") is avfilter.lut3d with the
+// file; a generated .cube (text, no binary media) that maps everything to
+// red turns the grey clip red, in the editor and in melt.
+TEST_CASE("A LUT from the library grades the clip, in the editor and in melt")
+{
+    setUp();
+    const fs::path cube = scratch() / "all-red.cube";
+    {
+        std::ofstream out(cube);
+        out << "TITLE \"all red\"\nLUT_3D_SIZE 2\n";
+        for (int i = 0; i < 8; ++i)
+            out << "1.0 0.0 0.0\n";
+    }
+    Timeline t;
+    Effect lut;
+    lut.service = "avfilter.lut3d";
+    lut.owner = kOwner;
+    lut.params = {{"av.file", utf8String(cube), {}}, {"av.interp", std::string("tetrahedral"), {}}};
+    t.model.addEffect(Model::EffectTarget::clip(t.a), lut, 0);
+    engine::EngineSync sync(t.model);
+    CHECK(redAt(sync.tractor(), 20) > 240);
+    CHECK(near(redAt(sync.tractor(), 150), kGrey)); // b has none
+    const fs::path path = scratch() / "lut.ustudio";
+    REQUIRE(saveProject(t.model, utf8String(path)).empty());
+    Mlt::Producer melt(sync.profile(), ("xml:" + utf8String(path)).c_str());
+    REQUIRE(melt.is_valid());
+    CHECK(redAt(melt, 20) > 240);
+}

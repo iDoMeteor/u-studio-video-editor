@@ -341,6 +341,30 @@ d act save; sleep 2
 check "a mask from the card is saved" grep -q 'ustudio:mask.shape">rectangle<' "$OUT/smoke.ustudio"
 check "the saved graph masks with alphaspot" grep -q "frei0r.alphaspot" "$OUT/smoke.ustudio"
 
+
+# The LUT library (FX5): a generated .cube imported with Import LUTs is
+# copied into the saved project's luts folder, listed under LUTs, and
+# applied from the search: avfilter.lut3d with the copy's path.
+printf 'TITLE "smoke warm"\nLUT_3D_SIZE 2\n' > "$M/smoke-warm.cube"
+for _ in 1 2 3 4 5 6 7 8; do echo "1.0 0.6 0.2" >> "$M/smoke-warm.cube"; done
+d act effects-browser; sleep 1
+# Out of any text field first: with no window manager the dialog doesn't
+# take the keyboard, and the path would be typed where the focus is.
+d click 900 900; sleep 0.5
+d press "Import LUTs"; sleep 2.5
+d loc "$M/smoke-warm.cube"; d enter; sleep 2
+shot 25-luts
+check "an imported LUT is copied beside the project" [ -s "$OUT/luts/smoke-warm.cube" ]
+e "Search effects" "smoke-warm"; sleep 3
+# Its tile, clicked (a click adds it; after the file dialog the search
+# entry isn't reachable to press Enter in).
+LUT=$(python3 "$SMOKE_HERE/where.py" "smoke-warm" 2>>"$OUT/helpers.err")
+echo "LUT tile at $LUT" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+[ -n "$LUT" ] && d click $LUT; sleep 2
+d act save; sleep 2
+check "a LUT from the library is applied" grep -q "luts/smoke-warm.cube</property>" "$OUT/smoke.ustudio"
+
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
 echo "RESULT: $FAILED failed"

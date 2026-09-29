@@ -12,9 +12,13 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ustudio::effects {
+
+// A LUT library item's prefix (Catalog::effectsFor()).
+inline constexpr std::string_view kLutPrefix = "lut:";
 
 class Catalog
 {
@@ -49,7 +53,8 @@ class Catalog
     }
 
     // What a Browser tile carries, dragged or applied: an effect's service,
-    // "look:brand:<index>" or "look:project:<id>". The effects it adds (new,
+    // "look:brand:<index>", "look:project:<id>" or "lut:<path>" (a .cube
+    // file in the LUT library, as avfilter.lut3d). The effects it adds (new,
     // at their defaults or the look's settings), or none when it names
     // nothing this install can play.
     std::vector<core::Effect> effectsFor(const core::Model &model, const std::string &item) const;

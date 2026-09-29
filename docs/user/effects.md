@@ -212,6 +212,22 @@ With GPU acceleration on, a wipe can stutter in the preview at **Full**
 quality while it plays; set the preview to **Half** to watch it smoothly.
 The render is unaffected.
 
+## LUTs
+
+A LUT (a `.cube` file) is a ready-made colour grade, from a camera maker
+or a colourist. U Stu keeps a library of them:
+
+1. On the **Add** page, click the **open** button beside **Unstable** and
+   choose one or more `.cube` files. They're copied into a `luts` folder
+   beside your saved project (or into your own library, when the project
+   isn't saved yet), so the project doesn't depend on where they came from.
+2. Choose **LUTs** in the section list: a tile for each. Point at one to
+   try it, click to add it, as with any effect.
+
+**LUT (.cube)** among the effects does the same with any file you choose.
+Keep a project and its `luts` folder together: a project moved to another
+folder can't find its LUTs yet.
+
 ## Before and after
 
 - **Hold \\** (backslash): the picture without the selected clip's effects,

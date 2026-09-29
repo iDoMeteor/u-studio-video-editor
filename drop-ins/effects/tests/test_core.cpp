@@ -834,3 +834,25 @@ TEST_CASE("blockEffects: an eased mix keeps its easing between the fades, and fo
     CHECK(core::easedValue(kept, 100.0) == doctest::Approx(core::easedValue(inner, 100.0)));
     CHECK(kept.size() < 60); // only the fades are sampled
 }
+
+TEST_CASE("Overlays: a parameter's kind and file extensions, kept through the registry cache")
+{
+    EffectDescriptor d;
+    d.service = "avfilter.lut3d";
+    ParamDescriptor file;
+    file.id = "av.file";
+    file.kind = ParamKind::Text;
+    d.params = {file};
+    std::optional<Json> overlay = parseJson(R"j({"name":"LUT (.cube)","params":{"av.file":{"kind":"file","extensions":["cube"]}}})j");
+    REQUIRE(overlay);
+    applyOverlay(d, *overlay);
+    CHECK(d.params[0].kind == ParamKind::File);
+    CHECK(d.params[0].extensions == std::vector<std::string>{"cube"});
+    const std::optional<EffectDescriptor> back = descriptorFromJson(toJson(d));
+    REQUIRE(back);
+    CHECK(*back == d);
+    // An unknown kind changes nothing.
+    std::optional<Json> odd = parseJson(R"({"params":{"av.file":{"kind":"spaceship"}}})");
+    applyOverlay(d, *odd);
+    CHECK(d.params[0].kind == ParamKind::File);
+}

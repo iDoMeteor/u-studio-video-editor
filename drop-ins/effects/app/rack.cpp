@@ -88,6 +88,7 @@ struct Control
     GtkAdjustment *adjustment = nullptr; // scalar, integer, mix
     std::vector<GtkAdjustment *> rect;   // x, y, w, h
     std::vector<std::string> choices;
+    std::vector<std::string> extensions; // a file's, for its chooser
     uint64_t gesture = 0;
     gint64 lastChange = 0;
     // Keyframes (animatable numbers and the mix): previous, pin, next, and
@@ -156,6 +157,7 @@ class Rack
              "Which tracks the adjustment block changes: every track, or a track and those below it", nullptr,
              nullptr},
             {"effects.block-remove", "Effects", "Remove adjustment block", nullptr, nullptr, nullptr},
+            {"effects.choose-file", "Effects", "Choose a file", nullptr, nullptr, nullptr},
             {"effects.mask", "Effects", "Mask",
              "Limits the effect to a rectangle or an ellipse of the picture; place it with Edit on the picture",
              nullptr, nullptr},
@@ -180,6 +182,8 @@ class Rack
         m_host.setTooltip(m_scope, "effects.rack-scope");
         m_host.setTooltip(m_add, "effects.rack-add");
         m_host.setTooltip(m_menu, "effects.rack-menu");
+        m_host.setTooltip(m_blockLane, "effects.block-affects");
+        m_host.setTooltip(m_blockRemove, "effects.block-remove");
         m_host.setTooltip(m_compare, "effects.compare");
         m_host.addInspectorPage({"effects.rack", "Effects", "applications-graphics-symbolic", m_root});
         m_host.selectionChanged().connect([this] { refresh(); });
@@ -961,15 +965,13 @@ class Rack
         gtk_widget_set_hexpand(m_blockLane, TRUE);
         gtk_accessible_update_property(GTK_ACCESSIBLE(m_blockLane), GTK_ACCESSIBLE_PROPERTY_LABEL,
                                        "Tracks the block affects", -1);
-        m_host.setTooltip(m_blockLane, "effects.block-affects");
         g_signal_connect(m_blockLane, "notify::selected", G_CALLBACK(&onBlockLaneTrampoline), this);
         gtk_box_append(GTK_BOX(m_blockBar), m_blockLane);
-        GtkWidget *removeBlock = gtk_button_new_from_icon_name("user-trash-symbolic");
-        gtk_accessible_update_property(GTK_ACCESSIBLE(removeBlock), GTK_ACCESSIBLE_PROPERTY_LABEL,
+        m_blockRemove = gtk_button_new_from_icon_name("user-trash-symbolic");
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_blockRemove), GTK_ACCESSIBLE_PROPERTY_LABEL,
                                        "Remove adjustment block", -1);
-        m_host.setTooltip(removeBlock, "effects.block-remove");
-        g_signal_connect(removeBlock, "clicked", G_CALLBACK(&onBlockRemoveTrampoline), this);
-        gtk_box_append(GTK_BOX(m_blockBar), removeBlock);
+        g_signal_connect(m_blockRemove, "clicked", G_CALLBACK(&onBlockRemoveTrampoline), this);
+        gtk_box_append(GTK_BOX(m_blockBar), m_blockRemove);
         gtk_widget_set_visible(m_blockBar, FALSE);
         gtk_box_append(GTK_BOX(box), m_blockBar);
 
@@ -1358,6 +1360,43 @@ class Rack
             // controls' (the tools count their own from 1).
             m_host.execute(std::make_unique<SetEffectMask>(effect, now, (uint64_t{1} << 40) + gesture));
         });
+    }
+
+    // --- Files --------------------------------------------------------------
+
+    void onChooseFile(Control &control)
+    {
+        GtkFileDialog *dialog = gtk_file_dialog_new();
+        gtk_file_dialog_set_title(dialog, "Choose a file");
+        if (!control.extensions.empty()) {
+            GtkFileFilter *filter = gtk_file_filter_new();
+            std::string name;
+            for (const std::string &extension : control.extensions) {
+                gtk_file_filter_add_suffix(filter, extension.c_str());
+                name += (name.empty() ? "" : ", ") + ("." + extension);
+            }
+            gtk_file_filter_set_name(filter, name.c_str());
+            GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+            g_list_store_append(filters, filter);
+            gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+            g_object_unref(filters);
+            g_object_unref(filter);
+        }
+        m_chooseKey = keyOf(control);
+        GtkRoot *root = gtk_widget_get_root(control.widget);
+        gtk_file_dialog_open(dialog, GTK_IS_WINDOW(root) ? GTK_WINDOW(root) : nullptr, nullptr,
+                             &onFileChosenTrampoline, this);
+        g_object_unref(dialog);
+    }
+
+    void onFileChosen(GFile *file)
+    {
+        if (!file || !m_chooseKey)
+            return;
+        char *path = g_file_get_path(file);
+        if (Control *control = findControl(*m_chooseKey); control && path)
+            gtk_editable_set_text(GTK_EDITABLE(control->widget), path); // as typing it: one edit
+        g_free(path);
     }
 
     // --- On the picture (app/preview_tools.h) ------------------------------
@@ -1765,7 +1804,23 @@ class Rack
             gtk_box_append(GTK_BOX(widget), handles);
             break;
         }
-        case ParamKind::File:
+        case ParamKind::File: {
+            // The path, and a chooser for it (a LUT's .cube, a map).
+            control->widget = gtk_entry_new();
+            gtk_widget_set_hexpand(control->widget, TRUE);
+            g_signal_connect(control->widget, "changed", G_CALLBACK(&onControlTrampoline), control.get());
+            control->extensions = p.extensions;
+            GtkWidget *choose = gtk_button_new_from_icon_name("document-open-symbolic");
+            gtk_widget_add_css_class(choose, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(choose), GTK_ACCESSIBLE_PROPERTY_LABEL, "Choose a file",
+                                           -1);
+            m_host.setTooltip(choose, "effects.choose-file");
+            g_signal_connect(choose, "clicked", G_CALLBACK(&onChooseFileTrampoline), control.get());
+            widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+            gtk_box_append(GTK_BOX(widget), control->widget);
+            gtk_box_append(GTK_BOX(widget), choose);
+            break;
+        }
         case ParamKind::Text:
             widget = gtk_entry_new();
             gtk_widget_set_hexpand(widget, TRUE);
@@ -1879,6 +1934,18 @@ class Rack
         auto *m = static_cast<MaskControl *>(mc);
         m->rack->onMaskHandles(*m, gtk_toggle_button_get_active(button));
     }
+    static void onChooseFileTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onChooseFile(*c);
+    }
+    static void onFileChosenTrampoline(GObject *dialog, GAsyncResult *result, gpointer self)
+    {
+        GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(dialog), result, nullptr);
+        static_cast<Rack *>(self)->onFileChosen(file);
+        if (file)
+            g_object_unref(file);
+    }
     static void onEyedropperTrampoline(GtkButton *, gpointer control)
     {
         auto *c = static_cast<Control *>(control);
@@ -1974,7 +2041,7 @@ class Rack
 
     app::ShellHost &m_host;
     Catalog &m_catalog;
-    GtkWidget *m_blockBar = nullptr, *m_blockLane = nullptr;
+    GtkWidget *m_blockBar = nullptr, *m_blockLane = nullptr, *m_blockRemove = nullptr;
     GtkWidget *m_root = nullptr, *m_scope = nullptr, *m_add = nullptr, *m_addPopover = nullptr;
     GtkWidget *m_search = nullptr, *m_addList = nullptr, *m_title = nullptr, *m_empty = nullptr;
     GtkWidget *m_cards = nullptr, *m_menu = nullptr, *m_titleRow = nullptr, *m_pastePopover = nullptr;
@@ -1992,6 +2059,7 @@ class Rack
     std::optional<Recording> m_recording;
     std::optional<ControlKey> m_rectKey; // the rect control (or {effect, "mask"}) whose handles are shown
     std::vector<std::unique_ptr<MaskControl>> m_masks;
+    std::optional<ControlKey> m_chooseKey; // the file control a chooser is open for
 };
 
 } // namespace

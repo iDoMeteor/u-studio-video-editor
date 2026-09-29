@@ -112,7 +112,10 @@ filter) dragged, which must change the saved rectangle; last, Spot
 Remover's Mask drop-down is set to Rectangle (`choose.py`: a drop-down's
 accessible name is its choice, and its rows take no action, so it's opened
 and moved with the arrow keys), and the saved project must carry the mask
-and play it through `frei0r.alphaspot`. It also checks an audition leaves the live graph's rebuild
+and play it through `frei0r.alphaspot`. Last, a generated `.cube` is
+imported with Import LUTs (the path typed into GTK's own file dialog), must
+be copied into the project's `luts` folder, and its tile clicked must add
+`avfilter.lut3d` with the copy's path. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
 `value.py`, `ramp.py`, `rightmost.py`, `choose.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a

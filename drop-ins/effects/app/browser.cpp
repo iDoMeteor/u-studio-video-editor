@@ -5,11 +5,13 @@
 #include "core/commands.h"
 #include "core/descriptor.h"
 #include "core/log.h"
+#include "core/media/utf8_path.h"
 #include "engine/frame_renderer.h"
 
 #include <gtk/gtk.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <set>
@@ -34,6 +36,7 @@ enum Section
     Featured,
     Recent,
     Looks,
+    Luts,
     All,
     FirstCategory,
 };
@@ -77,6 +80,10 @@ class Browser
     {
         build();
         m_host.addHints({
+            {"effects.import-luts", "Effects", "Import LUTs",
+             "Copies .cube files into the project's luts folder (or your own library when the project isn't saved "
+             "yet); they're under LUTs",
+             nullptr, nullptr},
             {"effects.browser-search", "Effects", "Search effects",
              "By name, category or tag; Enter adds the best match", "effects-browser", nullptr},
             {"effects.browser-section", "Effects", "Show",
@@ -98,6 +105,7 @@ class Browser
         m_host.setTooltip(m_search, "effects.browser-search");
         m_host.setTooltip(m_section, "effects.browser-section");
         m_host.setTooltip(m_unstable, "effects.browser-unstable");
+        m_host.setTooltip(m_importLuts, "effects.import-luts");
         m_host.addInspectorPage({"effects.browser", "Add", "list-add-symbolic", m_root});
 
         // The audition, over the preview (the same size; a GtkPicture that
@@ -377,6 +385,15 @@ class Browser
         };
         addLooks(m_catalog.brandLooks(), "look:brand:", true);
         addLooks(model.project().looks, "look:project:", false);
+        // The LUT library: the project's luts folder, then the user's.
+        if (m_catalog.find("avfilter.lut3d"))
+            for (const std::filesystem::path &lut : lutLibrary()) {
+                const std::string name = lut.stem().string();
+                const int rank = query.empty() ? (section == Luts ? 0 : -1) : rankOf(lower(name), lower(name + " lut"));
+                if (rank >= 0)
+                    entries.push_back({rank * 2 + 1, std::string(kLutPrefix) + lut.string(), name,
+                                       "A LUT: " + lut.filename().string(), "LUT"});
+            }
 
         for (const EffectDescriptor *d : m_catalog.offered(unstable)) {
             if (query.empty() && !inSection(*d, section))
@@ -522,6 +539,90 @@ class Browser
         gtk_widget_add_css_class(tile.badge, style);
     }
 
+    // --- The LUT library (FX5) ---------------------------------------------
+
+    // Where LUTs are imported to: the saved project's folder, else the
+    // user's library (both are listed).
+    std::filesystem::path lutFolder() const
+    {
+        const std::string project = m_host.projectFolder();
+        if (!project.empty())
+            return core::pathFromUtf8(project) / "luts";
+        return core::pathFromUtf8(g_get_user_data_dir()) / "ustudio" / "luts";
+    }
+
+    std::vector<std::filesystem::path> lutLibrary() const
+    {
+        std::vector<std::filesystem::path> folders{core::pathFromUtf8(g_get_user_data_dir()) / "ustudio" / "luts"};
+        const std::string project = m_host.projectFolder();
+        if (!project.empty())
+            folders.insert(folders.begin(), core::pathFromUtf8(project) / "luts");
+        std::vector<std::filesystem::path> luts;
+        for (const std::filesystem::path &folder : folders) {
+            std::error_code ec;
+            std::vector<std::filesystem::path> here;
+            for (const auto &entry : std::filesystem::directory_iterator(folder, ec))
+                if (entry.is_regular_file(ec) && lower(entry.path().extension().string()) == ".cube")
+                    here.push_back(entry.path());
+            std::sort(here.begin(), here.end());
+            luts.insert(luts.end(), here.begin(), here.end());
+        }
+        return luts;
+    }
+
+    void onImportLuts()
+    {
+        GtkFileDialog *dialog = gtk_file_dialog_new();
+        gtk_file_dialog_set_title(dialog, "Import LUTs");
+        GtkFileFilter *filter = gtk_file_filter_new();
+        gtk_file_filter_add_suffix(filter, "cube");
+        gtk_file_filter_set_name(filter, "LUTs (.cube)");
+        GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+        g_list_store_append(filters, filter);
+        gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+        g_object_unref(filters);
+        g_object_unref(filter);
+        GtkRoot *root = gtk_widget_get_root(m_root);
+        gtk_file_dialog_open_multiple(dialog, GTK_IS_WINDOW(root) ? GTK_WINDOW(root) : nullptr, nullptr,
+                                      &onLutsChosenTrampoline, this);
+        g_object_unref(dialog);
+    }
+
+    // Copies the chosen files into the LUT folder: a copy, so the project
+    // keeps working if the original moves; never over a file already there
+    // (a name taken gets " 2", " 3", ...).
+    void importLuts(GListModel *files)
+    {
+        const std::filesystem::path folder = lutFolder();
+        std::error_code ec;
+        std::filesystem::create_directories(folder, ec);
+        int imported = 0;
+        for (guint i = 0; files && i < g_list_model_get_n_items(files); ++i) {
+            GFile *file = G_FILE(g_list_model_get_item(files, i));
+            char *path = g_file_get_path(file);
+            g_object_unref(file);
+            if (!path)
+                continue;
+            const std::filesystem::path source = core::pathFromUtf8(path);
+            g_free(path);
+            std::filesystem::path target = folder / source.filename();
+            for (int n = 2; std::filesystem::exists(target, ec); ++n)
+                target = folder / (source.stem().string() + " " + std::to_string(n) + source.extension().string());
+            if (std::filesystem::copy_file(source, target, std::filesystem::copy_options::none, ec)) {
+                ++imported;
+                core::Log::debug("[effects] LUT imported: " + core::utf8String(target));
+            } else {
+                core::Log::warn("[effects] LUT not imported: " + core::utf8String(source) + " (" + ec.message() + ")");
+            }
+        }
+        if (imported == 0)
+            return;
+        m_host.showStatus(std::to_string(imported) + (imported == 1 ? " LUT" : " LUTs") + " imported to " +
+                          core::utf8String(folder));
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_section), Luts);
+        refill();
+    }
+
     // --- Sections -------------------------------------------------------------
 
     bool inSection(const EffectDescriptor &d, guint section) const
@@ -530,8 +631,8 @@ class Browser
             return d.featured;
         if (section == Recent)
             return std::find(m_recent.begin(), m_recent.end(), d.service) != m_recent.end();
-        if (section == Looks)
-            return false; // looks are tiles of their own
+        if (section == Looks || section == Luts)
+            return false; // looks and LUTs are tiles of their own
         if (section == All)
             return true;
         const size_t index = section - FirstCategory;
@@ -558,7 +659,7 @@ class Browser
             return;
         m_categories = categories;
         GtkStringList *list = gtk_string_list_new(nullptr);
-        for (const char *fixed : {"Featured", "Recent", "Looks", "All"})
+        for (const char *fixed : {"Featured", "Recent", "Looks", "LUTs", "All"})
             gtk_string_list_append(list, fixed);
         for (const std::string &c : categories)
             gtk_string_list_append(list, c.c_str());
@@ -588,7 +689,7 @@ class Browser
         gtk_box_append(GTK_BOX(m_root), m_search);
 
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        const char *sections[] = {"Featured", "Recent", "Looks", "All", nullptr};
+        const char *sections[] = {"Featured", "Recent", "Looks", "LUTs", "All", nullptr};
         m_section = gtk_drop_down_new_from_strings(sections);
         gtk_widget_set_hexpand(m_section, TRUE);
         g_signal_connect(m_section, "notify::selected", G_CALLBACK(&onSectionTrampoline), this);
@@ -596,6 +697,11 @@ class Browser
         m_unstable = gtk_check_button_new_with_label("Unstable");
         g_signal_connect(m_unstable, "toggled", G_CALLBACK(&onUnstableTrampoline), this);
         gtk_box_append(GTK_BOX(row), m_unstable);
+        m_importLuts = gtk_button_new_from_icon_name("document-open-symbolic");
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_importLuts), GTK_ACCESSIBLE_PROPERTY_LABEL, "Import LUTs",
+                                       -1);
+        g_signal_connect(m_importLuts, "clicked", G_CALLBACK(&onImportLutsTrampoline), this);
+        gtk_box_append(GTK_BOX(row), m_importLuts);
         gtk_box_append(GTK_BOX(m_root), row);
 
         m_status = gtk_label_new("");
@@ -682,6 +788,18 @@ class Browser
 
     // --- GTK signal trampolines ---------------------------------------------
 
+    static void onImportLutsTrampoline(GtkButton *, gpointer self)
+    {
+        static_cast<Browser *>(self)->onImportLuts();
+    }
+    static void onLutsChosenTrampoline(GObject *dialog, GAsyncResult *result, gpointer self)
+    {
+        GListModel *files = gtk_file_dialog_open_multiple_finish(GTK_FILE_DIALOG(dialog), result, nullptr);
+        static_cast<Browser *>(self)->importLuts(files);
+        if (files)
+            g_object_unref(files);
+    }
+
     static void onBrowserActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
     {
         static_cast<Browser *>(self)->onBrowserAction();
@@ -767,6 +885,7 @@ class Browser
     uint64_t m_tileGeneration = 0, m_auditionGeneration = 0;
     core::FrameIndex m_lastFrame = -1;
     size_t m_projectLooks = 0;
+    GtkWidget *m_importLuts = nullptr;
     guint m_sourceTimer = 0;
     bool m_refillPending = false, m_updating = false;
 };
