@@ -872,10 +872,25 @@ on-preview handles for `Point`/`Rect`/mask parameters, eyedropper.
 
 Acceptance:
 
-- [ ] Touch-recording a slider during playback produces an editable curve
+- [x] Touch-recording a slider during playback produces an editable curve
       with fewer keyframes than frames.
-- [ ] An adjustment block affects exactly the tracks beneath it for exactly
+- [x] An adjustment block affects exactly the tracks beneath it for exactly
       its range, in preview and export.
+
+> REVIEW: VE Effects, 2026-09-28: landed as 0.77.0-beta.1 with FX5. Touch-
+> record arms a value in the Rack and records it while it's moved, then
+> thins it (`withRecording()`, Ramer-Douglas-Peucker at 0.5% of the range):
+> the smoke's 40 performed values became 11 keys over 58 frames. Curve
+> lanes (C) draw and drag keys; the FX lane is a top lane (IP5 API 12)
+> with blocks drawn, moved, resized and faded there, and a block's lane
+> ("Affects") chosen in the Rack. Lane 0 plays through `decorateLane()` on
+> the main tractor, lanes > 0 through VE Core's sub-tractors; fades are
+> `core::blockEffects()` for the engine and writer alike, and fade and value
+> drags apply in place (ParamChange::block, API 13). On-preview handles
+> cover rect parameters and masks (rectangle, ellipse, soft edge, invert;
+> `frei0r.alphaspot` between the mix pair); `Point` parameters don't exist
+> yet (no installed family reports one). The eyedropper samples the clip's
+> own frame, before its effects.
 
 ### FX5 — Optional families (about 1–2 weeks, any time after FX2)
 
@@ -885,6 +900,16 @@ Integration points: none new (IP4 for `OFX_PLUGIN_PATH`).
 LADSPA and VST2 audio effects in the Rack (with the same health probe),
 OpenFX behind an experimental preference, LUT library management (import
 `.cube` files into the project).
+
+> REVIEW: VE Effects, 2026-09-28: landed with FX4 as 0.77.0-beta.1. LADSPA
+> and VST2 are curated like frei0r (`LADSPA_PATH`/`VST_PATH` replace MLT's
+> lists, so a Qt-naming plugin never loads); VST2 and OpenFX are chosen on
+> the Add page and load at the next start. OpenFX's module is denied by
+> FactoryPolicy (MLT always scans its fixed folders) and lifted through
+> `FactoryPaths::allowModules` (API 14) only when chosen and no bundle names
+> Qt. LSP Plugins is suggested under Audio when missing. The LUT library
+> copies `.cube` files into the project's `luts` folder (or the user's) and
+> lists them as tiles; LUT paths are absolute for now.
 
 ## Decisions needed from the owner
 
