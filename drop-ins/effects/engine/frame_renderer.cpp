@@ -2,6 +2,8 @@
 
 #include "core/model/animation.h"
 #include "core/model/effect_native.h"
+#include "core/model/transition_native.h"
+#include "platform/files.h"
 #include "engine/dispatcher.h"
 #include "engine/engine_extension.h"
 #include "engine/producer_open.h"
@@ -10,6 +12,7 @@
 #include <mlt++/Mlt.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <cstring>
 
 namespace ustudio::effects {
@@ -47,6 +50,12 @@ std::string FrameRequest::key() const
                       std::to_string(profile.fps.num) + "/" + std::to_string(profile.fps.den);
     for (const core::Effect &effect : effects)
         key += "\n" + effectKey(effect);
+    if (transition) {
+        key += "\ntransition " + transition->resource + "#" + std::to_string(transition->in) + "-" +
+               std::to_string(transition->out) + "@" + std::to_string(transition->position);
+        for (const core::Param &param : transition->params)
+            key += "|" + param.name + "=" + core::nativeValue(param.value);
+    }
     return key;
 }
 
@@ -121,9 +130,100 @@ bool open(OpenMedia &open, const FrameRequest &request)
     return open.media && open.media->is_valid();
 }
 
+// A filter for this thread's graph, or null when the service is missing.
+std::unique_ptr<Mlt::Filter> workerFilter(Mlt::Profile &profile, const core::NativeFilter &native)
+{
+    auto filter = std::make_unique<Mlt::Filter>(profile, native.service.c_str());
+    if (!filter->is_valid())
+        return nullptr;
+    for (const auto &[name, value] : native.properties)
+        filter->set(name.c_str(), value.c_str());
+    if (native.service == "affine") {
+        // affine draws onto a background it opens through the default
+        // loader, which gives movit's normalisers while the GPU pipeline's
+        // glsl.manager exists: a movit frame on this GL-less thread (a
+        // crash in the effects smoke, 2026-09-29). A worker producer
+        // instead, as EngineSync's transforms do (docs/developer/notes/gpu.md).
+        std::unique_ptr<Mlt::Producer> canvas = engine::openProducer(profile, "colour:0", engine::ProducerUse::Worker);
+        if (canvas && canvas->is_valid()) {
+            canvas->inc_ref();
+            filter->set(
+                "producer", canvas->get_producer(), 0,
+                +[](void *producer) { mlt_producer_close(static_cast<mlt_producer>(producer)); });
+        }
+    }
+    return filter;
+}
+
+// A transition's frame: the outgoing tail and the incoming head in a
+// two-track tractor with the recipe's services, as EngineSync builds a
+// dissolve (every transition's in/out the tractor's [0, length-1]).
+RenderedFrame renderTransition(OpenMedia &media, const FrameRequest &request)
+{
+    RenderedFrame out;
+    const FrameRequest::Transition &spec = *request.transition;
+    if (!open(media, request))
+        return out;
+    Mlt::Profile &profile = *media.profile;
+    std::unique_ptr<Mlt::Producer> incoming = engine::openProducer(profile, spec.resource, engine::ProducerUse::Worker);
+    if (!incoming || !incoming->is_valid())
+        return out;
+    const core::FrameIndex length = request.clipOut - request.clipIn + 1;
+    std::unique_ptr<Mlt::Producer> tail(media.media->cut(
+        static_cast<int>(std::max<core::FrameIndex>(request.clipIn, 0)), static_cast<int>(request.clipOut)));
+    std::unique_ptr<Mlt::Producer> head(
+        incoming->cut(static_cast<int>(std::max<core::FrameIndex>(spec.in, 0)), static_cast<int>(spec.out)));
+    core::Transition model;
+    model.length = length;
+    model.params = spec.params;
+    const core::NativeTransition native = core::nativeTransition(model);
+    std::vector<std::unique_ptr<Mlt::Filter>> filters;
+    for (const auto &[specs, cut] : {std::pair{&native.tailFilters, tail.get()}, {&native.headFilters, head.get()}})
+        for (const core::NativeFilter &nf : *specs) {
+            std::unique_ptr<Mlt::Filter> filter = workerFilter(profile, nf);
+            if (!filter)
+                continue;
+            engine::attachToCut(*cut, *filter);
+            filters.push_back(std::move(filter));
+        }
+    Mlt::Tractor tractor(profile);
+    tractor.set_track(*tail, 0);
+    tractor.set_track(*head, 1);
+    std::unique_ptr<Mlt::Field> field(tractor.field());
+    Mlt::Transition video(profile, native.video.service.c_str());
+    if (!video.is_valid())
+        return out;
+    for (const auto &[name, value] : native.video.properties)
+        video.set(name.c_str(), value.c_str());
+    if (!native.luma.empty() && native.video.service == "luma") {
+        // The same generated maps the editor uses (core::lumaMapPath()).
+        const std::filesystem::path cache = platform::userCacheDirectory();
+        const std::filesystem::path map = core::lumaMapPath(cache / "ustudio" / "luma", native.luma);
+        if (!cache.empty() && core::writeLumaMap(native.luma, map))
+            video.set("resource", map.string().c_str());
+    }
+    video.set_in_and_out(0, static_cast<int>(length - 1));
+    field->plant_transition(video, 0, 1);
+    tractor.seek(static_cast<int>(std::clamp<core::FrameIndex>(spec.position, 0, length - 1)));
+    std::unique_ptr<Mlt::Frame> frame(tractor.get_frame());
+    if (!frame)
+        return out;
+    mlt_image_format format = mlt_image_rgba;
+    int width = request.width, height = request.height;
+    const uint8_t *image = frame->get_image(format, width, height);
+    if (!image || format != mlt_image_rgba || width <= 0 || height <= 0)
+        return out;
+    out.width = width;
+    out.height = height;
+    out.rgba.assign(image, image + static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+    return out;
+}
+
 RenderedFrame render(OpenMedia &media, const FrameRequest &request)
 {
     RenderedFrame out;
+    if (request.transition)
+        return renderTransition(media, request);
     if (!open(media, request))
         return out;
     Mlt::Profile &profile = *media.profile;
@@ -136,11 +236,9 @@ RenderedFrame render(OpenMedia &media, const FrameRequest &request)
         if (!effect.enabled)
             continue;
         for (const core::NativeFilter &native : core::nativeFilters(effect, 0, length)) {
-            auto filter = std::make_unique<Mlt::Filter>(profile, native.service.c_str());
-            if (!filter->is_valid())
+            std::unique_ptr<Mlt::Filter> filter = workerFilter(profile, native);
+            if (!filter)
                 break;
-            for (const auto &[name, value] : native.properties)
-                filter->set(name.c_str(), value.c_str());
             engine::attachToCut(*cut, *filter);
             filters.push_back(std::move(filter));
         }

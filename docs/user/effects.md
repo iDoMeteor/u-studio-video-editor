@@ -196,8 +196,9 @@ unicorn horn).
    Or press **T** to add a dissolve at the cut nearest the playhead on the
    active track (about half a second, like **Add Transition**).
 2. The **Transitions** page opens in the inspector, and the dissolve it's
-   about is outlined on the timeline. Each tile shows its style: the
-   outgoing clip in pink, the incoming one in blue.
+   about is outlined on the timeline. Each tile shows its style with your
+   own two clips, half-way through the transition (a drawing, the outgoing
+   clip in pink and the incoming one in blue, until the picture is ready).
 3. Click a tile to play the dissolve that way. **Ctrl+Z** puts the last
    style back.
 

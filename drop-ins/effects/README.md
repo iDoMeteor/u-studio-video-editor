@@ -36,7 +36,7 @@ There's no UI yet: the Rack and Browser are FX2, and the build option stays
 | `data/transitions/` | Transition recipes (dissolves, dips, flashes, slides, pushes, zooms, spins, 20 wipes): each a name and the `Transition::params` it resolves into (`src/core/model/transition_native.h` says what they mean; the wipe maps are generated there) | — |
 | `data/looks/` | Brand Looks (`brand.json`): stacks of filters with settings, no LUT files (a LUT library is FX5's) | — |
 | `register.cpp` | The drop-in's describe function and its integration points | the drop-in host API |
-| `tests/` | `effects-core`, `effects-engine`, `effects-scan`; `frei0r/broken_plugin.cpp` builds two frei0r plugins broken on purpose (one crashes, one hangs) | doctest |
+| `tests/` | `effects-core`, `effects-engine`, `effects-gpu` (the frame renderer with a GPU session live; skipped without GL), `effects-scan`; `frei0r/broken_plugin.cpp` builds two frei0r plugins broken on purpose (one crashes, one hangs) | doctest |
 
 A transition recipe is data too: `core/transitions.h` loads the recipes and
 changes a transition's with one undo step (`SetTransitionRecipe`);
@@ -118,7 +118,7 @@ the GPU engine's help: until then they're for the CPU pipeline only.
 ```sh
 meson configure builddir -Ddropin_effects=builtin   # or module
 meson compile -C builddir
-meson test -C builddir effects-core effects-engine effects-scan
+meson test -C builddir effects-core effects-engine effects-gpu effects-scan
 ./builddir/src/render/u-studio-render --effects-registry
 ./builddir/src/render/u-studio-render --probe-effect frei0r.glow
 ```

@@ -865,6 +865,11 @@ Acceptance:
 > live animated previews on the tiles and scroll-to-cycle on the seam,
 > and blend-mode track compositing. On the GPU pipeline wipes, slides and
 > pushes play as CPU islands (VE GPU's repros; developer/notes/gpu.md).
+>
+> REVIEW: VE Effects, 2026-09-29: the tiles now show the style with the
+> transition's own two clips, half-way through, rendered off the live graph
+> by the drop-in's frame renderer (the drawing stays until a frame comes).
+> They are stills, not animated, and scroll-to-cycle is still to come.
 
 ### FX4 — Timeline and preview manipulation (about 2–3 weeks, needs M3)
 
