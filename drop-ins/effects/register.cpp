@@ -62,6 +62,13 @@ void contributeFactoryPaths(ustudio::dropins::FactoryPaths *paths)
     const std::vector<Frei0rPlugin> plugins = findFrei0rPlugins(frei0rSearchDirs());
     const Frei0rCuration curation = curateFrei0r(plugins, health, effectsCacheDir() / "effects-frei0r-qt.json");
     paths->frei0rPaths = curation.paths;
+    // ADR-022: the curated MLT directory links only listed modules. The
+    // catalogue scans every filter the repository has, so these are the
+    // filter modules that loaded before the allowlist (the editor's own
+    // are listed by FactoryPolicy; decklink and vorbis have no filters).
+    for (const char *module : {"frei0r", "sox", "jackrack", "ladspa", "oldfilm", "plusgpl", "kdenlive", "vidstab",
+                               "rubberband", "rnnoise", "opencv"})
+        paths->allowModules.emplace_back(module);
     for (const std::string &why : curation.excluded)
         ustudio::core::Log::info("[effects] frei0r plugin left out: " + why);
     ustudio::core::Log::debug("[effects] " + std::to_string(plugins.size()) + " frei0r plugins found, " +

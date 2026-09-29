@@ -118,7 +118,17 @@ compositing is the bottleneck.
   `valign`). **No movit service rotates.** A CPU `affine` filter on a cut
   inside a GPU graph works: MLT converts around it, the picture matches the
   CPU path, and the cost is the CPU filter's.
-- `movit.mirror` is horizontal and `movit.flip` vertical.
+- `movit.mirror` is horizontal and `movit.flip` vertical. They flip the
+  whole frame the chain holds when they run, and a cut's `movit.rect`
+  placement is applied before them (the loader's `movit.resize` reads
+  `resize.rect` below every cut filter), so an unrotated flipped clip
+  mirrors its rect to land where the CPU puts it (`gpuTransformFilters()`).
+  In a rotated clip's CPU island they run on the fitted source ahead of
+  `affine`, as the CPU `mirror` filter does. The CPU `mirror` filter itself
+  must not go into a GPU graph: it asks for yuv422, and a rotated clip from
+  a source that isn't frame-sized (1344x768 in 1080p) came out sheared
+  (0.79, demo PiP; `test_gpu_pipeline` covers rotation, crop and flips
+  together).
 - `movit.crop` has no parameters; it is the loader's normaliser and
   applies the frame's crop properties.
 - Compositing is the `movit.overlay` transition (Porter-Duff and SVG blend

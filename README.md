@@ -35,6 +35,11 @@ flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/fl
 wget https://software.unicornviz.com/u-studio-video-editor-latest.flatpak
 # Install the package
 flatpak install --user ./u-studio-video-editor-latest.flatpak
+# Optional add-ons (same version as the app): titles and effects
+wget https://software.unicornviz.com/u-studio-video-editor-dropin-titles-latest.flatpak
+flatpak install --user ./u-studio-video-editor-dropin-titles-latest.flatpak
+wget https://software.unicornviz.com/u-studio-video-editor-dropin-effects-latest.flatpak
+flatpak install --user ./u-studio-video-editor-dropin-effects-latest.flatpak
 # Launch from your app launcher & pin to dash!
 # Or, from command line:
 flatpak run com.ustudio.VideoEditor

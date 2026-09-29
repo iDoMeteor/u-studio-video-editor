@@ -2,6 +2,7 @@
 
 #include "core/model/frame_time.h"
 #include "row_layout.h"
+#include "texture_cache.h"
 #include "timeline_controller.h"
 #include "viewport.h"
 
@@ -81,6 +82,12 @@ struct TimelineScene
     // being made (the caller redraws when it arrives).
     std::function<GdkTexture *(const core::Clip &clip, core::FrameIndex sourceFrame)> thumbnailFor;
     std::vector<const TimelineOverlayProvider *> overlays;
+    // Waveforms drawn once into textures, reused while their columns don't
+    // change, at the widget's scale factor. Without a cache they're a
+    // filled path, which GTK's GPU renderer rasterises with cairo on every
+    // repaint: 10 ms and more a frame for a long clip (2026-09-29).
+    TextureCache *waveformTextures = nullptr;
+    int scaleFactor = 1;
     // For labels. Reused for every label in a snapshot (text and width
     // set per use); the caller owns them.
     PangoLayout *labelLayout = nullptr;
