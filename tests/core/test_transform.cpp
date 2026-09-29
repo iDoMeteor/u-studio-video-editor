@@ -107,6 +107,10 @@ TEST_CASE("transform: keyframed values ease to a static transform at a frame, an
     REQUIRE(out.rotation.keyframes.size() == 2);
     CHECK(out.rotation.keyframes[0] == Keyframe{10, 15, Easing::CubicIn});
     CHECK(transformAt(out, 10) == edited);
+    // A keyed value the edit leaves as it was gets no key.
+    Transform same = mid;
+    same.y.value = 600;
+    CHECK(withTransformAt(t, 10, same).x.keyframes == t.x.keyframes);
 }
 
 TEST_CASE("transform: keyframes become affine's animated rect and rotation for each cut")

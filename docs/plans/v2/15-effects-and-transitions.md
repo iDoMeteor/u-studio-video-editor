@@ -871,6 +871,13 @@ Acceptance:
 > by the drop-in's frame renderer (the drawing stays until a frame comes).
 > They are stills, not animated, and scroll-to-cycle is still to come.
 
+> REVIEW: VE Effects, 2026-09-29: blend dissolves (Additive, Screen,
+> Lighten) are recipes on `frei0r.cairoblend`, registered by the drop-in
+> with `core::registerTransitionService()`; a recipe naming a service a
+> build doesn't offer plays as the plain dissolve and keeps its params
+> (VE Core's review), so a styled project opens anywhere. Blend-mode track
+> compositing remains a leftover.
+
 ### FX4 — Timeline and preview manipulation (about 2–3 weeks, needs M3)
 
 Integration points: IP5 timeline overlay/lane provider; possibly a
@@ -901,6 +908,15 @@ Acceptance:
 > `frei0r.alphaspot` between the mix pair); `Point` parameters don't exist
 > yet (no installed family reports one). The eyedropper samples the clip's
 > own frame, before its effects.
+
+> REVIEW: VE Effects, 2026-09-29: keyframed clip transforms (ADR-018's
+> REVIEW split). With one clip selected the Rack starts with a Transform
+> card: X, Y, width, height and rotation, each pinned, stepped, felt and
+> touch-recorded like an effect's value, written through
+> `core::withTransformAt()` (drop-in `core/transform_edit.h`); a Fit or
+> Stretch picture becomes an explicit placement where it shows when a
+> position or size changes or any value is pinned. Keyed transform values
+> get curve lanes too, above the effects'. Crops stay constant.
 
 ### FX5 — Optional families (about 1–2 weeks, any time after FX2)
 

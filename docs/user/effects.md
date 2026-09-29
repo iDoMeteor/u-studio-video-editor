@@ -110,11 +110,28 @@ moves to the next point: **Linear** (steady), **Smooth**, **Ease in**,
 **Ease out**, **Snap**, **Bounce**, **Elastic**, or **Hold** (it stays put,
 then jumps), plus every other curve in the list.
 
+### Moving, sizing and turning a picture over time
+
+With one clip selected, the **Effects** page starts with a **Transform**
+card: the picture's **X** and **Y** (its centre, in pixels from the
+frame's top left), **Width**, **Height** and **Rotation** (degrees
+clockwise). They pin, step and feel exactly like an effect's values, and
+record the same way, so a picture can glide in, grow, or spin over the
+clip.
+
+- A picture that's fitted or stretched to the frame is placed where it
+  shows the first time you change its position or size, or pin any value.
+- Crops don't change over time.
+- On a picture that changes over time, dragging it or its handles on the
+  preview, nudging it, and **Edit Transform** (`Ctrl+T`) change the
+  keyframe at the playhead (or add one there) for the values you move,
+  just as the card does.
+
 ### Seeing and shaping the curve (curve lanes)
 
 Select a clip and press **C**: a lane opens under it on the timeline for
-each value that changes over time, showing its curve, with a dot for each
-keyframe.
+each value that changes over time (its transform's first, then its
+effects'), showing its curve, with a dot for each keyframe.
 
 - **Drag a dot** left or right to move the keyframe in time, up or down to
   change its value. The whole drag is one undo step.
@@ -185,7 +202,9 @@ effect.
 ## Transition styles
 
 With the add-on, a dissolve between two clips can play in another style:
-a **dip to black**, a **flash**, a **slide** or **push** (the next clip
+a **dip to black**, a **flash**, a **blend** (**Additive**, **Screen** or
+**Lighten**: both clips at once half-way, brighter than a plain
+dissolve), a **slide** or **push** (the next clip
 slides in over this one, or pushes it out, from any side), a **zoom** or
 **spin** (it grows in from the middle, turning as it comes), or one of 20
 **wipes** (left, right, up, down and the diagonals, circle, clock,
@@ -207,11 +226,14 @@ edge is) and **Reverse** (run it the other way). A slider drag is one undo
 step.
 
 **Sound** chooses how the two clips' sound crosses: **Even crossfade**
-(the default) or **Equal power**, which keeps the level up through the
-middle, better for music and ambience. It stays when you change the style.
+(the default), **Equal power**, which keeps the level up through the
+middle, better for music and ambience, or **Cut**: the first clip's sound
+plays to the middle of the transition and the second's from there, with
+no blend (for dialogue, or a beat). It stays when you change the style.
 
 The style is saved with the project, and a render plays it exactly as the
-preview does. A saved project with wipes gets a small `ustudio-wipes`
+preview does. Opened where the add-on isn't installed, a styled
+dissolve plays as a plain one; the style comes back with the add-on. A saved project with wipes gets a small `ustudio-wipes`
 folder beside it: keep it with the project file.
 
 With GPU acceleration on, a wipe can stutter in the preview at **Full**

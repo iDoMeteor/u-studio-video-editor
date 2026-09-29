@@ -168,6 +168,49 @@ bool gpuAccelerationSetting()
     return on;
 }
 
+// The Sound row (doc 15: linear, equal power, cut), apart from the style:
+// params the recipes never use themselves ("audio.*", cut filter 9).
+enum class Sound
+{
+    Even,       // mix start=-1: the linear crossfade, the default
+    EqualPower, // mix start=-2 (transition_mix.yml)
+    Cut,        // no crossfade: the outgoing sound to the middle, then the incoming
+};
+
+bool isSoundParam(const core::Param &p)
+{
+    return p.name.starts_with("audio.") || p.name.starts_with("a.9.") || p.name.starts_with("b.9.");
+}
+
+std::vector<core::Param> soundParams(Sound sound)
+{
+    switch (sound) {
+    case Sound::EqualPower:
+        return {{"audio.start", -2.0, {}}};
+    case Sound::Cut:
+        // mix adds the incoming track unscaled (start=1 sum=1, CLAUDE.md),
+        // and a volume on each side holds it silent (-100 dB) on its half.
+        return {{"audio.start", 1.0, {}},
+                {"audio.sum", 1.0, {}},
+                {"a.9.service", std::string("volume"), {}},
+                {"a.9.level", std::string("hold:0,-100"), {}},
+                {"b.9.service", std::string("volume"), {}},
+                {"b.9.level", std::string("hold:-100,0"), {}}};
+    case Sound::Even:
+        break;
+    }
+    return {};
+}
+
+Sound soundOf(const std::vector<core::Param> &params)
+{
+    if (findParam(params, "a.9.service"))
+        return Sound::Cut;
+    const core::Param *start = findParam(params, "audio.start");
+    const double *value = start ? std::get_if<double>(&start->value) : nullptr;
+    return value && *value < -1.0 ? Sound::EqualPower : Sound::Even;
+}
+
 class TransitionsPage : public app::timeline::TimelineOverlayProvider
 {
   public:
@@ -187,8 +230,11 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
              "Click to play the transition this way; Ctrl+Z puts the last one back", nullptr, nullptr},
             {"effects.transitions-softness", "Transitions", "Softness", "How blurred a wipe's edge is", nullptr,
              nullptr},
-            {"effects.transitions-reverse", "Transitions", "Reverse", "Runs the wipe the other way", nullptr,
-             nullptr},
+            {"effects.transitions-reverse", "Transitions", "Reverse", "Runs the wipe the other way", nullptr, nullptr},
+            {"effects.transitions-sound", "Transitions", "Sound",
+             "How the two clips' sound crosses: an even crossfade, equal power (no dip in the middle, for music), "
+             "or a cut at the middle",
+             nullptr, nullptr},
         });
         static const std::vector<app::ActionSpec> actions = {
             {"effects-add-transition", "Add transition at the nearest cut", "Transitions", {"t"},
@@ -223,16 +269,17 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
 
         // The sound, whatever the style: MLT's mix crossfades evenly (start
         // -1) or with equal power (-2: sin/cos gains, transition_mix.c), which
-        // doesn't dip in the middle.
+        // doesn't dip in the middle, or cuts (soundParams()).
         GtkWidget *soundRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
         GtkWidget *soundLabel = gtk_label_new("Sound");
         gtk_label_set_xalign(GTK_LABEL(soundLabel), 0.0f);
         gtk_widget_set_size_request(soundLabel, 80, -1);
         gtk_box_append(GTK_BOX(soundRow), soundLabel);
-        const char *sounds[] = {"Even crossfade", "Equal power", nullptr};
+        const char *sounds[] = {"Even crossfade", "Equal power", "Cut", nullptr};
         m_sound = gtk_drop_down_new_from_strings(sounds);
         gtk_widget_set_hexpand(m_sound, TRUE);
         gtk_accessible_update_property(GTK_ACCESSIBLE(m_sound), GTK_ACCESSIBLE_PROPERTY_LABEL, "Sound", -1);
+        m_host.setTooltip(m_sound, "effects.transitions-sound");
         g_signal_connect(m_sound, "notify::selected", G_CALLBACK(&onSoundTrampoline), this);
         gtk_box_append(GTK_BOX(soundRow), m_sound);
         gtk_box_append(GTK_BOX(m_root), soundRow);
@@ -429,9 +476,7 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         const TransitionRecipe *recipe = index >= 0 ? &m_recipes[static_cast<size_t>(index)] : nullptr;
         schedulePreviews();
         m_updatingSound = true;
-        const core::Param *sound = findParam(t.params, "audio.start");
-        const double *start = sound ? std::get_if<double>(&sound->value) : nullptr;
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_sound), start && *start < -1.0 ? 1 : 0);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_sound), static_cast<guint>(soundOf(t.params)));
         m_updatingSound = false;
         gtk_label_set_text(GTK_LABEL(m_title), recipe ? recipe->name.c_str() : "Dissolve");
         auto nameOf = [&](core::ClipId id) {
@@ -613,10 +658,10 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
             return;
         const TransitionRecipe &recipe = m_recipes[static_cast<size_t>(index)];
         std::vector<core::Param> params = t.params.empty() ? recipe.params : t.params;
-        const bool power = gtk_drop_down_get_selected(GTK_DROP_DOWN(m_sound)) == 1;
-        std::erase_if(params, [](const core::Param &p) { return p.name == "audio.start"; });
-        if (power)
-            params.push_back({"audio.start", -2.0, {}});
+        std::erase_if(params, isSoundParam);
+        const auto sound = static_cast<Sound>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_sound)));
+        for (core::Param &p : soundParams(sound))
+            params.push_back(std::move(p));
         m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, std::move(params)));
     }
 
@@ -630,8 +675,9 @@ class TransitionsPage : public app::timeline::TimelineOverlayProvider
         std::vector<core::Param> params = recipe.params;
         const core::Model &model = m_host.model();
         if (model.hasTransition(m_target))
-            if (const core::Param *sound = findParam(model.transition(m_target).params, "audio.start"))
-                params = withParam(std::move(params), *sound);
+            for (const core::Param &p : model.transition(m_target).params)
+                if (isSoundParam(p))
+                    params = withParam(std::move(params), p);
         if (!m_host.execute(std::make_unique<SetTransitionRecipe>(m_target, recipe.id, params)))
             m_host.showStatus("Couldn't change that transition (is its track locked?)");
         else

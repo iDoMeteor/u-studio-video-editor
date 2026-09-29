@@ -115,6 +115,8 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
     host->log("[effects] registered in " + host->program());
     // IP3: effects on clips, tracks and the sequence, in every graph.
     host->addEngineExtension([] { return makeEffectsExtension(); });
+    // The blend dissolves' service, allowed only where frei0r has it.
+    registerTransitionServices();
     // IP6: the health and cost probe, and the registry for the editor's cache.
     host->addRenderSubcommand(
         {"probe-effect", "Health and cost of one effect; one JSON line (the effects scan)", &runProbeEffect});
@@ -143,7 +145,11 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         // factory: stop them all when the application shuts down.
         if (GApplication *application = g_application_get_default())
             g_signal_connect(application, "shutdown",
-                             G_CALLBACK(+[](GApplication *, gpointer) { FrameRenderer::stopAll(); }), nullptr);
+                             G_CALLBACK(+[](GApplication *, gpointer) {
+                                 stopEditorHealthScan();
+                                 FrameRenderer::stopAll();
+                             }),
+                             nullptr);
         // What was loaded at start-up (the experimental families), and
         // whether the recommended audio pack is there.
         catalog.experimental = loadExperimentalFamilies();

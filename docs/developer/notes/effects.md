@@ -190,3 +190,50 @@ soak read +40 MB/min with the Effects add-on installed and +2.5 without.
 - The soak that guards this: `tools/effects-smoke/run.sh <builddir> <outdir>
   soak_steps.sh` ([testing](../testing.md#the-effects-smoke-test)).
 
+## Health scan children
+
+- **A probe can outlive its editor.** VE Demos saw `u-studio-render
+  --probe-effect deshake` still running after the editor quit, re-parented
+  to the user's systemd (not pid 1) and ignoring SIGTERM (a probe inside a
+  plugin never checks the render tool's cancel; 2026-09-29). The scan now
+  stops on the application's `shutdown` signal (its thread kills its
+  children and reaps them), not at `exit()`, and the probe subcommand calls
+  `platform::exitWithParent()` (Linux: `PR_SET_PDEATHSIG` with SIGKILL, which
+  fires when the *thread* that spawned the child ends: the scan's worker,
+  which outlives its children). Repro: a probe under a throwaway parent,
+  the parent SIGKILLed: the probe was gone within a second.
+
+## Blend dissolves
+
+Found 2026-09-29 (VE Effects), for the Blends recipes (`dissolves.json`).
+
+- **A blend mode alone doesn't dissolve.** `frei0r.cairoblend` with its
+  opacity (`"0"`) rising 0 to 1 in `add` or `screen` mode ends on
+  `add(A, B)`, not on B, so the picture would jump at the end. The recipes
+  fade the outgoing clip too: B's opacity `ramp:0,1,1`, A's `brightness`
+  `ramp:1,1,0` (`rgb_only`). With A at black the light modes (`add`,
+  `screen`, `lighten`) give exactly B; the dark ones (`multiply`,
+  `darken`) would need A fading to white, so they aren't offered.
+- **The service is registered, not core's.** `frei0r.cairoblend` is in no
+  core list: the drop-in registers it (`core::registerTransitionService()`)
+  when MLT's repository has it, and a build without it plays such a recipe
+  as the plain dissolve (`nativeTransition()`), keeping the recipe.
+- **MLT's `color:` generator reads differently through a transition.**
+  `color:0x600000ff` reads 96 red as RGBA on its own but 87 through a
+  plain `luma` dissolve and 88 through `cairoblend` (a 709/601 matrix
+  mismatch: reds dim, greens brighten, 96 green read 113). PNG and H.264
+  (BT.709-tagged) sources read the same on every path. Tests that compare
+  colours across a transition's edge use generated FFV1 or H.264 clips,
+  not `color:` directly (the drop-in's test_engine "Blend dissolve").
+- The blend tiles show the real clips like the others; GPU: the transition
+  is a CPU island in the movit graph, like the wipes (not yet measured by
+  VE GPU).
+- **A sound cut** (the Sound row's Cut, doc 15's third curve): `mix` with
+  `start=1 sum=1` adds the incoming track unscaled, and a `volume` filter
+  on each side (cut filter 9, clear of the styles' own) holds it at -100 dB
+  on its half: `hold:0,-100` / `hold:-100,0`, core's discrete form of
+  `ramp:` (`"0|=0;<length/2>|=-100"`). `volume`'s `level` is in dB and
+  animated (`filter_volume.yml`). Test: engine-xml-playback "A transition's
+  sound can cut at the middle" (two tones 240 degrees apart: a cut keeps one
+  tone's level on both sides; an even crossfade halves it at the middle).
+

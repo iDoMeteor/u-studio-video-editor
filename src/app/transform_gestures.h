@@ -42,8 +42,21 @@ struct VisibleClip
 std::vector<VisibleClip> visibleClips(const core::Model &model, core::FrameIndex frame);
 // The topmost of them whose picture contains `point`; none if no picture does.
 std::optional<VisibleClip> clipAt(const core::Model &model, core::FrameIndex frame, Point point);
-// Where `clip`'s picture is (its asset's size under its transform).
-core::Placement placementOf(const core::Model &model, core::ClipId clip);
+// Where `clip`'s picture is at sequence frame `frame` (its asset's size
+// under its transform, keyframes eased there).
+core::Placement placementOf(const core::Model &model, core::ClipId clip, core::FrameIndex frame);
+
+// `clip`'s transform as it stands at sequence frame `frame`: static, every
+// keyed value eased there (core::transformAt()). What the handles, the
+// actions and the Transform dialog show and start an edit from.
+core::Transform transformShownAt(const core::Model &model, core::ClipId clip, core::FrameIndex frame);
+// The clip's transform after `edited` (a static transform, typically
+// transformShownAt() changed by the user) is applied at `frame`: a keyed
+// clip gets keys there (core::withTransformAt()), unless the edit switches
+// to Fit or Stretch, which place the picture themselves and so drop the
+// keys (check() refuses keys there); an unkeyed clip takes `edited` as is.
+core::Transform transformEditedAt(const core::Model &model, core::ClipId clip, core::FrameIndex frame,
+                                  const core::Transform &edited);
 
 enum class Handle
 {

@@ -23,6 +23,11 @@ namespace ustudio::effects {
 
 std::unique_ptr<engine::EngineExtension> makeEffectsExtension();
 
+// Registers the transition services this drop-in's recipes need beyond
+// core's (core::registerTransitionService()): frei0r.cairoblend for the
+// blend dissolves, when frei0r has it. Once, after the factory is up.
+void registerTransitionServices();
+
 // Services the health scan quarantined (core/health.h): never attached, so
 // a project naming one plays without it rather than crashing. Replaced
 // whole by the scan; read by every graph build (any thread).
