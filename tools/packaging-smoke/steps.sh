@@ -282,17 +282,21 @@ fi
 if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Effects" >/dev/null 2>&1; then
     check "effects drop-in loaded from its extension" \
         grep -q "\[drop-ins\] Loaded effects from /app/lib/u-studio/extensions/Effects/" "$OUT/app.log"
-    check "effects registered in the editor" grep -q "\[effects\] registered in u-studio-video-editor" "$OUT/app.log"
+    check "effects registered in the editor" grep -q "\[effects\] registered in editor" "$OUT/app.log"
     probe=$(flatpak run --user --no-documents-portal --command=u-studio-render "$SMOKE_APP_ID" \
         --probe-effect frei0r.glow 2>/dev/null | tail -1)
     echo "  probe-effect frei0r.glow: $probe"
-    check "frei0r Glow is usable in the sandbox" sh -c "echo '$probe' | grep -q '\"usable\":true'"
+    check "frei0r Glow is usable in the sandbox" sh -c "echo '$probe' | grep -q '\"status\":\"ok\"'"
     check "the health scan ran" grep -q "\[effects\] health scan" "$OUT/app.log"
     # A render before and after adding Glow, at the same moment: Glow
     # brightens the picture, so the mean luma must rise.
+    # After a render the header button reads "Open Render" until the next
+    # start, which a relaunch gives (the last project reopens by itself).
+    # The driver's own lines go to stderr: only the file name is returned.
     render_now() {
         before=$(ls "$M"/smoke-high-quality-*.mp4 2>/dev/null | wc -l)
-        d press "Render…"; sleep 2; d press Save exact; sleep 3
+        { d close; sleep 4; d launch $LAUNCH; sleep 3
+          d press "Render…"; sleep 2; d press Save exact; sleep 3; } >&2
         # A render appears under its name only when done (temp file +
         # rename), and the log already holds step 7's "Rendered".
         for _ in $(seq 1 240); do [ "$(ls "$M"/smoke-high-quality-*.mp4 2>/dev/null | wc -l)" -gt "$before" ] && break; sleep 1; done
@@ -316,7 +320,6 @@ if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Ef
     echo "  render luma at 2.5 s: without Glow ${l0:-none}, with Glow ${l1:-none}"
     check "the render with Glow is brighter" \
         python3 -c "import sys; sys.exit(0 if float('${l1:-0}') > float('${l0:-0}') + 2 else 1)"
-    d act undo; sleep 1; d act save; sleep 1.5
 fi
 
 # --- 9: Copy Diagnostics
