@@ -29,3 +29,4 @@ carries its own current status (ADR-011 to ADR-019 are Accepted).
 | [019](019-gpu-acceleration.md) | GPU acceleration: movit compositing on our own EGL context and per-producer hardware decode, behind a setting that probes and falls back to the CPU path |
 | [020](020-template-packages-and-sharing.md) | Template packages are local `.zip`/`.tar.gz` archives validated before install; sharing runs in a separate networked helper against a service with signed-URL downloads |
 | [021](021-lottie-layers-via-thorvg.md) | Lottie animations are a titles layer drawn by ThorVG in the titles drop-in; our validator refuses expressions and external assets first; the Flatpak builds ThorVG without expressions or file access |
+| [022](022-curated-mlt-modules-allowlist.md) | The curated MLT module directory links only listed modules (the editor's, and what drop-ins name); Qt stays denied; stale directories are swept at start |

@@ -1,6 +1,6 @@
 # ADR-007: Curated MLT module directory
 
-**Status:** Accepted (implemented in M0)
+**Status:** Accepted (implemented in M0). Amended by [ADR-022](022-curated-mlt-modules-allowlist.md): the curated directory is an allowlist.
 
 ## Context
 `Mlt::Factory::init()` with no argument loads every module in

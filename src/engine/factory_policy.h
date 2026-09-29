@@ -33,7 +33,22 @@ struct FactoryPaths
     std::vector<std::string> frei0rPaths;
     std::vector<std::string> ofxPaths;
     std::vector<std::string> mltModuleDirs;
+    // MLT's own modules a drop-in needs beyond the editor's (ADR-022: the
+    // curated directory links only listed modules), by name: "frei0r" for
+    // libmltfrei0r. A Qt module stays out even when listed (ADR-007). VE Effects
+    // added it to lift a denied module (openfx, FX5); ADR-022 makes it a plain
+    // allow.
+    std::vector<std::string> allowModules;
 };
+
+// ADR-022: the MLT modules the editor itself needs (CLAUDE.md's list).
+const std::vector<std::string> &editorModules();
+
+// Removes curated module directories under `base` left by processes that
+// ended without their cleanup (a crash, SIGKILL): named for a process that
+// no longer runs, or of the old unnamed form and more than a day old. Ones
+// this user can't remove are left. Returns how many it removed.
+int sweepStaleCuratedDirs(const std::string &base);
 
 class FactoryPolicy
 {

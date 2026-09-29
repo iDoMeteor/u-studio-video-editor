@@ -43,4 +43,9 @@ std::filesystem::path userCacheDirectory()
     return {};
 }
 
+const char *sharedLibrarySuffix()
+{
+    return ".so";
+}
+
 } // namespace ustudio::platform

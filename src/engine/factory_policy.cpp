@@ -1,13 +1,16 @@
 #include "factory_policy.h"
 
 #include "core/log.h"
+#include "platform/files.h"
+#include "platform/process.h"
 
 #include <mlt++/Mlt.h>
 
 #include <malloc.h>
-#include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
+#include <string_view>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -28,6 +31,9 @@ namespace Log = ustudio::core::Log;
 namespace {
 
 namespace fs = std::filesystem;
+
+// A curated directory's name: this, the owning process's id, "-", random.
+constexpr const char *kCuratedPrefix = "ustudio-mlt-modules-";
 
 // Denylist is filename-substring matching, e.g. "qt6" matches both
 // libmltqt6.so and libmltglaxnimate-qt6.so. Overridable via
@@ -57,6 +63,16 @@ std::vector<std::string> denylist()
     // or not anything used it. The effects drop-in's opt-in brings it back
     // after its own Qt scan (FX5; VE Effects' finding, 2026-09-28).
     return {"qt6", "glaxnimate-qt6", "openfx"};
+}
+
+// "libmltfrei0r.so" -> "frei0r"; "" for anything that isn't an MLT module.
+std::string moduleName(const std::string &filename)
+{
+    const std::string prefix = "libmlt", suffix = platform::sharedLibrarySuffix();
+    if (filename.size() <= prefix.size() + suffix.size() || !filename.starts_with(prefix) ||
+        !filename.ends_with(suffix))
+        return {};
+    return filename.substr(prefix.size(), filename.size() - prefix.size() - suffix.size());
 }
 
 bool isDenied(const std::string &filename, const std::vector<std::string> &deny)
@@ -95,11 +111,14 @@ fs::path moduleCacheBaseDir()
 // every module in USTUDIO_MLT_MODULE_DIR except the denylist. Returns the
 // curated directory path, or empty on any failure (caller falls back to
 // default init).
-std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDirs)
+std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDirs,
+                                  const std::vector<std::string> &dropInModules)
 {
     fs::path base = moduleCacheBaseDir();
     if (base.empty())
         return {};
+    if (const int swept = sweepStaleCuratedDirs(base.string()); swept > 0)
+        Log::info("[engine] FactoryPolicy: removed " + std::to_string(swept) + " stale curated module dir(s)");
 
     // Not a predictable per-PID path: this directory is what gets
     // dlopen()'d into the process (that's the entire point of it), so a
@@ -107,7 +126,8 @@ std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDir
     // unset fallback -- headless/CI, not a normal desktop session with a
     // per-user 0700 runtime dir) would let another local user pre-create
     // or race-replace an entry before we symlink into it, getting their
-    // code loaded into this process. mkdtemp() creates the directory
+    // code loaded into this process. platform::makePrivateDirectory()
+    // (mkdtemp) creates the directory
     // atomically with a random suffix and mode 0700, closing that off;
     // two processes racing to build a curated dir at the same moment
     // (reproduced by two engine test binaries in the same meson test run
@@ -116,15 +136,17 @@ std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDir
     // destructor removes this directory, so it doesn't accumulate across
     // clean runs; a stray one from a crash is a rare, low-cost leftover
     // rather than a stable name anything can plan around.
-    std::string curatedTemplate = (base / "ustudio-mlt-modules-XXXXXX").string();
-    std::vector<char> curatedBuf(curatedTemplate.begin(), curatedTemplate.end());
-    curatedBuf.push_back('\0');
-    if (!mkdtemp(curatedBuf.data())) {
+    // The pid in the name lets a later start sweep it if this process
+    // dies without its cleanup (sweepStaleCuratedDirs()); the random
+    // suffix keeps it unguessable.
+    std::string makeError;
+    fs::path curated = platform::makePrivateDirectory(
+        base, std::string(kCuratedPrefix) + std::to_string(platform::currentProcessId()) + "-", &makeError);
+    if (curated.empty()) {
         Log::warn(std::string("[engine] FactoryPolicy: could not create a curated module directory under ") +
-                  base.string() + " (" + std::strerror(errno) + "), falling back to default MLT module loading");
+                  base.string() + " (" + makeError + "), falling back to default MLT module loading");
         return {};
     }
-    fs::path curated(curatedBuf.data());
     fs::path source = USTUDIO_MLT_MODULE_DIR;
 
     std::error_code ec;
@@ -136,8 +158,15 @@ std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDir
     }
 
     std::vector<std::string> deny = denylist();
+    // ADR-022: only listed modules, the editor's and the drop-ins'. The rest
+    // (decklink, opencv, openfx...) never load: a module that pulls in
+    // plugins or libraries at init (openfx's system-wide .ofx scan) can't
+    // reach the process unless someone asked for it.
+    std::vector<std::string> allowed = editorModules();
+    allowed.insert(allowed.end(), dropInModules.begin(), dropInModules.end());
     int linked = 0;
     int skipped = 0;
+    int unlisted = 0;
     // Separate error_code from the one used per-symlink below: sharing one
     // meant a single failed symlink (a dangling entry, a permissions
     // quirk) left it non-clear after the loop, which this check then
@@ -152,10 +181,13 @@ std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDir
             ++skipped;
             continue;
         }
-        std::error_code symlinkEc;
-        fs::create_symlink(entry.path(), curated / name, symlinkEc);
-        if (symlinkEc) {
-            Log::warn("[engine] FactoryPolicy: could not symlink " + name + ": " + symlinkEc.message());
+        if (std::find(allowed.begin(), allowed.end(), moduleName(name)) == allowed.end()) {
+            ++unlisted;
+            continue;
+        }
+        std::string linkError;
+        if (!platform::linkFile(entry.path(), curated / name, &linkError)) {
+            Log::warn("[engine] FactoryPolicy: could not link " + name + ": " + linkError);
             continue;
         }
         ++linked;
@@ -184,10 +216,9 @@ std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDir
                 ++skipped;
                 continue;
             }
-            std::error_code symlinkEc;
-            fs::create_symlink(entry.path(), curated / name, symlinkEc);
-            if (symlinkEc) {
-                Log::warn("[engine] FactoryPolicy: drop-in module " + name + " not linked: " + symlinkEc.message());
+            std::string linkError;
+            if (!platform::linkFile(entry.path(), curated / name, &linkError)) {
+                Log::warn("[engine] FactoryPolicy: drop-in module " + name + " not linked: " + linkError);
                 continue;
             }
             ++linked;
@@ -196,7 +227,7 @@ std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDir
     }
 
     Log::info("[engine] FactoryPolicy: curated MLT module dir " + curated.string() + " (" + std::to_string(linked) +
-              " linked, " + std::to_string(skipped) + " denied)");
+              " linked, " + std::to_string(skipped) + " denied, " + std::to_string(unlisted) + " not listed)");
     return curated.string();
 }
 
@@ -262,7 +293,7 @@ FactoryPolicy::FactoryPolicy(const FactoryPaths &paths)
     // Read by MLT's frei0r and OpenFX modules when init() loads them.
     setSearchPath("FREI0R_PATH", paths.frei0rPaths);
     setSearchPath("OFX_PLUGIN_PATH", paths.ofxPaths);
-    std::string curated = buildCuratedModuleDir(paths.mltModuleDirs);
+    std::string curated = buildCuratedModuleDir(paths.mltModuleDirs, paths.allowModules);
     if (!curated.empty()) {
         Mlt::Factory::init(curated.c_str());
         m_moduleDirectoryUsed = curated;
@@ -327,6 +358,51 @@ std::string FactoryPolicy::mltVersion()
 {
     const char *version = mlt_version_get_string();
     return version ? version : "";
+}
+
+const std::vector<std::string> &editorModules()
+{
+    // CLAUDE.md's module list, verified against /usr/share/mlt-7/<module>/:
+    // core (composite, luma, mix, crop, mirror, colour, null), plus (the
+    // affine filter, ADR-018), normalize (volume), avformat, xml, sdl2
+    // (sdl2_audio), rtaudio, gdk (stills), resample, xine (the loader's
+    // deinterlace normaliser, ADR-019 G5), movit (the GPU pipeline, ADR-019).
+    static const std::vector<std::string> modules = {"core",    "plus", "normalize", "avformat", "xml",  "sdl2",
+                                                     "rtaudio", "gdk",  "resample",  "xine",     "movit"};
+    return modules;
+}
+
+int sweepStaleCuratedDirs(const std::string &base)
+{
+    int removed = 0;
+    std::error_code ec;
+    const auto dayAgo = fs::file_time_type::clock::now() - std::chrono::hours(24);
+    for (const auto &entry : fs::directory_iterator(base, ec)) {
+        const std::string name = entry.path().filename().string();
+        if (!name.starts_with(kCuratedPrefix) || !entry.is_directory(ec))
+            continue;
+        // "<prefix><pid>-<random>" since ADR-022; "<prefix><random>" before.
+        const std::string rest = name.substr(std::string_view(kCuratedPrefix).size());
+        const size_t dash = rest.find('-');
+        bool stale = false;
+        if (dash != std::string::npos && dash > 0 &&
+            std::all_of(rest.begin(), rest.begin() + static_cast<std::ptrdiff_t>(dash),
+                        [](char c) { return c >= '0' && c <= '9'; })) {
+            const int64_t pid = std::stoll(rest.substr(0, dash));
+            stale = pid != platform::currentProcessId() && !platform::processExists(pid);
+        } else {
+            // The old form names no process: only a day old or more (an
+            // editor from before ADR-022 still running keeps its own).
+            stale = fs::last_write_time(entry.path(), ec) < dayAgo && !ec;
+        }
+        if (!stale)
+            continue;
+        std::error_code removeEc;
+        fs::remove_all(entry.path(), removeEc);
+        if (!removeEc)
+            ++removed; // another user's (the /tmp fallback) fails, and stays
+    }
+    return removed;
 }
 
 } // namespace ustudio::engine
