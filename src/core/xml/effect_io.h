@@ -37,6 +37,11 @@ std::optional<Effect> readEffectFilter(xmlNodePtr filter);
 // Every model <filter> directly under `parent`, in order.
 std::vector<Effect> readEffectFilters(xmlNodePtr parent);
 
+// Keyframes with their easing, for ustudio:* properties:
+// "at:value:easing;..." (easing as its number).
+std::string encodeKeyframes(const std::vector<Keyframe> &keyframes);
+std::vector<Keyframe> decodeKeyframes(const std::string &text);
+
 // A list of parameters as indexed ustudio properties: `<prefix>count`,
 // `<prefix>N.name`, `<prefix>N.value`, `<prefix>N.keyframes`.
 void writeParams(xmlNodePtr parent, const std::string &prefix, const std::vector<Param> &params);

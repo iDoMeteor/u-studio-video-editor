@@ -116,8 +116,18 @@ Transform explicitTransform(const Transform &t, int sourceWidth, int sourceHeigh
     return out;
 }
 
+bool isAnimated(const Transform &t)
+{
+    for (KeyframedValue Transform::*member : kValues)
+        if (!(t.*member).keyframes.empty())
+            return true;
+    return false;
+}
+
 bool isIdentity(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile)
 {
+    if (isAnimated(t))
+        return false;
     // The track compositor (composite, fill=1) scales a picture of the
     // frame's aspect to fill it, so Fit or Stretch of one is no filter. It
     // keeps another aspect's shape, so Stretch of one needs the affine
@@ -133,7 +143,7 @@ bool isIdentity(const Transform &t, int sourceWidth, int sourceHeight, const Pro
 
 bool compositorFits(const Transform &t)
 {
-    return t.bounds == Transform::Bounds::Fit && !t.flipH && !t.flipV && t.rotation.value == 0.0 &&
+    return !isAnimated(t) && t.bounds == Transform::Bounds::Fit && !t.flipH && !t.flipV && t.rotation.value == 0.0 &&
            t.cropLeft.value == 0.0 && t.cropTop.value == 0.0 && t.cropRight.value == 0.0 && t.cropBottom.value == 0.0;
 }
 
@@ -158,25 +168,126 @@ std::string transformProblem(const Transform &t)
     for (const KeyframedValue *crop : {&t.cropLeft, &t.cropTop, &t.cropRight, &t.cropBottom})
         if (crop->value < 0)
             return "a crop can't be negative";
+    if (!isAnimated(t))
+        return {};
+    // Keyframes: on a placed picture only (Fit and Stretch compute the
+    // placement), never on a crop (the crop filter doesn't animate).
+    for (const KeyframedValue *crop : {&t.cropLeft, &t.cropTop, &t.cropRight, &t.cropBottom})
+        if (!crop->keyframes.empty())
+            return "a crop can't be keyframed";
+    if (t.bounds != Transform::Bounds::None)
+        return "only an explicitly placed picture can be keyframed";
+    for (KeyframedValue Transform::*member : kValues) {
+        const std::vector<Keyframe> &keys = (t.*member).keyframes;
+        for (size_t i = 0; i < keys.size(); ++i) {
+            if (!std::isfinite(keys[i].value))
+                return "a transform keyframe isn't a number";
+            if (i > 0 && keys[i].at <= keys[i - 1].at)
+                return "transform keyframes must be in order, one per frame";
+        }
+    }
+    for (const KeyframedValue *size : {&t.width, &t.height})
+        for (const Keyframe &k : size->keyframes)
+            if (k.value <= 0)
+                return "an explicitly placed picture needs a positive size";
     return {};
 }
 
-std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, int sourceHeight,
-                                           const Profile &profile, double outputScale, double sourceScale)
+namespace {
+
+std::string number(double value)
+{
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%.4f", value);
+    std::string text = buf;
+    while (text.back() == '0')
+        text.pop_back();
+    if (text.back() == '.')
+        text.pop_back();
+    return text == "-0" ? "0" : text;
+}
+
+// affine's "x y w h 1" for a centre-placed picture, in output pixels.
+std::string rectText(double cx, double cy, double w, double h, double outputScale)
+{
+    return number((cx - w / 2) * outputScale) + " " + number((cy - h / 2) * outputScale) + " " +
+           number(w * outputScale) + " " + number(h * outputScale) + " 1";
+}
+
+// The animated rect of a placed (None) transform on a cut `offset` frames
+// into its clip, `length` long (transformFilters()).
+std::string animatedRect(const Transform &t, FrameIndex offset, FrameIndex length, double outputScale)
+{
+    const KeyframedValue *values[] = {&t.x, &t.y, &t.width, &t.height};
+    const KeyframedValue *keyed = nullptr;
+    bool aligned = true;
+    FrameIndex first = 0, last = 0;
+    for (const KeyframedValue *v : values) {
+        if (v->keyframes.empty())
+            continue;
+        if (!keyed) {
+            keyed = v;
+            first = v->keyframes.front().at;
+            last = v->keyframes.back().at;
+            continue;
+        }
+        first = std::min(first, v->keyframes.front().at);
+        last = std::max(last, v->keyframes.back().at);
+        aligned = aligned && v->keyframes.size() == keyed->keyframes.size() &&
+                  std::equal(v->keyframes.begin(), v->keyframes.end(), keyed->keyframes.begin(),
+                             [](const Keyframe &a, const Keyframe &b) { return a.at == b.at && a.easing == b.easing; });
+    }
+    auto at = [&](FrameIndex frame, int component) {
+        const KeyframedValue &v = *values[component];
+        return v.keyframes.empty() ? v.value : easedValue(v.keyframes, static_cast<double>(frame));
+    };
+    if (!keyed)
+        return rectText(t.x.value, t.y.value, t.width.value, t.height.value, outputScale);
+    std::string out;
+    auto add = [&](FrameIndex position, Easing easing, double cx, double cy, double w, double h) {
+        out += (out.empty() ? "" : ";") + std::to_string(position) + easingOperator(easing) + "=" +
+               rectText(cx, cy, w, h, outputScale);
+    };
+    if (aligned) {
+        // The same keys for every keyed value: each rect key eases all four
+        // numbers with one easing, as each value would alone (the rect is
+        // linear in them).
+        std::vector<std::vector<Keyframe>> cut(4);
+        for (int c = 0; c < 4; ++c)
+            if (!values[c]->keyframes.empty())
+                cut[static_cast<size_t>(c)] = keyframesForCut(values[c]->keyframes, offset, length);
+        const std::vector<Keyframe> &frames = keyframesForCut(keyed->keyframes, offset, length);
+        for (size_t i = 0; i < frames.size(); ++i) {
+            double v[4];
+            for (int c = 0; c < 4; ++c)
+                v[c] = cut[static_cast<size_t>(c)].empty() ? values[c]->value : cut[static_cast<size_t>(c)][i].value;
+            add(frames[i].at, frames[i].easing, v[0], v[1], v[2], v[3]);
+        }
+        return out;
+    }
+    // Keys on different frames or easings: every frame between the first
+    // and last key, linear between whole frames, which is exact where MLT
+    // samples; outside them the values hold.
+    const FrameIndex from = std::clamp(first - offset, FrameIndex{0}, length - 1);
+    const FrameIndex to = std::clamp(last - offset, FrameIndex{0}, length - 1);
+    for (FrameIndex f = from; f <= to; ++f)
+        add(f, Easing::Linear, at(f + offset, 0), at(f + offset, 1), at(f + offset, 2), at(f + offset, 3));
+    return out;
+}
+
+} // namespace
+
+std::vector<NativeFilter> transformFilters(const Transform &input, int sourceWidth, int sourceHeight,
+                                           const Profile &profile, double outputScale, double sourceScale,
+                                           FrameIndex offset, FrameIndex length)
 {
     std::vector<NativeFilter> filters;
+    // Only a placed picture animates (check() refuses keys elsewhere, and
+    // on crops); anything else is taken at the cut's start.
+    const bool animated = isAnimated(input) && input.bounds == Transform::Bounds::None && length > 0;
+    const Transform t = animated ? input : transformAt(input, offset);
     if (isIdentity(t, sourceWidth, sourceHeight, profile))
         return filters;
-    auto number = [](double value) {
-        char buf[32];
-        std::snprintf(buf, sizeof buf, "%.4f", value);
-        std::string text = buf;
-        while (text.back() == '0')
-            text.pop_back();
-        if (text.back() == '.')
-            text.pop_back();
-        return text;
-    };
     auto pixels = [&](double sourcePixels) { return std::to_string(std::lround(sourcePixels * sourceScale)); };
     if (t.cropLeft.value > 0 || t.cropTop.value > 0 || t.cropRight.value > 0 || t.cropBottom.value > 0)
         filters.push_back({"crop",
@@ -189,7 +300,6 @@ std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, 
     if (t.flipV)
         filters.push_back({"mirror", {{"mirror", "flop"}}});
     const Placement p = placementFor(t, sourceWidth, sourceHeight, profile);
-    const double x = (p.cx - p.w / 2) * outputScale, y = (p.cy - p.h / 2) * outputScale;
     // use_normalized: the picture is drawn on a frame-sized canvas, whatever
     // size the compositor asks for, with the (cropped) source stretched to
     // it, so `rect` is exactly where the picture goes. Without it the
@@ -197,35 +307,49 @@ std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, 
     // by source/frame. repeat_off/mirror_off: affine otherwise tiles and
     // mirrors the picture outside `rect` (as kdenlive's pan_zoom sets them).
     // All verified with standalone repros (MLT 7.40, 2026-09-25).
-    filters.push_back({"affine",
-                       {{"use_normalized", "1"},
-                        {"transition.rect", number(x) + " " + number(y) + " " + number(p.w * outputScale) + " " +
-                                                number(p.h * outputScale) + " 1"},
-                        {"transition.distort", "1"},
-                        {"transition.repeat_off", "1"},
-                        {"transition.mirror_off", "1"},
-                        {"transition.fix_rotate_x", number(p.rotation)}}});
+    filters.push_back(
+        {"affine",
+         {{"use_normalized", "1"},
+          {"transition.rect",
+           animated ? animatedRect(t, offset, length, outputScale) : rectText(p.cx, p.cy, p.w, p.h, outputScale)},
+          {"transition.distort", "1"},
+          {"transition.repeat_off", "1"},
+          {"transition.mirror_off", "1"},
+          {"transition.fix_rotate_x", animated && !t.rotation.keyframes.empty()
+                                          ? animationString(keyframesForCut(t.rotation.keyframes, offset, length))
+                                          : number(p.rotation)}}});
     return filters;
 }
 
 std::vector<NativeFilter> gpuTransformFilters(const Transform &t, int sourceWidth, int sourceHeight,
-                                              const Profile &profile, double outputScale, double sourceScale)
+                                              const Profile &profile, double outputScale, double sourceScale,
+                                              FrameIndex offset, FrameIndex length)
 {
     std::vector<NativeFilter> filters =
-        transformFilters(t, sourceWidth, sourceHeight, profile, outputScale, sourceScale);
-    if (placementFor(t, sourceWidth, sourceHeight, profile).rotation != 0.0)
-        return filters;
+        transformFilters(t, sourceWidth, sourceHeight, profile, outputScale, sourceScale, offset, length);
+    for (const NativeFilter &filter : filters)
+        for (const auto &[name, value] : filter.properties)
+            if (name == "transition.fix_rotate_x" && value != "0")
+                return filters;
     for (NativeFilter &filter : filters) {
         if (filter.service == "mirror") {
             const bool horizontal = filter.properties.front().second == "flip";
             filter = {horizontal ? "movit.mirror" : "movit.flip", {}};
         } else if (filter.service == "affine") {
-            // "x y w h 1": the same rect without affine's opacity. Property
-            // names from /usr/share/mlt-7/movit/filter_movit_rect.yml.
+            // "x y w h 1": the same rect without affine's opacity, from
+            // every key of an animated one. Property names from
+            // /usr/share/mlt-7/movit/filter_movit_rect.yml.
             std::string rect;
             for (const auto &[name, value] : filter.properties)
                 if (name == "transition.rect")
-                    rect = value.substr(0, value.rfind(' '));
+                    for (size_t start = 0; start < value.size();) {
+                        size_t end = value.find(';', start);
+                        if (end == std::string::npos)
+                            end = value.size();
+                        const std::string key = value.substr(start, end - start);
+                        rect += (rect.empty() ? "" : ";") + key.substr(0, key.rfind(' '));
+                        start = end + 1;
+                    }
             filter = {"movit.rect", {{"rect", rect}, {"distort", "1"}}};
         }
     }

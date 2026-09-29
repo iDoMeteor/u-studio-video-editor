@@ -254,8 +254,8 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
         addProperty(entry, "ustudio:fade_out", std::to_string(clip.fadeOut->length));
     xml_detail::writeParams(entry, "ustudio:source_param.", clip.sourceParams);
     writeEffects(entry, clip.effects, 0, clip.length(), true);
-    // ADR-018: the clip's transform, when it isn't the default (values
-    // only; keyframes come with animation).
+    // ADR-018: the clip's transform, when it isn't the default; a keyed
+    // value's keys go in "<name>.keyframes".
     if (const Transform &t = clip.transform.get(); !(t == Transform{})) {
         const char *bounds = t.bounds == Transform::Bounds::None      ? "none"
                              : t.bounds == Transform::Bounds::Stretch ? "stretch"
@@ -270,9 +270,13 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
                                                                           {"crop_top", &t.cropTop},
                                                                           {"crop_right", &t.cropRight},
                                                                           {"crop_bottom", &t.cropBottom}};
-        for (const auto &[name, value] : values)
+        for (const auto &[name, value] : values) {
             if (value->value != 0.0)
                 addProperty(entry, std::string("ustudio:transform.") + name, doubleToString(value->value));
+            if (!value->keyframes.empty())
+                addProperty(entry, std::string("ustudio:transform.") + name + ".keyframes",
+                            xml_detail::encodeKeyframes(value->keyframes));
+        }
         if (t.flipH)
             addProperty(entry, "ustudio:transform.flip_h", "1");
         if (t.flipV)
@@ -333,7 +337,8 @@ xmlNodePtr writeRenderCut(xmlNodePtr playlist, const std::string &producerId, Fr
     // filters from the same function, so melt plays what the editor does.
     const MediaInfo &info = model.asset(clip.asset).info;
     for (const NativeFilter &native :
-         transformFilters(clip.transform.get(), info.width, info.height, model.sequence().profile)) {
+         transformFilters(clip.transform.get(), info.width, info.height, model.sequence().profile, 1.0, 1.0,
+                          in - clip.in, out - in + 1)) {
         xmlNodePtr filter = xmlNewChild(entry, nullptr, BAD_CAST "filter", nullptr);
         xmlNewProp(filter, BAD_CAST "in", BAD_CAST std::to_string(in).c_str());
         xmlNewProp(filter, BAD_CAST "out", BAD_CAST std::to_string(out).c_str());

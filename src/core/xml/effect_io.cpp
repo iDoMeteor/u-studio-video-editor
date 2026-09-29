@@ -96,7 +96,25 @@ Param::Value decodeValue(const std::string &text)
     }
 }
 
-// "at:value:easing;..." (easing as its number).
+void writeKeyframed(xmlNodePtr parent, const std::string &name, const KeyframedValue &value)
+{
+    addProperty(parent, name, formatDouble(value.value));
+    if (!value.keyframes.empty())
+        addProperty(parent, name + ".keyframes", encodeKeyframes(value.keyframes));
+}
+
+KeyframedValue readKeyframed(xmlNodePtr parent, const std::string &name, double fallback)
+{
+    KeyframedValue value;
+    std::optional<std::string> text = getProperty(parent, name);
+    value.value = text ? toDouble(*text) : fallback;
+    if (std::optional<std::string> keyframes = getProperty(parent, name + ".keyframes"))
+        value.keyframes = decodeKeyframes(*keyframes);
+    return value;
+}
+
+} // namespace
+
 std::string encodeKeyframes(const std::vector<Keyframe> &keyframes)
 {
     std::string out;
@@ -123,25 +141,6 @@ std::vector<Keyframe> decodeKeyframes(const std::string &text)
     }
     return keyframes;
 }
-
-void writeKeyframed(xmlNodePtr parent, const std::string &name, const KeyframedValue &value)
-{
-    addProperty(parent, name, formatDouble(value.value));
-    if (!value.keyframes.empty())
-        addProperty(parent, name + ".keyframes", encodeKeyframes(value.keyframes));
-}
-
-KeyframedValue readKeyframed(xmlNodePtr parent, const std::string &name, double fallback)
-{
-    KeyframedValue value;
-    std::optional<std::string> text = getProperty(parent, name);
-    value.value = text ? toDouble(*text) : fallback;
-    if (std::optional<std::string> keyframes = getProperty(parent, name + ".keyframes"))
-        value.keyframes = decodeKeyframes(*keyframes);
-    return value;
-}
-
-} // namespace
 
 xmlNodePtr addProperty(xmlNodePtr parent, const std::string &name, const std::string &value)
 {
