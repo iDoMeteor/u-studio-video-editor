@@ -384,3 +384,63 @@ TEST_CASE("A saved wipe and dip play frame-identically outside the editor")
     for (const auto &sample : midDip)
         CHECK(sample[0] + sample[1] + sample[2] < 60);
 }
+
+// FX3 motion: a push is the affine transition sliding the next clip in and
+// an affine filter on the outgoing cut sliding it out; the saved file must
+// move both the same way (the filter's in/out are the cut's, as
+// attachToCut() sets them).
+TEST_CASE("A saved push plays frame-identically outside the editor")
+{
+    sharedFactoryPolicy();
+
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    ClipId a = model.insertClip(video, addGenerator(model, "color:red", true, false), 0, 0, 29); // [0, 30)
+    ClipId b = model.insertClip(video, addGenerator(model, "color:blue", true, false), 30, 10, 49);
+    TransitionId push = model.addTransition(video, a, b, 10, 10); // [20, 40)
+    model.setTransitionRecipe(push, "push.left",
+                              {{"video.service", std::string("affine"), {}},
+                               {"video.rect", std::string("ramp:100% 0% 100% 100%|0% 0% 100% 100%"), {}},
+                               {"a.0.service", std::string("affine"), {}},
+                               {"a.0.transition.rect", std::string("ramp:0% 0% 100% 100%|-100% 0% 100% 100%"), {}}});
+    REQUIRE(model.check().empty());
+    EngineSync sync(model);
+    CHECK(sync.verify().empty());
+
+    std::filesystem::path path = tempProjectPath("ustudio-xml-push");
+    RemoveOnExit cleanup{path};
+    REQUIRE(saveProject(model, path.string()).empty());
+    Mlt::Producer loaded(sync.profile(), ("xml:" + path.string()).c_str());
+    REQUIRE(loaded.is_valid());
+
+    const int width = sync.profile().width(), height = sync.profile().height();
+    // The first x from the left that is blue on the middle row; -1 if none.
+    auto edge = [&](Mlt::Producer &producer, int position) {
+        producer.seek(position);
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_image_format format = mlt_image_rgb;
+        int w = width, h = height;
+        const uint8_t *image = frame->get_image(format, w, h);
+        for (int x = 0; x < w; x += 2) {
+            const uint8_t *p = image + (static_cast<size_t>(h / 2) * static_cast<size_t>(w) + static_cast<size_t>(x)) * 3;
+            if (p[2] > 150 && p[0] < 100)
+                return x;
+        }
+        return -1;
+    };
+    int previous = width;
+    for (int position = 20; position < 40; ++position) {
+        const int live = edge(sync.tractor(), position), saved = edge(loaded, position);
+        INFO("frame " << position << ": live edge " << live << ", saved " << saved);
+        CHECK(std::abs(live - saved) <= 2);
+        // The incoming picture comes in from the right, steadily.
+        if (position > 20) {
+            CHECK(live >= 0);
+            CHECK(live <= previous);
+        }
+        if (live >= 0)
+            previous = live;
+    }
+    CHECK(edge(sync.tractor(), 30) > width / 4);
+    CHECK(edge(sync.tractor(), 30) < width * 3 / 4);
+}

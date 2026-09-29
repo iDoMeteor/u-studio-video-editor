@@ -63,8 +63,11 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   transition, so it follows a change of length.
 - **Project files can't name a service**: `Model::check()` refuses a
   transition whose params name anything outside
-  `transitionServiceAllowed()` or set `resource`, `factory` or
-  `producer.*`, so the reader refuses the file. A map is only ever a
+  `transitionServiceAllowed()`, or set anything MLT would open, on any of
+  its services (the cut filters too) and at any depth: `resource`,
+  `factory`, `background`, `luma`, `producer.*` (`affine`'s filter opens
+  its `background` as a producer and passes `producer.*` and
+  `transition.*` on, filter_affine.yml). The reader then refuses the file. A map is only ever a
   generated one, by name; an unknown name plays as the plain dissolve.
 - **Where maps are written:** the editor's graph uses
   `<user cache>/ustudio/luma/v<N>/<name>.pgm` (`platform::
@@ -74,8 +77,27 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   map function changes, or old maps would stay in use forever. Writes are
   atomic (a uniquely named temp file, then a rename, the temp removed on
   failure), so an editor and a render child can make the same map at once.
-- **On the GPU pipeline every recipe plays as the plain dissolve** for now
-  (`movit.luma_mix`, no cut filters, no map): `movit.luma_mix` documents
-  `resource`, and dips put CPU `brightness` filters on the cuts, but neither
-  is verified inside our movit graph yet (VE GPU's repros). A render on the
-  CPU pipeline, and `melt`, play the recipe.
+- **On the GPU pipeline a wipe stays the CPU `luma`**, an island in the
+  movit graph; only the plain dissolve (and a dip, whose `brightness`
+  filters sit on the cuts) uses `movit.luma_mix`. VE GPU's repro
+  (2026-09-28, 1080p, 20-frame wipe): `movit.luma_mix` squares the progress
+  (the edge sits still for 4 frames, then catches up) and opens `resource`
+  through a producer, so the map arrives at 8 bits (transition_movit_luma.cpp
+  :149), while the CPU `luma` reads the `.pgm` itself at 16 bits
+  (transition_luma.c:784) and tracks the all-CPU wipe within ~9 px on every
+  frame. The cost is ~140–155 ms per 1080p frame during a wipe (~60 on the
+  CPU pipeline), so a wipe drops frames at Full preview; the export takes
+  the preview's pipeline and is exact. Keep maps `.pgm`: another image
+  format goes through the default loader (transition_luma.c:822), the gap on
+  a live GPU session. Tests: test_gpu_pipeline "a wipe plays as the CPU's,
+  frame by frame" and "a dip to black is black in the middle".
+- **Motion recipes** (slide, push) are MLT's `affine` transition with an
+  animated `rect` ("X% Y% W% H%", every field a percentage, transition_
+  affine.yml) as the video transition, and for a push an `affine` filter
+  on the outgoing cut with `transition.rect` (filter_affine.yml passes
+  `transition.*` on) moving it out. With the filter's in/out the cut's
+  (attachToCut()), both move linearly over the transition: standalone
+  repro, a 25-frame red/blue pair sampled at x=100/640/1180 (scratchpad
+  `motion_repro.cpp`, `push_repro.cpp`), and engine-xml-playback's "A
+  saved push …" (the edge frame by frame, preview equal to melt). A ramp
+  of rects separates them with `|`, since a rect has spaces.

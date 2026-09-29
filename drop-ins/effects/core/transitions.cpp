@@ -25,6 +25,7 @@ std::vector<TransitionRecipe> recipesFromJson(const Json &json)
         recipe.name = item["name"].asString();
         recipe.category = item["category"].asString();
         recipe.description = item["description"].asString();
+        recipe.swatch = item["swatch"].asString();
         for (const auto &[name, value] : item["params"].asObject()) {
             core::Param param;
             param.name = name;

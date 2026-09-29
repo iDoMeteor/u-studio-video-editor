@@ -114,6 +114,36 @@ Find looks under **Looks** on the **Add** page (or by name in the search).
 Try one by pointing at it, and apply it by clicking or dragging, like an
 effect.
 
+## Transition styles
+
+With the add-on, a dissolve between two clips can play in another style:
+a **dip to black**, a **flash**, a **slide** or **push** (the next clip
+slides in over this one, or pushes it out, from any side), or one of 20
+**wipes** (left, right, up, down and the diagonals, circle, clock,
+diamond, barn doors, blinds, checkerboard, blocks, star, sparkle and the
+unicorn horn).
+
+1. Put the playhead on a dissolve, or double-click one on the timeline.
+   Or press **T** to add a dissolve at the cut nearest the playhead on the
+   active track (about half a second, like **Add Transition**).
+2. The **Transitions** page opens in the inspector, and the dissolve it's
+   about is outlined on the timeline. Each tile shows its style: the
+   outgoing clip in pink, the incoming one in blue.
+3. Click a tile to play the dissolve that way. **Ctrl+Z** puts the last
+   style back.
+
+A wipe has two settings above the tiles: **Softness** (how blurred its
+edge is) and **Reverse** (run it the other way). A slider drag is one undo
+step.
+
+The style is saved with the project, and a render plays it exactly as the
+preview does. A saved project with wipes gets a small `ustudio-wipes`
+folder beside it: keep it with the project file.
+
+With GPU acceleration on, a wipe can stutter in the preview at **Full**
+quality while it plays; set the preview to **Half** to watch it smoothly.
+The render is unaffected.
+
 ## Before and after
 
 - **Hold \\** (backslash): the picture without the selected clip's effects,

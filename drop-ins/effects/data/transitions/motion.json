@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "recipes": [
+    {
+      "id": "slide.left",
+      "name": "Slide Left",
+      "category": "Motion",
+      "description": "The next clip slides in from the right",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:100% 0% 100% 100%|0% 0% 100% 100%"
+      }
+    },
+    {
+      "id": "slide.right",
+      "name": "Slide Right",
+      "category": "Motion",
+      "description": "The next clip slides in from the left",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:-100% 0% 100% 100%|0% 0% 100% 100%"
+      }
+    },
+    {
+      "id": "slide.up",
+      "name": "Slide Up",
+      "category": "Motion",
+      "description": "The next clip slides in from below",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:0% 100% 100% 100%|0% 0% 100% 100%"
+      }
+    },
+    {
+      "id": "slide.down",
+      "name": "Slide Down",
+      "category": "Motion",
+      "description": "The next clip slides in from above",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:0% -100% 100% 100%|0% 0% 100% 100%"
+      }
+    },
+    {
+      "id": "push.left",
+      "name": "Push Left",
+      "category": "Motion",
+      "description": "The next clip pushes this one out, coming in from the right",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:100% 0% 100% 100%|0% 0% 100% 100%",
+        "a.0.service": "affine",
+        "a.0.transition.rect": "ramp:0% 0% 100% 100%|-100% 0% 100% 100%"
+      }
+    },
+    {
+      "id": "push.right",
+      "name": "Push Right",
+      "category": "Motion",
+      "description": "The next clip pushes this one out, coming in from the left",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:-100% 0% 100% 100%|0% 0% 100% 100%",
+        "a.0.service": "affine",
+        "a.0.transition.rect": "ramp:0% 0% 100% 100%|100% 0% 100% 100%"
+      }
+    },
+    {
+      "id": "push.up",
+      "name": "Push Up",
+      "category": "Motion",
+      "description": "The next clip pushes this one out, coming in from below",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:0% 100% 100% 100%|0% 0% 100% 100%",
+        "a.0.service": "affine",
+        "a.0.transition.rect": "ramp:0% 0% 100% 100%|0% -100% 100% 100%"
+      }
+    },
+    {
+      "id": "push.down",
+      "name": "Push Down",
+      "category": "Motion",
+      "description": "The next clip pushes this one out, coming in from above",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:0% -100% 100% 100%|0% 0% 100% 100%",
+        "a.0.service": "affine",
+        "a.0.transition.rect": "ramp:0% 0% 100% 100%|0% 100% 100% 100%"
+      }
+    }
+  ]
+}
