@@ -276,3 +276,44 @@ TEST_CASE("gestures: undoing a transform keeps the clip selected; undoing its in
     selection.prune(scene.model);
     CHECK(selection.empty());
 }
+
+TEST_CASE("gestures: on a keyed clip the handles show and edit the keys at the playhead")
+{
+    Scene scene;
+    // A second upper clip at 100-199: keys count from its own start.
+    const ClipId keyed = scene.model.insertClip(scene.top, scene.model.clip(scene.upper).asset, 100, 0, 99);
+    Transform t = placed(480, 270, 960, 540);
+    t.x.keyframes = {{0, 480, Easing::Linear}, {40, 1440, Easing::Linear}};
+    scene.model.setClipTransform(keyed, t);
+    REQUIRE(scene.model.check().empty());
+
+    // The box is where the picture is at the playhead (sequence 120 = key time 20).
+    CHECK(placementOf(scene.model, keyed, 120).cx == doctest::Approx(960));
+    CHECK(transformShownAt(scene.model, keyed, 120).x.keyframes.empty());
+    auto picked = clipAt(scene.model, 120, {960, 270});
+    REQUIRE(picked);
+    CHECK(picked->clip == keyed);
+
+    // A body drag of +100 x, +50 y at 120: x gets a key at 20 (it's keyed),
+    // y (static) just moves, and width, unchanged, gets nothing.
+    const DragStart start = startOf(transformShownAt(scene.model, keyed, 120), Handle::Body, {960, 270});
+    const DragResult moved = drag(start, {1060, 320}, {.control = true}, kNoTargets, 8.0);
+    const Transform edited = transformEditedAt(scene.model, keyed, 120, moved.transform);
+    REQUIRE(edited.x.keyframes.size() == 3);
+    CHECK(edited.x.keyframes[1].at == 20);
+    CHECK(edited.x.keyframes[1].value == doctest::Approx(1060));
+    CHECK(edited.y.keyframes.empty());
+    CHECK(edited.y.value == doctest::Approx(320));
+    CHECK(edited.width.keyframes.empty());
+    scene.model.setClipTransform(keyed, edited);
+    CHECK(placementOf(scene.model, keyed, 120).cx == doctest::Approx(1060));
+    CHECK(placementOf(scene.model, keyed, 100).cx == doctest::Approx(480)); // the other keys stay
+
+    // Fit places the picture itself: the keys go (check() refuses them there).
+    Transform fit = transformShownAt(scene.model, keyed, 120);
+    fit.bounds = Transform::Bounds::Fit;
+    CHECK_FALSE(isAnimated(transformEditedAt(scene.model, keyed, 120, fit)));
+    // An unkeyed clip takes the edit as it is.
+    const Transform plain = placed(100, 100, 200, 200);
+    CHECK(transformEditedAt(scene.model, scene.lower, 10, plain) == plain);
+}

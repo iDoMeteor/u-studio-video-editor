@@ -118,7 +118,7 @@ std::array<double, 4> boundingBox(const core::Placement &p)
     return box;
 }
 
-core::Placement placementOf(const core::Model &model, core::ClipId clipId)
+core::Placement placementOf(const core::Model &model, core::ClipId clipId, core::FrameIndex frame)
 {
     const core::Clip &clip = model.clip(clipId);
     int width = 0, height = 0;
@@ -126,7 +126,23 @@ core::Placement placementOf(const core::Model &model, core::ClipId clipId)
         width = model.asset(clip.asset).info.width;
         height = model.asset(clip.asset).info.height;
     }
-    return core::placementFor(clip.transform.get(), width, height, model.sequence().profile);
+    return core::placementFor(transformShownAt(model, clipId, frame), width, height, model.sequence().profile);
+}
+
+core::Transform transformShownAt(const core::Model &model, core::ClipId clipId, core::FrameIndex frame)
+{
+    const core::Clip &clip = model.clip(clipId);
+    return core::transformAt(clip.transform.get(), frame - clip.position);
+}
+
+core::Transform transformEditedAt(const core::Model &model, core::ClipId clipId, core::FrameIndex frame,
+                                  const core::Transform &edited)
+{
+    const core::Clip &clip = model.clip(clipId);
+    const core::Transform &current = clip.transform.get();
+    if (!core::isAnimated(current) || edited.bounds != core::Transform::Bounds::None)
+        return edited;
+    return core::withTransformAt(current, frame - clip.position, edited);
 }
 
 std::vector<VisibleClip> visibleClips(const core::Model &model, core::FrameIndex frame)
@@ -140,7 +156,7 @@ std::vector<VisibleClip> visibleClips(const core::Model &model, core::FrameIndex
             if (clip.position > frame)
                 break; // sorted by position
             if (frame < clip.end() && clip.videoEnabled)
-                out.push_back({id, placementOf(model, id)});
+                out.push_back({id, placementOf(model, id, frame)});
         }
     }
     return out;

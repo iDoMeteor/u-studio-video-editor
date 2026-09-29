@@ -73,7 +73,9 @@ core::Transform AppWindow::explicitTransformOf(core::ClipId clipId) const
         width = m_model.asset(clip.asset).info.width;
         height = m_model.asset(clip.asset).info.height;
     }
-    return core::explicitTransform(clip.transform.get(), width, height, m_model.sequence().profile);
+    return core::explicitTransform(
+        gestures::transformShownAt(m_model, clipId, static_cast<core::FrameIndex>(m_engine->currentFrame())), width,
+        height, m_model.sequence().profile);
 }
 
 void AppWindow::runTransformAction(const std::string &name)
@@ -87,7 +89,9 @@ void AppWindow::runTransformAction(const std::string &name)
         return;
     const core::Profile &profile = m_model.sequence().profile;
     const core::Transform current = m_model.clip(*clip).transform.get();
-    core::Transform t = current;
+    // As it is at the playhead; a keyed clip's change keys it there.
+    const core::FrameIndex frame = static_cast<core::FrameIndex>(m_engine->currentFrame());
+    core::Transform t = gestures::transformShownAt(m_model, *clip, frame);
     auto bounded = [&](core::Transform::Bounds bounds) {
         // Fit and Stretch place the picture themselves; crop, flip and
         // rotation stay.
@@ -117,6 +121,7 @@ void AppWindow::runTransformAction(const std::string &name)
     } else if (name == "transform-rotate-180") {
         t.rotation.value = quarterTurns(t.rotation.value, 180);
     }
+    t = gestures::transformEditedAt(m_model, *clip, frame, t);
     if (t == current) {
         showStatus("The transform is already that.");
         return;
@@ -313,7 +318,8 @@ void AppWindow::showEditTransformDialog()
         AppWindow *w = s->window;
         if (!w->m_model.hasClip(s->clip))
             return;
-        const core::Transform &t = w->m_model.clip(s->clip).transform.get();
+        const core::Transform t =
+            gestures::transformShownAt(w->m_model, s->clip, static_cast<core::FrameIndex>(w->m_engine->currentFrame()));
         const core::Placement p = core::placementFor(t, s->sourceWidth, s->sourceHeight, w->m_model.sequence().profile);
         s->updating = true;
         adw_combo_row_set_selected(s->bounds, t.bounds == core::Transform::Bounds::Fit       ? 0
@@ -347,9 +353,10 @@ void AppWindow::showEditTransformDialog()
         if (field == Field::Place || field == Field::Width || field == Field::Height)
             adw_combo_row_set_selected(s->bounds, bounds = 2); // typing a place or size places it
         if (adw_switch_row_get_active(s->keepAspect)) {
-            const core::Placement p =
-                core::placementFor(s->window->m_model.clip(s->clip).transform.get(), s->sourceWidth, s->sourceHeight,
-                                   s->window->m_model.sequence().profile);
+            const core::Placement p = core::placementFor(
+                gestures::transformShownAt(s->window->m_model, s->clip,
+                                           static_cast<core::FrameIndex>(s->window->m_engine->currentFrame())),
+                s->sourceWidth, s->sourceHeight, s->window->m_model.sequence().profile);
             if (field == Field::Width && p.w > 0)
                 adw_spin_row_set_value(s->height, adw_spin_row_get_value(s->width) * p.h / p.w);
             else if (field == Field::Height && p.h > 0)
@@ -373,6 +380,8 @@ void AppWindow::showEditTransformDialog()
         t.cropBottom.value = adw_spin_row_get_value(s->crop[3]);
         t.flipH = adw_switch_row_get_active(s->flipH);
         t.flipV = adw_switch_row_get_active(s->flipV);
+        t = gestures::transformEditedAt(s->window->m_model, s->clip,
+                                        static_cast<core::FrameIndex>(s->window->m_engine->currentFrame()), t);
         if (!s->window->applyTransform(s->clip, t, s->gesture))
             s->window->showStatus("That transform isn't valid.");
         s->show(s);

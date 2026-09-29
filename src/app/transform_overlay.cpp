@@ -205,8 +205,11 @@ void AppWindow::onTransformDragBegin(double x, double y)
         width = m_model.asset(clip.asset).info.width;
         height = m_model.asset(clip.asset).info.height;
     }
-    const core::Transform start =
-        core::explicitTransform(clip.transform.get(), width, height, m_model.sequence().profile);
+    // From the picture as it is at the playhead: a keyed clip's handles
+    // edit its keys there (gestures::transformEditedAt()).
+    const core::FrameIndex frame = static_cast<core::FrameIndex>(m_engine->currentFrame());
+    const core::Transform start = core::explicitTransform(gestures::transformShownAt(m_model, target->clip, frame),
+                                                          width, height, m_model.sequence().profile);
     m_transformDrag =
         TransformDrag{target->clip, {start, width, height, handle, point}, m_nextTransformGesture++, x, y};
 }
@@ -225,7 +228,11 @@ void AppWindow::onTransformDragUpdate(double dx, double dy)
         gestures::snapTargets(m_model, static_cast<core::FrameIndex>(m_engine->currentFrame()), m_transformDrag->clip),
         gestures::kSnapDistance / mapping.scale());
     m_transformGuides = result.guides;
-    applyTransform(m_transformDrag->clip, result.transform, m_transformDrag->gesture);
+    applyTransform(m_transformDrag->clip,
+                   gestures::transformEditedAt(m_model, m_transformDrag->clip,
+                                               static_cast<core::FrameIndex>(m_engine->currentFrame()),
+                                               result.transform),
+                   m_transformDrag->gesture);
 }
 
 void AppWindow::onTransformDragEnd()
@@ -350,9 +357,12 @@ bool AppWindow::onTransformKey(guint keyval, GdkModifierType state)
         width = m_model.asset(clip.asset).info.width;
         height = m_model.asset(clip.asset).info.height;
     }
-    const core::Transform start =
-        core::explicitTransform(clip.transform.get(), width, height, m_model.sequence().profile);
-    applyTransform(target->clip, gestures::nudged(start, dx * step, dy * step), 0);
+    const core::FrameIndex frame = static_cast<core::FrameIndex>(m_engine->currentFrame());
+    const core::Transform start = core::explicitTransform(gestures::transformShownAt(m_model, target->clip, frame),
+                                                          width, height, m_model.sequence().profile);
+    applyTransform(
+        target->clip,
+        gestures::transformEditedAt(m_model, target->clip, frame, gestures::nudged(start, dx * step, dy * step)), 0);
     return true;
 }
 
@@ -382,7 +392,7 @@ void AppWindow::drawTransformOverlay(cairo_t *cr)
     // Hover: a quiet outline on the picture a click would select.
     if (m_transformHover.isValid() && m_model.hasClip(m_transformHover) &&
         (!target || target->clip != m_transformHover)) {
-        path(gestures::placementOf(m_model, m_transformHover));
+        path(gestures::placementOf(m_model, m_transformHover, static_cast<core::FrameIndex>(m_engine->currentFrame())));
         setSource(cr, tokens::kBrandCyan, 0.5);
         cairo_set_line_width(cr, 1);
         cairo_stroke(cr);
