@@ -229,8 +229,8 @@ or a colourist. U Stu keeps a library of them:
    try it, click to add it, as with any effect.
 
 **LUT (.cube)** among the effects does the same with any file you choose.
-Keep a project and its `luts` folder together: a project moved to another
-folder can't find its LUTs yet.
+Keep a project and its `luts` folder together: move or copy the whole
+folder and the project finds its LUTs where they are now.
 
 ## Before and after
 

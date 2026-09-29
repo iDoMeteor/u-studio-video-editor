@@ -142,4 +142,6 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   (5), kdenlive (3), vid.stab (2), rubberband, rnnoise, opencv (1 each).
 - **LUTs:** `avfilter.lut3d`'s `av.file` is a path avfilter opens itself, so
   it isn't resolved against the project (unlike a producer's `resource`):
-  the LUT library keeps absolute paths.
+  the model and the render graph keep absolute paths, and only the saved
+  model record names a file inside the project's folder relatively (`f:`
+  values, read back against where the project is now).

@@ -914,7 +914,9 @@ OpenFX behind an experimental preference, LUT library management (import
 > `FactoryPaths::allowModules` (API 14) only when chosen and no bundle names
 > Qt. LSP Plugins is suggested under Audio when missing. The LUT library
 > copies `.cube` files into the project's `luts` folder (or the user's) and
-> lists them as tiles; LUT paths are absolute for now.
+> lists them as tiles; a file inside the project's folder is saved relative
+> to it (`f:` values, `xml_detail::ProjectFolderScope`), so a moved project
+> keeps its LUTs.
 
 ## Decisions needed from the owner
 
