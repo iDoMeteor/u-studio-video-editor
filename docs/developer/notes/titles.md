@@ -323,3 +323,28 @@ builds on these.
   that is `/etc/hostname`. Nothing but our validator stops that in a
   build with file access (Fedora's); the Flatpak's ThorVG is built with
   `-Dfile=false` as a second guard (ADR-021 decision 8).
+
+## T6: ThorVG in titlerender (slice 3)
+
+- **One canvas per animation.** Adding an animation's picture to a new
+  canvas for each frame and destroying the canvas afterwards drew the
+  first frame and then nothing: every later frame came back transparent
+  (ThorVG 1.0.6, `test_titles_render`, 2026-09-28). Keeping one canvas per
+  loaded animation, with the picture added once, and pointing it at the
+  frame's buffer with `tvg_swcanvas_set_target` before
+  `tvg_canvas_update`/`draw`/`sync`, draws every frame. The reference
+  counts were fine (the animation holds the picture; a canvas adds and
+  drops its own reference), so it's render state tied to the first
+  canvas, not a lifetime bug.
+- **The producer's frame cache.** `ustudio_title` reuses its last image
+  while every layer's state, the fields and the size are unchanged. An
+  animated layer changes with time alone, so a title with one keys the
+  cache on the moment too (`textAnimates`). Without that, the producer
+  showed the first frame of the animation for the whole clip, while the
+  renderer moved.
+- **One copy of the lock per process.** The ThorVG lock lives in
+  titlerender, so a process must hold one copy of it that draws
+  animations. The editor's side of the drop-in doesn't link titlerender
+  (the MLT module does), and the designer links its own. The
+  titles-engine test holds two copies but calls them in turn on one
+  thread.

@@ -35,6 +35,15 @@ comes in with MLT anyway.
   drop-in's template packs ([ADR-020](../plans/v2/adr/020-template-packages-and-sharing.md);
   the drop-in only). Without its headers the drop-in still builds, and
   opening or saving a pack says it can't.
+- **ThorVG** 1.0 or newer (`sudo dnf install thorvg-devel`; pkg-config
+  `thorvg-1`) for the titles drop-in's animated (Lottie) layers
+  ([ADR-021](../plans/v2/adr/021-lottie-layers-via-thorvg.md); the
+  drop-in's renderer only). Meson option `titles_thorvg` (auto): without
+  ThorVG the drop-in still builds, and an animated layer draws nothing
+  with a warning. Fedora's package runs
+  Lottie expressions and can open files; the titles' own check refuses
+  both before ThorVG sees a file, and the Flatpak builds ThorVG without
+  either.
 - **libsoup 3, json-glib, libsecret** (`sudo dnf install libsoup3-devel
   json-glib-devel libsecret-devel`) for `u-studio-share`, the titles
   drop-in's sharing helper (ADR-020; the helper only). Meson option
