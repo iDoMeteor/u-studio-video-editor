@@ -106,10 +106,14 @@ if plays:
     o = find_any('Once, then holds', exact=True, timeout=2)
     if o: click(*centre_of(o)); pause(1.2)
     else: keysym(K_ESC)
-# The Speed row isn't in the AT-SPI tree (0.79): its + button, measured, 4 × 25%.
-for _ in range(4):
-    click(1876, 244); pause(0.4)
-T.log(f"plays {bool(plays)}")
+# "Speed (%)" is a spin button in the AT-SPI tree since 0.80.1 (VE Text).
+sp = find('Speed (%)', roles=('spin button',), exact=True, timeout=3)
+if sp:
+    sp.get_value_iface().set_current_value(200.0); pause(1.2)
+else:                                  # older builds: its + button, measured, 4 × 25%
+    for _ in range(4):
+        click(1876, 244); pause(0.4)
+T.log(f"plays {bool(plays)} speed spin {bool(sp)}")
 press('Play the intro'); pause(5); snap('an-once'); press('Play the intro'); pause(0.6)
 
 step('In the editor', 'save, and the animation plays in the editor and in exports, frame for frame')
