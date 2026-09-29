@@ -15,7 +15,10 @@ render-ahead thread can still be pulling a frame when `run()` returns, and
 it and crashed every time at exit (SIGSEGV in a filter as
 `Factory::close()` unloaded the modules under that thread) or, in a test
 that went on using MLT, with a SIGFPE in a filter reading freed memory
-(2026-09-29).
+(2026-09-29). The "qtrle SIGFPE under `affine`" once listed as an MLT bug
+was the same thing: a `colour` producer with `affine` encoded to qtrle
+crashed at teardown 5 runs in 6 without `stop()`, 0 in 6 with it
+(standalone repro). Test helpers that encode media call `stop()` too.
 
 **`u-studio-render --frames` (M6 groundwork).** `--frames <project>
 [--range IN:OUT]` builds the preview's own graph (Full, frames read at the

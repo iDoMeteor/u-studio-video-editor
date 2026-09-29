@@ -90,6 +90,7 @@ void renderToneClip(Mlt::Profile &profile, const std::filesystem::path &path, in
     consumer.set("real_time", -1);
     consumer.connect(tractor);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
 }
 
 // The composited picture's centre pixel and the frame's audio RMS, pulled

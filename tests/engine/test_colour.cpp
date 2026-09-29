@@ -72,6 +72,7 @@ fs::path makeBars(const fs::path &path)
     consumer.set("real_time", -1);
     consumer.connect(tractor);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return path;
 }
 
@@ -192,10 +193,7 @@ namespace {
 // A rotated white rectangle on transparent, as a 1080p PNG: every edge is
 // anti-aliased, with partial alpha (MLT's affine filter, avformat's png).
 // A still with alpha played for 10 frames, encoded as `vcodec`/`pixFmt`
-// (and any codec options) with the alpha kept. From the PNG rather than
-// the colour + affine source: that one, encoded as qtrle, hit a SIGFPE in
-// a core-module filter on the consumer's read-ahead thread (2026-09-27,
-// not our graphs' path; noted in mlt-upstream.md).
+// (and any codec options) with the alpha kept.
 fs::path makeAlphaVideo(const fs::path &still, const fs::path &path, const char *format, const char *vcodec,
                         const char *pixFmt, std::vector<std::pair<const char *, const char *>> options = {})
 {
@@ -218,6 +216,7 @@ fs::path makeAlphaVideo(const fs::path &still, const fs::path &path, const char 
     consumer.set("real_time", -1);
     consumer.connect(picture);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return path;
 }
 
@@ -246,6 +245,7 @@ fs::path makeAlphaStill(const fs::path &dir)
     consumer.set("real_time", -1);
     consumer.connect(white);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return dir / "still_1.png";
 }
 

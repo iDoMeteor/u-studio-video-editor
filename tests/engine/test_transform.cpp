@@ -80,6 +80,7 @@ fs::path generate(const std::string &name, int width, int height, const char *le
     consumer.set("real_time", -1);
     consumer.connect(tractor);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return path;
 }
 
@@ -318,6 +319,7 @@ TEST_CASE("transform: the saved project plays and renders exactly as the editor 
         melt.set_in_and_out(0, 29);
         consumer.connect(melt);
         consumer.run();
+        consumer.stop(); // joins the render-ahead thread (notes/render.md)
     }
     Mlt::Producer decoded(profile, utf8String(exported).c_str());
     for (int position : {0, 12, 29}) {

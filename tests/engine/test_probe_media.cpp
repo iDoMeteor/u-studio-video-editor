@@ -112,6 +112,7 @@ TEST_CASE("EngineSync::probeMedia reads real fps/width/height from an actual med
         consumer.set("vcodec", h264Encoder().c_str());
         consumer.connect(producer);
         consumer.run();
+        consumer.stop(); // joins the render-ahead thread (notes/render.md)
     }
 
     Model model = Model::createEmpty();
@@ -145,6 +146,7 @@ TEST_CASE("EngineSync::probeMedia reports hasAudio=false for a real video with n
         consumer.set("an", 1); // no audio track in the muxed output
         consumer.connect(producer);
         consumer.run();
+        consumer.stop(); // joins the render-ahead thread (notes/render.md)
     }
 
     Model model = Model::createEmpty();
@@ -185,6 +187,7 @@ TEST_CASE("EngineSync::probeMedia reports hasAudio=true for a real video with an
         consumer.set("acodec", "aac");
         consumer.connect(tractor);
         consumer.run();
+        consumer.stop(); // joins the render-ahead thread (notes/render.md)
     }
 
     Model model = Model::createEmpty();
