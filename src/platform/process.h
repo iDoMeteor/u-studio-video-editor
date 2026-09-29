@@ -50,10 +50,12 @@ void releaseFreeMemory();
 
 // Ends this process when its parent does (a child that must not outlive
 // the program that started it, even when that one crashes: the effects
-// scan's probes). Call first thing in the child. Linux: PR_SET_PDEATHSIG
-// with SIGKILL, which fires when the thread that spawned the child ends,
-// so spawn from a thread that outlives its children. Windows: to come
-// with the port (a job object).
-void exitWithParent();
+// scan's probes). Call first thing in the child, with the pid the parent
+// passed it (0: unknown); a parent already gone by then (the child isn't
+// its child any more) ends it at once. Linux: PR_SET_PDEATHSIG with
+// SIGKILL, which fires when the thread that spawned the child ends, so
+// spawn from a thread that outlives its children. Windows: to come with
+// the port (a job object).
+void exitWithParent(int64_t expectedParent);
 
 } // namespace ustudio::platform

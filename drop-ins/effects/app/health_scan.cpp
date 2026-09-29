@@ -173,6 +173,10 @@ struct HealthScan::Impl
             static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE));
         for (const auto &[name, value] : options.environment)
             g_subprocess_launcher_setenv(launcher, name.c_str(), value.c_str(), TRUE);
+        // The probe ends if this process has already gone by the time it
+        // starts (platform::exitWithParent()).
+        g_subprocess_launcher_setenv(launcher, "USTUDIO_PARENT_PID",
+                                     std::to_string(platform::currentProcessId()).c_str(), TRUE);
         std::vector<const char *> argv;
         argv.push_back(options.renderTool.c_str());
         for (const std::string &arg : args)
