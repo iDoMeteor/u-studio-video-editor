@@ -7,11 +7,17 @@
 #include "doctest.h"
 
 #include "core/model/model.h"
+#include "core/xml/reader.h"
+#include "core/xml/writer.h"
 #include "dropins/registry.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 #include "engine/test_extension.h"
+#include "platform/process.h"
 
+#include <cmath>
+#include <cstring>
+#include <filesystem>
 #include <memory>
 
 using namespace ustudio;
@@ -225,4 +231,183 @@ TEST_CASE("IP3: decorateLane gets lane 0's adjustment blocks in start order, onc
     REQUIRE(lanes.size() == 1);
     CHECK(lanes[0].first == 0);
     CHECK(lanes[0].second == std::vector<FrameIndex>{20, 150});
+}
+
+namespace {
+
+// A red picture with a 440 Hz tone, 60 frames, as a file (a video clip with
+// its own sound), made with MLT.
+std::string redWithTone()
+{
+    static const std::string path = [] {
+        const std::string out = (std::filesystem::temp_directory_path() /
+                                 ("ustudio-lane-" + std::to_string(platform::currentProcessId()) + ".mkv"))
+                                    .string();
+        Mlt::Profile profile("atsc_1080p_30");
+        Mlt::Tractor tractor(profile);
+        Mlt::Producer red(profile, "color:red"), tone(profile, "tone:");
+        red.set("mlt_image_format", "rgba");
+        red.set_in_and_out(0, 59);
+        tone.set_in_and_out(0, 59);
+        tractor.set_track(red, 0);
+        tractor.set_track(tone, 1);
+        Mlt::Transition mix(profile, "mix");
+        mix.set("start", 1.0);
+        mix.set("sum", 1);
+        mix.set("always_active", 1);
+        std::unique_ptr<Mlt::Field> field(tractor.field());
+        field->plant_transition(mix, 0, 1);
+        Mlt::Consumer consumer(profile, "avformat", out.c_str());
+        consumer.set("vcodec", "ffv1");
+        consumer.set("acodec", "pcm_s16le");
+        consumer.set("real_time", -1);
+        consumer.connect(tractor);
+        consumer.run();
+        return out;
+    }();
+    return path;
+}
+
+struct LaneScene
+{
+    Model model = Model::createEmpty();
+    TrackId top, bottom;
+    LaneScene()
+    {
+        bottom = model.addTrack(Track::Kind::Video, 0, "V1");
+        top = model.addTrack(Track::Kind::Video, 0, "V2"); // row 0
+        Asset red;
+        red.path = redWithTone();
+        red.status = Asset::Status::Ready;
+        red.info.hasVideo = red.info.hasAudio = true;
+        red.info.width = 1920;
+        red.info.height = 1080;
+        red.info.lengthInSequenceFrames = 60;
+        model.insertClip(bottom, model.addAsset(red), 0, 0, 59);
+        Asset blue;
+        blue.path = "color:blue";
+        blue.info.hasVideo = true;
+        blue.info.lengthInSequenceFrames = 10'000;
+        const ClipId picture = model.insertClip(top, model.addAsset(blue), 0, 0, 59);
+        Transform placed; // a quarter-size picture in the top-left quarter
+        placed.bounds = Transform::Bounds::None;
+        placed.x.value = 480;
+        placed.y.value = 270;
+        placed.width.value = 960;
+        placed.height.value = 540;
+        model.setClipTransform(picture, placed);
+    }
+    void addBlock(int lane)
+    {
+        AdjustmentBlock block;
+        block.lane = lane;
+        block.start = 10;
+        block.length = 20;
+        Effect dark;
+        dark.service = "brightness";
+        dark.owner = "testdropin";
+        Param level;
+        level.name = "level";
+        level.value = 0.0;
+        dark.params = {level};
+        block.effects = {dark};
+        model.addAdjustmentBlock(block);
+    }
+};
+
+struct Sample
+{
+    int r, g, b;
+    double rms;
+};
+
+Sample sampleAt(EngineSync &sync, int position, int x, int y)
+{
+    sync.tractor().seek(position);
+    std::unique_ptr<Mlt::Frame> frame(sync.tractor().get_frame());
+    mlt_image_format format = mlt_image_rgb;
+    frame->set("consumer.rescale", "bilinear");
+    int fw = 1920, fh = 1080;
+    const uint8_t *image = frame->get_image(format, fw, fh);
+    const uint8_t *px = image + (static_cast<size_t>(y) * 1920 + static_cast<size_t>(x)) * 3;
+    mlt_audio_format audioFormat = mlt_audio_s16;
+    int frequency = 48000, channels = 2, samples = 1600;
+    const auto *pcm = static_cast<const int16_t *>(frame->get_audio(audioFormat, frequency, channels, samples));
+    double sum = 0;
+    for (int i = 0; pcm && i < samples * channels; ++i)
+        sum += static_cast<double>(pcm[i]) * pcm[i];
+    return {px[0], px[1], px[2], std::sqrt(sum / (samples * channels))};
+}
+
+} // namespace
+
+TEST_CASE("FX4: a block below the first row darkens only the rows beneath it, and they keep their sound")
+{
+    sharedFactoryPolicy();
+    registerTestDropIn();
+    LaneScene plain;
+    EngineSync without(plain.model);
+    const Sample before = sampleAt(without, 15, 1600, 900); // red, where the blue picture isn't
+
+    LaneScene scene;
+    scene.addBlock(1); // above row 1 (V1): V1 and below, not V2
+    EngineSync sync(scene.model);
+    CHECK(sync.verify().empty());
+    const auto &lanes = testdropin::extensionLog().lanes;
+    REQUIRE(!lanes.empty());
+    CHECK(lanes.back().first == 1);
+
+    const Sample inBlockRed = sampleAt(sync, 15, 1600, 900);
+    CHECK(inBlockRed.r < 30); // V1 darkened
+    const Sample inBlockBlue = sampleAt(sync, 15, 480, 270);
+    CHECK(inBlockBlue.b > 200); // V2, above the lane, untouched
+    CHECK(inBlockBlue.r < 30);
+    CHECK(sampleAt(sync, 40, 1600, 900).r > 200); // after the block: red again
+    CHECK(sampleAt(sync, 5, 1600, 900).r > 200);  // and before it
+
+    // V1's clip keeps its own sound, at the same level, under the block.
+    CHECK(before.rms > 1000.0);
+    CHECK(inBlockRed.rms == doctest::Approx(before.rms).epsilon(0.01));
+
+    // Lane 0 darkens everything, the picture above included.
+    LaneScene all;
+    all.addBlock(0);
+    EngineSync everything(all.model);
+    CHECK(everything.verify().empty());
+    CHECK(sampleAt(everything, 15, 480, 270).b < 30);
+}
+
+TEST_CASE("FX4: a saved project plays its adjustment lanes in melt as the editor does")
+{
+    sharedFactoryPolicy();
+    registerTestDropIn();
+    LaneScene scene;
+    scene.addBlock(1);
+    const std::string project = (std::filesystem::temp_directory_path() /
+                                 ("ustudio-lane-" + std::to_string(platform::currentProcessId()) + ".ustudio"))
+                                    .string();
+    REQUIRE(saveProject(scene.model, project).empty());
+    auto loaded = loadProject(project);
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->sequence().adjustmentBlocks == scene.model.sequence().adjustmentBlocks);
+
+    EngineSync sync(scene.model);
+    Mlt::Producer melt(sync.profile(), "xml", project.c_str());
+    REQUIRE(melt.is_valid());
+    for (int position : {5, 15, 40}) {
+        INFO("frame " << position);
+        auto grab = [position](Mlt::Producer &producer, std::unique_ptr<Mlt::Frame> &hold) {
+            producer.seek(position);
+            hold.reset(producer.get_frame());
+            hold->set("consumer.rescale", "bilinear");
+            mlt_image_format format = mlt_image_rgb;
+            int w = 1920, h = 1080;
+            return hold->get_image(format, w, h);
+        };
+        std::unique_ptr<Mlt::Frame> a, b;
+        const uint8_t *editor = grab(sync.tractor(), a);
+        const uint8_t *played = grab(melt, b);
+        CHECK(std::memcmp(editor, played, size_t{1920} * 1080 * 3) == 0);
+    }
+    std::filesystem::remove(project);
 }

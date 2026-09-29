@@ -651,6 +651,59 @@ std::string saveProject(const Model &model, const std::string &path)
     // it converts with the profile's matrix, the same pixels (see above).
     addProperty(blackProducer, "mlt_image_format", "rgba");
 
+    // One layer's tracks, composites and mixes, as EngineSync::rebuildAll()
+    // plants them, so `melt`/u-studio-render (no editor) sees the same
+    // graph our own playback does. See EngineSync's class comment for why
+    // every track has both, rather than doc 05's video/audio-split graph.
+    auto writeLayer = [&](xmlNodePtr layer, const std::string &bottom, const std::vector<TrackId> &trackIds) {
+        xmlNodePtr bottomTrack = xmlNewChild(layer, nullptr, BAD_CAST "track", nullptr);
+        xmlNewProp(bottomTrack, BAD_CAST "producer", BAD_CAST bottom.c_str());
+        for (TrackId trackId : trackIds) {
+            xmlNodePtr trackNode = xmlNewChild(layer, nullptr, BAD_CAST "track", nullptr);
+            xmlNewProp(trackNode, BAD_CAST "producer", BAD_CAST playlistIdByTrack.at(trackId.value).c_str());
+        }
+        for (size_t index = 1; index <= trackIds.size(); ++index) {
+            xmlNodePtr composite = xmlNewChild(layer, nullptr, BAD_CAST "transition", nullptr);
+            addProperty(composite, "mlt_service", "composite");
+            addProperty(composite, "a_track", "0"); // onto the background, as EngineSync (alpha; ADR-018)
+            addProperty(composite, "fill", "1");    // as EngineSync: the code's default is 0
+            addProperty(composite, "b_track", std::to_string(index));
+
+            xmlNodePtr mix = xmlNewChild(layer, nullptr, BAD_CAST "transition", nullptr);
+            addProperty(mix, "mlt_service", "mix");
+            addProperty(mix, "a_track", std::to_string(index - 1));
+            addProperty(mix, "b_track", std::to_string(index));
+            addProperty(mix, "start", "1");
+            addProperty(mix, "sum", "1");
+            addProperty(mix, "always_active", "1");
+        }
+    };
+    // A lane's adjustment blocks on its layer, each for its own frames (the
+    // engine's effects drop-in does the same through decorateLane()).
+    auto writeLaneBlocks = [&](xmlNodePtr layer, int lane) {
+        for (const AdjustmentBlock &block : seq.adjustmentBlocks)
+            if (block.lane == lane)
+                writeEffects(layer, block.effects, 0, block.length, false, block.start);
+    };
+
+    // FX4: adjustment lanes below the first row are sub-tractors, deepest
+    // first (MLT's xml producer needs a producer before its use), each the
+    // next layer's track 0 (core::adjustmentLayers(), shared with
+    // EngineSync).
+    const AdjustmentLayers layers = adjustmentLayers(seq);
+    std::string bottom = "black";
+    for (size_t i = layers.lanes.size(); i-- > 0;) {
+        const std::string id = "lane_" + std::to_string(layers.lanes[i]);
+        xmlNodePtr group = xmlNewChild(mlt, nullptr, BAD_CAST "tractor", nullptr);
+        xmlNewProp(group, BAD_CAST "id", BAD_CAST id.c_str());
+        xmlNewProp(group, BAD_CAST "in", BAD_CAST "0");
+        xmlNewProp(group, BAD_CAST "out", BAD_CAST std::to_string(sequenceLength - 1).c_str());
+        addProperty(group, "ustudio.lane", std::to_string(layers.lanes[i]));
+        writeLayer(group, bottom, layers.layerTracks[i + 1]);
+        writeLaneBlocks(group, layers.lanes[i]);
+        bottom = id;
+    }
+
     xmlNodePtr tractor = xmlNewChild(mlt, nullptr, BAD_CAST "tractor", nullptr);
     xmlNewProp(tractor, BAD_CAST "id", BAD_CAST("seq" + std::to_string(seq.id.value)).c_str());
     xmlNewProp(tractor, BAD_CAST "in", BAD_CAST "0");
@@ -666,34 +719,12 @@ std::string saveProject(const Model &model, const std::string &path)
     addProperty(tractor, "ustudio:background", backgroundHex(seq.background));
     addProperty(tractor, "ustudio:settings", settingsToJson(project.settings));
 
-    xmlNodePtr blackTrack = xmlNewChild(tractor, nullptr, BAD_CAST "track", nullptr);
-    xmlNewProp(blackTrack, BAD_CAST "producer", BAD_CAST "black");
-    for (TrackId trackId : order) {
-        xmlNodePtr trackNode = xmlNewChild(tractor, nullptr, BAD_CAST "track", nullptr);
-        xmlNewProp(trackNode, BAD_CAST "producer", BAD_CAST playlistIdByTrack.at(trackId.value).c_str());
-    }
-
-    // Matches EngineSync::rebuildAll() exactly, so `melt`/u-studio-render
-    // (no editor) sees the identical compositing/mix graph our own
-    // playback does. See EngineSync's class comment for why every track
-    // has both, rather than doc 05's video/audio-split graph.
-    for (size_t index = 1; index <= order.size(); ++index) {
-        xmlNodePtr composite = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
-        addProperty(composite, "mlt_service", "composite");
-        addProperty(composite, "a_track", "0"); // onto the background, as EngineSync (alpha; ADR-018)
-        addProperty(composite, "fill", "1");    // as EngineSync: the code's default is 0
-        addProperty(composite, "b_track", std::to_string(index));
-
-        xmlNodePtr mix = xmlNewChild(tractor, nullptr, BAD_CAST "transition", nullptr);
-        addProperty(mix, "mlt_service", "mix");
-        addProperty(mix, "a_track", std::to_string(index - 1));
-        addProperty(mix, "b_track", std::to_string(index));
-        addProperty(mix, "start", "1");
-        addProperty(mix, "sum", "1");
-        addProperty(mix, "always_active", "1");
-    }
+    writeLayer(tractor, bottom, layers.layerTracks[0]);
     // Master effects on the output (Sequence::effects).
     writeEffects(tractor, seq.effects, 0, sequenceLength, true);
+    // Then lane 0's blocks, after them as in EngineSync (decorateTractor(),
+    // then decorateLane()).
+    writeLaneBlocks(tractor, 0);
 
     std::string tmpPath = path + ".tmp";
     int written = xmlSaveFormatFileEnc(tmpPath.c_str(), doc, "UTF-8", 1);

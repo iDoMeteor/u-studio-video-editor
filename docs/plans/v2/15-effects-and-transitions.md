@@ -732,6 +732,11 @@ Acceptance: every item has a recorded yes/no with the repro kept in
 `tests/engine` or the scratchpad notes; ADR-011 updated with anything that
 changes the plan.
 
+> REVIEW: VE Core, 2026-09-28: the mid-stack lane hook this note asked for
+> exists: `decorateLane()` (drop-in API 11), and EngineSync nests the video
+> rows under a lane k > 0 in a sub-tractor ([engine-sync notes](../../developer/notes/engine-sync.md),
+> "Adjustment lanes").
+
 > REVIEW: VE Core, 2026-09-27: FX0 spikes run; every item is answered in
 > [the effects notes](../../developer/notes/effects.md). All yes, with two
 > plan changes: `decorateTractor()` covers an FX lane only on top of the
