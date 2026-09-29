@@ -40,9 +40,9 @@ Transform transformAt(const Transform &t, FrameIndex frame);
 Placement placementAt(const Transform &t, FrameIndex frame, int sourceWidth, int sourceHeight, const Profile &profile);
 
 // `t` edited to show `placed`'s values at `frame`, for the preview's handles
-// and the inspector: an animated value gets a keyframe there (replacing one
-// at that frame, keeping its easing; a new one is linear), a static one
-// takes the new value. Bounds and flips, never animated, come from
+// and the inspector: an animated value that changes gets a keyframe there
+// (replacing one at that frame, keeping its easing; a new one is linear;
+// an unchanged one gets none), a static one takes the new value. Bounds and flips, never animated, come from
 // `placed`. `placed` is a static transform, typically transformAt() of `t`
 // with the user's edit applied.
 Transform withTransformAt(const Transform &t, FrameIndex frame, const Transform &placed);

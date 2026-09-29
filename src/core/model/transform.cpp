@@ -96,8 +96,8 @@ Transform withTransformAt(const Transform &t, FrameIndex frame, const Transform 
                                    [](const Keyframe &k, FrameIndex f) { return k.at < f; });
         if (at != v.keyframes.end() && at->at == frame)
             at->value = value;
-        else
-            v.keyframes.insert(at, Keyframe{frame, value, Easing::Linear});
+        else if (value != easedValue(v.keyframes, static_cast<double>(frame)))
+            v.keyframes.insert(at, Keyframe{frame, value, Easing::Linear}); // unchanged values get no key
     }
     return out;
 }
