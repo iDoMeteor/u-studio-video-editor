@@ -472,6 +472,24 @@ class Rack
         return core::explicitTransform(t, info.width, info.height, model.sequence().profile);
     }
 
+    // The card's note for a picture fitted or stretched to the frame.
+    void showTransformNote()
+    {
+        const core::Model &model = m_host.model();
+        const Control *any = nullptr;
+        for (const std::unique_ptr<Control> &control : m_controls)
+            if (control->transform)
+                any = control.get();
+        if (!any || !model.hasClip(any->clip))
+            return;
+        const core::Transform::Bounds bounds = model.clip(any->clip).transform.get().bounds;
+        gtk_widget_set_visible(m_transformNote, bounds != core::Transform::Bounds::None);
+        gtk_label_set_text(GTK_LABEL(m_transformNote),
+                           bounds == core::Transform::Bounds::Stretch
+                               ? "Stretched to the frame. Change a value to place it yourself."
+                               : "Fitted to the frame. Change a value to place it yourself.");
+    }
+
     // A value changed by hand (core/transform_edit.h: withValue()).
     void onTransformChanged(Control &control)
     {
@@ -488,7 +506,6 @@ class Rack
     {
         const core::Model &model = m_host.model();
         const core::Profile &profile = model.sequence().profile;
-        const core::Transform &t = model.clip(clip).transform.get();
 
         GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
         gtk_widget_add_css_class(card, "card");
@@ -503,16 +520,15 @@ class Rack
         gtk_widget_add_css_class(title, "heading");
         m_host.setTooltip(title, "effects.transform");
         gtk_box_append(GTK_BOX(inner), title);
-        if (t.bounds != core::Transform::Bounds::None) {
-            GtkWidget *note = gtk_label_new(t.bounds == core::Transform::Bounds::Fit
-                                                ? "Fitted to the frame. Change a value to place it yourself."
-                                                : "Stretched to the frame. Change a value to place it yourself.");
-            gtk_label_set_wrap(GTK_LABEL(note), TRUE);
-            gtk_label_set_xalign(GTK_LABEL(note), 0.0f);
-            gtk_widget_add_css_class(note, "dim-label");
-            gtk_widget_add_css_class(note, "caption");
-            gtk_box_append(GTK_BOX(inner), note);
-        }
+        // Updated with the values, not rebuilt: the first change places a
+        // fitted picture, and a rebuild then would take the field being
+        // typed in away from under the hand.
+        m_transformNote = gtk_label_new("");
+        gtk_label_set_wrap(GTK_LABEL(m_transformNote), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(m_transformNote), 0.0f);
+        gtk_widget_add_css_class(m_transformNote, "dim-label");
+        gtk_widget_add_css_class(m_transformNote, "caption");
+        gtk_box_append(GTK_BOX(inner), m_transformNote);
 
         GtkWidget *grid = gtk_grid_new();
         gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
@@ -1283,9 +1299,9 @@ class Rack
     std::string structureOf(const core::Model::EffectTarget &target) const
     {
         std::string key = std::to_string(static_cast<int>(target.kind)) + ":" + std::to_string(target.id);
-        // The Transform card, and its note for a Fit or Stretch picture.
-        if (std::optional<core::ClipId> clip = transformClip(target))
-            key += "T" + std::to_string(static_cast<int>(m_host.model().clip(*clip).transform.get().bounds));
+        if (transformClip(target))
+            key += "T"; // the Transform card
+
         // Several clips: what they share is part of what the cards show.
         if (multiple())
             for (core::ClipId clip : selectedClips()) {
@@ -1650,6 +1666,7 @@ class Rack
         while (GtkWidget *child = gtk_widget_get_first_child(m_cards))
             gtk_box_remove(GTK_BOX(m_cards), child);
         m_controls.clear();
+        m_transformNote = nullptr;
         m_actions.clear();
         m_masks.clear();
         // Several clips: only this drop-in's effects they all share, each
@@ -2028,6 +2045,8 @@ class Rack
     {
         const core::Model &model = m_host.model();
         m_updating = true;
+        if (m_transformNote)
+            showTransformNote();
         for (const std::unique_ptr<Control> &control : m_controls) {
             if (control->transform) {
                 if (!model.hasClip(control->clip) || isRecording(*control))
@@ -2255,6 +2274,7 @@ class Rack
     // The parameter P pins: by effect and name, since pinning rebuilds the
     // cards (the value becomes animated).
     std::optional<std::pair<core::EffectId, std::string>> m_lastControl;
+    GtkWidget *m_transformNote = nullptr; // the Transform card's, while it shows
     uint64_t m_nextGesture = 0;
     std::set<ControlKey> m_armed;
     std::optional<Recording> m_recording;
