@@ -273,11 +273,12 @@ if on('transform'):
         drag(cx, cy, cx + 40, cy - 40, dur=1.4); pause(1.2); rest(); snap('c5b-pip')
         step('Crop (Alt+drag a side)', 'hold Alt and drag a side handle to crop the picture instead of scaling it')
         b = preview_box() or b; x0, y0, x1, y1 = b
-        drag(x1 - 3, (y0 + y1) // 2, x1 - 110, (y0 + y1) // 2, dur=1.4, mods=('alt',)); pause(1.2); rest()
+        if not os.environ.get('TOUR_PIP_NOCROP'):   # narrowing switches for bug reports
+            drag(x1 - 3, (y0 + y1) // 2, x1 - 110, (y0 + y1) // 2, dur=1.4, mods=('alt',)); pause(1.2); rest()
         T.log(f"after crop {preview_box()}"); snap('c5b-crop')
         step('Rotate', 'drag the knob above the box; Shift steps by 15°')
         k = preview_knob(); T.log(f"knob {k}")
-        if k:
+        if k and not os.environ.get('TOUR_PIP_NOROTATE'):
             drag(k[0], k[1], k[0] + 70, k[1] + 12, dur=1.4); pause(1.2); rest(); snap('c5b-rotated')
         step('Transform menu', 'right-click the preview: fit, stretch, centre, flip and rotate')
         b = preview_box() or b; x0, y0, x1, y1 = b
