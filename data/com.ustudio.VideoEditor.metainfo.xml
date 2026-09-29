@@ -28,6 +28,20 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
+    <release version="0.80.2-beta.1" date="2026-09-29" type="development">
+      <description>
+        <p>New since 0.78.4-beta.1:</p>
+        <ul>
+          <li>Moving pictures: a clip's position, size and rotation can change over time. The Transform card at the top of the Effects page pins, steps, eases and records them, with curves; dragging a keyframed picture on the preview sets a keyframe at the playhead.</li>
+          <li>Transitions: Additive, Screen and Lighten blend dissolves, Zoom In and Spin In, and the style tiles show your own two clips half-way through. A transition's sound can crossfade evenly (equal power) or cut at its middle.</li>
+          <li>A LUT or other file inside the project's folder is saved relative to it, so the project keeps it when the folder moves (such a project needs this version or newer).</li>
+          <li>Screen readers can reach the number fields in Settings, Render profiles, Edit Transform and U Stu Titles. U Stu Titles also has fixes for animated layers.</li>
+          <li>Dragging a picture in the preview is smoother, and dissolving from a still works.</li>
+          <li>Safety: the editor loads only the media modules it needs.</li>
+        </ul>
+        <p>Try keyframing a picture's position with the Transform card, a Zoom In or a blend dissolve between two clips, and moving a project folder that uses a LUT. Install the Titles and Effects add-ons of this same version with the app.</p>
+      </description>
+    </release>
     <release version="0.78.4-beta.1" date="2026-09-29" type="development">
       <description>
         <p>New since 0.78.0-beta.1 (fixes):</p>
