@@ -234,17 +234,37 @@ to two decoders per asset per track instead of one per asset.
 ## Frames rendered on the consumer's own thread (0.71.x crash)
 
 I had assumed the consumer's render thread renders every frame, so only it
-needed a GL context. It doesn't. MLT's real-time consumer passes a frame its
-render thread skipped for lateness on unrendered, and after too many drops
-it marks one `rendered` for the consumer thread to render itself
-(`mlt_consumer.c`, "forcing next frame"). Our `consumer-frame-show` handler
-(`PlaybackController::handleFrameShow()`) then calls `get_image()`, which
-runs the whole movit graph on sdl2's consumer thread. With no context
+needed a GL context. It doesn't. At `real_time=1`, MLT's read-ahead thread
+(`consumer_read_ahead_thread()`, `mlt_consumer.c`) skips `get_image()` for a
+frame it judges late (`skip_next`) and passes the frame on unrendered
+(`rendered` unset). sdl2_audio (`consumer_sdl2_audio.c`) then fires
+`consumer-frame-show` without checking that flag in three places:
+- the paused refresh: `consumer_thread()` shows each frame it pulls at
+  speed 0 directly (line 630);
+- the stop path: `video_thread()` "spits out all the frames" still queued
+  (lines 531, 537), and `consumer_thread()` shows its last frame (line 664).
+  A stop happens on every rebuild, since `setTractor()` restarts the
+  consumer.
+
+Our handler (`PlaybackController::handleFrameShow()`) calls `get_image()`,
+which then runs the whole movit graph on sdl2's thread. With no context
 current there, every framebuffer is incomplete, and movit asserts in
-`create_fbo` or `EffectChain::render`. It happens only when a frame is
-late, so it was intermittent and got likelier under load: while
-recording, while other sessions used the GPU, and around rebuilds.
-`engine-gpu-engine` hit it one run in two to four.
+`create_fbo` or `EffectChain::render`. It needs a late frame, so it was
+intermittent and got likelier under load: while recording, while other
+sessions used the GPU, and around rebuilds. `engine-gpu-engine` hit it
+one run in two to four.
+
+Measured with frame-show instrumented (`rendered`, the image data,
+`_speed`, whether `shutdown()` was stopping the consumer) over `gpu_stress`:
+- 2 minutes: 164 frames arrived rendered, and 4 unrendered, all during a
+  stop.
+- 2.5 minutes under 4 parallel x264 encodes: 349 rendered, 1 unrendered
+  during a stop, and 1 unrendered at speed 0 while not stopping (the paused
+  refresh). The two crash reports came right after a pause.
+
+An earlier version of this note blamed `mlt_consumer.c`'s "forcing next
+frame". That branch is in `worker_get_frame()`, which runs only for
+`|real_time| > 1`; VE Bugs pointed it out (2026-09-28).
 
 Fix: the session has a second context in the same share group, which
 `handleFrameShow()` makes current around `get_image()` on the GPU pipeline
@@ -261,6 +281,8 @@ is thread-safe.
   thread-bound state.
 - Exports are unaffected: at `real_time=-1` the consumer waits for the
   render thread to render each frame.
+
+Since 0.75.1, PlaybackController drops the frames shown while the consumer stops (`m_stopping`, checked before any GL context is made current), so only the paused refresh can still render on sdl2's thread.
 
 ## Wipes on the GPU pipeline (FX3, 2026-09-28)
 
@@ -295,6 +317,8 @@ be MLT's CPU `luma` inside the GPU graph, not `movit.luma_mix`.
 - A standalone repro's CPU baseline needs VE Core's background re-tag
   (`attachProfileColorspace()`), or its colours come out BT.601-shifted and
   look like a GPU error.
+
+Motion transitions (slide, push) need no GPU variant: MLT's `affine` transition in the dissolve sub-tractor (slide), plus an `affine` filter on the tail cut (push), play as CPU islands inside the GPU graph exactly as on the CPU. Repro at 1080p30, a 25-frame transition between H.264 clips, the sub-tractor composited over black by `composite` or `movit.overlay`: the incoming clip's edge on row 540 is at the same x on both pipelines at every sampled frame (1680, 1440, … 0: linear, 80 px a frame), with no gap between the pictures. A 1080p frame pulled on its own costs about 40 ms for a slide on the GPU pipeline (64 on the CPU) and 66 for a push (67): the island is cheap here because the compositing around it runs on the GPU, unlike a wipe's two downloads and an upload. Not checked: the outgoing picture's own movement during a push (solid colours can't show it); the CPU recipe's own repro covers it.
 
 ## Exports (G4)
 

@@ -130,7 +130,7 @@ TEST_CASE("untrusted input: refused cleanly or clamped, never trusted")
     CHECK_FALSE(parseTitle("<ustitle").has_value());
     CHECK_FALSE(parseTitle("<mlt/>").has_value());
     CHECK_FALSE(parseTitle(R"(<ustitle width="100"/>)").has_value()); // no version
-    CHECK(parseTitle(R"(<ustitle version="2"/>)").error().find("newer") != std::string::npos);
+    CHECK(parseTitle(R"(<ustitle version="3"/>)").error().find("newer") != std::string::npos);
     CHECK_FALSE(parseTitle(R"(<ustitle version="1" width="wide"/>)").has_value());
     CHECK_FALSE(parseTitle(R"(<ustitle version="1" fps="0/1"/>)").has_value());
     CHECK_FALSE(parseTitle(R"(<ustitle version="1"><layer><fill color="red"/></layer></ustitle>)").has_value());

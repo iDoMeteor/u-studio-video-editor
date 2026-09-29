@@ -50,7 +50,13 @@ std::vector<std::string> denylist()
         }
         return result;
     }
-    return {"qt6", "glaxnimate-qt6"};
+    // openfx: at Factory::init() its module dlopens every .ofx bundle in
+    // /usr/OFX/Plugins and /usr/local/OFX/Plugins (OFX_PLUGIN_PATH only adds
+    // to them; openfx/factory.c, MLT 7.40), so any OpenFX plugin installed
+    // system-wide, Qt-linked or crashy, was loaded into the editor whether
+    // or not anything used it. The effects drop-in's opt-in brings it back
+    // after its own Qt scan (FX5; VE Effects' finding, 2026-09-28).
+    return {"qt6", "glaxnimate-qt6", "openfx"};
 }
 
 bool isDenied(const std::string &filename, const std::vector<std::string> &deny)

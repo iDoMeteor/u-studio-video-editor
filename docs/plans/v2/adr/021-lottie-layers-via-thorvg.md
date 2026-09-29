@@ -66,8 +66,10 @@ the libraries' sources):
      `data:image/png` or `data:image/jpeg` base64 URI whose decoded bytes
      are at most 16 MB, sniffed as that type, and at most 8192 × 8192 by
      their header. Fonts must be embedded or left to the system: a font
-     path or URL is refused. ThorVG gets the data with an empty resource
-     path, so there's nothing to resolve against anyway.
+     path or URL is refused. This check is the only guard where ThorVG
+     has file access (Fedora's build): with an empty resource path it
+     opens an image asset as `"/" + u + p`, so `../../etc/hostname`
+     reaches `/etc/hostname` (slice 1 repro).
 
    Nothing is fetched and nothing is executed. The validator is a small
    std-only JSON scanner in `core/`, not a general parser. The tests
@@ -79,28 +81,39 @@ the libraries' sources):
    added, and so moved, packed and templated like one. dotLottie
    (`.lottie`, a zip) and Telegram's `.tgs` (gzip) aren't read in T6.
 5. **Timing is frame-exact and deterministic.** At title frame `t`, a
-   title rate `num/den`, a layer `speed` `s` (0.25 to 4, stored as a
-   decimal and read as an exact fraction), and the animation's `ip`, `op`
-   and `fr`, the frame shown is `ip + t · den · s · fr / num`, worked out
-   in exact integer arithmetic and passed to `tvg_animation_set_frame()`
-   as the nearest float. With `loop="loop"` it wraps within `[ip, op)`;
-   with `loop="once"` it holds the last frame after the end. The same
-   inputs give the same frame on every thread and in every process, so
-   the editor's producer, the designer, the bake and the render tool draw
-   the same pixels. That's tested byte for byte.
-6. **Threads.** ThorVG is initialised once per process with
-   `tvg_engine_init(0)`: no worker threads of its own, since titlerender
-   already runs on its own worker threads (ADR-016). Each thread keeps its
-   own canvases and animations in a small per-thread cache (at most 8,
-   keyed by path, file fingerprint and render size), so no ThorVG object
-   is used by two threads. A standalone repro confirms that separate
-   canvases on separate threads are safe before this is relied on (per
-   CLAUDE.md). If they aren't, calls go through one titles-drop-in mutex.
-7. **Size, fit, colour.** The layer has a box like an image layer and
-   the same `fit` choices. The animation is rendered at the box's device
-   pixel size (`tvg_picture_set_size`), so it stays sharp at any scale.
-   Its pixels are premultiplied sRGB, composited like an image layer,
-   with the layer's opacity, transform, reveal, blur and shadow.
+   title rate `num/den`, a layer `speed` `s` (0.25 to 4), and the
+   animation's `ip`, `op` and `fr`, the frame shown is
+   `ip + t · den · fr · s / num`: one double-precision expression,
+   evaluated in that order by `lottie::frameAt()`. With `loop="loop"` it
+   wraps within `[ip, op)`; with `loop="once"` it holds the last frame
+   (`op − 1`) after the end. ThorVG interpolates the fractional frame.
+   Every caller (the editor's producer, the designer, the bake, the
+   render tool) goes through the same function in the same library, so
+   the same inputs give the same frame and the same pixels. That's tested
+   byte for byte.
+6. **Threads: one process-wide lock.** ThorVG is initialised once per
+   process with `tvg_engine_init(0)`, so it runs no worker threads of its
+   own; titlerender already runs on its own threads (ADR-016). The
+   slice 1 repro showed that ThorVG 1.0.6 isn't safe on concurrent
+   threads even when each thread has its own canvas, animation and
+   bytes: 6 crashes in 10 runs. So every ThorVG call in the titles
+   drop-in goes through one mutex, and that repro was then 10 of 10
+   clean and byte-identical (`docs/developer/notes/titles.md`, "T6").
+   Loading and drawing both take the lock. Loaded animations are cached
+   (at most 8 per thread, keyed by path, file fingerprint and render
+   size), so a cached frame costs one draw under the lock, not a parse.
+   The lock belongs to the titles render library, so each process has
+   one copy that draws animations: the editor and the render tool through
+   the MLT module, the designer its own (the editor's side of the drop-in
+   doesn't link it). Revisit when a ThorVG release
+   documents thread safety and the repro passes without the lock.
+7. **Size and colour.** The layer has a box like an image layer, and
+   the animation keeps its own aspect inside it, centred. ThorVG's
+   `tvg_picture_set_size` stretches to whatever it's given (slice 1), so
+   titlerender works out the uniformly scaled size itself. The animation
+   is rendered at that size in device pixels, so it stays sharp at any
+   scale. Its pixels are premultiplied sRGB, composited like an image
+   layer, with the layer's opacity, transform, reveal, blur and shadow.
 8. **Packaging.** ThorVG isn't in the GNOME Flatpak runtime, so the
    manifest gets a module that builds 1.0.6 from its release tarball
    with meson and

@@ -48,6 +48,15 @@ class TestExtension : public engine::EngineExtension
         attachEffects(playlist, track.effects, 0, std::max<core::FrameIndex>(model.sequence().length(), 1), profile);
     }
 
+    void decorateLane(Mlt::Service &, const core::Model &, int lane,
+                      const std::vector<const core::AdjustmentBlock *> &blocks, Mlt::Profile &) override
+    {
+        std::vector<core::FrameIndex> starts;
+        for (const core::AdjustmentBlock *block : blocks)
+            starts.push_back(block->start);
+        extensionLog().lanes.emplace_back(lane, std::move(starts));
+    }
+
     void decorateTractor(Mlt::Tractor &tractor, const core::Model &model, Mlt::Profile &profile) override
     {
         ++extensionLog().tractors;
