@@ -990,3 +990,54 @@ TEST_CASE("M5 gate: preview and export give the same frames for effects, masks, 
         CHECK(near(red(melt, 0.9, 0.1), red(preview.tractor(), 0.9, 0.1), 3));
     }
 }
+
+// FX3 leftover: the Transitions page's tiles are the real two clips half-way
+// through each style, rendered off the live graph.
+TEST_CASE("FrameRenderer: a transition's frame from the two clips, as the style plays it")
+{
+    setUp();
+    FrameRequest request;
+    request.resource = "color:0xff0000ff";
+    request.profile.fps = {30, 1};
+    request.clipIn = 0;
+    request.clipOut = 19;
+    request.width = 160;
+    request.height = 90;
+    FrameRequest::Transition wipe;
+    wipe.resource = "color:0x0000ffff";
+    wipe.in = 0;
+    wipe.out = 19;
+    wipe.position = 10;
+    wipe.params = {{"video.service", std::string("luma"), {}}, {"video.luma", std::string("left"), {}}};
+    request.transition = wipe;
+    const RenderedFrame frame = FrameRenderer::renderNow(request);
+    REQUIRE(frame.width == 160);
+    auto at = [&](int x, int channel) {
+        return frame.rgba[(static_cast<size_t>(45) * 160 + static_cast<size_t>(x)) * 4 + static_cast<size_t>(channel)];
+    };
+    CHECK(at(10, 2) > 200);  // the incoming blue on the left
+    CHECK(at(150, 0) > 200); // the outgoing red on the right
+    // The plain dissolve: the two blended, the same everywhere.
+    request.transition->params.clear();
+    const RenderedFrame dissolve = FrameRenderer::renderNow(request);
+    REQUIRE(!dissolve.rgba.empty());
+    const size_t middle = (static_cast<size_t>(45) * 160 + 80) * 4;
+    CHECK(near(dissolve.rgba[middle], 128, 20));
+    CHECK(near(dissolve.rgba[middle + 2], 128, 20));
+    CHECK(request.key() != FrameRequest{}.key());
+
+    // Motion: the affine transition, and for a push an affine filter on the
+    // outgoing cut too (the smoke crashed here once).
+    for (const bool push : {false, true}) {
+        request.transition->params = {{"video.service", std::string("affine"), {}},
+                                      {"video.rect", std::string("ramp:100% 0% 100% 100%|0% 0% 100% 100%"), {}}};
+        if (push) {
+            request.transition->params.push_back({"a.0.service", std::string("affine"), {}});
+            request.transition->params.push_back(
+                {"a.0.transition.rect", std::string("ramp:0% 0% 100% 100%|-100% 0% 100% 100%"), {}});
+        }
+        const RenderedFrame moving = FrameRenderer::renderNow(request);
+        REQUIRE(!moving.rgba.empty());
+        CHECK(moving.rgba[(static_cast<size_t>(45) * 160 + 150) * 4 + 2] > 200); // the incoming blue on the right
+    }
+}

@@ -158,6 +158,11 @@ compositing is the bottleneck.
 - **The CPU `affine` filter's canvas producer must be a worker producer**
   (`loader-nogl`). The filter reads it on the CPU; opened through the
   loader while a manager exists, it would hand the filter a movit frame.
+  Off the GL thread that's a crash, not just a wrong picture: the effects
+  drop-in's frame renderer (Transitions tiles, Browser previews) aborted
+  inside `filter_affine.c` rendering a push while the GPU pipeline was on
+  (smoke, 2026-09-29; `effects-gpu` repro). Every `affine` filter a worker
+  builds gets a `loader-nogl` `colour:0` as its `producer`.
 - **The core `crop` filter works unchanged under movit:** it sets the
   frame's crop properties, and the loader's `movit.crop` normaliser applies
   them (`test_gpu_pipeline`'s crop case matches the CPU).

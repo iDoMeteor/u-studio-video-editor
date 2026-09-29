@@ -120,6 +120,9 @@ d act effects-add-transition; sleep 2
 shot 13-transition-added
 d act save; sleep 2
 check "T adds a transition" grep -q "ustudio:transition_id" "$OUT/smoke.ustudio"
+sleep 3
+shot 13b-tiles-from-clips
+check "the tiles are drawn from the two clips" grep -q "transition tiles: rendering" "$OUT/app.log"
 # The first wipe's tile (the list scrolls; later tiles may be out of view).
 WIPE=$(python3 "$SMOKE_HERE/where.py" "Wipe Right" 2>>"$OUT/helpers.err")
 echo "wipe tile at $WIPE" >>"$OUT/steps.log"

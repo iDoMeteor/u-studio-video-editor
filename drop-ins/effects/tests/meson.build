@@ -26,6 +26,19 @@ effects_test_engine = executable(
 )
 test('effects-engine', effects_test_engine, timeout: 300)
 
+# The frame renderer with a GPU session live: alone, since its glsl.manager
+# outlives the session and would switch every later graph to movit.
+effects_test_gpu = executable(
+  'test_effects_gpu',
+  files('test_gpu.cpp') + effects_engine_sources,
+  cpp_args: effects_engine_args,
+  include_directories: [src_inc, effects_inc],
+  dependencies: [effects_doctest_dep, effects_core_dep, libustudio_engine_dep, libustudio_dropins_dep,
+                 libustudio_platform_dep, glib_dep],
+  install: false,
+)
+test('effects-gpu', effects_test_gpu, timeout: 120)
+
 # Two frei0r plugins broken on purpose (frei0r/broken_plugin.cpp), alone in
 # their directory, which the scan test uses as the whole FREI0R_PATH.
 effects_broken_plugins = []

@@ -186,7 +186,8 @@ effect.
 
 With the add-on, a dissolve between two clips can play in another style:
 a **dip to black**, a **flash**, a **slide** or **push** (the next clip
-slides in over this one, or pushes it out, from any side), or one of 20
+slides in over this one, or pushes it out, from any side), a **zoom** or
+**spin** (it grows in from the middle, turning as it comes), or one of 20
 **wipes** (left, right, up, down and the diagonals, circle, clock,
 diamond, barn doors, blinds, checkerboard, blocks, star, sparkle and the
 unicorn horn).
@@ -195,14 +196,19 @@ unicorn horn).
    Or press **T** to add a dissolve at the cut nearest the playhead on the
    active track (about half a second, like **Add Transition**).
 2. The **Transitions** page opens in the inspector, and the dissolve it's
-   about is outlined on the timeline. Each tile shows its style: the
-   outgoing clip in pink, the incoming one in blue.
+   about is outlined on the timeline. Each tile shows its style with your
+   own two clips, half-way through the transition (a drawing, the outgoing
+   clip in pink and the incoming one in blue, until the picture is ready).
 3. Click a tile to play the dissolve that way. **Ctrl+Z** puts the last
    style back.
 
 A wipe has two settings above the tiles: **Softness** (how blurred its
 edge is) and **Reverse** (run it the other way). A slider drag is one undo
 step.
+
+**Sound** chooses how the two clips' sound crosses: **Even crossfade**
+(the default) or **Equal power**, which keeps the level up through the
+middle, better for music and ambience. It stays when you change the style.
 
 The style is saved with the project, and a render plays it exactly as the
 preview does. A saved project with wipes gets a small `ustudio-wipes`
@@ -225,8 +231,8 @@ or a colourist. U Stu keeps a library of them:
    try it, click to add it, as with any effect.
 
 **LUT (.cube)** among the effects does the same with any file you choose.
-Keep a project and its `luts` folder together: a project moved to another
-folder can't find its LUTs yet.
+Keep a project and its `luts` folder together: move or copy the whole
+folder and the project finds its LUTs where they are now.
 
 ## Before and after
 

@@ -227,3 +227,46 @@ TEST_CASE("lumaMapPath: the generator version is in the path, so a newer generat
     for (const auto &entry : fs::directory_iterator(file.parent_path()))
         CHECK(entry.path().extension() == ".pgm");
 }
+
+// FX5 leftover: a file inside the project's folder (a LUT) is saved
+// relative to it and found again after the folder moves; the render graph
+// keeps the absolute path for melt.
+TEST_CASE("XML: an effect's file inside the project's folder follows the project when it moves")
+{
+    auto [model, id] = modelWithDissolve();
+    TempDir dir;
+    fs::create_directories(dir.path / "luts");
+    std::ofstream(dir.path / "luts" / "grade.cube") << "LUT_3D_SIZE 2\n";
+    Effect lut;
+    lut.service = "avfilter.lut3d";
+    lut.owner = "effects";
+    lut.params = {{"av.file", (dir.path / "luts" / "grade.cube").string(), {}}};
+    const ClipId clip = model.sequence().tracks[0].clips[0];
+    model.addEffect(Model::EffectTarget::clip(clip), lut, 0);
+    const fs::path path = dir.path / "moving.ustudio";
+    REQUIRE(saveProject(model, path.string()).empty());
+    std::ifstream in(path);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(text.find(">f:luts/grade.cube<") != std::string::npos);                          // the model's record
+    // An older build would read "f:" as a number and lose the file: format 7.
+    CHECK(text.find("ustudio:format_version\">7<") != std::string::npos);
+    CHECK(text.find(">" + (dir.path / "luts" / "grade.cube").string() + "<") != std::string::npos); // the render filter
+
+    // The whole folder moved: the LUT is found where it is now.
+    TempDir moved;
+    fs::copy(dir.path, moved.path, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+    auto loaded = loadProject((moved.path / "moving.ustudio").string());
+    REQUIRE(loaded.has_value());
+    const Effect &back = loaded->clip(clip).effects[0];
+    REQUIRE(back.params.size() == 1);
+    CHECK(std::get<std::string>(back.params[0].value) == (moved.path / "luts" / "grade.cube").string());
+    // A path outside the folder stays absolute.
+    auto [other, otherId] = modelWithDissolve();
+    lut.params = {{"av.file", std::string("/opt/shared/grade.cube"), {}}};
+    other.addEffect(Model::EffectTarget::clip(other.sequence().tracks[0].clips[0]), lut, 0);
+    REQUIRE(saveProject(other, path.string()).empty());
+    std::ifstream again(path);
+    const std::string text2((std::istreambuf_iterator<char>(again)), std::istreambuf_iterator<char>());
+    CHECK(text2.find(">s:/opt/shared/grade.cube<") != std::string::npos);
+    CHECK(text2.find("ustudio:format_version\">6<") != std::string::npos); // nothing an older build loses
+}

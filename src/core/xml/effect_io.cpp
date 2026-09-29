@@ -38,7 +38,10 @@ std::vector<std::string> split(const std::string &text, char separator)
     return parts;
 }
 
-// "d:0.5", "i:3", "b:1", "s:text", "c:r,g,b,a", "r:x,y,w,h".
+// "d:0.5", "i:3", "b:1", "s:text", "c:r,g,b,a", "r:x,y,w,h", and "f:rel/path"
+// for a string naming a file inside the project's folder (ProjectFolderScope).
+thread_local std::optional<std::filesystem::path> t_projectFolder;
+
 std::string encodeValue(const Param::Value &value);
 Param::Value decodeValue(const std::string &text);
 
@@ -53,8 +56,21 @@ std::string encodeValue(const Param::Value &value)
                 return "i:" + std::to_string(v);
             else if constexpr (std::is_same_v<T, bool>)
                 return v ? "b:1" : "b:0";
-            else if constexpr (std::is_same_v<T, std::string>)
+            else if constexpr (std::is_same_v<T, std::string>) {
+                if (t_projectFolder && !v.empty()) {
+                    const std::filesystem::path path(v);
+                    if (path.is_absolute()) {
+                        const std::filesystem::path relative = path.lexically_relative(*t_projectFolder);
+                        if (!relative.empty() && !relative.string().starts_with("..")) {
+                            // An older build reads "f:" as a number and a
+                            // re-save loses the file: it must refuse this one.
+                            requireFormatVersion(7);
+                            return "f:" + relative.generic_string();
+                        }
+                    }
+                }
                 return "s:" + v;
+            }
             else if constexpr (std::is_same_v<T, Color>)
                 return "c:" + std::to_string(v.r) + "," + std::to_string(v.g) + "," + std::to_string(v.b) + "," +
                        std::to_string(v.a);
@@ -77,6 +93,10 @@ Param::Value decodeValue(const std::string &text)
         return body == "1";
     case 's':
         return body;
+    case 'f':
+        // Relative to the project's folder as it is now; without one (a
+        // record read outside a load), as written.
+        return t_projectFolder ? (*t_projectFolder / body).lexically_normal().string() : body;
     case 'c': {
         std::vector<std::string> parts = split(body, ',');
         Color c;
@@ -194,6 +214,16 @@ std::optional<std::string> getProperty(xmlNodePtr node, const std::string &name)
         return value;
     }
     return std::nullopt;
+}
+
+ProjectFolderScope::ProjectFolderScope(const std::filesystem::path &folder) : m_previous(t_projectFolder)
+{
+    t_projectFolder = folder.empty() ? std::optional<std::filesystem::path>() : std::optional(folder.lexically_normal());
+}
+
+ProjectFolderScope::~ProjectFolderScope()
+{
+    t_projectFolder = m_previous;
 }
 
 void writeParams(xmlNodePtr parent, const std::string &prefix, const std::vector<Param> &params)
