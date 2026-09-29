@@ -360,6 +360,7 @@ d act effects-browser; sleep 1
 # the first clip's curve lanes (three by now: two transform curves, Blur),
 # on empty timeline, so the Rack doesn't take the page back.
 d click 900 955; sleep 0.5
+shot 25a-before-import
 d press "Import LUTs"; sleep 2.5
 d loc "$M/smoke-warm.cube"; d enter; sleep 2
 shot 25-luts

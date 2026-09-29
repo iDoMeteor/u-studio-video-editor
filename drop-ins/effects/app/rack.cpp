@@ -559,6 +559,9 @@ class Rack
             control->animatable = true;
             control->adjustment = gtk_adjustment_new(0.0, r.lower, r.upper, r.step, r.step * 10, 0.0);
             GtkWidget *spin = gtk_spin_button_new(control->adjustment, r.step, static_cast<guint>(r.digits));
+            // Sized for the value, not the range: sized for "40960" the
+            // card pushed the inspector to twice its width.
+            gtk_editable_set_width_chars(GTK_EDITABLE(spin), 7);
             gtk_accessible_update_property(GTK_ACCESSIBLE(spin), GTK_ACCESSIBLE_PROPERTY_LABEL, r.title, -1);
             m_host.setTooltip(spin, r.hint);
             control->widget = spin;
