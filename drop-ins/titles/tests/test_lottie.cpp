@@ -220,26 +220,34 @@ TEST_CASE("the check refuses a hostile corpus, each with its reason")
 
 TEST_CASE("the check's time grows with the file, not faster (load-proof)")
 {
-    // A file of `count` numbers; the fastest of three checks of it.
-    const auto timed = [](size_t count) {
+    // Like with like, under the same load: a file and one four times its
+    // size, checked in turn (small, large, small, ...), the fastest of seven
+    // each. Linear is 4x and quadratic 16x; 10x is linear with room. (All
+    // the small runs first, then the large, failed at 20.1x under VE Core's
+    // ASan gate, 2026-09-29: the load moved between the two.)
+    const auto file4 = [](size_t count) {
         std::string numbers;
         numbers.reserve(count * 8);
         for (size_t i = 0; i < count; ++i)
             numbers += (i ? ",1234.5" : "1234.5");
-        const std::string json = file(kHeader, R"(,"d":[)" + numbers + "]");
-        double best = 1e9;
-        for (int run = 0; run < 3; ++run) {
-            const auto begin = std::chrono::steady_clock::now();
-            REQUIRE(lottie::check(json).has_value());
-            best = std::min(
-                best, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
-        }
-        return best;
+        return file(kHeader, R"(,"d":[)" + numbers + "]");
     };
-    // About 1 MB and about 7.5 MB (the limit is 8).
-    const double small = timed(125'000), large = timed(950'000);
-    MESSAGE("1 MB: " << small << " ms; 7.5 MB: " << large << " ms");
-    CHECK(large < 20.0 * std::max(small, 1.0)); // 7.6x the bytes: linear, with room
+    // Small enough to stay in cache under load: at 1.4 and 5.6 MB, the larger
+    // fell out of it on a busy machine and looked superlinear (11x under
+    // ASan beside 32 busy threads) though the scan is linear.
+    const std::string small = file4(50'000), large = file4(200'000); // about 0.35 and 1.4 MB
+    const auto timed = [](const std::string &json) {
+        const auto begin = std::chrono::steady_clock::now();
+        REQUIRE(lottie::check(json).has_value());
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+    };
+    double smallMs = 1e9, largeMs = 1e9;
+    for (int round = 0; round < 7; ++round) {
+        smallMs = std::min(smallMs, timed(small));
+        largeMs = std::min(largeMs, timed(large));
+    }
+    MESSAGE("0.35 MB: " << smallMs << " ms; 1.4 MB: " << largeMs << " ms");
+    CHECK(largeMs < 10.0 * std::max(smallMs, 1.0));
 }
 
 TEST_CASE("frameAt: the title's time in the animation's frames, looping or held")

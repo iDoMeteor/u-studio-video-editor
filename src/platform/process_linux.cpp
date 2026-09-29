@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <fstream>
+#include <malloc.h>
 #include <signal.h>
 #include <sstream>
 #include <string>
@@ -97,6 +98,11 @@ bool runningInFlatpak()
     // Flatpak puts this file at the sandbox's root (flatpak-metadata(5)).
     std::error_code ec;
     return std::filesystem::exists("/.flatpak-info", ec);
+}
+
+void releaseFreeMemory()
+{
+    malloc_trim(0);
 }
 
 } // namespace ustudio::platform

@@ -4,6 +4,28 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.78.4-beta.1
+
+- With GPU acceleration on, a flipped clip now shows mirrored in place; before, a cropped or rotated flipped clip could come out turned and smeared, or slide out of its box.
+
+## 0.78.3-beta.1
+
+- Effects: the Add page no longer renders its tiles while it's hidden, and
+  its previews let go of a clip's memory a moment after they're drawn
+  (about 180 MB for a 1080p clip, which the editor used to keep).
+- Effects: fixed two crashes, one when a selected title couldn't be opened
+  for the Add page's tiles and one at quit; effects that only run on a
+  graphics card's compute interfaces (Vulkan, OpenCL, CUDA, VAAPI) are no
+  longer offered.
+
+## 0.78.2-beta.1
+
+- U Stu Titles no longer crashes when you close it with a layer selected.
+- A caption clip's name on the timeline follows its words when you edit
+  them on the Title page (a name you gave it yourself stays).
+- Exporting or baking a title can no longer crash as it finishes (the
+  encoder's last thread is now waited for).
+
 ## 0.78.1-beta.1
 
 - A dissolve into a still or a colour clip works from its first frame

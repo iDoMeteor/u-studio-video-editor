@@ -94,9 +94,10 @@ std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, 
 
 // The same transform for the GPU pipeline (ADR-019 point 5): the mirrors
 // become movit.mirror (horizontal) and movit.flip (vertical), and the
-// placement movit.rect, since no movit service rotates. A rotated transform
-// keeps transformFilters()' CPU chain whole (one CPU island in the GPU
-// graph, not two). Crop stays the core `crop` filter.
+// placement movit.rect (mirrored with the flips, which act on the placed
+// frame), since no movit service rotates. A rotated transform keeps
+// transformFilters()' crop and affine as one CPU island in the GPU graph,
+// with the movit flips before it. Crop stays the core `crop` filter.
 std::vector<NativeFilter> gpuTransformFilters(const Transform &t, int sourceWidth, int sourceHeight,
                                               const Profile &profile, double outputScale = 1.0,
                                               double sourceScale = 1.0, FrameIndex offset = 0, FrameIndex length = 0);
