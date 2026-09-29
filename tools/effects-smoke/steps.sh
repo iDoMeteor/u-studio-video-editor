@@ -41,13 +41,15 @@ shot 4-undone
 
 # Keyframes: redo the effect, set Blur, pin it at frame 0 (P), move 60
 # frames on and change it (a second key, added by changing the value).
+# With one clip selected the Transform card comes first: its five spin
+# buttons (X, Y, Width, Height, Rotation) are 0-4, Blur is 5.
 v() { python3 "$SMOKE_HERE/value.py" "$@" 2>>"$OUT/helpers.err"; }
 d act redo; sleep 1.5
 d act seek-home; sleep 0.5
-v 0 0.5; sleep 1
+v 5 0.5; sleep 1
 d act effects-pin; sleep 1.5
 for _ in 1 2 3 4 5 6; do d act step-forward-10 >/dev/null; done; sleep 1
-v 0 1.0; sleep 1.5
+v 5 1.0; sleep 1.5
 shot 5-keyframed
 d act save; sleep 2
 check "saved animated: two keys" grep -q '<property name="0">0=0.5;60=1</property>' "$OUT/smoke.ustudio"
@@ -144,13 +146,15 @@ check "undo takes the wipe back" saved_lacks ">wipe.left<"
 d act seek-home; sleep 0.5
 d act select-next-clip; sleep 1
 d press "Effects" exact; sleep 1
-ARM=$(python3 "$SMOKE_HERE/where.py" "Touch-record" 1 2>>"$OUT/helpers.err")
+# Blur's is the 7th Touch-record button, its spin the 6th (the Transform
+# card's five, then the mix's, come first).
+ARM=$(python3 "$SMOKE_HERE/where.py" "Touch-record" 6 2>>"$OUT/helpers.err")
 echo "arm at $ARM" >>"$OUT/steps.log"
 # shellcheck disable=SC2086
 [ -n "$ARM" ] && d click $ARM; sleep 0.5
 shot 15-armed
 d act play-pause; sleep 0.3
-python3 "$SMOKE_HERE/ramp.py" 0 0.1 0.9 40 0.05 2>>"$OUT/helpers.err"
+python3 "$SMOKE_HERE/ramp.py" 5 0.1 0.9 40 0.05 2>>"$OUT/helpers.err"
 d act play-pause; sleep 2
 shot 16-recorded
 d act save; sleep 2
@@ -199,6 +203,49 @@ check "a dragged keyframe moves (same number of keys)" moved
 d act undo; sleep 1
 d act save; sleep 2
 check "the drag is one undo step" [ "$(grep -o '<property name="0">[^<]*;[^<]*</property>' "$OUT/smoke.ustudio" | head -1)" = "$BEFORE" ]
+
+
+# Keyframed transform (M5 box 2): the first clip's Transform card. X set
+# at the start and pinned (P), then set 60 frames on: two keys, a placed
+# picture, and an animated rect in the render graph. Then Rotation armed
+# and ramped while playing: touch-record keys it, thinned.
+d act seek-home; sleep 0.5
+v 0 400; sleep 1
+d act effects-pin; sleep 1.5
+for _ in 1 2 3 4 5 6; do d act step-forward-10 >/dev/null; done; sleep 1
+v 0 1000; sleep 1.5
+shot 18b-transform-keyed
+d act save; sleep 2
+check "the Transform card keys X: two keys" python3 - "$OUT/smoke.ustudio" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r'ustudio:transform\.x\.keyframes">([^<]*)<', text)
+print(m.group(1) if m else None)
+sys.exit(0 if m and len([k for k in m.group(1).split(";") if k]) == 2 else 1)
+PY
+check "the picture is placed (keys need it)" grep -q 'ustudio:transform.bounds">none<' "$OUT/smoke.ustudio"
+check "the render graph animates the placement" grep -qE 'transition.rect">[^<]*;' "$OUT/smoke.ustudio"
+d act seek-home; sleep 0.5
+ROT=$(python3 "$SMOKE_HERE/where.py" "Touch-record" 4 2>>"$OUT/helpers.err")
+echo "rotation arm at $ROT" >>"$OUT/steps.log"
+# shellcheck disable=SC2086
+[ -n "$ROT" ] && d click $ROT; sleep 0.5
+d act play-pause; sleep 0.3
+python3 "$SMOKE_HERE/ramp.py" 4 0 30 40 0.05 2>>"$OUT/helpers.err"
+d act play-pause; sleep 2
+# shellcheck disable=SC2086
+[ -n "$ROT" ] && d click $ROT; sleep 0.5 # disarmed again
+shot 18c-rotation-recorded
+d act save; sleep 2
+check "touch-record keys the rotation, thinned" python3 - "$OUT/smoke.ustudio" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r'ustudio:transform\.rotation\.keyframes">([^<]*)<', text)
+print(m.group(1) if m else None)
+keys = [k for k in m.group(1).split(";") if k] if m else []
+ats = [int(k.split(":")[0].split("=")[0]) for k in keys]
+sys.exit(0 if len(keys) >= 3 and len(keys) * 2 < max(ats) - min(ats) + 1 else 1)
+PY
 
 
 # The FX lane (FX4): a thin lane above the tracks. Drawing across it adds

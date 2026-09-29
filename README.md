@@ -102,10 +102,11 @@ permissions · [Getting started](docs/user/getting-started.md)
 - Effects (an [add-on](docs/user/installing.md#add-ons)): hundreds of
   colour, light, blur, keying and audio effects on clips, tracks or the
   whole picture, tried on your picture before you add them, with
-  keyframes (drawn as curves, or performed live), looks, masks, LUTs,
+  keyframes (drawn as curves, or performed live) for effects and for a
+  picture's position, size and rotation, looks, masks, LUTs,
   adjustment blocks over several tracks, copy and paste, before/after
-  compare, audio plugins, and dissolves that dip, flash, slide, push or
-  wipe.
+  compare, audio plugins, and dissolves that dip, flash, slide, push,
+  zoom, spin or wipe.
   → [Effects](docs/user/effects.md)
 - Titles and captions (an [add-on](docs/user/installing.md#add-ons)): a
   title designer with templates and animated (Lottie) layers, and

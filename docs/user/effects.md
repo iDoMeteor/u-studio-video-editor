@@ -110,11 +110,27 @@ moves to the next point: **Linear** (steady), **Smooth**, **Ease in**,
 **Ease out**, **Snap**, **Bounce**, **Elastic**, or **Hold** (it stays put,
 then jumps), plus every other curve in the list.
 
+### Moving, sizing and turning a picture over time
+
+With one clip selected, the **Effects** page starts with a **Transform**
+card: the picture's **X** and **Y** (its centre, in pixels from the
+frame's top left), **Width**, **Height** and **Rotation** (degrees
+clockwise). They pin, step and feel exactly like an effect's values, and
+record the same way, so a picture can glide in, grow, or spin over the
+clip.
+
+- A picture that's fitted or stretched to the frame is placed where it
+  shows the first time you change its position or size, or pin any value.
+- Crops don't change over time.
+- Dragging the picture's handles, and **Edit Transform** (`Ctrl+T`),
+  change its values for the whole clip for now; to change a moving
+  picture, use the Transform card or its curves.
+
 ### Seeing and shaping the curve (curve lanes)
 
 Select a clip and press **C**: a lane opens under it on the timeline for
-each value that changes over time, showing its curve, with a dot for each
-keyframe.
+each value that changes over time (its transform's first, then its
+effects'), showing its curve, with a dot for each keyframe.
 
 - **Drag a dot** left or right to move the keyframe in time, up or down to
   change its value. The whole drag is one undo step.

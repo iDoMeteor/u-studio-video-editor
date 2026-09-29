@@ -8,7 +8,10 @@
 #include "core/descriptor.h"
 #include "core/keyframes.h"
 #include "core/log.h"
+#include "core/transform_edit.h"
+#include "core/commands/primitives.h"
 #include "core/model/animation.h"
+#include "core/model/transform.h"
 
 #include <gtk/gtk.h>
 
@@ -75,7 +78,8 @@ const char *costClass(CostBadge badge)
 
 class Rack;
 
-// One control bound to one effect parameter (or the mix).
+// One control bound to one effect parameter (or the mix), or to one of a
+// clip's transform values (`transform` set; `effect` unused).
 struct Control
 {
     Rack *rack;
@@ -97,6 +101,8 @@ struct Control
     GtkWidget *pin = nullptr, *previous = nullptr, *next = nullptr, *feel = nullptr;
     GtkWidget *arm = nullptr; // touch-record
     std::vector<core::Easing> feelEasings; // the feel drop-down's entries, in order
+    std::optional<TransformField> transform;
+    core::ClipId clip; // the transform's
 };
 
 // A card's mask controls (doc 15, "Mix and masks"; FX4).
@@ -154,8 +160,7 @@ class Rack
              "keyframes are kept to follow what you did",
              nullptr, nullptr},
             {"effects.block-affects", "Effects", "Affects",
-             "Which tracks the adjustment block changes: every track, or a track and those below it", nullptr,
-             nullptr},
+             "Which tracks the adjustment block changes: every track, or a track and those below it", nullptr, nullptr},
             {"effects.block-remove", "Effects", "Remove adjustment block", nullptr, nullptr, nullptr},
             {"effects.choose-file", "Effects", "Choose a file", nullptr, nullptr, nullptr},
             {"effects.mask", "Effects", "Mask",
@@ -166,6 +171,20 @@ class Rack
             {"effects.mask-feather", "Effects", "Soft edge", "How gradually the effect fades out at the shape's edge",
              nullptr, nullptr},
             {"effects.rack-menu", "Effects", "Effects menu", "Copy, paste, and save as a look", nullptr, nullptr},
+            {"effects.transform", "Effects", "Transform",
+             "Where the clip's picture sits: position, size and rotation. Pin a value to keyframe it, as with "
+             "an effect's",
+             nullptr, nullptr},
+            {"effects.transform-x", "Effects", "X", "The picture's centre, in pixels from the frame's left edge",
+             nullptr, nullptr},
+            {"effects.transform-y", "Effects", "Y", "The picture's centre, in pixels from the frame's top edge",
+             nullptr, nullptr},
+            {"effects.transform-width", "Effects", "Width", "The picture's width on screen, in pixels", nullptr,
+             nullptr},
+            {"effects.transform-height", "Effects", "Height", "The picture's height on screen, in pixels", nullptr,
+             nullptr},
+            {"effects.transform-rotation", "Effects", "Rotation", "Degrees clockwise, about the picture's centre",
+             nullptr, nullptr},
             {"effects.card-cost", "Effects", "Cost",
              "How much work the effect is for each frame, measured when it was checked", nullptr, nullptr},
         });
@@ -224,6 +243,14 @@ class Rack
             control.gesture = ++m_nextGesture;
         control.lastChange = now;
         const core::Model &model = m_host.model();
+        if (control.transform) {
+            m_lastControl = std::make_pair(control.effect, control.param);
+            if (isArmed(control))
+                record(control);
+            else
+                onTransformChanged(control);
+            return;
+        }
         if (!model.hasEffect(control.effect))
             return;
         if (!control.twins.empty()) {
@@ -248,7 +275,7 @@ class Rack
         // Animated: the change is the key at the playhead (set, or added).
         const std::vector<core::Keyframe> keys = keysOf(control);
         if (!keys.empty()) {
-            applyKeys(control, withKeyAt(keys, ownerFrame(control.effect), numberOf(control)), control.gesture);
+            applyKeys(control, withKeyAt(keys, frameOf(control), numberOf(control)), control.gesture);
             return;
         }
         if (control.param.empty()) {
@@ -279,11 +306,12 @@ class Rack
         uint64_t gesture = 0;
         double minimum = 0.0, maximum = 1.0;
         guint timer = 0;
+        std::optional<TransformField> transform;
     };
 
     static ControlKey keyOf(const Control &control)
     {
-        return {control.effect.value, control.param};
+        return {control.transform ? control.clip.value : control.effect.value, control.param};
     }
 
     bool isArmed(const Control &control) const
@@ -320,13 +348,13 @@ class Rack
         if (m_recording && m_recording->key != keyOf(control))
             finishRecording();
         if (!m_recording) {
-            m_recording = Recording{keyOf(control), {}, control.gesture};
+            m_recording = Recording{keyOf(control), {}, control.gesture, 0.0, 1.0, 0, control.transform};
             const double scale = control.param.empty() ? 100.0 : 1.0; // the mix shows percent
             m_recording->minimum = gtk_adjustment_get_lower(control.adjustment) / scale;
             m_recording->maximum = gtk_adjustment_get_upper(control.adjustment) / scale;
             core::Log::debug("[effects] touch-record: started");
         }
-        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::FrameIndex at = frameOf(control);
         const double value = numberOf(control);
         m_recording->performed.emplace_back(at, value);
         applyKeys(control, withKeyAt(keysOf(control), at, value), m_recording->gesture);
@@ -344,11 +372,24 @@ class Rack
         if (recording.timer)
             g_source_remove(recording.timer);
         const core::Model &model = m_host.model();
+        const double tolerance = recordingTolerance(recording.minimum, recording.maximum);
+        if (recording.transform) {
+            const core::ClipId clip{recording.key.first};
+            if (!model.hasClip(clip))
+                return;
+            core::Transform t = model.clip(clip).transform.get();
+            core::KeyframedValue &value = fieldOf(t, *recording.transform);
+            value.keyframes = withRecording(value.keyframes, recording.performed, tolerance);
+            m_host.execute(std::make_unique<core::SetClipTransform>(clip, t, recording.gesture));
+            core::Log::debug("[effects] touch-record: " + std::to_string(recording.performed.size()) +
+                             " transform values recorded");
+            m_host.showStatus("Recorded: the keyframes follow what you did");
+            return;
+        }
         const core::EffectId id{recording.key.first};
         if (!model.hasEffect(id))
             return;
         const core::Effect &effect = model.effect(id);
-        const double tolerance = recordingTolerance(recording.minimum, recording.maximum);
         if (recording.key.second.empty()) {
             core::KeyframedValue mix = effect.mix;
             mix.keyframes = withRecording(mix.keyframes, recording.performed, tolerance);
@@ -387,9 +428,141 @@ class Rack
         return m_host.currentFrame() - ownerFrame(effect);
     }
 
+    // The playhead in the control's own frames: a transform's keys, like a
+    // clip's effects', count from the clip's first frame.
+    core::FrameIndex frameOf(const Control &control) const
+    {
+        if (control.transform) {
+            const core::Model &model = m_host.model();
+            return model.hasClip(control.clip) ? m_host.currentFrame() - model.clip(control.clip).position : 0;
+        }
+        return ownerFrame(control.effect);
+    }
+
+    core::FrameIndex startOf(const Control &control) const
+    {
+        return m_host.currentFrame() - frameOf(control);
+    }
+
+    // --- The clip's transform (ADR-018; keys through withTransformAt()) ----
+
+    // The clip whose Transform card shows: one clip on show with a picture.
+    std::optional<core::ClipId> transformClip(const core::Model::EffectTarget &target) const
+    {
+        const core::Model &model = m_host.model();
+        if (multiple() || target.kind != core::Model::EffectTarget::Kind::Clip)
+            return std::nullopt;
+        const core::ClipId clip{target.id};
+        if (!model.hasClip(clip) || !model.hasAsset(model.clip(clip).asset) ||
+            !model.asset(model.clip(clip).asset).info.hasVideo)
+            return std::nullopt;
+        return clip;
+    }
+
+    // The clip's transform as an explicit placement: a Fit or Stretch
+    // picture where it shows now (keys need one; transformProblem()).
+    core::Transform placedTransform(core::ClipId clip) const
+    {
+        const core::Model &model = m_host.model();
+        const core::Clip &c = model.clip(clip);
+        const core::Transform &t = c.transform.get();
+        if (t.bounds == core::Transform::Bounds::None)
+            return t;
+        const auto &info = model.asset(c.asset).info;
+        return core::explicitTransform(t, info.width, info.height, model.sequence().profile);
+    }
+
+    // A value changed by hand (core/transform_edit.h: withValue()).
+    void onTransformChanged(Control &control)
+    {
+        const core::Model &model = m_host.model();
+        if (!model.hasClip(control.clip))
+            return;
+        const core::Transform next = withValue(model.clip(control.clip).transform.get(), placedTransform(control.clip),
+                                               *control.transform, frameOf(control), numberOf(control));
+        m_host.execute(std::make_unique<core::SetClipTransform>(control.clip, next, control.gesture));
+    }
+
+    // Position, size and rotation, each keyframeable like an effect's value.
+    GtkWidget *buildTransformCard(core::ClipId clip)
+    {
+        const core::Model &model = m_host.model();
+        const core::Profile &profile = model.sequence().profile;
+        const core::Transform &t = model.clip(clip).transform.get();
+
+        GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_widget_add_css_class(card, "card");
+        GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_widget_set_margin_start(inner, 10);
+        gtk_widget_set_margin_end(inner, 10);
+        gtk_widget_set_margin_top(inner, 8);
+        gtk_widget_set_margin_bottom(inner, 8);
+        gtk_box_append(GTK_BOX(card), inner);
+        GtkWidget *title = gtk_label_new("Transform");
+        gtk_label_set_xalign(GTK_LABEL(title), 0.0f);
+        gtk_widget_add_css_class(title, "heading");
+        m_host.setTooltip(title, "effects.transform");
+        gtk_box_append(GTK_BOX(inner), title);
+        if (t.bounds != core::Transform::Bounds::None) {
+            GtkWidget *note = gtk_label_new(t.bounds == core::Transform::Bounds::Fit
+                                                ? "Fitted to the frame. Change a value to place it yourself."
+                                                : "Stretched to the frame. Change a value to place it yourself.");
+            gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+            gtk_label_set_xalign(GTK_LABEL(note), 0.0f);
+            gtk_widget_add_css_class(note, "dim-label");
+            gtk_widget_add_css_class(note, "caption");
+            gtk_box_append(GTK_BOX(inner), note);
+        }
+
+        GtkWidget *grid = gtk_grid_new();
+        gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
+        gtk_grid_set_row_spacing(GTK_GRID(grid), 4);
+        const double w = profile.width, h = profile.height;
+        struct Row
+        {
+            TransformField field;
+            const char *title, *name, *hint;
+            double lower, upper, step;
+            int digits;
+        };
+        const Row rows[] = {
+            {TransformField::X, "X", "transform.x", "effects.transform-x", -4 * w, 5 * w, 1, 0},
+            {TransformField::Y, "Y", "transform.y", "effects.transform-y", -4 * h, 5 * h, 1, 0},
+            {TransformField::Width, "Width", "transform.width", "effects.transform-width", 1, 8 * w, 1, 0},
+            {TransformField::Height, "Height", "transform.height", "effects.transform-height", 1, 8 * h, 1, 0},
+            {TransformField::Rotation, "Rotation", "transform.rotation", "effects.transform-rotation", -3600, 3600, 0.5,
+             1},
+        };
+        int row = 0;
+        for (const Row &r : rows) {
+            auto control = std::make_unique<Control>();
+            control->rack = this;
+            control->transform = r.field;
+            control->clip = clip;
+            control->param = r.name;
+            control->animatable = true;
+            control->adjustment = gtk_adjustment_new(0.0, r.lower, r.upper, r.step, r.step * 10, 0.0);
+            GtkWidget *spin = gtk_spin_button_new(control->adjustment, r.step, static_cast<guint>(r.digits));
+            gtk_accessible_update_property(GTK_ACCESSIBLE(spin), GTK_ACCESSIBLE_PROPERTY_LABEL, r.title, -1);
+            m_host.setTooltip(spin, r.hint);
+            control->widget = spin;
+            g_signal_connect(control->adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
+            addRow(grid, row, r.title, spin);
+            addKeyControls(grid, row, *control);
+            row += 2;
+            m_controls.push_back(std::move(control));
+        }
+        gtk_box_append(GTK_BOX(inner), grid);
+        return card;
+    }
+
     std::vector<core::Keyframe> keysOf(const Control &control) const
     {
         const core::Model &model = m_host.model();
+        if (control.transform)
+            return model.hasClip(control.clip)
+                       ? fieldOf(model.clip(control.clip).transform.get(), *control.transform).keyframes
+                       : std::vector<core::Keyframe>{};
         if (!model.hasEffect(control.effect))
             return {};
         const core::Effect &effect = model.effect(control.effect);
@@ -401,6 +574,8 @@ class Rack
     // The control's number in model units (the mix 0-1).
     double numberOf(const Control &control) const
     {
+        if (control.transform)
+            return gtk_adjustment_get_value(control.adjustment);
         if (control.param.empty())
             return std::clamp(gtk_adjustment_get_value(control.adjustment) / 100.0, 0.0, 1.0);
         return asNumber(readControl(control));
@@ -410,6 +585,17 @@ class Rack
     void applyKeys(Control &control, std::vector<core::Keyframe> keys, uint64_t gesture)
     {
         const core::Model &model = m_host.model();
+        if (control.transform) {
+            if (!model.hasClip(control.clip))
+                return;
+            // Keys need an explicit placement (transformProblem()): a Fit
+            // or Stretch picture becomes one where it shows now.
+            m_host.execute(std::make_unique<core::SetClipTransform>(
+                control.clip,
+                withKeys(placedTransform(control.clip), *control.transform, std::move(keys), numberOf(control)),
+                gesture));
+            return;
+        }
         if (!model.hasEffect(control.effect))
             return;
         const core::Effect &effect = model.effect(control.effect);
@@ -435,7 +621,7 @@ class Rack
     {
         m_lastControl = std::make_pair(control.effect, control.param);
         const std::vector<core::Keyframe> keys = keysOf(control);
-        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::FrameIndex at = frameOf(control);
         if (keyAt(keys, at))
             applyKeys(control, withoutKeyAt(keys, at), 0);
         else
@@ -445,10 +631,10 @@ class Rack
     void onKeyStep(Control &control, bool forward)
     {
         const std::vector<core::Keyframe> keys = keysOf(control);
-        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::FrameIndex at = frameOf(control);
         const std::optional<core::FrameIndex> key = forward ? nextKey(keys, at) : previousKey(keys, at);
         if (key)
-            m_host.seek(ownerStart(control.effect) + *key);
+            m_host.seek(startOf(control) + *key);
     }
 
     void onKeyFeel(Control &control)
@@ -459,7 +645,7 @@ class Rack
         if (index >= control.feelEasings.size())
             return;
         const std::vector<core::Keyframe> keys = keysOf(control);
-        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::FrameIndex at = frameOf(control);
         const core::Keyframe *key = keyAt(keys, at);
         if (!key || key->easing == control.feelEasings[index])
             return;
@@ -485,7 +671,7 @@ class Rack
         if (!control.pin)
             return;
         const std::vector<core::Keyframe> keys = keysOf(control);
-        const core::FrameIndex at = ownerFrame(control.effect);
+        const core::FrameIndex at = frameOf(control);
         const core::Keyframe *key = keyAt(keys, at);
         gtk_button_set_icon_name(GTK_BUTTON(control.pin), key ? "starred-symbolic" : "non-starred-symbolic");
         if (key)
@@ -1097,6 +1283,9 @@ class Rack
     std::string structureOf(const core::Model::EffectTarget &target) const
     {
         std::string key = std::to_string(static_cast<int>(target.kind)) + ":" + std::to_string(target.id);
+        // The Transform card, and its note for a Fit or Stretch picture.
+        if (std::optional<core::ClipId> clip = transformClip(target))
+            key += "T" + std::to_string(static_cast<int>(m_host.model().clip(*clip).transform.get().bounds));
         // Several clips: what they share is part of what the cards show.
         if (multiple())
             for (core::ClipId clip : selectedClips()) {
@@ -1481,6 +1670,8 @@ class Rack
                                                    ? "These clips share no effects. Add one to add it to all of them."
                                                    : "No effects yet. Add one to change how this looks or sounds.");
         m_updating = true;
+        if (std::optional<core::ClipId> clip = transformClip(target))
+            gtk_box_append(GTK_BOX(m_cards), buildTransformCard(*clip));
         for (size_t i = 0; i < shown.size(); ++i)
             gtk_box_append(GTK_BOX(m_cards), buildCard(*shown[i].first, shown[i].second, i, shown.size()));
         m_updating = false;
@@ -1838,13 +2029,23 @@ class Rack
         const core::Model &model = m_host.model();
         m_updating = true;
         for (const std::unique_ptr<Control> &control : m_controls) {
+            if (control->transform) {
+                if (!model.hasClip(control->clip) || isRecording(*control))
+                    continue;
+                // At the playhead, as the picture shows (a Fit or Stretch
+                // picture: the placement a first change would make).
+                const core::Transform shown = core::transformAt(placedTransform(control->clip), frameOf(*control));
+                gtk_adjustment_set_value(control->adjustment, fieldOf(shown, *control->transform).value);
+                showKeyState(*control);
+                continue;
+            }
             if (!model.hasEffect(control->effect) || isRecording(*control))
                 continue;
             const core::Effect &effect = model.effect(control->effect);
             const std::vector<core::Keyframe> keys = keysOf(*control);
             if (!keys.empty()) {
                 // Animated: the value at the playhead.
-                const double value = core::easedValue(keys, static_cast<double>(ownerFrame(control->effect)));
+                const double value = core::easedValue(keys, static_cast<double>(frameOf(*control)));
                 if (control->param.empty())
                     gtk_adjustment_set_value(control->adjustment, value * 100.0);
                 else
