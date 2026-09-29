@@ -212,5 +212,38 @@
     "dropins_off": [
       "effects"
     ]
+  },
+  "effects-1": {
+    "title": "Effects 1",
+    "subtitle": "Find, try and add effects; looks; before and after",
+    "narration": "narration/effects-1.txt",
+    "script": "effects1.py",
+    "chapters": [
+      "The Add page",
+      "Search and try",
+      "Add an effect",
+      "The Effects page",
+      "Looks",
+      "Before and after"
+    ],
+    "dropins_off": [
+      "titles"
+    ]
+  },
+  "transitions": {
+    "title": "Transitions",
+    "subtitle": "T, dissolves, wipes, slides and pushes",
+    "narration": "narration/transitions.txt",
+    "script": "transitions.py",
+    "chapters": [
+      "Press T at a cut",
+      "Transition styles",
+      "Wipes",
+      "Softness and reverse",
+      "Slides and pushes"
+    ],
+    "dropins_off": [
+      "titles"
+    ]
   }
 }

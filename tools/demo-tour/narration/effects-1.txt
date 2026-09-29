@@ -1,0 +1,25 @@
+# Effects 1: the Add page, trying effects, the Effects page, Looks, Compare. Voice cedar.
+
+## intro
+Effects change how your clips look: glows, colour, blur, and much more. In this video, we'll find an effect, try it on the picture, add it, and compare before and after.
+
+## The Add page
+Select a clip and press E. The Add page shows a tile for every effect, each one showing your own frame with that effect on it. The badge says how much work it is to play.
+
+## Search and try
+Type to search: glow. Now just point at a tile, and the picture shows your clip with that effect, without changing anything yet.
+
+## Add an effect
+Found the one you want? Click the tile to add it.
+
+## The Effects page
+The Effects page lists what's on the clip, with every setting, and a Mix slider that blends the effect with the original picture.
+
+## Looks
+Looks are ready-made sets of effects. The brand looks, like Neon Night, come with U Stu, and you can save your own.
+
+## Before and after
+And Compare splits the picture: before on the left, after on the right, even while it plays.
+
+## outro
+That's effects in U Stu Video Editor. Next, we'll look at transitions. Thanks for watching!

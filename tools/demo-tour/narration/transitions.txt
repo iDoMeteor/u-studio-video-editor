@@ -1,0 +1,22 @@
+# Transitions. Voice cedar.
+
+## intro
+Transitions carry your viewer from one clip to the next. In this video, we'll add one with a single key, and try the different styles.
+
+## Press T at a cut
+Put the playhead near a cut and press T. A short dissolve appears at the cut, and the Transitions page opens beside the picture.
+
+## Transition styles
+Each tile shows its style, with the outgoing clip in pink and the incoming one in blue. Click one, and the dissolve plays that way; here, a dip to black.
+
+## Wipes
+There are twenty wipes, from simple edges to a circle, a clock, and even a unicorn horn.
+
+## Softness and reverse
+A wipe's edge can be soft or sharp, and Reverse runs it the other way. Every change is a single undo step.
+
+## Slides and pushes
+And the motion styles slide the next clip in over this one, or push it out, from any side.
+
+## outro
+That's transitions in U Stu Video Editor. Thanks for watching!
