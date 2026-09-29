@@ -768,15 +768,15 @@ class AppWindow : public ShellHost
     // passed in (the "notify::..." signal's own object), not a stored
     // AppWindow member -- these rows only live for the dialog's lifetime,
     // unlike the transport bar's m_previewScaleDropdown.
-    static void settingsAutosaveDelayChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
-    static void settingsRecentProjectsMaxChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
-    static void settingsShuttleMaxSpeedChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
-    static void settingsWorkerThreadsChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
-    static gboolean settingsWorkerThreadsOutputTrampoline(AdwSpinRow *row, gpointer userData);
-    static gint settingsWorkerThreadsInputTrampoline(AdwSpinRow *row, double *newValue, gpointer userData);
+    static void settingsAutosaveDelayChangedTrampoline(GtkSpinButton *row, GParamSpec *pspec, gpointer userData);
+    static void settingsRecentProjectsMaxChangedTrampoline(GtkSpinButton *row, GParamSpec *pspec, gpointer userData);
+    static void settingsShuttleMaxSpeedChangedTrampoline(GtkSpinButton *row, GParamSpec *pspec, gpointer userData);
+    static void settingsWorkerThreadsChangedTrampoline(GtkSpinButton *row, GParamSpec *pspec, gpointer userData);
+    static gboolean settingsWorkerThreadsOutputTrampoline(GtkSpinButton *row, gpointer userData);
+    static gint settingsWorkerThreadsInputTrampoline(GtkSpinButton *row, double *newValue, gpointer userData);
     static void settingsPreviewScaleChangedTrampoline(AdwComboRow *row, GParamSpec *pspec, gpointer userData);
-    static void settingsCacheJobsChangedTrampoline(AdwSpinRow *row, GParamSpec *pspec, gpointer userData);
-    static gboolean settingsCacheJobsOutputTrampoline(AdwSpinRow *row, gpointer userData);
+    static void settingsCacheJobsChangedTrampoline(GtkSpinButton *row, GParamSpec *pspec, gpointer userData);
+    static gboolean settingsCacheJobsOutputTrampoline(GtkSpinButton *row, gpointer userData);
     static void settingsToggleChangedTrampoline(AdwSwitchRow *row, GParamSpec *pspec, gpointer userData);
     static void settingsChooseFolderClickedTrampoline(GtkButton *button, gpointer userData);
     static void settingsClearFolderClickedTrampoline(GtkButton *button, gpointer userData);

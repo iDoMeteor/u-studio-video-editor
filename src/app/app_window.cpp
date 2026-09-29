@@ -1,4 +1,5 @@
 #include "app_window.h"
+#include "number_row.h"
 
 #include "action_registry.h"
 #include "autosave.h"
@@ -1210,38 +1211,36 @@ void AppWindow::showSettingsDialog()
     // --- General ---
     AdwPreferencesPage *generalPage = addPage("General", "preferences-system-symbolic");
     AdwPreferencesGroup *projectGroup = addGroup(generalPage, "Project");
-    AdwSpinRow *autosaveRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(1.0, 30.0, 1.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(autosaveRow), "Autosave delay (minutes)");
-    setTooltip(GTK_WIDGET(autosaveRow), "settings.autosave-delay");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(autosaveRow),
+    GtkSpinButton *autosaveRow = newNumberRow("Autosave delay (minutes)", 1.0, 30.0, 1.0);
+    setTooltip(numberRowOf(autosaveRow), "settings.autosave-delay");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(numberRowOf(autosaveRow)),
                                 "Minutes of inactivity after the last edit before an autosave is written");
-    adw_spin_row_set_digits(autosaveRow, 0);
-    adw_spin_row_set_value(autosaveRow, static_cast<double>(m_settings->autosaveDelayMinutes()));
+    gtk_spin_button_set_digits(autosaveRow, 0);
+    gtk_spin_button_set_value(autosaveRow, static_cast<double>(m_settings->autosaveDelayMinutes()));
     g_signal_connect(autosaveRow, "notify::value", G_CALLBACK(&AppWindow::settingsAutosaveDelayChangedTrampoline),
                      this);
-    adw_preferences_group_add(projectGroup, GTK_WIDGET(autosaveRow));
+    adw_preferences_group_add(projectGroup, numberRowOf(autosaveRow));
 
-    AdwSpinRow *recentRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(1.0, 50.0, 1.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(recentRow), "Recent projects list size");
-    setTooltip(GTK_WIDGET(recentRow), "settings.recent-projects");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(recentRow), "Entries shown in the header bar's recent-projects popover");
-    adw_spin_row_set_digits(recentRow, 0);
-    adw_spin_row_set_value(recentRow, static_cast<double>(m_settings->recentProjectsMax()));
+    GtkSpinButton *recentRow = newNumberRow("Recent projects list size", 1.0, 50.0, 1.0);
+    setTooltip(numberRowOf(recentRow), "settings.recent-projects");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(numberRowOf(recentRow)),
+                                "Entries shown in the header bar's recent-projects popover");
+    gtk_spin_button_set_digits(recentRow, 0);
+    gtk_spin_button_set_value(recentRow, static_cast<double>(m_settings->recentProjectsMax()));
     g_signal_connect(recentRow, "notify::value", G_CALLBACK(&AppWindow::settingsRecentProjectsMaxChangedTrampoline),
                      this);
-    adw_preferences_group_add(projectGroup, GTK_WIDGET(recentRow));
+    adw_preferences_group_add(projectGroup, numberRowOf(recentRow));
 
     AdwPreferencesGroup *shuttleGroup = addGroup(generalPage, "Shuttle");
-    AdwSpinRow *shuttleRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(2.0, 32.0, 1.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(shuttleRow), "Maximum shuttle speed");
-    setTooltip(GTK_WIDGET(shuttleRow), "settings.shuttle-speed");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(shuttleRow),
+    GtkSpinButton *shuttleRow = newNumberRow("Maximum shuttle speed", 2.0, 32.0, 1.0);
+    setTooltip(numberRowOf(shuttleRow), "settings.shuttle-speed");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(numberRowOf(shuttleRow)),
                                 "Upper bound (x normal speed) the J/K/L shuttle ramps up to");
-    adw_spin_row_set_digits(shuttleRow, 0);
-    adw_spin_row_set_value(shuttleRow, m_settings->shuttleMaxSpeed());
+    gtk_spin_button_set_digits(shuttleRow, 0);
+    gtk_spin_button_set_value(shuttleRow, m_settings->shuttleMaxSpeed());
     g_signal_connect(shuttleRow, "notify::value", G_CALLBACK(&AppWindow::settingsShuttleMaxSpeedChangedTrampoline),
                      this);
-    adw_preferences_group_add(shuttleGroup, GTK_WIDGET(shuttleRow));
+    adw_preferences_group_add(shuttleGroup, numberRowOf(shuttleRow));
 
     // --- Toggles --- settingsToggleChangedTrampoline() finds the setting by
     // the key stored on the row.
@@ -1310,39 +1309,37 @@ void AppWindow::showSettingsDialog()
     // 0 is "Automatic (N)" (the output/input handlers below); the pool is
     // sized once, at startup.
     const double maxThreads = std::max(1.0, static_cast<double>(std::thread::hardware_concurrency()));
-    AdwSpinRow *threadsRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(0.0, maxThreads, 1.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(threadsRow), "Worker threads");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(threadsRow), "Applies after restart");
-    setTooltip(GTK_WIDGET(threadsRow), "settings.worker-threads");
-    adw_spin_row_set_digits(threadsRow, 0);
+    GtkSpinButton *threadsRow = newNumberRow("Worker threads", 0.0, maxThreads, 1.0);
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(numberRowOf(threadsRow)), "Applies after restart");
+    setTooltip(numberRowOf(threadsRow), "settings.worker-threads");
+    gtk_spin_button_set_digits(threadsRow, 0);
     g_signal_connect(threadsRow, "output", G_CALLBACK(&AppWindow::settingsWorkerThreadsOutputTrampoline), nullptr);
     g_signal_connect(threadsRow, "input", G_CALLBACK(&AppWindow::settingsWorkerThreadsInputTrampoline), nullptr);
-    adw_spin_row_set_value(threadsRow, static_cast<double>(m_settings->workerThreads()));
+    gtk_spin_button_set_value(threadsRow, static_cast<double>(m_settings->workerThreads()));
     // The row starts at 0, so setting 0 changes nothing and never re-runs
     // the output handler; the default width fits two digits, not the label;
     // and a numeric spin row (the default) drops the label's letters
     // (confirmed: gtk_editable_set_text left it empty until this was off).
-    adw_spin_row_set_numeric(threadsRow, FALSE);
+    gtk_spin_button_set_numeric(threadsRow, FALSE);
     gtk_editable_set_width_chars(GTK_EDITABLE(threadsRow), 13);
-    adw_spin_row_update(threadsRow);
+    gtk_spin_button_update(threadsRow);
     g_signal_connect(threadsRow, "notify::value", G_CALLBACK(&AppWindow::settingsWorkerThreadsChangedTrampoline), this);
-    adw_preferences_group_add(backgroundGroup, GTK_WIDGET(threadsRow));
+    adw_preferences_group_add(backgroundGroup, numberRowOf(threadsRow));
 
     // 0 is "Automatic" (half the worker threads); read when the window
     // creates its caches.
-    AdwSpinRow *cacheJobsRow = ADW_SPIN_ROW(adw_spin_row_new_with_range(0.0, maxThreads, 1.0));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(cacheJobsRow), "Thumbnail and waveform jobs");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(cacheJobsRow), "Applies after restart");
-    setTooltip(GTK_WIDGET(cacheJobsRow), "settings.cache-jobs");
-    adw_spin_row_set_digits(cacheJobsRow, 0);
+    GtkSpinButton *cacheJobsRow = newNumberRow("Thumbnail and waveform jobs", 0.0, maxThreads, 1.0);
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(numberRowOf(cacheJobsRow)), "Applies after restart");
+    setTooltip(numberRowOf(cacheJobsRow), "settings.cache-jobs");
+    gtk_spin_button_set_digits(cacheJobsRow, 0);
     g_signal_connect(cacheJobsRow, "output", G_CALLBACK(&AppWindow::settingsCacheJobsOutputTrampoline), nullptr);
     g_signal_connect(cacheJobsRow, "input", G_CALLBACK(&AppWindow::settingsWorkerThreadsInputTrampoline), nullptr);
-    adw_spin_row_set_value(cacheJobsRow, static_cast<double>(m_settings->cacheJobs()));
-    adw_spin_row_set_numeric(cacheJobsRow, FALSE); // as the worker-threads row above
+    gtk_spin_button_set_value(cacheJobsRow, static_cast<double>(m_settings->cacheJobs()));
+    gtk_spin_button_set_numeric(cacheJobsRow, FALSE); // as the worker-threads row above
     gtk_editable_set_width_chars(GTK_EDITABLE(cacheJobsRow), 13);
-    adw_spin_row_update(cacheJobsRow);
+    gtk_spin_button_update(cacheJobsRow);
     g_signal_connect(cacheJobsRow, "notify::value", G_CALLBACK(&AppWindow::settingsCacheJobsChangedTrampoline), this);
-    adw_preferences_group_add(backgroundGroup, GTK_WIDGET(cacheJobsRow));
+    adw_preferences_group_add(backgroundGroup, numberRowOf(cacheJobsRow));
 
     // --- Locations --- Each row keeps its key ("project"/"export") and its
     // clear button for the trampolines.
@@ -5463,32 +5460,33 @@ void AppWindow::settingsClickedTrampoline(GtkButton *, gpointer userData)
     static_cast<AppWindow *>(userData)->showSettingsDialog();
 }
 
-void AppWindow::settingsAutosaveDelayChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+void AppWindow::settingsAutosaveDelayChangedTrampoline(GtkSpinButton *row, GParamSpec *, gpointer userData)
 {
     static_cast<AppWindow *>(userData)->m_settings->setAutosaveDelayMinutes(
-        static_cast<int>(adw_spin_row_get_value(row)));
+        static_cast<int>(gtk_spin_button_get_value(row)));
 }
 
-void AppWindow::settingsRecentProjectsMaxChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+void AppWindow::settingsRecentProjectsMaxChangedTrampoline(GtkSpinButton *row, GParamSpec *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->m_settings->setRecentProjectsMax(static_cast<int>(adw_spin_row_get_value(row)));
+    static_cast<AppWindow *>(userData)->m_settings->setRecentProjectsMax(
+        static_cast<int>(gtk_spin_button_get_value(row)));
 }
 
-void AppWindow::settingsWorkerThreadsChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+void AppWindow::settingsWorkerThreadsChangedTrampoline(GtkSpinButton *row, GParamSpec *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->m_settings->setWorkerThreads(static_cast<int>(adw_spin_row_get_value(row)));
+    static_cast<AppWindow *>(userData)->m_settings->setWorkerThreads(static_cast<int>(gtk_spin_button_get_value(row)));
 }
 
-gboolean AppWindow::settingsWorkerThreadsOutputTrampoline(AdwSpinRow *row, gpointer)
+gboolean AppWindow::settingsWorkerThreadsOutputTrampoline(GtkSpinButton *row, gpointer)
 {
-    if (adw_spin_row_get_value(row) != 0.0)
+    if (gtk_spin_button_get_value(row) != 0.0)
         return FALSE; // the number itself
     std::string text = "Automatic (" + std::to_string(core::concurrency::ThreadPool::defaultThreadCount()) + ")";
     gtk_editable_set_text(GTK_EDITABLE(row), text.c_str());
     return TRUE;
 }
 
-gint AppWindow::settingsWorkerThreadsInputTrampoline(AdwSpinRow *row, double *newValue, gpointer)
+gint AppWindow::settingsWorkerThreadsInputTrampoline(GtkSpinButton *row, double *newValue, gpointer)
 {
     // "Automatic (N)" as shown at 0 -- anything else parses as a number.
     const char *text = gtk_editable_get_text(GTK_EDITABLE(row));
@@ -5499,14 +5497,14 @@ gint AppWindow::settingsWorkerThreadsInputTrampoline(AdwSpinRow *row, double *ne
     return FALSE;
 }
 
-void AppWindow::settingsCacheJobsChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+void AppWindow::settingsCacheJobsChangedTrampoline(GtkSpinButton *row, GParamSpec *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->m_settings->setCacheJobs(static_cast<int>(adw_spin_row_get_value(row)));
+    static_cast<AppWindow *>(userData)->m_settings->setCacheJobs(static_cast<int>(gtk_spin_button_get_value(row)));
 }
 
-gboolean AppWindow::settingsCacheJobsOutputTrampoline(AdwSpinRow *row, gpointer)
+gboolean AppWindow::settingsCacheJobsOutputTrampoline(GtkSpinButton *row, gpointer)
 {
-    if (adw_spin_row_get_value(row) != 0.0)
+    if (gtk_spin_button_get_value(row) != 0.0)
         return FALSE; // the number itself
     gtk_editable_set_text(GTK_EDITABLE(row), "Automatic");
     return TRUE;
@@ -5533,9 +5531,9 @@ void AppWindow::settingsClearFolderClickedTrampoline(GtkButton *button, gpointer
     static_cast<AppWindow *>(userData)->setDefaultFolder(key, "", row);
 }
 
-void AppWindow::settingsShuttleMaxSpeedChangedTrampoline(AdwSpinRow *row, GParamSpec *, gpointer userData)
+void AppWindow::settingsShuttleMaxSpeedChangedTrampoline(GtkSpinButton *row, GParamSpec *, gpointer userData)
 {
-    static_cast<AppWindow *>(userData)->m_settings->setShuttleMaxSpeed(adw_spin_row_get_value(row));
+    static_cast<AppWindow *>(userData)->m_settings->setShuttleMaxSpeed(gtk_spin_button_get_value(row));
 }
 
 void AppWindow::settingsPreviewScaleChangedTrampoline(AdwComboRow *row, GParamSpec *, gpointer userData)

@@ -265,3 +265,9 @@ test_project_loader_exe = executable(
 )
 
 test('app-project-loader', test_project_loader_exe, timeout: 60)
+
+# libadwaita 1.9.2 leaves AdwSpinRow out of the AT-SPI tree: number rows in
+# the shell are action rows with a spin button (src/app/number_row.h).
+test('app-no-spin-row', find_program('sh'),
+  args: ['-c', 'if grep -rn "adw_spin_row_" "$1"; then echo "use newNumberRow() (number_row.h)"; exit 1; fi',
+         'sh', meson.project_source_root() / 'src' / 'app'])
