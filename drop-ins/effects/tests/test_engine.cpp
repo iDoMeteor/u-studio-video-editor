@@ -782,3 +782,25 @@ TEST_CASE("LADSPA and VST2 curation: a plugin naming Qt never reaches LADSPA_PAT
     else
         g_unsetenv("USTUDIO_LADSPA_SEARCH_PATH");
 }
+
+TEST_CASE("OpenFX: a bundle naming Qt, at the top or one folder deep, is found")
+{
+    setUp();
+    const fs::path dir = scratch() / "fake-ofx";
+    auto bundle = [&](const fs::path &at, const std::string &content) {
+        const fs::path binary = at / "Contents" / "Linux-x86-64";
+        fs::create_directories(binary);
+        std::ofstream(binary / (at.stem().stem().string() + ".ofx"), std::ios::binary) << content;
+    };
+    bundle(dir / "Clean.ofx.bundle", "\x7f" "ELF libc.so.6");
+    CHECK(openfxBundlesNamingQt({dir}).empty());
+    bundle(dir / "vendor" / "Qtish.ofx.bundle", "\x7f" "ELF libQt5Core.so.5");
+    bundle(dir / "vendor" / "deeper" / "Deep.ofx.bundle", "\x7f" "ELF libQt6Gui.so.6"); // MLT doesn't look there
+    const std::vector<fs::path> naming = openfxBundlesNamingQt({dir});
+    REQUIRE(naming.size() == 1);
+    CHECK(naming[0].filename() == "Qtish.ofx.bundle");
+    // The fixed folders are always searched, OFX_PLUGIN_PATH after them.
+    const std::vector<fs::path> dirs = openfxSearchDirs();
+    REQUIRE(dirs.size() >= 2);
+    CHECK(dirs[0] == "/usr/OFX/Plugins");
+}

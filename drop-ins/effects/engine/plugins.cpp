@@ -481,4 +481,51 @@ PluginCuration curateAudioHost(AudioHost host, bool enabled, const fs::path &qtC
     return curation;
 }
 
+// --- OpenFX -------------------------------------------------------------------
+
+std::vector<fs::path> openfxSearchDirs()
+{
+    std::vector<fs::path> dirs{"/usr/OFX/Plugins", "/usr/local/OFX/Plugins"};
+    if (const char *extra = std::getenv("OFX_PLUGIN_PATH"); extra && *extra)
+        for (const std::string &entry : split(extra, kListSeparator))
+            if (!entry.empty())
+                dirs.emplace_back(entry);
+    return dirs;
+}
+
+std::vector<fs::path> openfxBundlesNamingQt(const std::vector<fs::path> &dirs)
+{
+    std::vector<fs::path> naming;
+    auto check = [&](const fs::path &bundle) {
+        std::error_code ec;
+        for (auto it = fs::recursive_directory_iterator(bundle / "Contents", fs::directory_options::skip_permission_denied,
+                                                        ec);
+             !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+            std::error_code statEc;
+            if (it->is_regular_file(statEc) && mentionsQt(it->path())) {
+                naming.push_back(bundle);
+                return;
+            }
+        }
+    };
+    auto isBundle = [](const fs::path &path) { return path.filename().string().ends_with(".ofx.bundle"); };
+    for (const fs::path &dir : dirs) {
+        std::error_code ec;
+        for (const auto &entry : fs::directory_iterator(dir, ec)) {
+            if (isBundle(entry.path())) {
+                check(entry.path());
+                continue;
+            }
+            // One folder deeper, as factory.c's depth 1.
+            std::error_code subEc;
+            if (!entry.is_directory(subEc) || entry.path().filename().string().starts_with("."))
+                continue;
+            for (const auto &inner : fs::directory_iterator(entry.path(), subEc))
+                if (isBundle(inner.path()))
+                    check(inner.path());
+        }
+    }
+    return naming;
+}
+
 } // namespace ustudio::effects

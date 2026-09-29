@@ -118,4 +118,18 @@ struct PluginCuration
 // `qtCache` remembers mentionsQt() per file, size and stamp.
 PluginCuration curateAudioHost(AudioHost host, bool enabled, const std::filesystem::path &qtCache);
 
+// --- OpenFX -------------------------------------------------------------------
+//
+// MLT's openfx module dlopens every bundle in /usr/OFX/Plugins,
+// /usr/local/OFX/Plugins and OFX_PLUGIN_PATH at factory start, whatever
+// OFX_PLUGIN_PATH says (factory.c:314-352), so it can only be allowed when
+// nothing it would open names Qt.
+
+// Where it looks: the two fixed folders, then OFX_PLUGIN_PATH.
+std::vector<std::filesystem::path> openfxSearchDirs();
+// The bundles there that name Qt (any file under a "*.ofx.bundle"'s
+// Contents, whatever its architecture: more than MLT opens, never less).
+// MLT looks one folder deep, as this does.
+std::vector<std::filesystem::path> openfxBundlesNamingQt(const std::vector<std::filesystem::path> &dirs);
+
 } // namespace ustudio::effects
