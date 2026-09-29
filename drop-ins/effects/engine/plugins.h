@@ -70,4 +70,52 @@ struct Frei0rCuration
 Frei0rCuration curateFrei0r(const std::vector<Frei0rPlugin> &plugins, const HealthFile &health,
                             const std::filesystem::path &qtCache);
 
+// --- LADSPA and VST2 (MLT's jackrack module, libmltladspa) -----------------
+//
+// MLT's plugin manager opens every ".so" under LADSPA_PATH and VST_PATH,
+// recursively, when the factory starts; unlike OpenFX's, setting them
+// replaces its built-in lists (mlt/src/modules/jackrack/plugin_mgr.c:377,
+// :990, MLT 7.40). So they're curated as FREI0R_PATH is: exactly the system
+// folders when nothing there names Qt, else a private folder of links to
+// the files that don't (ADR-007).
+
+enum class AudioHost
+{
+    Ladspa,
+    Vst2,
+};
+
+// Every ".so" the host would open under audioSearchDirs(), recursively.
+std::vector<Frei0rPlugin> audioHostFiles(AudioHost host);
+
+// The experimental families (doc 15, "Backend: plugin families"): VST2 and
+// OpenFX, off unless chosen on the Add page. $XDG_CONFIG_HOME/ustudio/
+// effects.ini; read before Mlt::Factory::init(), so a change applies at the
+// next start.
+struct ExperimentalFamilies
+{
+    bool vst2 = false;
+    bool openfx = false;
+};
+ExperimentalFamilies loadExperimentalFamilies();
+bool saveExperimentalFamilies(const ExperimentalFamilies &families);
+
+// Where the host looks: its variable as before this process (or its
+// parent) replaced it, else MLT's built-in list.
+std::vector<std::filesystem::path> audioSearchDirs(AudioHost host);
+// Records the search paths before they're replaced (see
+// rememberFrei0rSearchPath()).
+void rememberAudioSearchPaths();
+
+struct PluginCuration
+{
+    std::vector<std::string> paths;    // the variable's value, exactly
+    std::vector<std::string> excluded; // "<file>: <why>", for the log
+    std::filesystem::path curatedDir;  // empty when the system folders are used as they are
+};
+// What `host`'s variable should be. `enabled` false (VST2 without its
+// experimental preference): a folder that isn't there, so nothing loads.
+// `qtCache` remembers mentionsQt() per file, size and stamp.
+PluginCuration curateAudioHost(AudioHost host, bool enabled, const std::filesystem::path &qtCache);
+
 } // namespace ustudio::effects

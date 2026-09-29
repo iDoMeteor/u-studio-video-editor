@@ -744,3 +744,41 @@ TEST_CASE("A LUT from the library grades the clip, in the editor and in melt")
     REQUIRE(melt.is_valid());
     CHECK(redAt(melt, 20) > 240);
 }
+
+// FX5: LADSPA and VST2 plugins are curated like frei0r's (MLT's jackrack
+// host opens every .so under LADSPA_PATH/VST_PATH, recursively, at start).
+TEST_CASE("LADSPA and VST2 curation: a plugin naming Qt never reaches LADSPA_PATH; VST2 off unless chosen")
+{
+    setUp();
+    const fs::path dir = scratch() / "fake-ladspa";
+    fs::create_directories(dir / "pack");
+    std::ofstream(dir / "clean.so", std::ios::binary) << std::string("\x7f" "ELF libc.so.6", 13);
+    std::ofstream(dir / "pack" / "qtish.so", std::ios::binary) << "\x7f" "ELF libQt6Widgets.so.6";
+    std::ofstream(dir / "pack" / "clean.so", std::ios::binary) << "\x7f" "ELF also clean";
+    std::ofstream(dir / "readme.txt", std::ios::binary) << "not a plugin";
+    const char *remembered = std::getenv("USTUDIO_LADSPA_SEARCH_PATH");
+    const std::string saved = remembered ? remembered : "";
+    g_setenv("USTUDIO_LADSPA_SEARCH_PATH", utf8String(dir).c_str(), TRUE);
+
+    CHECK(audioSearchDirs(AudioHost::Ladspa) == std::vector<fs::path>{dir});
+    CHECK(audioHostFiles(AudioHost::Ladspa).size() == 3); // recursive, .so only
+    const PluginCuration ladspa = curateAudioHost(AudioHost::Ladspa, true, scratch() / "audio-qt.json");
+    REQUIRE(!ladspa.curatedDir.empty());
+    CHECK(ladspa.paths == std::vector<std::string>{ladspa.curatedDir.string()});
+    CHECK(ladspa.excluded.size() == 1);
+    // Both clean files, the second renamed (names meet in one flat folder).
+    CHECK(fs::exists(ladspa.curatedDir / "clean.so"));
+    CHECK(fs::exists(ladspa.curatedDir / "clean-2.so"));
+    CHECK(!fs::exists(ladspa.curatedDir / "qtish.so"));
+    CHECK((fs::status(ladspa.curatedDir).permissions() & fs::perms::others_all) == fs::perms::none);
+
+    // VST2 without its preference: a folder that isn't there.
+    const PluginCuration vst = curateAudioHost(AudioHost::Vst2, false, scratch() / "audio-qt.json");
+    REQUIRE(vst.paths.size() == 1);
+    CHECK(!fs::exists(vst.paths[0]));
+
+    if (remembered)
+        g_setenv("USTUDIO_LADSPA_SEARCH_PATH", saved.c_str(), TRUE);
+    else
+        g_unsetenv("USTUDIO_LADSPA_SEARCH_PATH");
+}

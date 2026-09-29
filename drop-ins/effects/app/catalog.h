@@ -8,6 +8,7 @@
 #include "core/health.h"
 #include "core/model/model.h"
 #include "core/model/signal.h"
+#include "engine/plugins.h"
 #include "engine/registry.h"
 
 #include <memory>
@@ -66,6 +67,12 @@ class Catalog
     std::vector<core::Effect> clipboard;
     // One service's health result arrived (its badge, whether it's usable).
     core::Signal<const std::string &> healthChanged;
+
+    // VST2 and OpenFX: offered only when chosen (as loaded at start-up).
+    ExperimentalFamilies experimental;
+    // Whether LSP Plugins' LADSPA set is installed (doc 15: recommended for
+    // audio, never required); the Browser suggests it when it isn't.
+    bool lspInstalled = true;
 
     // The adjustment block the FX lane selected (the shell's selection has
     // no blocks yet): the Rack edits its effects. Null when none.

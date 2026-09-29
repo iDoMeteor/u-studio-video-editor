@@ -7,20 +7,22 @@
 #include "app/compare.h"
 #include "app/curve_lanes.h"
 #include "app/fx_lane.h"
-#include "app/preview_tools.h"
 #include "app/health_scan.h"
+#include "app/preview_tools.h"
 #include "app/rack.h"
 #include "app/transitions_page.h"
 #include "core/health.h"
+#include "core/log.h"
 #include "core/looks.h"
 #include "core/transitions.h"
-#include "core/log.h"
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
 #include "engine/effects_extension.h"
 #include "engine/plugins.h"
 #include "engine/probe.h"
 #include "engine/registry.h"
+
+#include <glib.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -30,6 +32,8 @@
 #include <string>
 
 namespace {
+
+namespace fs = std::filesystem;
 
 using namespace ustudio::effects;
 
@@ -60,6 +64,22 @@ void contributeFactoryPaths(ustudio::dropins::FactoryPaths *paths)
         ustudio::core::Log::info("[effects] frei0r plugin left out: " + why);
     ustudio::core::Log::debug("[effects] " + std::to_string(plugins.size()) + " frei0r plugins found, " +
                               std::to_string(curation.excluded.size()) + " left out");
+    // LADSPA and VST2 (MLT's jackrack host): the same no-Qt curation, set
+    // in the environment here, before Mlt::Factory::init() reads it; VST2
+    // only with its experimental preference.
+    rememberAudioSearchPaths();
+    const ExperimentalFamilies experimental = loadExperimentalFamilies();
+    const fs::path audioQtCache = effectsCacheDir() / "effects-audio-qt.json";
+    for (const auto &[host, enabled] : {std::pair{AudioHost::Ladspa, true}, {AudioHost::Vst2, experimental.vst2}}) {
+        const PluginCuration audio = curateAudioHost(host, enabled, audioQtCache);
+        std::string list;
+        for (const std::string &dir : audio.paths)
+            list += (list.empty() ? "" : std::string(1, G_SEARCHPATH_SEPARATOR)) + dir;
+        const char *variable = host == AudioHost::Ladspa ? "LADSPA_PATH" : "VST_PATH";
+        g_setenv(variable, list.c_str(), TRUE);
+        for (const std::string &why : audio.excluded)
+            ustudio::core::Log::info(std::string("[effects] ") + variable + " plugin left out: " + why);
+    }
     std::set<std::string> quarantined;
     for (const auto &[service, record] : health.records)
         if (!record.usable())
@@ -98,6 +118,12 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
         if (scanning)
             return; // one scan per process, however many windows
         scanning = true;
+        // What was loaded at start-up (the experimental families), and
+        // whether the recommended audio pack is there.
+        catalog.experimental = loadExperimentalFamilies();
+        const std::vector<Frei0rPlugin> ladspa = audioHostFiles(AudioHost::Ladspa);
+        catalog.lspInstalled = std::any_of(ladspa.begin(), ladspa.end(),
+                                           [](const Frei0rPlugin &file) { return file.name.starts_with("lsp-plugins"); });
         // Brand Looks (small; the drop-in's own data).
         std::ifstream in(effectsDataDir() / "looks" / "brand.json");
         const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());

@@ -238,6 +238,22 @@ folder can't find its LUTs yet.
 
 Both show the frame the playhead is on; pause to compare a moment.
 
+## More effect families
+
+Besides the effects U Stu comes with, it can use audio plugins you
+install:
+
+- **LADSPA** audio plugins are found by themselves. For many more audio
+  effects (equalisers, compressors, limiters, noise gates), install
+  **LSP Plugins**' LADSPA set (on Fedora: `lsp-plugins-ladspa`); the **Add**
+  page suggests it under **Audio** when it's missing.
+- **VST2** plugins and **OpenFX** plugins are off unless you turn them on:
+  the **⋯** button on the **Add** page. They're loaded when U Stu starts,
+  so a change applies the next time you start it.
+
+Every plugin is checked like the other effects, and a plugin that would
+load Qt is never loaded at all.
+
 ## Unstable effects
 
 When you first run U Stu with the Effects add-on (and after installing new

@@ -34,6 +34,10 @@ std::vector<const EffectDescriptor *> Catalog::offered(bool showUnstable) const
     for (const EffectDescriptor &d : m_registry->descriptors()) {
         if (d.hidden)
             continue;
+        // The experimental families, only when chosen (they're loaded only
+        // then too: engine/plugins.h, FactoryPolicy).
+        if ((d.family == "vst2" && !experimental.vst2) || (d.family == "openfx" && !experimental.openfx))
+            continue;
         if (!showUnstable && !usable(d.service))
             continue;
         out.push_back(&d);

@@ -80,6 +80,10 @@ class Browser
     {
         build();
         m_host.addHints({
+            {"effects.families", "Effects", "More effect families",
+             "VST2 and OpenFX plugins: off unless you choose them here; a change applies the next time U Stu "
+             "starts",
+             nullptr, nullptr},
             {"effects.import-luts", "Effects", "Import LUTs",
              "Copies .cube files into the project's luts folder (or your own library when the project isn't saved "
              "yet); they're under LUTs",
@@ -106,6 +110,7 @@ class Browser
         m_host.setTooltip(m_section, "effects.browser-section");
         m_host.setTooltip(m_unstable, "effects.browser-unstable");
         m_host.setTooltip(m_importLuts, "effects.import-luts");
+        m_host.setTooltip(m_families, "effects.families");
         m_host.addInspectorPage({"effects.browser", "Add", "list-add-symbolic", m_root});
 
         // The audition, over the preview (the same size; a GtkPicture that
@@ -410,9 +415,15 @@ class Browser
                          [](const Entry &a, const Entry &b) { return a.rank < b.rank; });
         for (const Entry &entry : entries)
             addTile(entry.item, entry.title, entry.description, entry.badge);
-        gtk_label_set_text(GTK_LABEL(m_status), m_tiles.empty()            ? "No effect matches"
-                                                : sourceClip().has_value() ? "Point at an effect to try it"
-                                                                           : "Select a clip to try effects on it");
+        std::string status = m_tiles.empty()            ? "No effect matches"
+                             : sourceClip().has_value() ? "Point at an effect to try it"
+                                                        : "Select a clip to try effects on it";
+        // The recommended audio pack (doc 15), suggested where it would show.
+        const size_t category = section >= FirstCategory ? section - FirstCategory : m_categories.size();
+        if (!m_catalog.lspInstalled && category < m_categories.size() && m_categories[category] == "Audio")
+            status += ". For many more audio effects, install LSP Plugins (the LADSPA set, e.g. "
+                      "lsp-plugins-ladspa).";
+        gtk_label_set_text(GTK_LABEL(m_status), status.c_str());
         requestTiles();
     }
 
@@ -537,6 +548,22 @@ class Browser
         }
         gtk_label_set_text(GTK_LABEL(tile.badge), text);
         gtk_widget_add_css_class(tile.badge, style);
+    }
+
+    // --- More families (FX5) -----------------------------------------------
+
+    void onFamiliesChanged()
+    {
+        ExperimentalFamilies families;
+        families.vst2 = gtk_check_button_get_active(GTK_CHECK_BUTTON(m_vst2));
+        families.openfx = gtk_check_button_get_active(GTK_CHECK_BUTTON(m_openfx));
+        if (!saveExperimentalFamilies(families)) {
+            m_host.showStatus("Couldn't save that choice.");
+            return;
+        }
+        const bool changed = families.vst2 != m_catalog.experimental.vst2 ||
+                             families.openfx != m_catalog.experimental.openfx;
+        m_host.showStatus(changed ? "Saved: it applies the next time you start U Stu." : "Saved.");
     }
 
     // --- The LUT library (FX5) ---------------------------------------------
@@ -702,6 +729,34 @@ class Browser
                                        -1);
         g_signal_connect(m_importLuts, "clicked", G_CALLBACK(&onImportLutsTrampoline), this);
         gtk_box_append(GTK_BOX(row), m_importLuts);
+        // More plugin families (doc 15): VST2 and OpenFX, off by default,
+        // loaded at start-up.
+        m_families = gtk_menu_button_new();
+        gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(m_families), "view-more-symbolic");
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_families), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                       "More effect families", -1);
+        GtkWidget *popover = gtk_popover_new();
+        GtkWidget *families = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        const ExperimentalFamilies saved = loadExperimentalFamilies();
+        m_vst2 = gtk_check_button_new_with_label("VST2 plugins");
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(m_vst2), saved.vst2);
+        g_signal_connect(m_vst2, "toggled", G_CALLBACK(&onFamiliesTrampoline), this);
+        gtk_box_append(GTK_BOX(families), m_vst2);
+        m_openfx = gtk_check_button_new_with_label("OpenFX plugins (experimental)");
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(m_openfx), saved.openfx);
+        g_signal_connect(m_openfx, "toggled", G_CALLBACK(&onFamiliesTrampoline), this);
+        gtk_box_append(GTK_BOX(families), m_openfx);
+        GtkWidget *note = gtk_label_new("These load when U Stu starts, so a change applies next time. They're checked "
+                                        "like every effect, and any that would load Qt stay off.");
+        gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+        gtk_label_set_max_width_chars(GTK_LABEL(note), 32);
+        gtk_label_set_xalign(GTK_LABEL(note), 0.0f);
+        gtk_widget_add_css_class(note, "dim-label");
+        gtk_widget_add_css_class(note, "caption");
+        gtk_box_append(GTK_BOX(families), note);
+        gtk_popover_set_child(GTK_POPOVER(popover), families);
+        gtk_menu_button_set_popover(GTK_MENU_BUTTON(m_families), popover);
+        gtk_box_append(GTK_BOX(row), m_families);
         gtk_box_append(GTK_BOX(m_root), row);
 
         m_status = gtk_label_new("");
@@ -788,6 +843,10 @@ class Browser
 
     // --- GTK signal trampolines ---------------------------------------------
 
+    static void onFamiliesTrampoline(GtkCheckButton *, gpointer self)
+    {
+        static_cast<Browser *>(self)->onFamiliesChanged();
+    }
     static void onImportLutsTrampoline(GtkButton *, gpointer self)
     {
         static_cast<Browser *>(self)->onImportLuts();
@@ -885,7 +944,7 @@ class Browser
     uint64_t m_tileGeneration = 0, m_auditionGeneration = 0;
     core::FrameIndex m_lastFrame = -1;
     size_t m_projectLooks = 0;
-    GtkWidget *m_importLuts = nullptr;
+    GtkWidget *m_importLuts = nullptr, *m_families = nullptr, *m_vst2 = nullptr, *m_openfx = nullptr;
     guint m_sourceTimer = 0;
     bool m_refillPending = false, m_updating = false;
 };

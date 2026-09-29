@@ -124,3 +124,22 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   removing one changes the filters and rebuilds.
 - MLT's metadata gives some rect defaults in percent (`spot_remover`'s
   "0 0 10% 10%"); the descriptor reads them as pixels (10 x 10). Open.
+
+## FX5 findings (2026-09-28, VE Effects)
+
+- **MLT's plugin hosts, read from source (MLT 7.40):**
+  - openfx (`src/modules/openfx/factory.c:314-352`) always scans
+    `/usr/OFX/Plugins` and `/usr/local/OFX/Plugins` and `dlopen`s every
+    `.ofx` at factory init; `OFX_PLUGIN_PATH` only adds folders. So the
+    module itself must be denied unless OpenFX is wanted and every plugin
+    in reach is Qt-free (VE Core's FactoryPolicy change).
+  - jackrack's LADSPA and VST2 managers (`src/modules/jackrack/
+    plugin_mgr.c:377`, `:990`) use `LADSPA_PATH` / `VST_PATH` *instead of*
+    their built-in lists when set, and walk folders recursively opening
+    every `.so`: curated like `FREI0R_PATH`.
+- **The effects registry's modules** beyond the core list: frei0r (103
+  services), sox (64), jackrack's libmltladspa (11), oldfilm (6), plusgpl
+  (5), kdenlive (3), vid.stab (2), rubberband, rnnoise, opencv (1 each).
+- **LUTs:** `avfilter.lut3d`'s `av.file` is a path avfilter opens itself, so
+  it isn't resolved against the project (unlike a producer's `resource`):
+  the LUT library keeps absolute paths.

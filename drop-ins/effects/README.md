@@ -89,6 +89,15 @@ the GPU engine's help: until then they're for the CPU pipeline only.
   The frei0r module's data (`blacklist.txt`, `not_thread_safe.txt`,
   `resolution_scale.yml`, ...) is read from `MLT_DATA/frei0r/`, which the
   core package ships.
+- **LADSPA and VST2.** MLT's jackrack host opens every `.so` under
+  `LADSPA_PATH` and `VST_PATH` (recursively) when the factory starts, and
+  those variables replace its built-in folders, so `contributeFactoryPaths()`
+  sets them like `FREI0R_PATH`: the system folders as they are, or a private
+  folder of links to the files that don't name Qt. VST2 gets a folder that
+  isn't there unless chosen (`$XDG_CONFIG_HOME/ustudio/effects.ini`,
+  `[experimental] vst2`), as does OpenFX (lifted in FactoryPolicy by the
+  drop-in; MLT's openfx module always scans `/usr/OFX/Plugins` and
+  `/usr/local/OFX/Plugins`, so it's denied by default).
 - **The scan.** Once the window exists, on a thread of its own (forking a
   child from the editor blocks for tens of milliseconds), the editor gets
   the registry from
