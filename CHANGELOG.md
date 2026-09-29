@@ -4,6 +4,12 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.76.0-beta.1
+
+- Titles: animated layers. Add a Lottie animation (a logo sting, a
+  sticker) to a title; it plays in the designer, the editor and exports,
+  and travels in templates and template packs.
+
 ## 0.75.1-beta.1
 
 - Editing while playing restarts playback faster: frames about to be thrown

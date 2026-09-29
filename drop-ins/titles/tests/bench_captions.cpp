@@ -2,21 +2,25 @@
 // two seconds, as an absolute time. Not a test (a loaded machine fails any
 // fixed limit): `meson test -C builddir --benchmark titles-captions-bench`,
 // or run the binary. Prints the time; exits 1 when it's two seconds or more.
+// `bench_titles_captions N` times N cues instead (no limit), for scaling.
 // titles-captions checks the load-proof part (how the time grows).
 
 #include "core/captions.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <string>
 
 using namespace ustudio;
 using namespace ustudio::titles::captions;
 
-int main()
+int main(int argc, char **argv)
 {
+    const int count = argc > 1 ? std::max(1, std::atoi(argv[1])) : 1000;
     std::string srt;
-    for (int i = 0; i < 1000; ++i) {
+    for (int i = 0; i < count; ++i) {
         const int start = i * 2000, end = start + 1800;
         char line[64];
         std::snprintf(line, sizeof line, "%02d:%02d:%02d,%03d --> %02d:%02d:%02d,%03d", start / 3600000,
@@ -26,8 +30,8 @@ int main()
     }
     const auto begin = std::chrono::steady_clock::now();
     auto parsed = parse(srt);
-    if (!parsed || parsed->cues.size() != 1000) {
-        std::fprintf(stderr, "the file didn't read as 1,000 cues\n");
+    if (!parsed || parsed->cues.size() != static_cast<size_t>(count)) {
+        std::fprintf(stderr, "the file didn't read as %d cues\n", count);
         return 1;
     }
     core::Model model = core::Model::createEmpty();
@@ -41,6 +45,6 @@ int main()
         return 1;
     }
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
-    std::printf("1,000 cues read, placed and imported: %.0f ms (limit 2000)\n", ms);
-    return ms < 2000.0 ? 0 : 1;
+    std::printf("%d cues read, placed and imported: %.0f ms%s\n", count, ms, argc > 1 ? "" : " (limit 2000)");
+    return argc > 1 || ms < 2000.0 ? 0 : 1;
 }

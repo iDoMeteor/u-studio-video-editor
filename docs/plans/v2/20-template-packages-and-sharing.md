@@ -40,6 +40,8 @@ templates/<name>.ustitle one or more templates
 previews/<name>.png      one generated preview per template (required)
 fonts/<file>.otf|.ttf    optional; each needs a licence entry
 images/<file>.png|.jpg   optional; referenced by templates
+lottie/<file>.json       optional; animations referenced by templates (T6, ADR-021),
+                         each checked like one added in the designer
 LICENSE.txt              optional; the pack's licence text
 ```
 
