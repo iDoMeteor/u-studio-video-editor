@@ -17,6 +17,7 @@ extern "C" {
 }
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
@@ -96,6 +97,12 @@ TEST_CASE("FactoryPolicy: no Qt loaded, required services still present")
         if (at == std::string::npos || line.find("/mlt-7/") == std::string::npos)
             continue; // libmlt-7.so itself and libmlt++ aren't modules
         const std::string file = line.substr(at, line.find(".so", at) + 3 - at);
+        // `just asan` preloads avformat's and frei0r's modules from the
+        // system directory so their leaks can be suppressed by name
+        // (justfile, asan_modules): mapped, but not by the curated dir.
+        const char *preload = std::getenv("LD_PRELOAD");
+        if (preload && std::string(preload).find("/" + file) != std::string::npos)
+            continue;
         CHECK_MESSAGE(listed(file), "unlisted module mapped: " << file);
     }
 
