@@ -29,6 +29,15 @@ JSON; `engine-render-frames` checks them against the live `Engine`'s frames.
 exactly the YUV an export's consumer gets, which the same test checks byte
 for byte.
 
+**A range render seeks to 0 after `set_in_and_out()`.** Setting a
+producer's in/out leaves its absolute frame where it was, so the consumer's
+first pull came from frame 0 and the range carried on from its second
+frame. `seek()` is relative to the in point: `seek(first)` on a range
+shorter than `first` lands past the end, which pauses the producer
+(`mlt_producer_seek()`, MLT 7.40), and `terminate_on_pause` then ends the
+render with no frames written. Found when a keyframed transform made frame
+0 differ from the range's first frame (2026-09-29).
+
 `renderProject()` uses MLT's `avformat` consumer, with properties confirmed
 against its actual YAML metadata rather than guessed from ffmpeg CLI-flag
 muscle memory (`vcodec`/`acodec`/`f`/`vb`/`ab`/`ar`/`channels`/`pix_fmt`/

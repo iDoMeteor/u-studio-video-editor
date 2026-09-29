@@ -72,6 +72,13 @@ int run(const std::vector<std::string> &args, std::ostream &out, const std::atom
         const std::filesystem::path target = core::pathFromUtf8(ffv1);
         const std::filesystem::path part = target.string() + ".part";
         tractor.set_in_and_out(first, last);
+        // set_in_and_out() leaves the absolute frame where it was (0): the
+        // first frame written was frame 0, then the range went on from its
+        // second (a keyframed transform showed it, 2026-09-29). A seek is
+        // relative to the in point, so 0 is `first`; seek(first) lands past
+        // the end, which pauses the producer and ends the render at once
+        // (mlt_producer_seek(), MLT 7.40).
+        tractor.seek(0);
         {
             // Consumer properties as avformat's YAML names them (vcodec,
             // acodec, f, pix_fmt). FFV1 is lossless; yuv422p keeps the
