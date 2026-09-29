@@ -530,6 +530,29 @@ TEST_CASE("GPU pipeline: a push plays as the CPU's, frame by frame")
     }
 }
 
+// FX3 leftover: a spin (the affine transition with an animated rect and
+// rotation) plays on the GPU as the CPU's, a CPU island like slide and push.
+TEST_CASE("GPU pipeline: a spin plays as the CPU's")
+{
+    sharedFactoryPolicy();
+    TwoClipScene two;
+    REQUIRE(two.transition.value != 0);
+    two.scene.model.setTransitionRecipe(
+        two.transition, "spin.in.right",
+        {{"video.service", std::string("affine"), {}},
+         {"video.rect", std::string("ramp:50% 50% 0% 0%|0% 0% 100% 100%"), {}},
+         {"video.fix_rotate_x", std::string("ramp:-180,0"), {}}});
+    REQUIRE(two.scene.model.check().empty());
+    for (int position : {34, 40, 46}) {
+        Image cpu, gpu;
+        if (!renderBoth(two.scene.model, position, cpu, gpu))
+            return;
+        const Difference d = compare(cpu, gpu);
+        INFO("frame " << position << ": mean " << d.mean << ", outliers " << d.outliers * 100 << "%");
+        CHECK(d.mean <= 3.0);
+    }
+}
+
 TEST_CASE("GPU pipeline: the preview leaving the GPU mid-export doesn't stop the export")
 {
     sharedFactoryPolicy();

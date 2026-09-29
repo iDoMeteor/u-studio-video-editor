@@ -588,3 +588,42 @@ TEST_CASE("A transition's equal-power crossfade is louder mid-way than the even 
     CHECK(meltEven == doctest::Approx(even).epsilon(0.02));
     CHECK(meltPower == doctest::Approx(power).epsilon(0.02));
 }
+
+// FX3 leftover: zoom and spin are the affine transition too, with a rect
+// growing from the middle and (spin) an animated fix_rotate_x; melt plays
+// them as the editor does.
+TEST_CASE("A saved zoom and spin play frame-identically outside the editor")
+{
+    sharedFactoryPolicy();
+    for (bool spin : {false, true}) {
+        INFO(std::string(spin ? "spin" : "zoom"));
+        Model model = Model::createEmpty();
+        TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+        ClipId a = model.insertClip(video, addGenerator(model, "color:red", true, false), 0, 0, 29);
+        ClipId b = model.insertClip(video, addGenerator(model, "color:blue", true, false), 30, 10, 49);
+        TransitionId t = model.addTransition(video, a, b, 10, 10); // [20, 40)
+        std::vector<Param> params{{"video.service", std::string("affine"), {}},
+                                  {"video.rect", std::string("ramp:50% 50% 0% 0%|0% 0% 100% 100%"), {}}};
+        if (spin)
+            params.push_back({"video.fix_rotate_x", std::string("ramp:-180,0"), {}});
+        model.setTransitionRecipe(t, spin ? "spin.in.right" : "zoom.in", params);
+        REQUIRE(model.check().empty());
+        EngineSync sync(model);
+        const std::filesystem::path path = tempProjectPath("ustudio-xml-zoom");
+        RemoveOnExit cleanup{path};
+        REQUIRE(saveProject(model, path.string()).empty());
+        Mlt::Producer loaded(sync.profile(), ("xml:" + path.string()).c_str());
+        REQUIRE(loaded.is_valid());
+        const int w = sync.profile().width(), h = sync.profile().height();
+        for (int frame : {21, 25, 30, 35, 39}) {
+            const FrameSample live = sampleFrame(sync.tractor(), frame, w, h);
+            const FrameSample saved = sampleFrame(loaded, frame, w, h);
+            INFO("frame " << frame << " live " << live.r << "," << live.b << " saved " << saved.r << "," << saved.b);
+            CHECK(std::abs(live.r - saved.r) <= 2);
+            CHECK(std::abs(live.b - saved.b) <= 2);
+        }
+        // Early on only the middle is the incoming clip; by the end, all of it.
+        CHECK(sampleFrame(sync.tractor(), 25, w, h).b > 150);
+        CHECK(sampleFrame(sync.tractor(), 39, w, h).b > 150);
+    }
+}

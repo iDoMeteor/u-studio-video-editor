@@ -186,7 +186,8 @@ effect.
 
 With the add-on, a dissolve between two clips can play in another style:
 a **dip to black**, a **flash**, a **slide** or **push** (the next clip
-slides in over this one, or pushes it out, from any side), or one of 20
+slides in over this one, or pushes it out, from any side), a **zoom** or
+**spin** (it grows in from the middle, turning as it comes), or one of 20
 **wipes** (left, right, up, down and the diagonals, circle, clock,
 diamond, barn doors, blinds, checkerboard, blocks, star, sparkle and the
 unicorn horn).

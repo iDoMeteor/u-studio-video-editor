@@ -88,6 +88,38 @@
         "a.0.service": "affine",
         "a.0.transition.rect": "ramp:0% 0% 100% 100%|0% 100% 100% 100%"
       }
+    },
+    {
+      "id": "zoom.in",
+      "name": "Zoom In",
+      "category": "Motion",
+      "description": "The next clip grows from the middle",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:50% 50% 0% 0%|0% 0% 100% 100%"
+      }
+    },
+    {
+      "id": "spin.in.right",
+      "name": "Spin In",
+      "category": "Motion",
+      "description": "The next clip spins in clockwise, growing from the middle",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:50% 50% 0% 0%|0% 0% 100% 100%",
+        "video.fix_rotate_x": "ramp:-180,0"
+      }
+    },
+    {
+      "id": "spin.in.left",
+      "name": "Spin In Left",
+      "category": "Motion",
+      "description": "The next clip spins in counter-clockwise, growing from the middle",
+      "params": {
+        "video.service": "affine",
+        "video.rect": "ramp:50% 50% 0% 0%|0% 0% 100% 100%",
+        "video.fix_rotate_x": "ramp:180,0"
+      }
     }
   ]
 }
