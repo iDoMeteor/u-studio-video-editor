@@ -12,6 +12,8 @@
 
 #include "core/model/types.h"
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -52,6 +54,9 @@ class FrameRenderer
 {
   public:
     using Done = std::function<void(const RenderedFrame &frame)>;
+    // The worker closes its media after this long without a request: an
+    // open decoder is the renderer's largest cost (frame_renderer.cpp).
+    static constexpr std::chrono::milliseconds kReleaseIdleMedia{2000};
 
     explicit FrameRenderer(size_t cacheEntries = 400);
     ~FrameRenderer(); // stop()
@@ -60,6 +65,17 @@ class FrameRenderer
     // nothing MLT outlives the factory): the Browser calls it when its
     // window goes. Later requests are dropped. Idempotent.
     void stop();
+    // stop() for every renderer alive (main thread): the drop-in calls it
+    // when the application shuts down, before main() closes the factory.
+    // Renderers owned by statics are destroyed only after that, at exit(),
+    // when closing a producer would call into an unloaded module (a crash
+    // at quit in the demo tour, 2026-09-29).
+    static void stopAll();
+    // Whether the worker has media open (for tests; any thread).
+    bool holdsMedia() const
+    {
+        return m_holdsMedia.load();
+    }
     FrameRenderer(const FrameRenderer &) = delete;
     FrameRenderer &operator=(const FrameRenderer &) = delete;
 
@@ -90,6 +106,7 @@ class FrameRenderer
     std::deque<Job> m_jobs;
     std::map<int, uint64_t> m_newest; // lane -> generation
     bool m_stopping = false;
+    std::atomic<bool> m_holdsMedia{false};
     std::thread m_worker;
 
     // Main thread: an LRU of rendered frames.

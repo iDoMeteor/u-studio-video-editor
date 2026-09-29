@@ -6,7 +6,7 @@
 # Rack, undoes and redoes it, keyframes a parameter (a pin, then a change
 # 60 frames on), and checks the saved project after each step.
 #
-#   tools/effects-smoke/run.sh <builddir> <outdir>
+#   tools/effects-smoke/run.sh <builddir> <outdir> [steps file]
 #
 # The build needs -Ddropin_effects=builtin (or module). Needs Xvfb, python3
 # with gi (Atspi), ImageMagick's `import` and ffmpeg. Reuses
@@ -31,5 +31,5 @@ env -i HOME="$OUT/home" USER="$USER" PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UT
     XDG_CONFIG_HOME="$OUT/home/config" XDG_DATA_HOME="$OUT/home/data" XDG_STATE_HOME="$OUT/home/state" \
     XDG_CACHE_HOME="$OUT/home/cache" SMOKE_OUT="$OUT" SMOKE_APP="$APP" SMOKE_HERE="$HERE" \
     SMOKE_DRIVE="$HERE/../packaging-smoke" SMOKE_MEDIA="$OUT/media" \
-    dbus-run-session -- sh "$HERE/steps.sh" 2>&1 | tee "$OUT/run.log"
+    dbus-run-session -- sh "$HERE/${3:-steps.sh}" 2>&1 | tee "$OUT/run.log"
 tail -1 "$OUT/run.log" | grep -q "^RESULT: 0 failed"

@@ -141,6 +141,8 @@ EffectRegistry EffectRegistry::scan(Mlt::Repository &repository, const std::vect
         // The GPU engine's own (ADR-019: not user effects).
         if (familyOf(service) == "movit")
             continue;
+        if (isHardwareOnlyFilter(service))
+            continue;
         descriptors.push_back(describeWith(repository, service, overlays, notThreadSafe));
     }
     return EffectRegistry(std::move(descriptors));

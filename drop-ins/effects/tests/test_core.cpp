@@ -120,6 +120,15 @@ TEST_CASE("Descriptors: family, media, overlays, and the cache's round trip")
     CHECK(familyOf("avfilter.gblur") == "avfilter");
     CHECK(familyOf("brightness") == "mlt");
     CHECK(familyOf("some.thing") == "mlt");
+    // Hardware-only FFmpeg filters are never offered (a crash in teardown
+    // without the device); their software namesakes are.
+    for (const char *hw : {"avfilter.blackdetect_vulkan", "avfilter.avgblur_opencl", "avfilter.scale_cuda",
+                           "avfilter.denoise_vaapi", "avfilter.vpp_qsv", "avfilter.sr_amf", "avfilter.hwupload_cuda",
+                           "avfilter.hwdownload", "avfilter.hwmap", "avfilter.libplacebo"})
+        CHECK_MESSAGE(isHardwareOnlyFilter(hw), hw);
+    for (const char *sw :
+         {"avfilter.blackdetect", "avfilter.avgblur", "avfilter.gblur", "frei0r.glow", "brightness", "avfilter.vflip"})
+        CHECK_MESSAGE(!isHardwareOnlyFilter(sw), sw);
 
     RawEffect raw{"frei0r.glow",
                   "Glow",
