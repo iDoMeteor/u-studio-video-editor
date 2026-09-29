@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.75.1-beta.1
+
+- Editing while playing restarts playback faster: frames about to be thrown
+  away are no longer rendered, and one from before the edit can't flash up.
+
 ## 0.75.0-beta.1
 
 - Transition styles (the Effects add-on): a dissolve can dip to black,
