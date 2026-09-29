@@ -34,7 +34,10 @@ The short version:
   changing production code to make it pass.
 - **Sanitizers** (`just asan`, `just tsan`) are required for thread and
   MLT-lifetime changes, in the tiers CLAUDE.md sets out. See
-  [Building](building.md#sanitizers).
+  [Building](building.md#sanitizers). Don't preload MLT's movit module for
+  every test: preloaded, it replaces same-named functions in other modules
+  (plus's `lift_gamma_gain`), so `just asan` preloads it for the "gpu"
+  tests only.
 - **No fixed time limits in tests.** A loaded machine (other suites, a
   Flatpak build) fails any absolute limit. A test times its work against a
   yardstick measured under the same load (as `engine-thread` and
