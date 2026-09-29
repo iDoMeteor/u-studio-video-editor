@@ -80,6 +80,17 @@ void contributeFactoryPaths(ustudio::dropins::FactoryPaths *paths)
         for (const std::string &why : audio.excluded)
             ustudio::core::Log::info(std::string("[effects] ") + variable + " plugin left out: " + why);
     }
+    // OpenFX: FactoryPolicy denies MLT's openfx module, which loads every
+    // plugin in its fixed folders whatever OFX_PLUGIN_PATH says; lifted only
+    // when chosen and nothing it would open names Qt (ADR-007).
+    if (experimental.openfx) {
+        const std::vector<fs::path> naming = openfxBundlesNamingQt(openfxSearchDirs());
+        if (naming.empty())
+            paths->allowModules.push_back("openfx");
+        else
+            for (const fs::path &bundle : naming)
+                ustudio::core::Log::warn("[effects] OpenFX stays off: " + bundle.string() + " links Qt (ADR-007)");
+    }
     std::set<std::string> quarantined;
     for (const auto &[service, record] : health.records)
         if (!record.usable())

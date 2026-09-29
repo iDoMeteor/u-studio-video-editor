@@ -33,7 +33,15 @@ struct FactoryPaths
     std::vector<std::string> frei0rPaths;
     std::vector<std::string> ofxPaths;
     std::vector<std::string> mltModuleDirs;
+    // Default-denied modules a drop-in lifts, by their denylist entry
+    // ("openfx": the effects drop-in's OpenFX opt-in, after its own Qt
+    // scan). Deny wins for anything Qt: an entry naming "qt" is ignored.
+    std::vector<std::string> allowModules;
 };
+
+// The denylist FactoryPolicy applies: the default one (or
+// USTUDIO_MLT_DENYLIST's), less the entries `allow` lifts, never a Qt one.
+std::vector<std::string> effectiveDenylist(const std::vector<std::string> &allow);
 
 class FactoryPolicy
 {

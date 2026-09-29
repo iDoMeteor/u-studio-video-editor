@@ -95,7 +95,8 @@ fs::path moduleCacheBaseDir()
 // every module in USTUDIO_MLT_MODULE_DIR except the denylist. Returns the
 // curated directory path, or empty on any failure (caller falls back to
 // default init).
-std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDirs)
+std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDirs,
+                                  const std::vector<std::string> &allowModules)
 {
     fs::path base = moduleCacheBaseDir();
     if (base.empty())
@@ -135,7 +136,7 @@ std::string buildCuratedModuleDir(const std::vector<std::string> &contributedDir
         return {};
     }
 
-    std::vector<std::string> deny = denylist();
+    std::vector<std::string> deny = effectiveDenylist(allowModules);
     int linked = 0;
     int skipped = 0;
     // Separate error_code from the one used per-symlink below: sharing one
@@ -262,7 +263,7 @@ FactoryPolicy::FactoryPolicy(const FactoryPaths &paths)
     // Read by MLT's frei0r and OpenFX modules when init() loads them.
     setSearchPath("FREI0R_PATH", paths.frei0rPaths);
     setSearchPath("OFX_PLUGIN_PATH", paths.ofxPaths);
-    std::string curated = buildCuratedModuleDir(paths.mltModuleDirs);
+    std::string curated = buildCuratedModuleDir(paths.mltModuleDirs, paths.allowModules);
     if (!curated.empty()) {
         Mlt::Factory::init(curated.c_str());
         m_moduleDirectoryUsed = curated;
@@ -327,6 +328,19 @@ std::string FactoryPolicy::mltVersion()
 {
     const char *version = mlt_version_get_string();
     return version ? version : "";
+}
+
+std::vector<std::string> effectiveDenylist(const std::vector<std::string> &allow)
+{
+    std::vector<std::string> deny = denylist();
+    std::erase_if(deny, [&](const std::string &entry) {
+        const bool qt = entry.find("qt") != std::string::npos;
+        const bool lifted = std::find(allow.begin(), allow.end(), entry) != allow.end();
+        if (lifted && !qt)
+            Log::info("[engine] FactoryPolicy: " + entry + " lifted from the denylist by a drop-in");
+        return lifted && !qt;
+    });
+    return deny;
 }
 
 } // namespace ustudio::engine
