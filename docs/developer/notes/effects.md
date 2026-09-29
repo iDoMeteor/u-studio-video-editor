@@ -101,3 +101,26 @@ unnecessary: see "Not-thread-safe frei0r plugins" below.
   `motion_repro.cpp`, `push_repro.cpp`), and engine-xml-playback's "A
   saved push …" (the edge frame by frame, preview equal to melt). A ramp
   of rects separates them with `|`, since a rect has spaces.
+
+## FX4 findings (2026-09-28, VE Effects)
+
+- **Masks** are `frei0r.alphaspot` between `mask_start` and `mask_apply`
+  (`core::nativeFilters()`, only when cairoblend, and so frei0r, is loaded).
+  alphaspot draws the shape into the effect's alpha; its parameter 0 is the
+  shape (0 a rectangle; frei0r scales 0-1 onto four shapes, so 0.3 is the
+  ellipse), 1 and 2 the centre, 3 and 4 the *half*-width and -height (all
+  fractions of the frame), 5 the tilt (0.5 upright), 6 the soft edge, 7 and 8
+  the alpha outside and inside. The mix goes in as the inside alpha (an
+  animated mix animates it: a filter, so its keyframes hold on a cut, unlike
+  a transition's), and `mask_apply`'s cairoblend composites at full opacity
+  by that alpha. Inverting swaps 7 and 8. Repro: red through invert0r, a
+  centred 0.2-half-size rectangle: cyan at the centre and at (870, 480) of
+  1280x720, red in the corner; 0.3 turns (870, 480) red (an ellipse); an
+  inside alpha of 0.5 gives 127,127,127 (scratchpad `fx4/mask_repro.cpp`).
+  The drop-in's test_engine "A mask limits an effect to its shape" plays it
+  through EngineSync and the saved file.
+- A mask's values (shape, geometry, soft edge, invert) apply in place like
+  parameter values (`EngineSync::applyInPlace()` blanks them); adding or
+  removing one changes the filters and rebuilds.
+- MLT's metadata gives some rect defaults in percent (`spot_remover`'s
+  "0 0 10% 10%"); the descriptor reads them as pixels (10 x 10). Open.

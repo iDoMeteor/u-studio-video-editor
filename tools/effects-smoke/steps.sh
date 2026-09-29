@@ -330,6 +330,17 @@ echo "rect $RECT0 -> $RECT1" >>"$OUT/steps.log"
 rect_grew() { [ -n "$RECT1" ] && [ "$RECT0" != "$RECT1" ]; }
 check "dragging a rect handle on the picture changes the rectangle" rect_grew
 
+
+# Masks (FX4): Spot Remover's card gets a rectangle mask from its Mask
+# drop-down; the saved effect carries the mask, and it plays through
+# frei0r.alphaspot in the saved graph (so melt masks it too).
+# The last card's Mask drop-down (named for its choice, "None").
+python3 "$SMOKE_HERE/choose.py" "None" 1 -1 2>>"$OUT/helpers.err"; sleep 1.5
+shot 24-mask
+d act save; sleep 2
+check "a mask from the card is saved" grep -q 'ustudio:mask.shape">rectangle<' "$OUT/smoke.ustudio"
+check "the saved graph masks with alphaspot" grep -q "frei0r.alphaspot" "$OUT/smoke.ustudio"
+
 kill -TERM $APP 2>/dev/null; sleep 2; kill -KILL $APP 2>/dev/null
 kill $REGISTRY $LAUNCHER $XVFB 2>/dev/null
 echo "RESULT: $FAILED failed"

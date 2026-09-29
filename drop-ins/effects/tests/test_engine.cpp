@@ -601,3 +601,74 @@ TEST_CASE("Brand looks: every one ships with services this install has, and chan
         CHECK(frame.rgba != plain.rgba);
     }
 }
+
+namespace {
+
+// Red at (u, v) (fractions of the frame), pulled at 160x90.
+int redAt(Mlt::Producer &producer, int position, double u, double v)
+{
+    producer.seek(position);
+    std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+    mlt_image_format format = mlt_image_rgba;
+    int w = 160, h = 90;
+    const uint8_t *image = frame->get_image(format, w, h);
+    const auto x = static_cast<size_t>(u * w), y = static_cast<size_t>(v * h);
+    return image[(y * static_cast<size_t>(w) + x) * 4];
+}
+
+EffectMask centredMask(const std::string &shape, bool invert = false)
+{
+    EffectMask mask;
+    mask.shape = shape;
+    mask.params = {{"x", 0.5, {}}, {"y", 0.5, {}}, {"width", 0.5, {}}, {"height", 0.5, {}}};
+    mask.feather = {0.0, {}};
+    mask.invert = invert;
+    return mask;
+}
+
+} // namespace
+
+// FX4: a mask limits an effect to a shape (frei0r.alphaspot between
+// mask_start and mask_apply; core::nativeFilters()).
+TEST_CASE("A mask limits an effect to its shape, in the editor and in melt")
+{
+    setUp();
+    Timeline t;
+    const EffectId black = t.addBrightness(Model::EffectTarget::clip(t.a), 0.0);
+    SUBCASE("rectangle: black inside, grey outside")
+    {
+        t.model.setEffectMask(black, centredMask("rectangle"));
+        engine::EngineSync sync(t.model);
+        CHECK(redAt(sync.tractor(), 20, 0.5, 0.5) < 8);
+        CHECK(redAt(sync.tractor(), 20, 0.3, 0.3) < 8); // inside the rectangle's corner
+        CHECK(near(redAt(sync.tractor(), 20, 0.05, 0.05), kGrey));
+        CHECK(near(redAt(sync.tractor(), 20, 0.9, 0.5), kGrey));
+    }
+    SUBCASE("inverted: the other way round")
+    {
+        t.model.setEffectMask(black, centredMask("rectangle", true));
+        engine::EngineSync sync(t.model);
+        CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey));
+        CHECK(redAt(sync.tractor(), 20, 0.05, 0.05) < 8);
+    }
+    SUBCASE("ellipse: a rectangle's corner is outside it")
+    {
+        t.model.setEffectMask(black, centredMask("ellipse"));
+        engine::EngineSync sync(t.model);
+        CHECK(redAt(sync.tractor(), 20, 0.5, 0.5) < 8);
+        CHECK(near(redAt(sync.tractor(), 20, 0.27, 0.27), kGrey));
+    }
+    SUBCASE("a 50% mix inside the shape, and melt plays the saved file the same")
+    {
+        t.model.setEffectMask(black, centredMask("rectangle"));
+        t.model.setEffectMix(black, {0.5, {}});
+        engine::EngineSync sync(t.model);
+        CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey / 2));
+        const fs::path path = scratch() / "mask.ustudio";
+        REQUIRE(saveProject(t.model, utf8String(path)).empty());
+        Mlt::Producer melt(sync.profile(), ("xml:" + utf8String(path)).c_str());
+        REQUIRE(melt.is_valid());
+        for (auto [u, v] : {std::pair{0.5, 0.5}, {0.05, 0.05}, {0.3, 0.3}})
+            CHECK(near(redAt(melt, 20, u, v), redAt(sync.tractor(), 20, u, v), 3));
+    }
+}

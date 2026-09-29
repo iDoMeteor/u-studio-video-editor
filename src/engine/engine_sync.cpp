@@ -762,7 +762,9 @@ template <class Visit> void forEachEffect(core::Project &project, const Visit &v
 bool EngineSync::applyInPlace(const core::Project &next)
 {
     // Only effect values may differ: the same graph input with every
-    // parameter value and mix blanked out on both sides.
+    // parameter value, mix and mask value blanked out on both sides (a
+    // mask's shape, geometry, soft edge and invert are values of the same
+    // filters; adding or removing a mask changes the filters: a rebuild).
     core::Project before = *m_project;
     core::Project after = next;
     std::unordered_map<uint64_t, core::Effect> oldEffects;
@@ -770,7 +772,8 @@ bool EngineSync::applyInPlace(const core::Project &next)
     std::vector<core::Effect> changed;
     forEachEffect(after, [&](core::Effect &effect) {
         auto it = oldEffects.find(effect.id.value);
-        if (it != oldEffects.end() && (it->second.params != effect.params || it->second.mix != effect.mix))
+        if (it != oldEffects.end() &&
+            (it->second.params != effect.params || it->second.mix != effect.mix || it->second.mask != effect.mask))
             changed.push_back(effect);
     });
     auto blank = [](core::Effect &effect) {
@@ -779,6 +782,8 @@ bool EngineSync::applyInPlace(const core::Project &next)
             param.keyframes.clear();
         }
         effect.mix = {};
+        if (effect.mask)
+            effect.mask = core::EffectMask{};
     };
     forEachEffect(before, blank);
     forEachEffect(after, blank);
@@ -793,6 +798,8 @@ bool EngineSync::applyInPlace(const core::Project &next)
                 change.params.push_back(effect.params[i].name);
         if (effect.mix != old.mix)
             change.params.push_back("mix");
+        if (effect.mask != old.mask)
+            change.params.push_back("mask");
         bool applied = false;
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
             applied = extension->applyInPlace(change) || applied;

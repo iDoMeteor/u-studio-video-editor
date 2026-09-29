@@ -98,6 +98,17 @@ struct Control
     std::vector<core::Easing> feelEasings; // the feel drop-down's entries, in order
 };
 
+// A card's mask controls (doc 15, "Mix and masks"; FX4).
+struct MaskControl
+{
+    Rack *rack;
+    core::EffectId effect;
+    GtkWidget *shape = nullptr, *handles = nullptr, *invert = nullptr, *feather = nullptr;
+    GtkAdjustment *featherAdjustment = nullptr;
+    uint64_t gesture = 0;
+    gint64 lastChange = 0;
+};
+
 // A card's own buttons.
 struct CardAction
 {
@@ -145,6 +156,13 @@ class Rack
              "Which tracks the adjustment block changes: every track, or a track and those below it", nullptr,
              nullptr},
             {"effects.block-remove", "Effects", "Remove adjustment block", nullptr, nullptr, nullptr},
+            {"effects.mask", "Effects", "Mask",
+             "Limits the effect to a rectangle or an ellipse of the picture; place it with Edit on the picture",
+             nullptr, nullptr},
+            {"effects.mask-invert", "Effects", "Invert mask", "The effect everywhere but inside the shape", nullptr,
+             nullptr},
+            {"effects.mask-feather", "Effects", "Soft edge", "How gradually the effect fades out at the shape's edge",
+             nullptr, nullptr},
             {"effects.rack-menu", "Effects", "Effects menu", "Copy, paste, and save as a look", nullptr, nullptr},
             {"effects.card-cost", "Effects", "Cost",
              "How much work the effect is for each frame, measured when it was checked", nullptr, nullptr},
@@ -1085,8 +1103,11 @@ class Rack
                     key += "." + e.service + (e.enabled ? "+" : "-");
             }
         for (const core::Effect &e : m_host.model().effects(target)) {
+            // A mask's shape and invert are rows and a drop-down; its
+            // geometry and soft edge aren't (they change during a drag).
             key += "|" + std::to_string(e.id.value) + e.service + (e.enabled ? "+" : "-") +
-                   (e.mix.keyframes.empty() ? "" : "k");
+                   (e.mix.keyframes.empty() ? "" : "k") +
+                   (e.mask ? "m" + e.mask->shape + (e.mask->invert ? "i" : "") : "");
             for (const core::Param &p : e.params)
                 key += "," + p.name + (p.keyframes.empty() ? "" : "k");
         }
@@ -1183,6 +1204,162 @@ class Rack
         rebuildCards(*target);
     }
 
+    // --- Masks ------------------------------------------------------------
+
+    // "Mask": none, rectangle or ellipse, the handles on the picture and
+    // invert; "Soft edge" below when there is one. Returns the next row.
+    int addMaskRows(GtkWidget *grid, int row, const core::Effect &effect)
+    {
+        auto mc = std::make_unique<MaskControl>();
+        mc->rack = this;
+        mc->effect = effect.id;
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+        const char *shapes[] = {"None", "Rectangle", "Ellipse", nullptr};
+        mc->shape = gtk_drop_down_new_from_strings(shapes);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(mc->shape), GTK_ACCESSIBLE_PROPERTY_LABEL, "Mask", -1);
+        m_host.setTooltip(mc->shape, "effects.mask");
+        const guint selected = !effect.mask ? 0 : effect.mask->shape == "ellipse" ? 2 : 1;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(mc->shape), selected);
+        g_signal_connect(mc->shape, "notify::selected", G_CALLBACK(&onMaskShapeTrampoline), mc.get());
+        gtk_widget_set_hexpand(mc->shape, TRUE);
+        gtk_box_append(GTK_BOX(box), mc->shape);
+        if (effect.mask) {
+            mc->handles = gtk_toggle_button_new();
+            gtk_button_set_icon_name(GTK_BUTTON(mc->handles), "edit-select-symbolic");
+            gtk_widget_add_css_class(mc->handles, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(mc->handles), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                           "Edit the mask on the picture", -1);
+            m_host.setTooltip(mc->handles, "effects.rect-handles");
+            g_signal_connect(mc->handles, "toggled", G_CALLBACK(&onMaskHandlesTrampoline), mc.get());
+            gtk_box_append(GTK_BOX(box), mc->handles);
+            mc->invert = gtk_toggle_button_new_with_label("Invert");
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(mc->invert), effect.mask->invert);
+            m_host.setTooltip(mc->invert, "effects.mask-invert");
+            g_signal_connect(mc->invert, "toggled", G_CALLBACK(&onMaskInvertTrampoline), mc.get());
+            gtk_box_append(GTK_BOX(box), mc->invert);
+        }
+        addRow(grid, row++, "Mask", box);
+        if (effect.mask) {
+            mc->featherAdjustment = gtk_adjustment_new(effect.mask->feather.value, 0.0, 0.5, 0.01, 0.05, 0.0);
+            mc->feather = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, mc->featherAdjustment);
+            gtk_scale_set_draw_value(GTK_SCALE(mc->feather), FALSE);
+            gtk_accessible_update_property(GTK_ACCESSIBLE(mc->feather), GTK_ACCESSIBLE_PROPERTY_LABEL, "Soft edge", -1);
+            m_host.setTooltip(mc->feather, "effects.mask-feather");
+            g_signal_connect(mc->featherAdjustment, "value-changed", G_CALLBACK(&onMaskFeatherTrampoline), mc.get());
+            addRow(grid, row++, "Soft edge", mc->feather);
+        }
+        m_masks.push_back(std::move(mc));
+        return row;
+    }
+
+    std::optional<core::EffectMask> maskOf(core::EffectId id) const
+    {
+        return m_host.model().hasEffect(id) ? m_host.model().effect(id).mask : std::nullopt;
+    }
+
+    // A new gesture after a rest, as the controls' (onControlChanged()).
+    uint64_t maskGesture(MaskControl &mc)
+    {
+        const gint64 now = g_get_monotonic_time();
+        if (mc.gesture == 0 || now - mc.lastChange > kGestureGapUs)
+            mc.gesture = ++m_nextGesture;
+        mc.lastChange = now;
+        return mc.gesture;
+    }
+
+    static double geometry(const core::EffectMask &mask, const char *name, double fallback)
+    {
+        for (const core::Param &p : mask.params)
+            if (p.name == name)
+                if (const double *v = std::get_if<double>(&p.value))
+                    return *v;
+        return fallback;
+    }
+
+    static void setGeometry(core::EffectMask &mask, const char *name, double value)
+    {
+        for (core::Param &p : mask.params)
+            if (p.name == name) {
+                p.value = value;
+                p.keyframes.clear();
+                return;
+            }
+        mask.params.push_back({name, value, {}});
+    }
+
+    void onMaskShape(MaskControl &mc)
+    {
+        if (m_updating)
+            return;
+        const guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(mc.shape));
+        std::optional<core::EffectMask> mask = maskOf(mc.effect);
+        if (selected == 0) {
+            mask.reset();
+        } else {
+            if (!mask) {
+                // A new mask: the middle half of the picture, a little soft.
+                mask = core::EffectMask{};
+                mask->params = {{"x", 0.5, {}}, {"y", 0.5, {}}, {"width", 0.5, {}}, {"height", 0.5, {}}};
+                mask->feather = {0.05, {}};
+            }
+            mask->shape = selected == 2 ? "ellipse" : "rectangle";
+        }
+        m_host.execute(std::make_unique<SetEffectMask>(mc.effect, mask));
+    }
+
+    void onMaskInvert(MaskControl &mc)
+    {
+        std::optional<core::EffectMask> mask = maskOf(mc.effect);
+        if (m_updating || !mask)
+            return;
+        mask->invert = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(mc.invert));
+        m_host.execute(std::make_unique<SetEffectMask>(mc.effect, mask));
+    }
+
+    void onMaskFeather(MaskControl &mc)
+    {
+        std::optional<core::EffectMask> mask = maskOf(mc.effect);
+        if (m_updating || !mask)
+            return;
+        mask->feather = {gtk_adjustment_get_value(mc.featherAdjustment), {}};
+        m_host.execute(std::make_unique<SetEffectMask>(mc.effect, mask, maskGesture(mc)));
+    }
+
+    // The mask's rectangle on the picture, in frame pixels both ways.
+    void onMaskHandles(MaskControl &mc, bool on)
+    {
+        PreviewTools &tools = previewTools(m_host);
+        const ControlKey key{mc.effect.value, "mask"};
+        if (!on) {
+            if (m_rectKey == key)
+                tools.hideRect();
+            m_rectKey.reset();
+            return;
+        }
+        const std::optional<core::EffectMask> mask = maskOf(mc.effect);
+        if (!mask)
+            return;
+        m_rectKey = key;
+        const core::Profile &profile = m_host.model().sequence().profile;
+        const double fw = profile.width, fh = profile.height;
+        const double w = geometry(*mask, "width", 0.5), h = geometry(*mask, "height", 0.5);
+        const core::Rect rect{(geometry(*mask, "x", 0.5) - w / 2) * fw, (geometry(*mask, "y", 0.5) - h / 2) * fh,
+                              w * fw, h * fh};
+        const core::EffectId effect = mc.effect;
+        tools.showRect(rect, [this, effect, fw, fh](core::Rect r, uint64_t gesture) {
+            std::optional<core::EffectMask> now = maskOf(effect);
+            if (!now)
+                return;
+            setGeometry(*now, "x", (r.x + r.w / 2) / fw);
+            setGeometry(*now, "y", (r.y + r.h / 2) / fh);
+            setGeometry(*now, "width", r.w / fw);
+            setGeometry(*now, "height", r.h / fh);
+            // One undo step a drag; the gesture ids stay apart from the
+            // controls' (the tools count their own from 1).
+            m_host.execute(std::make_unique<SetEffectMask>(effect, now, (uint64_t{1} << 40) + gesture));
+        });
+    }
+
     // --- On the picture (app/preview_tools.h) ------------------------------
 
     Control *findControl(const ControlKey &key)
@@ -1246,6 +1423,7 @@ class Rack
             gtk_box_remove(GTK_BOX(m_cards), child);
         m_controls.clear();
         m_actions.clear();
+        m_masks.clear();
         // Several clips: only this drop-in's effects they all share, each
         // with its twins on the other clips.
         std::vector<std::pair<const core::Effect *, std::vector<core::EffectId>>> shown;
@@ -1386,6 +1564,9 @@ class Rack
                 ++row;
             }
             m_controls.push_back(std::move(control));
+            // A mask: one clip's (its geometry is drawn on its picture).
+            if (twins.empty())
+                row = addMaskRows(grid, row, effect);
         }
         if (descriptor)
             for (const ParamDescriptor &p : descriptor->params) {
@@ -1575,7 +1756,7 @@ class Rack
             }
             // Handles over the picture (app/preview_tools.h).
             GtkWidget *handles = gtk_toggle_button_new();
-            gtk_button_set_icon_name(GTK_BUTTON(handles), "object-select-symbolic");
+            gtk_button_set_icon_name(GTK_BUTTON(handles), "edit-select-symbolic");
             gtk_widget_add_css_class(handles, "flat");
             gtk_accessible_update_property(GTK_ACCESSIBLE(handles), GTK_ACCESSIBLE_PROPERTY_LABEL,
                                            "Edit on the picture", -1);
@@ -1677,6 +1858,26 @@ class Rack
     static void onPinActionTrampoline(GSimpleAction *, GVariant *, gpointer self)
     {
         static_cast<Rack *>(self)->onPinAction();
+    }
+    static void onMaskShapeTrampoline(GtkDropDown *, GParamSpec *, gpointer mc)
+    {
+        auto *m = static_cast<MaskControl *>(mc);
+        m->rack->onMaskShape(*m);
+    }
+    static void onMaskInvertTrampoline(GtkToggleButton *, gpointer mc)
+    {
+        auto *m = static_cast<MaskControl *>(mc);
+        m->rack->onMaskInvert(*m);
+    }
+    static void onMaskFeatherTrampoline(GtkAdjustment *, gpointer mc)
+    {
+        auto *m = static_cast<MaskControl *>(mc);
+        m->rack->onMaskFeather(*m);
+    }
+    static void onMaskHandlesTrampoline(GtkToggleButton *button, gpointer mc)
+    {
+        auto *m = static_cast<MaskControl *>(mc);
+        m->rack->onMaskHandles(*m, gtk_toggle_button_get_active(button));
     }
     static void onEyedropperTrampoline(GtkButton *, gpointer control)
     {
@@ -1789,7 +1990,8 @@ class Rack
     uint64_t m_nextGesture = 0;
     std::set<ControlKey> m_armed;
     std::optional<Recording> m_recording;
-    std::optional<ControlKey> m_rectKey; // the rect control whose handles are on the picture
+    std::optional<ControlKey> m_rectKey; // the rect control (or {effect, "mask"}) whose handles are shown
+    std::vector<std::unique_ptr<MaskControl>> m_masks;
 };
 
 } // namespace

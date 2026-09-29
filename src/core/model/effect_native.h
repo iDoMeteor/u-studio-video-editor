@@ -38,7 +38,7 @@ enum class MixTransition
 const char *mixTransitionService(MixTransition transition);
 
 // Whether `effect` needs the mask_start / mask_apply pair: a mix that isn't
-// a constant 1.
+// a constant 1, or a mask.
 bool needsMixWrap(const Effect &effect);
 
 // MLT's form of a constant value (0xRRGGBBAA colours, "x y w h" rects).
@@ -49,7 +49,10 @@ std::string nativeParam(const Param &param, FrameIndex offset, FrameIndex length
 
 // The filters for `effect` on that cut, in attach order: the effect alone;
 // or mask_start, mask_apply (a constant mix); or mask_start, brightness
-// (the keyframed mix as its alpha), mask_apply. "disable" is set on each
+// (the keyframed mix as its alpha), mask_apply; or, with a mask and
+// cairoblend (frei0r loaded: the effects drop-in's), mask_start,
+// frei0r.alphaspot (the shape as alpha, the mix inside it), mask_apply.
+// Without frei0r a mask can't be drawn: the effect applies unmasked. "disable" is set on each
 // when the effect is off. In/out are the caller's (engine::attachToCut(),
 // the writer's cutIn).
 std::vector<NativeFilter> nativeFilters(const Effect &effect, FrameIndex offset, FrameIndex length,

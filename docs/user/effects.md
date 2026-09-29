@@ -72,9 +72,23 @@ step, however long you drag.
   picture. It takes the colour of the selected clip at that spot, as the
   clip is before its effects: what you want for keying out a background.
   **Esc** cancels.
-- **Rectangles** (an area to fix or to work on): click the **select**
-  button beside the numbers to show the rectangle over the picture, then
-  drag it, or drag its corners. Click the button again to hide it.
+- **Rectangles** (an area to fix or to work on): click the **selection**
+  button (a dashed rectangle) beside the numbers to show the rectangle over
+  the picture, then drag it, or drag its corners. Click the button again to
+  hide it.
+
+### Limiting an effect to part of the picture (masks)
+
+Each effect's **Mask** chooses where it applies: **None** (everywhere),
+a **Rectangle** or an **Ellipse**. With a shape:
+
+- the **selection** button beside it shows the shape on the picture: drag
+  it, or its corners, to place it;
+- **Invert** applies the effect everywhere *but* inside the shape (blur
+  everything except a face);
+- **Soft edge** fades the effect out gradually at the shape's edge.
+
+**Mix** still applies, inside the shape.
 
 ## Making an effect change over time (keyframes)
 

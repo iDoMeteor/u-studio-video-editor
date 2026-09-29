@@ -108,10 +108,14 @@ block, and the block's right end (its cyan outline on the screenshot,
 picked from the middle of the picture with the eyedropper (the saved
 colour must be the one logged), and Spot Remover's rectangle is shown on
 the picture and its handle (a solid cyan square, `rightmost.py`'s square
-filter) dragged, which must change the saved rectangle. It also checks an audition leaves the live graph's rebuild
+filter) dragged, which must change the saved rectangle; last, Spot
+Remover's Mask drop-down is set to Rectangle (`choose.py`: a drop-down's
+accessible name is its choice, and its rows take no action, so it's opened
+and moved with the arrow keys), and the saved project must carry the mask
+and play it through `frei0r.alphaspot`. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
-`value.py`, `ramp.py`, `rightmost.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
+`value.py`, `ramp.py`, `rightmost.py`, `choose.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
 spin button, set an entry by name, select a Browser tile, find a widget's
 centre, drag slowly enough for XDND, and hold a key, over AT-SPI (the main window
 reports no focus without a window manager). The build needs `-Ddropin_effects`.
