@@ -2,6 +2,7 @@
 #include "doctest.h"
 
 #include "engine/factory_policy.h"
+#include "platform/process.h"
 
 #include <mlt++/Mlt.h>
 
@@ -15,6 +16,8 @@ extern "C" {
 #include <framework/mlt_factory.h>
 }
 
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
@@ -76,6 +79,33 @@ TEST_CASE("FactoryPolicy: no Qt loaded, required services still present")
                       "openfx module linked: " << entry.path().filename().string());
     CHECK_FALSE(hasMapping("libmltopenfx"));
 
+    // ADR-022: only the editor's modules are linked (no drop-ins here), and
+    // no other MLT module is mapped into the process.
+    auto listed = [](const std::string &file) {
+        for (const std::string &name : editorModules())
+            if (file == "libmlt" + name + ".so")
+                return true;
+        return false;
+    };
+    for (const auto &entry : std::filesystem::directory_iterator(policy.moduleDirectoryUsed()))
+        CHECK_MESSAGE(listed(entry.path().filename().string()),
+                      "unlisted module linked: " << entry.path().filename().string());
+    std::ifstream maps("/proc/self/maps");
+    std::string line;
+    while (std::getline(maps, line)) {
+        const size_t at = line.find("libmlt");
+        if (at == std::string::npos || line.find("/mlt-7/") == std::string::npos)
+            continue; // libmlt-7.so itself and libmlt++ aren't modules
+        const std::string file = line.substr(at, line.find(".so", at) + 3 - at);
+        // `just asan` preloads avformat's and frei0r's modules from the
+        // system directory so their leaks can be suppressed by name
+        // (justfile, asan_modules): mapped, but not by the curated dir.
+        const char *preload = std::getenv("LD_PRELOAD");
+        if (preload && std::string(preload).find("/" + file) != std::string::npos)
+            continue;
+        CHECK_MESSAGE(listed(file), "unlisted module mapped: " << file);
+    }
+
     Mlt::Repository repo(mlt_factory_repository());
 
     // Verified present on the dev machine (2026-09-17) both before this
@@ -101,6 +131,34 @@ TEST_CASE("FactoryPolicy: no Qt loaded, required services still present")
     for (const char *name : {"affine", "crop", "mirror", "volume", "deinterlace"})
         CHECK_MESSAGE(hasService(filters, name), "missing required filter: " << std::string(name));
     delete filters;
+}
+
+TEST_CASE("FactoryPolicy: a start sweeps curated dirs whose process is gone, and nothing else")
+{
+    namespace fs = std::filesystem;
+    const fs::path base =
+        fs::temp_directory_path() / ("ustudio-sweep-" + std::to_string(ustudio::platform::currentProcessId()));
+    fs::create_directories(base);
+    auto make = [&](const std::string &name) {
+        fs::create_directories(base / name / "inner");
+        return base / name;
+    };
+    // A pid above any kernel's pid_max: never a running process.
+    const fs::path dead = make("ustudio-mlt-modules-999999999-aaaaaa");
+    const fs::path mine =
+        make("ustudio-mlt-modules-" + std::to_string(ustudio::platform::currentProcessId()) + "-bbbbbb");
+    const fs::path oldForm = make("ustudio-mlt-modules-XyZ123");
+    fs::last_write_time(oldForm, fs::file_time_type::clock::now() - std::chrono::hours(48));
+    const fs::path recentOldForm = make("ustudio-mlt-modules-XyZ456");
+    const fs::path other = make("somebody-elses-dir");
+
+    CHECK(sweepStaleCuratedDirs(base.string()) == 2);
+    CHECK_FALSE(fs::exists(dead));
+    CHECK_FALSE(fs::exists(oldForm));
+    CHECK(fs::exists(mine));
+    CHECK(fs::exists(recentOldForm)); // an older editor may still be running with it
+    CHECK(fs::exists(other));
+    fs::remove_all(base);
 }
 
 // FX5: a drop-in may lift a default-denied module (the effects drop-in's

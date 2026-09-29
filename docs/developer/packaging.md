@@ -9,6 +9,13 @@ with `just flatpak`. [`packaging/flatpak/README.md`](../../packaging/flatpak/REA
 has the full details: what's bundled and why (MLT 7.40, FFmpeg with x264,
 only the MLT modules the app uses, no Qt), permissions, and build tips.
 
+Only listed MLT modules ever load
+([ADR-022](../plans/v2/adr/022-curated-mlt-modules-allowlist.md)): the editor's own
+(`editorModules()` in `src/engine/factory_policy.cpp`) and those a drop-in
+names in `FactoryPaths::allowModules` (the effects drop-in's list is in
+`drop-ins/effects/register.cpp`). A package needs to ship only those; any
+other module it carries is never linked into the curated directory.
+
 ```sh
 just flatpak                                   # bundle lands in build-flatpak/
 just dist build-flatpak/<bundle>.flatpak       # copy with a .sha256 sidecar

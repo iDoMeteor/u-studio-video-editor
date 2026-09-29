@@ -33,11 +33,22 @@ struct FactoryPaths
     std::vector<std::string> frei0rPaths;
     std::vector<std::string> ofxPaths;
     std::vector<std::string> mltModuleDirs;
-    // Default-denied modules a drop-in lifts, by their denylist entry
-    // ("openfx": the effects drop-in's OpenFX opt-in, after its own Qt
+    // MLT's own modules a drop-in needs beyond the editor's (ADR-022: the
+    // curated directory links only listed modules), by name: "frei0r" for
+    // libmltfrei0r. Naming a default-denied module lifts its denylist entry
+    // too ("openfx": the effects drop-in's OpenFX opt-in, after its own Qt
     // scan). Deny wins for anything Qt: an entry naming "qt" is ignored.
     std::vector<std::string> allowModules;
 };
+
+// ADR-022: the MLT modules the editor itself needs (CLAUDE.md's list).
+const std::vector<std::string> &editorModules();
+
+// Removes curated module directories under `base` left by processes that
+// ended without their cleanup (a crash, SIGKILL): named for a process that
+// no longer runs, or of the old unnamed form and more than a day old. Ones
+// this user can't remove are left. Returns how many it removed.
+int sweepStaleCuratedDirs(const std::string &base);
 
 // The denylist FactoryPolicy applies: the default one (or
 // USTUDIO_MLT_DENYLIST's), less the entries `allow` lifts, never a Qt one.
