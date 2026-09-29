@@ -119,11 +119,6 @@
     "category": "Stabilise",
     "name": "Deshake"
   },
-  "dropshadow": {
-    "category": "Stylise",
-    "name": "Drop Shadow",
-    "featured": true
-  },
   "dust": {
     "category": "Stylise",
     "name": "Dust"

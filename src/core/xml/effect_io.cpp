@@ -61,8 +61,12 @@ std::string encodeValue(const Param::Value &value)
                     const std::filesystem::path path(v);
                     if (path.is_absolute()) {
                         const std::filesystem::path relative = path.lexically_relative(*t_projectFolder);
-                        if (!relative.empty() && !relative.string().starts_with(".."))
+                        if (!relative.empty() && !relative.string().starts_with("..")) {
+                            // An older build reads "f:" as a number and a
+                            // re-save loses the file: it must refuse this one.
+                            requireFormatVersion(7);
                             return "f:" + relative.generic_string();
+                        }
                     }
                 }
                 return "s:" + v;

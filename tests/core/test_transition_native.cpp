@@ -248,6 +248,8 @@ TEST_CASE("XML: an effect's file inside the project's folder follows the project
     std::ifstream in(path);
     const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     CHECK(text.find(">f:luts/grade.cube<") != std::string::npos);                          // the model's record
+    // An older build would read "f:" as a number and lose the file: format 7.
+    CHECK(text.find("ustudio:format_version\">7<") != std::string::npos);
     CHECK(text.find(">" + (dir.path / "luts" / "grade.cube").string() + "<") != std::string::npos); // the render filter
 
     // The whole folder moved: the LUT is found where it is now.
@@ -266,4 +268,5 @@ TEST_CASE("XML: an effect's file inside the project's folder follows the project
     std::ifstream again(path);
     const std::string text2((std::istreambuf_iterator<char>(again)), std::istreambuf_iterator<char>());
     CHECK(text2.find(">s:/opt/shared/grade.cube<") != std::string::npos);
+    CHECK(text2.find("ustudio:format_version\">6<") != std::string::npos); // nothing an older build loses
 }
