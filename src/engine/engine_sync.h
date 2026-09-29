@@ -7,6 +7,7 @@
 #include "core/model/track_segments.h"
 #include "core/model/transform.h"
 #include "core/render/render_profile.h"
+#include "core/model/transition_native.h"
 #include "engine/engine_extension.h"
 #include "engine/producer_open.h"
 
@@ -332,6 +333,26 @@ class EngineSync
         std::vector<std::vector<std::shared_ptr<Mlt::Filter>>> cuts;
     };
     std::unordered_map<uint64_t, TransformFilters> m_transformFilters;
+    // FX3: a transition sub-tractor's services, kept with its plan's shape
+    // so a recipe-value change (a softness drag) is set on them in place
+    // (applyTransitionsInPlace()); per build.
+    struct LiveTransition
+    {
+        std::string shape;
+        std::shared_ptr<Mlt::Transition> video, audio;
+        std::vector<std::shared_ptr<Mlt::Filter>> filters; // tail's, then head's, in order
+    };
+    std::unordered_map<uint64_t, LiveTransition> m_liveTransitions;
+    // What a transition plays as on this graph's pipeline.
+    struct TransitionPlan
+    {
+        core::NativeTransition native;
+        std::string map;          // a wipe's map file, "" for none
+        bool gpuDissolve = false; // movit.luma_mix instead of the video service
+        std::string shape;        // the services and map: equal shapes differ only in values
+    };
+    TransitionPlan planTransition(const core::Transition &t);
+    bool applyTransitionsInPlace(const core::Project &next);
     // One transparent background for every transform filter (see
     // applyTransform()), built from the current profile.
     std::unique_ptr<Mlt::Producer> m_transformBackground;

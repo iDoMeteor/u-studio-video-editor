@@ -332,6 +332,11 @@ void EngineSync::setProject(std::shared_ptr<const core::Project> project)
         rebuild = false;
         inPlace = true;
     }
+    // Likewise a transition recipe's values (a wipe's softness).
+    if (rebuild && applyTransitionsInPlace(*project)) {
+        rebuild = false;
+        inPlace = true;
+    }
     if (rebuild && !m_extensions.empty() && applyInPlace(*project)) {
         rebuild = false;
         inPlace = true;
@@ -972,6 +977,80 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
     return changed;
 }
 
+EngineSync::TransitionPlan EngineSync::planTransition(const core::Transition &t)
+{
+    TransitionPlan plan;
+    plan.native = core::nativeTransition(t);
+    const core::NativeTransition &native = plan.native;
+    // A wipe's map; none for a dissolve, a dip or an unknown map name
+    // (which then plays as the dissolve).
+    plan.map = native.luma.empty() || native.video.service != "luma" ? std::string() : lumaMapFile(native.luma);
+    plan.gpuDissolve = m_pipeline == Pipeline::Gpu && native.video.service == "luma" && plan.map.empty();
+    // What the services are: equal shapes differ only in values.
+    plan.shape = std::string(plan.gpuDissolve ? "gpu;" : "") + native.video.service + "|" + plan.map + "|" +
+                 native.audio.service + "|";
+    for (const auto *filters : {&native.tailFilters, &native.headFilters}) {
+        for (const core::NativeFilter &filter : *filters)
+            plan.shape += filter.service + ";";
+        plan.shape += "|";
+    }
+    return plan;
+}
+
+bool EngineSync::applyTransitionsInPlace(const core::Project &next)
+{
+    // Only transition recipe values may differ: the same graph input with
+    // every transition's params blanked on both sides.
+    auto blank = [](core::Project project) {
+        for (core::Sequence &seq : project.sequences)
+            for (core::Transition &t : seq.transitions)
+                t.params.clear();
+        return project;
+    };
+    if (!sameGraphInput(blank(*m_project), blank(next)))
+        return false;
+    const core::Sequence *seq = nullptr;
+    for (const core::Sequence &candidate : next.sequences)
+        if (candidate.id == next.activeSequence)
+            seq = &candidate;
+    if (!seq)
+        return false;
+    // Each changed transition's new plan must have its live shape (the same
+    // services, the same map); then its values are set on them.
+    std::vector<std::pair<const LiveTransition *, TransitionPlan>> updates;
+    for (const core::Transition &t : seq->transitions) {
+        if (!m_model.hasTransition(t.id) || m_model.transition(t.id).params == t.params)
+            continue;
+        auto live = m_liveTransitions.find(t.id.value);
+        if (live == m_liveTransitions.end())
+            return false; // built by an extension, or not in the graph
+        TransitionPlan plan = planTransition(t);
+        if (plan.shape != live->second.shape)
+            return false;
+        updates.emplace_back(&live->second, std::move(plan));
+    }
+    if (updates.empty())
+        return false;
+    for (const auto &[live, plan] : updates) {
+        if (!plan.gpuDissolve && live->video)
+            for (const auto &[name, value] : plan.native.video.properties)
+                live->video->set(name.c_str(), value.c_str());
+        if (live->audio)
+            for (const auto &[name, value] : plan.native.audio.properties)
+                live->audio->set(name.c_str(), value.c_str());
+        size_t i = 0;
+        for (const auto *filters : {&plan.native.tailFilters, &plan.native.headFilters})
+            for (const core::NativeFilter &filter : *filters) {
+                if (i < live->filters.size())
+                    for (const auto &[name, value] : filter.properties)
+                        live->filters[i]->set(name.c_str(), value.c_str());
+                ++i;
+            }
+    }
+    Log::debug("[engine] " + std::to_string(updates.size()) + " transition value change(s) applied in place");
+    return true;
+}
+
 void EngineSync::decorateCut(Mlt::Producer &cut, const core::Clip &clip, core::FrameIndex in, core::FrameIndex out)
 {
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
@@ -1035,23 +1114,26 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // The transition's recipe (core/model/transition_native.h): the plain
     // dissolve for empty params, a wipe, a dip or a flash otherwise.
     // Model::check() has already refused any service outside its allowlist.
-    const core::NativeTransition native = core::nativeTransition(t);
+    const TransitionPlan plan = planTransition(t);
+    const core::NativeTransition &native = plan.native;
+    // Kept, with the plan's shape, so a value-only change (a softness drag)
+    // is set on them in place (applyTransitionsInPlace()).
+    LiveTransition &live = m_liveTransitions[t.id.value];
+    live = LiveTransition{plan.shape, {}, {}, {}};
     for (const auto &[filters, cut] : {std::pair{&native.tailFilters, tailA.get()}, {&native.headFilters, headB.get()}})
         for (const core::NativeFilter &spec : *filters) {
-            Mlt::Filter filter(*m_profile, spec.service.c_str());
-            if (!filter.is_valid()) {
+            auto filter = std::make_shared<Mlt::Filter>(*m_profile, spec.service.c_str());
+            if (!filter->is_valid()) {
                 Log::warn("[engine] transition filter unavailable: " + spec.service);
+                live.shape = kMixedShape; // never updated in place
                 continue;
             }
             for (const auto &[name, value] : spec.properties)
-                filter.set(name.c_str(), value.c_str());
-            attachToCut(*cut, filter);
+                filter->set(name.c_str(), value.c_str());
+            attachToCut(*cut, *filter);
+            live.filters.push_back(std::move(filter));
         }
-
-    // A wipe's map; none for a dissolve, a dip or an unknown map name
-    // (which then plays as the dissolve).
-    const std::string map =
-        native.luma.empty() || native.video.service != "luma" ? std::string() : lumaMapFile(native.luma);
+    const std::string &map = plan.map;
     // The GPU graph dissolves (and dips, whose brightness filters sit on the
     // cuts) with movit.luma_mix, a plain mix without a luma `resource`
     // (transition_movit_luma.yml). A wipe there stays the CPU `luma`, an
@@ -1061,15 +1143,17 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // plays exactly the CPU's wipe (edge within ~9 px at 1080p) at about
     // 140 ms a frame at Full. Keep the maps .pgm: another image format goes
     // through the default loader, the gap on a live GPU session.
-    const bool gpuDissolve = m_pipeline == Pipeline::Gpu && native.video.service == "luma" && map.empty();
-    Mlt::Transition luma(*m_profile, gpuDissolve ? "movit.luma_mix" : native.video.service.c_str());
+    const bool gpuDissolve = plan.gpuDissolve;
+    auto luma = std::make_shared<Mlt::Transition>(*m_profile,
+                                                  gpuDissolve ? "movit.luma_mix" : native.video.service.c_str());
     if (!gpuDissolve)
         for (const auto &[name, value] : native.video.properties)
-            luma.set(name.c_str(), value.c_str());
+            luma->set(name.c_str(), value.c_str());
     if (!map.empty())
-        luma.set("resource", map.c_str());
-    luma.set_in_and_out(0, static_cast<int>(t.length - 1));
-    field->plant_transition(luma, 0, 1);
+        luma->set("resource", map.c_str());
+    luma->set_in_and_out(0, static_cast<int>(t.length - 1));
+    field->plant_transition(*luma, 0, 1);
+    live.video = luma;
 
     // start=-1 ("automatic linear crossfade from 0 to 1", per the mix
     // module's own YAML) is the crossfade mode, NOT the sum=1/
@@ -1083,11 +1167,12 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     // wasn't discriminating enough to prove it either way) -- flagged
     // here rather than claimed as verified. nativeTransition() supplies
     // start=-1 unless a recipe sets its own audio.
-    Mlt::Transition mix(*m_profile, native.audio.service.c_str());
+    auto mix = std::make_shared<Mlt::Transition>(*m_profile, native.audio.service.c_str());
     for (const auto &[name, value] : native.audio.properties)
-        mix.set(name.c_str(), value.c_str());
-    mix.set_in_and_out(0, static_cast<int>(t.length - 1));
-    field->plant_transition(mix, 0, 1);
+        mix->set(name.c_str(), value.c_str());
+    mix->set_in_and_out(0, static_cast<int>(t.length - 1));
+    field->plant_transition(*mix, 0, 1);
+    live.audio = mix;
 
     sub->refresh();
     if (pairAlpha)
@@ -1195,6 +1280,7 @@ void EngineSync::rebuildAll()
     m_clipProducers.clear();
     m_extensionProducers.clear();
     m_transformFilters.clear();
+    m_liveTransitions.clear();
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         extension->beginBuild();
     auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
