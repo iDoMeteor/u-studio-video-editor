@@ -3,6 +3,7 @@
 #include "core/model/animation.h"
 #include "core/model/effect_native.h"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdlib>
 #include <sstream>
@@ -114,6 +115,31 @@ KeyframedValue readKeyframed(xmlNodePtr parent, const std::string &name, double 
 }
 
 } // namespace
+
+namespace {
+thread_local int *t_formatVersion = nullptr; // the running save's, per thread (saves run on pool threads)
+} // namespace
+
+FormatVersionScope::FormatVersionScope(int base) : m_previous(t_formatVersion), m_needed(base)
+{
+    t_formatVersion = &m_needed;
+}
+
+FormatVersionScope::~FormatVersionScope()
+{
+    t_formatVersion = m_previous;
+}
+
+int FormatVersionScope::needed() const
+{
+    return m_needed;
+}
+
+void requireFormatVersion(int version)
+{
+    if (t_formatVersion)
+        *t_formatVersion = std::max(*t_formatVersion, version);
+}
 
 std::string encodeKeyframes(const std::vector<Keyframe> &keyframes)
 {

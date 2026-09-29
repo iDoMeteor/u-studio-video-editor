@@ -25,7 +25,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kFormatVersion = 6; // must match writer.cpp
+constexpr int kFormatVersion = 7; // the newest writer.cpp may write
 // Oldest version this reader still opens. Format 3 differs from 4 only in
 // where the render structure and dissolve metadata live (see writer.cpp);
 // the record playlists and every ustudio: property it reads are identical.

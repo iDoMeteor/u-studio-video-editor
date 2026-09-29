@@ -45,7 +45,10 @@ namespace fs = std::filesystem;
 // exactly) and a record playlist (the model, what the reader reads); 5 adds
 // effects as <filter>s, clip source parameters, transition recipes,
 // adjustment blocks and looks (IP2, doc 15; core/xml/effect_io.h).
-constexpr int kFormatVersion = 6; // 6: clip transforms (ADR-018)
+// 6: clip transforms (ADR-018). 7: what an older build would lose, written
+// only when a file holds it (xml_detail::requireFormatVersion()): transform
+// keyframes. Otherwise 6, so older builds still open the file.
+constexpr int kFormatVersion = 6;
 
 // Every effect in `effects` as a <filter> under `parent` (effect_io.h);
 // `cutIn` for a clip's render cut.
@@ -273,9 +276,11 @@ void writeClipEntry(xmlNodePtr playlist, const Clip &clip, const std::string &pr
         for (const auto &[name, value] : values) {
             if (value->value != 0.0)
                 addProperty(entry, std::string("ustudio:transform.") + name, doubleToString(value->value));
-            if (!value->keyframes.empty())
+            if (!value->keyframes.empty()) {
                 addProperty(entry, std::string("ustudio:transform.") + name + ".keyframes",
                             xml_detail::encodeKeyframes(value->keyframes));
+                xml_detail::requireFormatVersion(7); // an older build keeps the value, drops the keys
+            }
         }
         if (t.flipH)
             addProperty(entry, "ustudio:transform.flip_h", "1");
@@ -587,6 +592,7 @@ std::string saveProject(const Model &model, const std::string &path)
     fs::path targetPath(path);
     fs::path projectDir = targetPath.parent_path();
 
+    const xml_detail::FormatVersionScope formatVersion(kFormatVersion);
     xmlDocPtr doc = xmlNewDoc(BAD_CAST "1.0");
     xmlNodePtr mlt = xmlNewNode(nullptr, BAD_CAST "mlt");
     xmlDocSetRootElement(doc, mlt);
@@ -715,7 +721,7 @@ std::string saveProject(const Model &model, const std::string &path)
     xmlNewProp(tractor, BAD_CAST "in", BAD_CAST "0");
     xmlNewProp(tractor, BAD_CAST "out", BAD_CAST std::to_string(sequenceLength - 1).c_str());
 
-    addProperty(tractor, "ustudio:format_version", std::to_string(kFormatVersion));
+    xmlNodePtr versionNode = addProperty(tractor, "ustudio:format_version", std::to_string(kFormatVersion));
     addProperty(tractor, "ustudio:sequence_id", std::to_string(seq.id.value));
     addProperty(tractor, "ustudio:sequence_name", seq.name);
     addProperty(tractor, "ustudio:active_sequence", std::to_string(project.activeSequence.value));
@@ -732,6 +738,8 @@ std::string saveProject(const Model &model, const std::string &path)
     // then decorateLane()).
     writeLaneBlocks(tractor, 0);
 
+    // Set last: every record has had its say (requireFormatVersion()).
+    xmlNodeSetContent(versionNode, BAD_CAST std::to_string(formatVersion.needed()).c_str());
     std::string tmpPath = path + ".tmp";
     int written = xmlSaveFormatFileEnc(tmpPath.c_str(), doc, "UTF-8", 1);
     xmlFreeDoc(doc);
