@@ -327,6 +327,12 @@ if [ "$SMOKE_RUNNER" = flatpak ] && flatpak info --user "$SMOKE_APP_ID.DropIn.Ef
     SMOKE_DRIVE="$H" python3 "$H/../effects-smoke/entry.py" "Search effects" glow 2>>"$OUT/helpers.err"; sleep 4
     d press "Search effects"; sleep 0.5; d enter; sleep 2
     d shot 08d-glow
+    # Its previews let go of the clip once hidden and idle (0.78.3: the
+    # hidden Browser used to keep a 1080p decoder, about 180 MB; VE
+    # Effects' tools/effects-smoke/soak_steps.sh has the full soak).
+    check "the Browser's previews opened the clip" grep -q "frame renderer: opened" "$OUT/app.log"
+    d press "Effects" exact; sleep 5
+    check "the idle frame renderer closed the clip" grep -q "frame renderer: closed" "$OUT/app.log"
     d act save; sleep 2
     check "Glow added through the Browser (saved project)" \
         grep -q '<property name="mlt_service">frei0r.glow</property>' "$M/smoke.ustudio"

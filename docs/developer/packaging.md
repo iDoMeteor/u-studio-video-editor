@@ -77,8 +77,9 @@ Two checks guard every package, Flatpak or Snap:
   10. Effects, when the effects extension is installed: the drop-in loads
      from the extension mount, `u-studio-render --probe-effect frei0r.glow`
      reports it usable in the sandbox, the health scan runs, Glow is added
-     through the Browser (the saved project has it), and a render with Glow
-     is brighter than the same render without.
+     through the Browser (the saved project has it), the Browser's previews
+     let go of the clip once hidden and idle (0.78.3), and a render with
+     Glow is brighter than the same render without.
   11. Copy Diagnostics.
 
   Along the way it checks that no Qt library is mapped. It prints
