@@ -43,6 +43,11 @@ const char *captionColourHex(std::string_view name);
 // and their ends): its words, for names and emptiness checks.
 std::string captionWords(const std::string &text);
 
+// The name a caption clip gets from its words: their first line, tags gone.
+// SetClipFields keeps a caption clip's name following its words while the
+// name is still this (the user hasn't renamed the clip).
+std::string captionName(const std::string &caption);
+
 struct Parsed
 {
     std::vector<Cue> cues;

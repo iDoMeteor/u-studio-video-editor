@@ -25,7 +25,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kFormatVersion = 6; // must match writer.cpp
+constexpr int kFormatVersion = 7; // the newest writer.cpp may write
 // Oldest version this reader still opens. Format 3 differs from 4 only in
 // where the render structure and dissolve metadata live (see writer.cpp);
 // the record playlists and every ustudio: property it reads are identical.
@@ -498,8 +498,12 @@ std::expected<Model, std::string> loadProject(const std::string &path)
                                                                             {"crop_top", &t.cropTop},
                                                                             {"crop_right", &t.cropRight},
                                                                             {"crop_bottom", &t.cropBottom}};
-                for (const auto &[name, value] : values)
+                for (const auto &[name, value] : values) {
                     value->value = toDouble(prop(entryNode, std::string("ustudio:transform.") + name, "0"));
+                    if (std::optional<std::string> keys =
+                            getProperty(entryNode, std::string("ustudio:transform.") + name + ".keyframes"))
+                        value->keyframes = xml_detail::decodeKeyframes(*keys);
+                }
                 t.flipH = toBool(prop(entryNode, "ustudio:transform.flip_h", "0"));
                 t.flipV = toBool(prop(entryNode, "ustudio:transform.flip_v", "0"));
                 clip.transform.set(std::move(t));

@@ -25,7 +25,7 @@ namespace ustudio::effects {
 
 // Bumped whenever normalisation or the cache's shape changes, so an old
 // cache is rebuilt rather than misread.
-inline constexpr int kRegistrySchema = 1;
+inline constexpr int kRegistrySchema = 2; // 2: no hardware-only filters
 
 class EffectRegistry
 {

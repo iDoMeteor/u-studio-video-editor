@@ -145,7 +145,9 @@ couldn't be read and were left out.
   caption at once; the gallery's Captions section has boxed and top
   styles too.
 - Each caption's words are its own: fix one on the **Title** page. The
-  timeline names each caption by its first line.
+  timeline names each caption by its first line, and the name follows as
+  you fix the words; once you rename a caption clip yourself, it keeps
+  your name.
 - Line breaks are kept. **Bold**, *italic* and underline from the file
   (`<b>`, `<i>`, `<u>`) show as such; a WebVTT speaker (`<v Name>`) shows
   above the words.

@@ -265,3 +265,8 @@ An effect that fails is **turned off**: it's hidden from the **Add** page,
 and a project that already uses it plays without it (its card says so).
 Tick **Unstable** on the **Add** page to see them anyway; they may take the
 editor down. See [Troubleshooting](troubleshooting.md#an-effect-is-missing-or-turned-off).
+
+Effects that only run on a graphics card's own compute interfaces (FFmpeg's
+Vulkan, OpenCL, CUDA, VAAPI and similar versions, such as "Gblur Vulkan")
+aren't offered at all: the editor hands effects ordinary pictures, which
+they can't use. Their ordinary versions ("Gblur") are there.

@@ -44,6 +44,7 @@ fs::path makeSequence(const fs::path &dir)
     consumer.set("real_time", -1);
     consumer.connect(playlist);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return dir;
 }
 

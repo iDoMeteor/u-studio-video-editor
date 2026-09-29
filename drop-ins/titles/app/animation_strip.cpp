@@ -1,4 +1,5 @@
 #include "animation_strip.h"
+#include "signal_guard.h"
 
 #include "tokens.h"
 
@@ -107,6 +108,7 @@ AnimationStrip::AnimationStrip(Callbacks callbacks) : m_callbacks(std::move(call
 
 AnimationStrip::~AnimationStrip()
 {
+    disconnectFromTree(m_widget, this); // its drag: dispose ends it
     reinterpret_cast<UsAnimationStrip *>(m_widget)->owner = nullptr;
     g_object_unref(m_widget);
 }

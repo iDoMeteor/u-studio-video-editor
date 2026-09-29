@@ -295,3 +295,12 @@ test_mixed_rates_exe = executable(
 )
 
 test('engine-mixed-rates', test_mixed_rates_exe, timeout: 180)
+
+# M6 groundwork: u-studio-render --frames against the live preview.
+test_render_frames_exe = executable(
+  'test_render_frames',
+  files('test_render_frames.cpp'),
+  dependencies: [doctest_dep, libustudio_engine_dep, libustudio_core_dep, libustudio_render_cli_dep, glib_dep],
+  install: false,
+)
+test('engine-render-frames', test_render_frames_exe, timeout: 300, is_parallel: false)

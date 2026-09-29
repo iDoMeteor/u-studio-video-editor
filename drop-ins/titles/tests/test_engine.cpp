@@ -661,6 +661,41 @@ TEST_CASE("1,000 captions build into the engine's graph in proportion, and play 
     CHECK(bright > 500);
 }
 
+TEST_CASE("title exports, one after another, end with avformat's threads joined (both paths)")
+{
+    // VE Core, 2026-09-29: a finished render reads stopped before avformat's
+    // render-ahead thread is joined; without consumer.stop() that thread can
+    // read the producer and profile after they're gone. Rarely a crash, so
+    // this is for the sanitizer runs (`just asan titles-engine`): many short
+    // exports through run() (no cancel) and through the start() loop (with
+    // one), in several formats, each finished and whole.
+    setUp();
+    const std::string title =
+        writeTitle("teardown.ustitle", R"(<ustitle version="1" width="320" height="180" fps="25/1">
+      <timing intro="0" hold="10" outro="0"/>
+      <layer kind="shape" x="40" y="60" w="160" h="50"><fill color="#ff2bd6"/></layer>
+    </ustitle>)");
+    for (int round = 0; round < 3; ++round) {
+        for (const char *format : {"qtrle", "prores", "webm", "png"}) {
+            CAPTURE(round);
+            CAPTURE(format);
+            const std::string output = utf8String(scratch() / ("teardown-" + std::to_string(round) + "-" + format +
+                                                               (std::string(format) == "png" ? "" : ".out")));
+            std::ostringstream out;
+            CHECK(titles::runTitleExport({title, output, format}, out) == 0);
+            titles::TitleExportRequest request;
+            request.title = title;
+            request.output = output + "-cancellable";
+            request.format = format;
+            request.frames = 10;
+            std::atomic<bool> cancel{false};
+            auto written = titles::exportTitle(request, &cancel);
+            REQUIRE_MESSAGE(written.has_value(), (written ? "" : written.error()));
+            CHECK(*written == 10);
+        }
+    }
+}
+
 TEST_CASE("--title-export: alpha formats keep the title's alpha; H.264 is flattened")
 {
     setUp();

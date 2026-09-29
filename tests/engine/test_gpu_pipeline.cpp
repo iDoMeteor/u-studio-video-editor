@@ -86,6 +86,7 @@ fs::path generate(const std::string &name, int width, int height, const char *le
     consumer.set("real_time", -1);
     consumer.connect(tractor);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return path;
 }
 
@@ -275,6 +276,33 @@ TEST_CASE("GPU pipeline: a rotated clip keeps the CPU chain and matches")
     if (!renderBoth(scene.model, 5, cpu, gpu))
         return;
     checkSame(cpu, gpu);
+}
+
+TEST_CASE("GPU pipeline: rotation, crop and flips together match the CPU")
+{
+    // A rotated clip is a CPU island (crop, mirror, affine on the cut) inside
+    // the GPU graph; the demo's picture-in-picture (a 1344x768 source fitted,
+    // cropped, rotated and flipped) came out turned and smeared there.
+    sharedFactoryPolicy();
+    // Only the demo's shape: a 1344x768 source shows both faults, and every
+    // variant is a CPU and a GPU render (the test's time budget).
+    const std::string source = utf8String(generate("halves-1344.mp4", 1344, 768, "color:#2040c0", "color:#20c040"));
+    for (const double rotation : {0.0, 20.0})
+        for (const bool crop : {false, true})
+            for (int flips = 1; flips < 4; ++flips) {
+                Scene scene(source, 1344, 768);
+                Transform t = placed(900, 500, 960, 540, rotation);
+                if (crop)
+                    t.cropRight.value = 270;
+                t.flipH = flips & 1;
+                t.flipV = flips & 2;
+                scene.model.setClipTransform(scene.clip, t);
+                INFO("rotation " << rotation << ", crop " << crop << ", flipH " << t.flipH << ", flipV " << t.flipV);
+                Image cpu, gpu;
+                if (!renderBoth(scene.model, 5, cpu, gpu))
+                    return;
+                checkSame(cpu, gpu);
+            }
 }
 
 TEST_CASE("GPU pipeline: a 4:3 clip is fitted and centred, the track below showing either side")

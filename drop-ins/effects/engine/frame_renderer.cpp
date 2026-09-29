@@ -1,7 +1,9 @@
 #include "engine/frame_renderer.h"
 
+#include "core/log.h"
 #include "core/model/animation.h"
 #include "core/model/effect_native.h"
+#include "platform/process.h"
 #include "engine/dispatcher.h"
 #include "engine/engine_extension.h"
 #include "engine/producer_open.h"
@@ -11,6 +13,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <set>
 
 namespace ustudio::effects {
 
@@ -50,14 +53,35 @@ std::string FrameRequest::key() const
     return key;
 }
 
+namespace {
+// Every renderer alive, for stopAll().
+std::mutex g_liveMutex;
+std::set<FrameRenderer *> g_live;
+} // namespace
+
 FrameRenderer::FrameRenderer(size_t cacheEntries) : m_capacity(cacheEntries)
 {
     m_worker = std::thread([this] { run(); });
+    std::lock_guard lock(g_liveMutex);
+    g_live.insert(this);
 }
 
 FrameRenderer::~FrameRenderer()
 {
     stop();
+    std::lock_guard lock(g_liveMutex);
+    g_live.erase(this);
+}
+
+void FrameRenderer::stopAll()
+{
+    std::set<FrameRenderer *> live;
+    {
+        std::lock_guard lock(g_liveMutex);
+        live = g_live;
+    }
+    for (FrameRenderer *renderer : live)
+        renderer->stop();
 }
 
 void FrameRenderer::stop()
@@ -71,6 +95,7 @@ void FrameRenderer::stop()
     m_wake.notify_all();
     if (m_worker.joinable())
         m_worker.join();
+    m_holdsMedia = false; // closed with the worker's thread
 }
 
 const RenderedFrame *FrameRenderer::cached(const FrameRequest &request) const
@@ -112,12 +137,16 @@ bool open(OpenMedia &open, const FrameRequest &request)
     const std::string key = request.resource + " " + std::to_string(request.width) + "x" +
                             std::to_string(request.height) + " " + std::to_string(request.profile.fps.num) + "/" +
                             std::to_string(request.profile.fps.den);
-    if (open.key == key && open.media)
-        return true;
+    // A clip that doesn't open stays unopened for its key: asked again, the
+    // invalid producer must not be cut and seeked (a crash in the demo tour,
+    // a title whose template wasn't picked yet, 2026-09-29).
+    if (open.key == key)
+        return open.media && open.media->is_valid();
     open.media.reset();
     open.profile = profileFor(request);
     open.media = engine::openProducer(*open.profile, request.resource, engine::ProducerUse::Worker);
     open.key = key;
+    core::Log::debug("[effects] frame renderer: opened " + key);
     return open.media && open.media->is_valid();
 }
 
@@ -175,7 +204,22 @@ void FrameRenderer::run()
         Job job;
         {
             std::unique_lock lock(m_mutex);
-            m_wake.wait(lock, [this] { return m_stopping || !m_jobs.empty(); });
+            const auto ready = [this] { return m_stopping || !m_jobs.empty(); };
+            if (!media.media) {
+                m_wake.wait(lock, ready);
+            } else if (!m_wake.wait_for(lock, kReleaseIdleMedia, ready)) {
+                // Idle: close the media. An open 1080p H.264 decoder holds
+                // about 180 MB (a frame thread a core, each with its
+                // buffers), which a burst of tiles needs for a moment and
+                // an editor playing for an hour doesn't (measured
+                // 2026-09-29: the GPU soak's "leak" was this one step).
+                lock.unlock();
+                core::Log::debug("[effects] frame renderer: closed " + media.key + " (idle)");
+                media = OpenMedia{};
+                m_holdsMedia = false;
+                platform::releaseFreeMemory(); // or RSS stays at the peak
+                continue;
+            }
             if (m_stopping)
                 return;
             // The lowest lane first (the audition before the tiles), newest
@@ -192,6 +236,7 @@ void FrameRenderer::run()
         }
         const std::string key = job.request.key();
         RenderedFrame frame = render(media, job.request);
+        m_holdsMedia = media.media != nullptr;
         std::weak_ptr<void> token;
         {
             std::lock_guard lock(m_mutex);

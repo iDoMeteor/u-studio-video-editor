@@ -403,6 +403,12 @@ std::string captionWords(const std::string &text)
     return out;
 }
 
+std::string captionName(const std::string &caption)
+{
+    const std::string words = captionWords(caption);
+    return words.substr(0, words.find('\n'));
+}
+
 std::string toUtf8(std::string_view bytes, std::string &warning, std::string &error)
 {
     warning.clear();
@@ -801,8 +807,7 @@ bool ImportCaptions::apply(core::Model &model)
         if (!run(std::make_unique<SetClipFields>(insert->clipId(), std::move(fields))))
             return fail();
         // Named by its words, so the timeline reads like the script.
-        const std::string words = captionWords(p.cue->text);
-        const std::string name = words.substr(0, words.find('\n'));
+        const std::string name = captionName(p.cue->text);
         if (!run(std::make_unique<core::RenameClip>(insert->clipId(), name)))
             return fail();
     }
