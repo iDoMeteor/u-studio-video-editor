@@ -60,7 +60,7 @@ std::expected<void, std::string> takePictures(TitleDocument &doc, const fs::path
 {
     std::set<std::string> used;
     for (Layer &layer : doc.layers) {
-        if (layer.kind != LayerKind::Image || layer.src.empty())
+        if (!drawnFromFile(layer))
             continue;
         fs::path source = core::pathFromUtf8(layer.src);
         if (source.is_relative() && !doc.baseDirectory.empty())
@@ -223,7 +223,7 @@ std::expected<TitleDocument, std::string> templateDocument(const TemplateInfo &i
     doc.category.clear();
     if (titlePath.empty()) {
         for (Layer &layer : doc.layers)
-            if (layer.kind == LayerKind::Image && !layer.src.empty() && core::pathFromUtf8(layer.src).is_relative())
+            if (drawnFromFile(layer) && core::pathFromUtf8(layer.src).is_relative())
                 layer.src = core::utf8String(core::pathFromUtf8(doc.baseDirectory) / core::pathFromUtf8(layer.src));
         return doc;
     }
