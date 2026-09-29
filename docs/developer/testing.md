@@ -36,8 +36,12 @@ The short version:
   MLT-lifetime changes, in the tiers CLAUDE.md sets out. See
   [Building](building.md#sanitizers). Don't preload MLT's movit module for
   every test: preloaded, it replaces same-named functions in other modules
-  (plus's `lift_gamma_gain`), so `just asan` preloads it for the "gpu"
-  tests only.
+  (plus's `lift_gamma_gain`), so `just asan` preloads it only for tests
+  that start a GPU session: the "gpu" ones, `dropin-engine` (FX4's GPU
+  lane cases) and `engine-hardware-decode`. A new test that opens a GPU
+  session goes on that list in the justfile, or LeakSanitizer reports
+  movit's `glsl.manager`, which MLT never frees, without a name to
+  suppress.
 - **No fixed time limits in tests.** A loaded machine (other suites, a
   Flatpak build) fails any absolute limit. A test times its work against a
   yardstick measured under the same load (as `engine-thread` and
@@ -99,29 +103,10 @@ both at once, drags a brand Look onto the picture, turns compare on, and
 holds **\\**. Then two stills go at the end of the track, **T** adds a
 dissolve between them, the first wipe's tile (Wipe Right) on the
 Transitions page is clicked, and the saved project must name `wipe.left`
-and its map `ustudio-wipes/v1/left.pgm` (written beside it); undo takes it back. Last it arms the first clip's Blur for touch-record,
-ramps it in 40 quick changes while playing (`ramp.py`), and checks that one
-performance was recorded and saved as fewer keys than frames; then **C**
-opens the clip's curve lanes, the last keyframe's dot (found on the
-screenshot, `rightmost.py`) is dragged, and the saved curve must have moved
-one key and come back with one undo. Last, a drag across the FX lane
-draws an adjustment block, Glow added from the Browser must land on the
-block, and the block's right end (its cyan outline on the screenshot,
-`rightmost.py`) is dragged longer and undone. Then Blue Screen's colour is
-picked from the middle of the picture with the eyedropper (the saved
-colour must be the one logged), and Spot Remover's rectangle is shown on
-the picture and its handle (a solid cyan square, `rightmost.py`'s square
-filter) dragged, which must change the saved rectangle; last, Spot
-Remover's Mask drop-down is set to Rectangle (`choose.py`: a drop-down's
-accessible name is its choice, and its rows take no action, so it's opened
-and moved with the arrow keys), and the saved project must carry the mask
-and play it through `frei0r.alphaspot`. Last, a generated `.cube` is
-imported with Import LUTs (the path typed into GTK's own file dialog), must
-be copied into the project's `luts` folder, and its tile clicked must add
-`avfilter.lut3d` with the copy's path. It also checks an audition leaves the live graph's rebuild
+and its map `ustudio-wipes/v1/left.pgm` (written beside it); undo takes it back. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
-`value.py`, `ramp.py`, `rightmost.py`, `choose.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
+`value.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
 spin button, set an entry by name, select a Browser tile, find a widget's
 centre, drag slowly enough for XDND, and hold a key, over AT-SPI (the main window
 reports no focus without a window manager). The build needs `-Ddropin_effects`.

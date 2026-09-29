@@ -383,9 +383,16 @@ class EngineSync
     // Forgets the masters of assets whose path or status changed (relink,
     // missing on load, found again), so the next build opens them afresh.
     void dropChangedMasters(const core::Project &before, const core::Project &after);
-    // MLT tractor index -> model TrackId; std::nullopt at index 0 (the
-    // black backing track, not a model track).
-    std::vector<std::optional<core::TrackId>> m_mltTrackOrder;
+    // Where each model track's playlist sits: `depth` times into track 0
+    // (the adjustment-lane sub-tractors, FX4; 0 is the main tractor), then
+    // track `index`. rebuildAll() fills it; verify() walks it.
+    struct TrackSlot
+    {
+        core::TrackId track;
+        int depth = 0;
+        int index = 0;
+    };
+    std::vector<TrackSlot> m_trackSlots;
 
     void applyProfile();
     // Swaps in a freshly derived profile and rebuilds everything built on

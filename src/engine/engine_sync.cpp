@@ -24,6 +24,7 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <map>
 #include <system_error>
 #include <thread>
 #include <variant>
@@ -1314,7 +1315,6 @@ void EngineSync::rebuildAll()
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         extension->beginBuild();
     auto newTractor = std::make_shared<Mlt::Tractor>(*m_profile);
-    std::vector<std::optional<core::TrackId>> order;
 
     // Index 0: black backing track (doc 03), not a model track -- gaps on
     // every real track composite over black instead of over nothing.
@@ -1358,8 +1358,6 @@ void EngineSync::rebuildAll()
     // accessors" note, docs/developer/notes/engine-sync.md); set_track() takes its own reference.
     std::unique_ptr<Mlt::Producer> black(
         m_blackMaster->cut(0, static_cast<int>(std::min<core::FrameIndex>(sequenceLength, kBlackMasterLength) - 1)));
-    newTractor->set_track(*black, 0);
-    order.emplace_back(std::nullopt);
 
     // core::mltTrackOrder: audio tracks first (model order), then video
     // tracks bottom-to-top (doc 03) -- shared with core/xml's writer so
@@ -1371,108 +1369,137 @@ void EngineSync::rebuildAll()
     // itself keeps the object alive (same pattern v1's MltEngine relies on
     // for locals passed to Playlist::insert()).
     std::vector<std::unique_ptr<Mlt::Playlist>> playlists;
+    m_trackSlots.clear();
 
-    for (core::TrackId trackId : core::mltTrackOrder(seq)) {
-        const core::Track &modelTrack = m_model.track(trackId);
-        auto playlist = std::make_unique<Mlt::Playlist>(*m_profile);
-        rebuildTrackPlaylist(modelTrack, *playlist);
+    // FX4: an adjustment block on lane k > 0 affects only the video rows at
+    // and below k (row 0 is the top). Those rows go into a sub-tractor,
+    // G(k), whose own track 0 is the next deeper lane's G or the background,
+    // with the same composites and audio mixes as here (a video clip's own
+    // sound keeps playing), and the block's filters on G(k) (decorateLane).
+    // G(k) is then the next layer's track 0. With no block below the first
+    // row the graph is exactly the flat one. Audio tracks always stay in
+    // the main tractor.
+    std::map<int, std::vector<const core::AdjustmentBlock *>> blocksByLane;
+    for (const core::AdjustmentBlock &block : seq.adjustmentBlocks)
+        blocksByLane[block.lane].push_back(&block);
+    for (auto &[lane, blocks] : blocksByLane)
+        std::sort(blocks.begin(), blocks.end(),
+                  [](const core::AdjustmentBlock *x, const core::AdjustmentBlock *y) { return x->start < y->start; });
+    const core::AdjustmentLayers layers = core::adjustmentLayers(seq);
+    const std::vector<int> &lanes = layers.lanes;
+    const std::vector<std::vector<core::TrackId>> &layerTracks = layers.layerTracks;
 
-        // Track-wide level (doc 03: "audio tracks and the audio part of
-        // video tracks"). A local, like `black` above -- attach() bumps
-        // the filter's own refcount on the service, so it's fine for this
-        // wrapper to go out of scope once the loop body ends.
-        if (modelTrack.volume != 1.0) {
-            Mlt::Filter volumeFilter(*m_profile, "volume");
-            volumeFilter.set("level", core::linearToDecibels(modelTrack.volume));
-            playlist->attach(volumeFilter);
-        }
+    // One layer: `bottom` on track 0, then its tracks' playlists in
+    // core::mltTrackOrder's order, every one composited onto track 0 and
+    // its audio mixed.
+    auto plantLayer = [&](Mlt::Tractor &tractor, Mlt::Producer &bottom, const std::vector<core::TrackId> &trackIds,
+                          int depth) {
+        tractor.set_track(bottom, 0);
+        for (core::TrackId trackId : trackIds) {
+            const core::Track &modelTrack = m_model.track(trackId);
+            auto playlist = std::make_unique<Mlt::Playlist>(*m_profile);
+            rebuildTrackPlaylist(modelTrack, *playlist);
 
-        // Track mute/hide: MLT's own per-track "hide" (1 = video, 2 = audio,
-        // 3 = both) on the track's producer, confirmed with a standalone
-        // repro (2026-09-24): a hidden top track showed what was under it,
-        // a muted one mixed to silence.
-        int hide = (modelTrack.hidden ? 1 : 0) | (modelTrack.muted ? 2 : 0);
-        if (hide != 0)
-            playlist->set("hide", hide);
-
-        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
-            extension->decoratePlaylist(*playlist, m_model, modelTrack, *m_profile);
-
-        newTractor->set_track(*playlist, static_cast<int>(order.size()));
-        order.emplace_back(trackId);
-        playlists.push_back(std::move(playlist));
-    }
-
-    // Video: every track composited onto track 0 (the background), bottom
-    // to top. Audio: mix chained across adjacent indexes, as v1's
-    // MltEngine::plantTrackTransitions did. Chaining the video compositor
-    // too (i-1 -> i) lost an upper clip's alpha: a transformed picture
-    // showed black instead of the tracks under it (the F spike, ADR-018,
-    // standalone repro 2026-09-25); onto track 0 (kdenlive's arrangement)
-    // it shows them.
-    // One owned Field wrapper for the whole tractor -- see
-    // buildTransitionSubTractor()'s comment (sanitizer report S1).
-    std::unique_ptr<Mlt::Field> field(newTractor->field());
-    for (int index = 1; index < newTractor->count(); ++index) {
-        // IP3: a drop-in may replace the compositor (effects: frei0r.cairoblend).
-        std::unique_ptr<Mlt::Transition> compositor;
-        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
-            if (!compositor)
-                compositor = extension->compositor(*m_profile, 0, index);
-        if (compositor) {
-            field->plant_transition(*compositor, 0, index);
-        } else {
-            // composite, with fill=1 (its YAML says that's the default; the
-            // code's is 0): it scales a same-aspect picture to the frame, and
-            // a transformed or other-aspect cut arrives frame-sized from its
-            // affine filter (ADR-018). An affine compositor fits any aspect
-            // itself but cost 21 ms a frame for one untransformed 1080p track
-            // against composite's 5 (39 against 7 for four). Standalone
-            // repros, MLT 7.40, 2026-09-25; docs/developer/notes/engine-sync.md.
-            // Centred (the YAML's values; defaults left/top) when frames are
-            // read at the profile's size (FrameReads), so a plain Fit of
-            // another aspect needs no affine filter: 20 ms a frame against
-            // 63 for a 1344x768 source in 1080p, the edges within a pixel
-            // (standalone repro, 2026-09-27).
-            // The GPU graph composites with movit.overlay (source over, its
-            // default `compositing`), the same fan-in onto track 0; each
-            // cut arrives placed (gpuTransformFilters()) or frame-sized
-            // from the loader's normalisers.
-            Mlt::Transition composite(*m_profile, m_pipeline == Pipeline::Gpu ? "movit.overlay" : "composite");
-            if (m_pipeline == Pipeline::Cpu) {
-                composite.set("fill", 1);
-                if (m_reads == FrameReads::ProfileSize) {
-                    composite.set("halign", "centre");
-                    composite.set("valign", "middle");
-                }
+            // Track-wide level (doc 03: "audio tracks and the audio part of
+            // video tracks"). A local, like `black` above -- attach() bumps
+            // the filter's own refcount on the service, so it's fine for this
+            // wrapper to go out of scope once the loop body ends.
+            if (modelTrack.volume != 1.0) {
+                Mlt::Filter volumeFilter(*m_profile, "volume");
+                volumeFilter.set("level", core::linearToDecibels(modelTrack.volume));
+                playlist->attach(volumeFilter);
             }
-            field->plant_transition(composite, 0, index);
+
+            // Track mute/hide: MLT's own per-track "hide" (1 = video, 2 = audio,
+            // 3 = both) on the track's producer, confirmed with a standalone
+            // repro (2026-09-24): a hidden top track showed what was under it,
+            // a muted one mixed to silence.
+            int hide = (modelTrack.hidden ? 1 : 0) | (modelTrack.muted ? 2 : 0);
+            if (hide != 0)
+                playlist->set("hide", hide);
+
+            for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+                extension->decoratePlaylist(*playlist, m_model, modelTrack, *m_profile);
+            const int index = tractor.count();
+            tractor.set_track(*playlist, index);
+            m_trackSlots.push_back({trackId, depth, index});
+            playlists.push_back(std::move(playlist));
         }
 
-        Mlt::Transition mix(*m_profile, "mix");
-        mix.set("start", 1.0);
-        mix.set("sum", 1);
-        mix.set("always_active", 1);
-        field->plant_transition(mix, index - 1, index);
+        // Video: every track composited onto track 0 (the background), bottom
+        // to top. Audio: mix chained across adjacent indexes, as v1's
+        // MltEngine::plantTrackTransitions did. Chaining the video compositor
+        // too (i-1 -> i) lost an upper clip's alpha: a transformed picture
+        // showed black instead of the tracks under it (the F spike, ADR-018,
+        // standalone repro 2026-09-25); onto track 0 (kdenlive's arrangement)
+        // it shows them.
+        // One owned Field wrapper for the whole tractor -- see
+        // buildTransitionSubTractor()'s comment (sanitizer report S1).
+        std::unique_ptr<Mlt::Field> field(tractor.field());
+        for (int index = 1; index < tractor.count(); ++index) {
+            // IP3: a drop-in may replace the compositor (effects: frei0r.cairoblend).
+            std::unique_ptr<Mlt::Transition> compositor;
+            for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+                if (!compositor)
+                    compositor = extension->compositor(*m_profile, 0, index);
+            if (compositor) {
+                field->plant_transition(*compositor, 0, index);
+            } else {
+                // composite, with fill=1 (its YAML says that's the default; the
+                // code's is 0): it scales a same-aspect picture to the frame, and
+                // a transformed or other-aspect cut arrives frame-sized from its
+                // affine filter (ADR-018). An affine compositor fits any aspect
+                // itself but cost 21 ms a frame for one untransformed 1080p track
+                // against composite's 5 (39 against 7 for four). Standalone
+                // repros, MLT 7.40, 2026-09-25; docs/developer/notes/engine-sync.md.
+                // Centred (the YAML's values; defaults left/top) when frames are
+                // read at the profile's size (FrameReads), so a plain Fit of
+                // another aspect needs no affine filter: 20 ms a frame against
+                // 63 for a 1344x768 source in 1080p, the edges within a pixel
+                // (standalone repro, 2026-09-27).
+                // The GPU graph composites with movit.overlay (source over, its
+                // default `compositing`), the same fan-in onto track 0; each
+                // cut arrives placed (gpuTransformFilters()) or frame-sized
+                // from the loader's normalisers.
+                Mlt::Transition composite(*m_profile, m_pipeline == Pipeline::Gpu ? "movit.overlay" : "composite");
+                if (m_pipeline == Pipeline::Cpu) {
+                    composite.set("fill", 1);
+                    if (m_reads == FrameReads::ProfileSize) {
+                        composite.set("halign", "centre");
+                        composite.set("valign", "middle");
+                    }
+                }
+                field->plant_transition(composite, 0, index);
+            }
+
+            Mlt::Transition mix(*m_profile, "mix");
+            mix.set("start", 1.0);
+            mix.set("sum", 1);
+            mix.set("always_active", 1);
+            field->plant_transition(mix, index - 1, index);
+        }
+    };
+
+    std::unique_ptr<Mlt::Producer> bottom = std::move(black);
+    for (size_t i = lanes.size(); i-- > 0;) {
+        auto group = std::make_unique<Mlt::Tractor>(*m_profile);
+        plantLayer(*group, *bottom, layerTracks[i + 1], static_cast<int>(i + 1));
+        group->set("ustudio.lane", lanes[i]);
+        for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
+            extension->decorateLane(*group, m_model, lanes[i], blocksByLane[lanes[i]], *m_profile);
+        bottom = std::move(group);
     }
+    plantLayer(*newTractor, *bottom, layerTracks[0], 0);
 
     for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
         extension->decorateTractor(*newTractor, m_model, *m_profile);
-    // Lane 0's adjustment blocks cover every track (the lanes below the
-    // first row come with FX4's sub-tractors).
-    std::vector<const core::AdjustmentBlock *> laneZero;
-    for (const core::AdjustmentBlock &block : seq.adjustmentBlocks)
-        if (block.lane == 0)
-            laneZero.push_back(&block);
-    std::sort(laneZero.begin(), laneZero.end(),
-              [](const core::AdjustmentBlock *a, const core::AdjustmentBlock *b) { return a->start < b->start; });
-    if (!laneZero.empty())
+    // Lane 0's adjustment blocks cover every track: the whole tractor.
+    if (auto laneZero = blocksByLane.find(0); laneZero != blocksByLane.end())
         for (const std::unique_ptr<EngineExtension> &extension : m_extensions)
-            extension->decorateLane(*newTractor, m_model, 0, laneZero, *m_profile);
+            extension->decorateLane(*newTractor, m_model, 0, laneZero->second, *m_profile);
 
     newTractor->refresh();
     m_tractor = std::move(newTractor);
-    m_mltTrackOrder = std::move(order);
     rebuilt.emit();
 }
 
@@ -1486,16 +1513,33 @@ std::vector<std::string> EngineSync::verify() const
                            std::to_string(seq.length()));
     }
 
-    for (size_t mltIndex = 0; mltIndex < m_mltTrackOrder.size(); ++mltIndex) {
-        if (!m_mltTrackOrder[mltIndex])
-            continue; // black backing track
-
-        core::TrackId trackId = *m_mltTrackOrder[mltIndex];
+    for (const TrackSlot &slot : m_trackSlots) {
+        core::TrackId trackId = slot.track;
         const core::Track &modelTrack = m_model.track(trackId);
+
+        // Down through the adjustment lanes' sub-tractors (track 0 of each
+        // layer), each checked for the sequence's length.
+        std::unique_ptr<Mlt::Tractor> layer = std::make_unique<Mlt::Tractor>(*m_tractor);
+        for (int depth = 0; depth < slot.depth && layer; ++depth) {
+            std::unique_ptr<Mlt::Producer> below(layer->track(0));
+            layer = below ? std::make_unique<Mlt::Tractor>(*below) : nullptr;
+            if (!layer || !layer->is_valid()) {
+                problems.push_back("track " + std::to_string(trackId.value) +
+                                   ": no adjustment-lane sub-tractor at depth " + std::to_string(depth + 1));
+                layer.reset();
+            } else if (layer->get_length() != m_tractor->get_length()) {
+                const char *lane = layer->get("ustudio.lane");
+                problems.push_back("adjustment lane " + std::string(lane ? lane : "?") + ": length " +
+                                   std::to_string(layer->get_length()) +
+                                   " != " + std::to_string(m_tractor->get_length()));
+            }
+        }
+        if (!layer)
+            continue;
 
         // Same new-wrapper-per-call behaviour as Tractor::field() (report
         // S1, and the 2026-09-20 audit's E7): owned, not borrowed.
-        std::unique_ptr<Mlt::Producer> raw(m_tractor->track(static_cast<int>(mltIndex)));
+        std::unique_ptr<Mlt::Producer> raw(layer->track(slot.index));
         if (!raw) {
             problems.push_back("track " + std::to_string(trackId.value) + ": no MLT producer at index");
             continue;

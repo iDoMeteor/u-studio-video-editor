@@ -89,6 +89,34 @@ modules:
         url: https://github.com/mltframework/mlt/releases/download/v7.40.0/mlt-7.40.0.tar.gz
         sha256: f11c30e21670f62a3dfc56a31306ac02f3feea00908a2821a4a0bf3e989d3d6a
 
+  # ThorVG draws the titles' animated (Lottie) layers (ADR-021; MIT). Built
+  # without Lottie expressions (a JavaScript engine) and without file
+  # access: we load from memory only, and files come from strangers. Static
+  # (default_library), so it links into the drop-in, its MLT module and the
+  # designer: an extension's own lib/ isn't on the library path. Option
+  # names from 1.0.6's meson_options.txt (VE Text).
+  - name: thorvg
+    buildsystem: meson
+    config-opts:
+      - --buildtype=release
+      - -Ddefault_library=static
+      # PIC even though static: it links into libmltustudio, a shared
+      # module (meson's default, pinned here).
+      - -Db_staticpic=true
+      - -Dengines=cpu
+      - -Dloaders=lottie,png,jpg,ttf
+      - -Dextra=
+      - -Dfile=false
+      - -Dthreads=false
+      - -Dbindings=capi
+      - -Dtools=
+      - -Dtests=false
+      - -Dsavers=
+    sources:
+      - type: archive
+        url: https://github.com/thorvg/thorvg/archive/refs/tags/v1.0.6.tar.gz
+        sha256: f9321bd87c3f709c1591424a491cb492be9ef81436427acdc16ff57be7d1bc38
+
   # The whole project configures and builds (the drop-in compiles against
   # src/); only the titles files are kept (cleanup below).
   - name: u-studio-titles

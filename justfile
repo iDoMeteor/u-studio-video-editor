@@ -53,7 +53,9 @@ asan *tests:
     wanted="{{tests}}"
     [ -n "$wanted" ] || wanted=$(meson test -C builddir-asan --list 2>/dev/null | sed 's/^[^:]*://')
     gpu=(); rest=()
-    for t in $wanted; do case "$t" in *gpu*) gpu+=("$t") ;; *) rest+=("$t") ;; esac; done
+    # With movit preloaded: every test that starts a GPU session (its
+    # glsl.manager is only suppressible by name then), not just *gpu* names.
+    for t in $wanted; do case "$t" in *gpu*|dropin-engine|engine-hardware-decode) gpu+=("$t") ;; *) rest+=("$t") ;; esac; done
     run() { # preload, tests...
         local preload=$1; shift
         LD_PRELOAD="$preload" \
@@ -152,6 +154,26 @@ dist artifact:
     (cd "{{dist_dir}}" && sha256sum "$(basename "$dest")" > "$(basename "$dest").sha256")
     echo "dist: $dest"
     cat "$dest.sha256"
+
+# The effects drop-in's Flatpak extension (packaging/flatpak/
+# com.ustudio.VideoEditor.DropIn.Effects.yml), bundled as
+# build-flatpak/u-studio-video-editor-dropin-effects-<version>.flatpak, with
+# frei0r and MLT's frei0r module inside it. Built like flatpak-titles:
+# against the installed app of this same version (FLATPAK_USER_DIR for a
+# scratch installation).
+# The effects extension bundle, built against the installed app.
+flatpak-effects:
+    python3 tools/check_release_notes.py
+    flatpak-builder --user --force-clean --state-dir=build-flatpak/state \
+        build-flatpak/effects packaging/flatpak/com.ustudio.VideoEditor.DropIn.Effects.yml
+    python3 tools/check_bundle_clean.py build-flatpak/effects/files
+    flatpak-builder --user --export-only --state-dir=build-flatpak/state --repo=build-flatpak/repo \
+        build-flatpak/effects packaging/flatpak/com.ustudio.VideoEditor.DropIn.Effects.yml
+    flatpak build-bundle --runtime --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+        build-flatpak/repo build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak \
+        com.ustudio.VideoEditor.DropIn.Effects
+    @ls -lh build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak
+    just dist build-flatpak/u-studio-video-editor-dropin-effects-{{version}}.flatpak
 
 # Publishes a packaged artifact to the public download bucket (owner,
 # 2026-09-28): s3://ut-software-dist/ under its versioned name and its
