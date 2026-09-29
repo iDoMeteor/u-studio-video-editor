@@ -121,8 +121,9 @@ scan runs, and 9 s looped for 12 minutes (on the GPU pipeline when it's
 on). It fails if anything opens the clip while the Browser is hidden or if
 the idle frame renderer never closes it. The slope of the RSS floor (each
 60 s window's minimum after a 120 s warm-up) is reported against 1 MB/min
-as a WARN only: an effects-free build's GPU playback reads +7 to +23
-MB/min under Xvfb, the core pipeline's to settle. Run it for changes to the
+as a WARN only: under Xvfb the same build read -6 and +18 MB/min in two
+15-minute runs, and an effects-free build +10 to +22 over 5 minutes, the
+core GPU pipeline's swings to settle. Run it for changes to the
 drop-in's frame renderer or anything it keeps open (why: [effects
 notes](notes/effects.md#frame-renderer-memory)).
 

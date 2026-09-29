@@ -15,9 +15,9 @@
 # RSS is sampled every 2 s, and after a 120 s warm-up the slope of its
 # floor (each 60 s window's minimum: a frame in flight is 8 MB, so single
 # samples jitter by tens of MB) is reported against 1 MB/min, as a WARN
-# only: an effects-free build's own GPU playback reads +7 to +23 MB/min
-# here (2026-09-29, 15-minute soaks), which is the core pipeline's to
-# settle (VE GPU's quiet soak).
+# only: under Xvfb the same fixed build read -6 and +18 MB/min in two
+# 15-minute runs, and an effects-free build +10 to +22 over 5 minutes
+# (2026-09-29): the core GPU pipeline's swings, for VE GPU's quiet soak.
 set -u
 CLIP_SIZE=1920x1080
 CLIP_SECONDS=12
