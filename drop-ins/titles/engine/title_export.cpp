@@ -142,6 +142,12 @@ std::expected<core::FrameIndex, std::string> exportTitle(const TitleExportReques
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
+    // Finished reads true once avformat's thread clears "running", while its
+    // render-ahead thread may still be pulling a frame; only stop() joins it.
+    // Without this, that thread can outlive the producer and the profile
+    // (VE Core, 2026-09-29: a render crashed 5 of 6 times, and 0 with the
+    // stop; docs/developer/notes/render.md). renderProject() does the same.
+    consumer.stop();
 
     const bool wrote = sequence ? !fs::is_empty(part, ec) : fs::exists(part, ec) && fs::file_size(part, ec) > 0;
     if (!wrote) {

@@ -345,8 +345,10 @@ Acceptance (milestone gate):
 > REVIEW: VE Core, 2026-09-29. The lossless half is in: `u-studio-render
 > --frames` prints the preview graph's frame hashes, and `--ffv1` renders a
 > range that decodes to the graph's YUV exactly (`engine-render-frames`,
-> which also matches the hashes against the live Engine). Box 2 now waits
-> on keyframed transforms only.
+> which also matches the hashes against the live Engine). Keyframed
+> transforms: the model and engine side is in (a placed picture's position,
+> size and rotation), and that test's transformed clip is keyframed into a
+> dissolve. The keyframing UI is VE Effects'.
 
 ## Titles track (parallel to M3–M5)
 

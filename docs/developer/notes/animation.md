@@ -64,3 +64,27 @@ easing, which **restarts** at the edge, so between the edge and the next
 keyframe the shape is close to the original, not identical. That is visible
 only for strongly shaped easings on a short cut. The fix, if it is ever
 needed, is to sample the segment densely into linear keyframes.
+
+## Clip transforms
+
+A clip's transform animates only when placed explicitly (bounds None), and
+never on a crop: `check()` refuses keys elsewhere, and the engine takes
+such a transform at the cut's start. `transformFilters()` writes the
+placement as the `affine` filter's animated `transition.rect` and
+`transition.fix_rotate_x` (both `animation: yes` in
+`transition_affine.yml`), counted from the cut's start:
+`filter_affine.c` reads the position fixed when the frame was processed
+and hands its inner transition a frame at that position (MLT 7.40), so the
+playlist's later change of position doesn't reach it, unlike
+`mask_apply`'s transition (effects notes).
+
+A rect key eases x, y, width and height together with one easing. When
+the keyed values share their keys' frames and easings, the rect has the
+same keys, which is exact because the rect is linear in them. Otherwise
+the rect is sampled at every frame between the first and last key, as
+linear keys; MLT only ever evaluates whole frames there, so that is exact
+too. `movit.rect` (GPU) takes the same string with affine's opacity
+stripped from each key. Tests: `engine-transform` ("a keyframed
+placement moves the picture, per cut, in place, and in melt") and the
+`core` transform cases.
+
