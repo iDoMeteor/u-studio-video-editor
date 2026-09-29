@@ -243,8 +243,10 @@ text = open(sys.argv[1]).read()
 m = re.search(r'ustudio:transform\.rotation\.keyframes">([^<]*)<', text)
 print(m.group(1) if m else None)
 keys = [k for k in m.group(1).split(";") if k] if m else []
-ats = [int(k.split(":")[0].split("=")[0]) for k in keys]
-sys.exit(0 if len(keys) >= 3 and len(keys) * 2 < max(ats) - min(ats) + 1 else 1)
+ats = [int(k.split(":")[0]) for k in keys]
+# A steady ramp thins to as few as two keys (a line needs no more), far
+# fewer than the frames it spans.
+sys.exit(0 if len(keys) >= 2 and max(ats) - min(ats) >= 20 and len(keys) * 4 < max(ats) - min(ats) + 1 else 1)
 PY
 
 
@@ -354,8 +356,10 @@ printf 'TITLE "smoke warm"\nLUT_3D_SIZE 2\n' > "$M/smoke-warm.cube"
 for _ in 1 2 3 4 5 6 7 8; do echo "1.0 0.6 0.2" >> "$M/smoke-warm.cube"; done
 d act effects-browser; sleep 1
 # Out of any text field first: with no window manager the dialog doesn't
-# take the keyboard, and the path would be typed where the focus is.
-d click 900 900; sleep 0.5
+# take the keyboard, and the path would be typed where the focus is. Below
+# the first clip's curve lanes (three by now: two transform curves, Blur),
+# on empty timeline, so the Rack doesn't take the page back.
+d click 900 955; sleep 0.5
 d press "Import LUTs"; sleep 2.5
 d loc "$M/smoke-warm.cube"; d enter; sleep 2
 shot 25-luts
