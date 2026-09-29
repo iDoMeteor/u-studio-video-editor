@@ -1,0 +1,28 @@
+# Keyframed transforms. Voice cedar.
+
+## intro
+In version zero point eight, a picture's position, size and rotation can change over time. Let's make a picture-in-picture glide in, grow and straighten up.
+
+## The Transform card
+Select a clip, and the Effects page now starts with a Transform card: its position, width, height and rotation.
+
+## Pin a starting point
+Set where it should start, small and tilted in the corner, then click the star beside each value to pin it at the playhead.
+
+## Change it later
+Move the playhead on, and change the values again. They're pinned there automatically.
+
+## It moves
+Play it, and the picture glides between the two, growing and straightening as it goes.
+
+## Drag on the preview
+You can shape it on the picture too. On a keyframed clip, dragging it on the preview sets a keyframe at the playhead, just for the values you moved.
+
+## Curve lanes
+Press C to see the curves: the transform's lanes come first, with a dot for every keyframe, ready to drag.
+
+## Touch-record
+Or perform it. Arm touch-record, play, and move the value as it plays. U Stu keeps just enough keyframes to follow what you did.
+
+## outro
+That's keyframed transforms in U Stu Video Editor. Thanks for watching!

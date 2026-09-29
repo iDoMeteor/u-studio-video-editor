@@ -318,5 +318,53 @@
       "GPU acceleration"
     ],
     "caption_margin_v": 150
+  },
+  "transitions-3": {
+    "title": "Transitions 3",
+    "subtitle": "Additive, Screen and Lighten dissolves, and Sound: Cut",
+    "narration": "narration/transitions-3.txt",
+    "script": "transitions3.py",
+    "chapters": [
+      "Blend dissolves",
+      "Screen",
+      "Lighten",
+      "Sound: Cut"
+    ],
+    "dropins_off": [
+      "titles"
+    ]
+  },
+  "keyframes-2": {
+    "title": "Keyframed transforms",
+    "subtitle": "Move, size and turn a picture over time",
+    "narration": "narration/keyframes-2.txt",
+    "script": "keyframes.py",
+    "chapters": [
+      "The Transform card",
+      "Pin a starting point",
+      "Change it later",
+      "It moves",
+      "Drag on the preview",
+      "Curve lanes",
+      "Touch-record"
+    ],
+    "dropins_off": [
+      "titles"
+    ]
+  },
+  "whats-new-080": {
+    "title": "What's new in 0.80",
+    "subtitle": "Keyframed transforms, animated titles, new transitions and sound",
+    "narration": "narration/whats-new-080.txt",
+    "script": "reel.py (segments from the day's runs)",
+    "chapters": [
+      "Keyframed transforms",
+      "Keyframed transforms ",
+      "Animated titles",
+      "Zoom and spin",
+      "Blend dissolves",
+      "Sound on transitions"
+    ],
+    "caption_margin_v": 150
   }
 }

@@ -1,0 +1,19 @@
+# Transitions 3: blend dissolves and Sound: Cut. Voice cedar.
+
+## intro
+Version zero point eight adds three new dissolves that blend the two clips, and a new way for the sound to change over.
+
+## Blend dissolves
+Press T at a cut, and try the blend dissolves. Additive adds the incoming clip over the outgoing one, for a bright, punchy change.
+
+## Screen
+Screen blends the two softly, with a gentle glow half-way through.
+
+## Lighten
+And Lighten shows whichever picture is lighter at every point.
+
+## Sound: Cut
+Under Sound, Cut plays the first clip's sound up to the middle of the transition, and the second clip's from there, with no blend. It's ideal for dialogue, or cutting on a beat.
+
+## outro
+That's what's new in transitions. Thanks for watching!

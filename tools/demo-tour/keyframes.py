@@ -104,12 +104,15 @@ def row_button(name, which):
             return b
     return None
 A, B = 15, 105                                        # key frames on the clip: 0:00.5 and 0:03.5
+def sel_v2(frame):
+    """Select the PiP clip (V2, top row), then seek: the click moves the playhead."""
+    click(60, 752 + 38); pause(0.8); seek(frame); pause(0.8)
 
 launch(); inspector(False)
 import_folder(M + '/unicorn'); pause(6); rest()
 press('Add track'); pause(1.2); import_folder(M + '/zizzle'); pause(6); rest()
 act('zoom-fit'); pause(0.8)
-seek(A); click(60, 752 + 38); pause(0.8)             # the first zizzle clip on V2
+click(60, 752 + 38); pause(0.8); seek(A); pause(0.8)   # select the first zizzle clip on V2, THEN seek (the click moves the playhead)
 act('effects-browser'); pause(1.5); tab('Effects'); pause(1.5)
 
 step('The Transform card', 'with a clip selected, the Effects page starts with its position, size and rotation')
@@ -133,25 +136,29 @@ step('It moves', 'the picture glides in, grows and straightens between the two k
 seek(A - 10); act('play-pause'); pause(4); act('play-pause'); pause(0.8); snap('kf-played')
 
 step('Drag on the preview', 'on a keyframed picture, dragging it on the preview sets a keyframe at the playhead')
-seek(int((A + B) / 2)); pause(1)                 # the V2 clip is still selected: its box is the cyan one
-for f in (A, 40, int((A + B) / 2), 80, B):
-    seek(f); pause(0.8)
-    vals = {nm: round(spin(nm).get_value_iface().get_current_value(), 1) for nm in ('X', 'Y', 'Width', 'Rotation')}
-    T.log(f"frame {f}: {vals}"); snap(f'kf-frame{f}')
-seek(int((A + B) / 2)); pause(1)
-b = preview_box(); T.log(f"box {b}")
-if b:
-    cx, cy = (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
-    drag(cx, cy, cx, cy - 160, dur=1.4); pause(1.5)
+sel_v2(int((A + B) / 2))
+for f in (40, 60, 80):
+    seek(f); pause(0.5)
+    T.log(f"frame {f}: X {spin('X').get_value_iface().get_current_value():.0f}")
+sel_v2(int((A + B) / 2))
+# Aim at the PiP's centre from the card's own values: the preview shows the
+# 1920x1080 frame at (175, 52)-(1369, 716) with the inspector open (measured, 0.80).
+X0, Y0, SX, SY = 175, 52, (1369 - 175) / 1920, (716 - 52) / 1080
+vx = spin('X').get_value_iface().get_current_value(); vy = spin('Y').get_value_iface().get_current_value()
+cx, cy = int(X0 + vx * SX), int(Y0 + vy * SY)
+T.log(f"PiP centre {vx:.0f},{vy:.0f} -> screen {cx},{cy}")
+drag(cx, cy, cx, cy - 150, dur=1.4); pause(1.5)
+T.log(f"after drag X {spin('X').get_value_iface().get_current_value():.0f} Y {spin('Y').get_value_iface().get_current_value():.0f}")
 T.log(f"drag status {status()!r}"); snap('kf-dragged')
 seek(A - 10); act('play-pause'); pause(4); act('play-pause'); pause(0.8)
 
 step('Curve lanes', 'press C: the transform\u2019s curves come first, one lane per value, a dot per keyframe')
-click(60, 752 + 38); pause(0.6)
+sel_v2(A)
 act('effects-curve-lanes'); pause(2.5); snap('kf-lanes'); pause(2.5)
 act('effects-curve-lanes'); pause(1)
 
 step('Touch-record', 'arm a value, play, and move it: U Stu keeps just enough keyframes to follow you')
+sel_v2(A)
 tr = row_button('Rotation', 'Touch-record')
 if tr: click(*centre_of(tr)); pause(0.8)
 seek(A); act('play-pause')

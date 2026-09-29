@@ -107,6 +107,9 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | titles-4 | Animated layers (Lottie), Plays and Speed, the ringing-bell templates | 2026-09-29 (0.79.0-beta.1) |
 | transitions-2 | Zoom, spin, tiles with your clips, equal-power sound | 2026-09-29 (0.79.0-beta.1) |
 | whats-new-078 | Highlight reel for testers, cut from the day's recordings (reel.py) | 2026-09-29 (0.79.0-beta.1) |
+| keyframes-2 | Keyframed transforms: the Transform card, pins, key-aware drags, curves, touch-record | 2026-09-29 (0.80.2-beta.1) |
+| transitions-3 | Additive, Screen and Lighten dissolves, Sound: Cut | 2026-09-29 (0.80.2-beta.1) |
+| whats-new-080 | Highlight reel for 0.80 (reel.py) | 2026-09-29 (0.80.2-beta.1) |
 | gpu | GPU acceleration, on the real desktop (screencast.py + gpu_desktop2.sh; the owner consents in the portal) | 2026-09-29 (0.78.5-beta.1) |
 | effects-1 | The Add page, trying effects, the Effects page, Looks, Compare | 2026-09-29 (0.78.3-beta.1) |
 | effects-2 | Keyframes, curve lanes, masks, adjustment blocks, LUTs | 2026-09-29 (0.78.5-beta.1) |
@@ -116,4 +119,4 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 Next to the videos is a dated index (`INDEX-<date>.md`) for the owner:
 every video in suggested order, with its topic, length and version, plus
 the superseded takes. Nothing in that folder is ever overwritten, so an
-updated index is a new dated file.
+updated index is a new dated file (`-2`, `-3` for a second one the same day).

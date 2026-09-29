@@ -1,0 +1,22 @@
+# What's new in 0.80: a highlight reel for testers. Voice cedar.
+
+## intro
+Here's what's new since zero point seven eight, in under two minutes. It's all in the zero point eight beta, ready to try.
+
+## Keyframed transforms
+Pictures can now move, grow and turn over time. Pin values on the new Transform card, move the playhead, change them, and the picture glides between.
+
+## Animated titles
+Titles can hold animations from Lottie files, and play them once or on a loop, at any speed.
+
+## Zoom and spin
+New transitions zoom and spin the next clip in, and the style tiles now show your own footage.
+
+## Blend dissolves
+Additive, Screen and Lighten dissolves blend both clips half-way, for a brighter change.
+
+## Sound on transitions
+And a transition's sound can crossfade evenly, at equal power for music, or cut at the middle, for dialogue.
+
+## outro
+Plus smaller fixes: screen readers reach every number setting, and projects keep their LUTs when you move the folder. Please try it out, and use Copy Diagnostics in Help to report what you find. Thanks for testing!
