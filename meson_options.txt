@@ -14,7 +14,7 @@ option('gpu_acceleration_default', type: 'combo', choices: ['auto', 'off'], valu
 # Drop-ins (ADR-014): each builds into the app, as a loadable module
 # (libustudio-dropin-<name>.so, installed to $libdir/u-studio/drop-ins/), or
 # not at all.
-option('dropin_effects', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'disabled',
+option('dropin_effects', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'builtin',
        description: 'The effects and transitions drop-in (doc 15)')
 option('dropin_titles', type: 'combo', choices: ['disabled', 'builtin', 'module'], value: 'disabled',
        description: 'The titles drop-in (doc 16)')
@@ -23,6 +23,8 @@ option('dropin_titles', type: 'combo', choices: ['disabled', 'builtin', 'module'
 # that can't give it the network (the editor's Titles extension).
 option('titles_share', type: 'feature', value: 'auto',
        description: 'Build u-studio-share, the template sharing helper (needs libsoup 3, json-glib)')
+option('titles_thorvg', type: 'feature', value: 'auto',
+       description: 'Draw the titles drop-in\'s animated (Lottie) layers with ThorVG (ADR-021)')
 # A Flatpak extension point for separately packaged drop-ins (ADR-014, doc
 # 17), relative to the prefix, e.g. 'lib/u-studio/extensions'. Each
 # subdirectory is one drop-in's extension prefix, whose

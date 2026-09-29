@@ -9,6 +9,7 @@ libustudio_core_sources = files(
   'model/retime.cpp',
   'model/animation.cpp',
   'model/effect_native.cpp',
+  'model/transition_native.cpp',
   'model/transform.cpp',
   'commands/primitives.cpp',
   'commands/undo_stack.cpp',
@@ -20,6 +21,7 @@ libustudio_core_sources = files(
   'xml/release_notes.cpp',
   'render/render_profile.cpp',
   'media/fingerprint.cpp',
+  'media/frame_hash.cpp',
   'media/image_sequence.cpp',
   'media/missing_media.cpp',
 )

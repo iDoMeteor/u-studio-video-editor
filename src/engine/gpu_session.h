@@ -50,6 +50,16 @@ class GpuSession
     bool renderThreadStarted();
     void renderThreadStopped();
 
+    // Around rendering on the consumer's own thread (PlaybackController::
+    // setFrameShowHooks()). MLT's read-ahead thread passes on a frame it
+    // skipped for lateness unrendered, and sdl2_audio shows such frames
+    // without checking (the paused refresh; the frames still queued when
+    // it stops); get_image() then runs the whole movit graph on sdl2's
+    // thread, which needs a context of its own (the render thread holds the
+    // first). One thread at a time. docs/developer/notes/gpu.md.
+    bool frameShowEnter();
+    void frameShowLeave();
+
     const std::string &renderer() const
     {
         return m_renderer;
@@ -71,6 +81,7 @@ class GpuSession
     std::string m_hardwareDecodeApi;
 
     std::unique_ptr<platform::GlContext> m_context;
+    std::unique_ptr<platform::GlContext> m_showContext; // same share group
     std::unique_ptr<Mlt::Filter> m_manager;
     std::string m_renderer;
 };

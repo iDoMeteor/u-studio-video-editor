@@ -5,11 +5,16 @@
 #include "app/browser.h"
 #include "app/catalog.h"
 #include "app/compare.h"
+#include "app/curve_lanes.h"
+#include "app/fx_lane.h"
 #include "app/health_scan.h"
+#include "app/preview_tools.h"
 #include "app/rack.h"
+#include "app/transitions_page.h"
 #include "core/health.h"
-#include "core/looks.h"
 #include "core/log.h"
+#include "core/looks.h"
+#include "core/transitions.h"
 #include "dropins/api.h"
 #include "dropins/dropin_host.h"
 #include "engine/effects_extension.h"
@@ -17,6 +22,10 @@
 #include "engine/probe.h"
 #include "engine/registry.h"
 
+#include <glib.h>
+
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <set>
@@ -24,12 +33,24 @@
 
 namespace {
 
+namespace fs = std::filesystem;
+
 using namespace ustudio::effects;
 
 // IP4, before Mlt::Factory::init(): FREI0R_PATH for exactly the plugins that
 // may load (engine/plugins.h), and the quarantine the last health scan left.
 void contributeFactoryPaths(ustudio::dropins::FactoryPaths *paths)
 {
+    // A package's own MLT frei0r module (the Flatpak extension; the core
+    // app's MLT has none): FactoryPolicy links it into the curated module
+    // directory, through the denylist, after MLT's own (a system frei0r
+    // module keeps its name). Titles installs its module to the same folder
+    // in a plain install: listed once.
+    std::error_code ec;
+    if (std::filesystem::is_directory(EFFECTS_MLT_INSTALL_DIR, ec) &&
+        std::find(paths->mltModuleDirs.begin(), paths->mltModuleDirs.end(), EFFECTS_MLT_INSTALL_DIR) ==
+            paths->mltModuleDirs.end())
+        paths->mltModuleDirs.push_back(EFFECTS_MLT_INSTALL_DIR);
     rememberFrei0rSearchPath();
     HealthFile health = loadHealthFile(healthFilePath());
     // Results for another plugin set or MLT describe other files: ignore
@@ -43,6 +64,33 @@ void contributeFactoryPaths(ustudio::dropins::FactoryPaths *paths)
         ustudio::core::Log::info("[effects] frei0r plugin left out: " + why);
     ustudio::core::Log::debug("[effects] " + std::to_string(plugins.size()) + " frei0r plugins found, " +
                               std::to_string(curation.excluded.size()) + " left out");
+    // LADSPA and VST2 (MLT's jackrack host): the same no-Qt curation, set
+    // in the environment here, before Mlt::Factory::init() reads it; VST2
+    // only with its experimental preference.
+    rememberAudioSearchPaths();
+    const ExperimentalFamilies experimental = loadExperimentalFamilies();
+    const fs::path audioQtCache = effectsCacheDir() / "effects-audio-qt.json";
+    for (const auto &[host, enabled] : {std::pair{AudioHost::Ladspa, true}, {AudioHost::Vst2, experimental.vst2}}) {
+        const PluginCuration audio = curateAudioHost(host, enabled, audioQtCache);
+        std::string list;
+        for (const std::string &dir : audio.paths)
+            list += (list.empty() ? "" : std::string(1, G_SEARCHPATH_SEPARATOR)) + dir;
+        const char *variable = host == AudioHost::Ladspa ? "LADSPA_PATH" : "VST_PATH";
+        g_setenv(variable, list.c_str(), TRUE);
+        for (const std::string &why : audio.excluded)
+            ustudio::core::Log::info(std::string("[effects] ") + variable + " plugin left out: " + why);
+    }
+    // OpenFX: FactoryPolicy denies MLT's openfx module, which loads every
+    // plugin in its fixed folders whatever OFX_PLUGIN_PATH says; lifted only
+    // when chosen and nothing it would open names Qt (ADR-007).
+    if (experimental.openfx) {
+        const std::vector<fs::path> naming = openfxBundlesNamingQt(openfxSearchDirs());
+        if (naming.empty())
+            paths->allowModules.push_back("openfx");
+        else
+            for (const fs::path &bundle : naming)
+                ustudio::core::Log::warn("[effects] OpenFX stays off: " + bundle.string() + " links Qt (ADR-007)");
+    }
     std::set<std::string> quarantined;
     for (const auto &[service, record] : health.records)
         if (!record.usable())
@@ -68,12 +116,25 @@ void registerDropIn(ustudio::dropins::DropInHost *host)
     host->addShellExtension([](ustudio::app::ShellHost &shell) {
         static Catalog catalog;
         static bool scanning = false;
+        // Compare first: the Rack's Compare button takes its hint.
+        addCompare(shell, catalog);
         addRack(shell, catalog);
         addBrowser(shell, catalog);
-        addCompare(shell, catalog);
+        addCurveLanes(shell, catalog);
+        addFxLane(shell, catalog);
+        previewTools(shell); // the eyedropper's and rect handles' overlay, stacked now
+        // FX3: the transition styles (small; the drop-in's own data).
+        static const std::vector<TransitionRecipe> recipes = loadRecipes((effectsDataDir() / "transitions").string());
+        addTransitions(shell, recipes);
         if (scanning)
             return; // one scan per process, however many windows
         scanning = true;
+        // What was loaded at start-up (the experimental families), and
+        // whether the recommended audio pack is there.
+        catalog.experimental = loadExperimentalFamilies();
+        const std::vector<Frei0rPlugin> ladspa = audioHostFiles(AudioHost::Ladspa);
+        catalog.lspInstalled = std::any_of(ladspa.begin(), ladspa.end(),
+                                           [](const Frei0rPlugin &file) { return file.name.starts_with("lsp-plugins"); });
         // Brand Looks (small; the drop-in's own data).
         std::ifstream in(effectsDataDir() / "looks" / "brand.json");
         const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());

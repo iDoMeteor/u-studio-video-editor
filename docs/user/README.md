@@ -14,6 +14,7 @@ Read [Installing](installing.md), then [Getting started](getting-started.md).
 | [Audio](audio.md) | Waveforms, syncing recordings by sound, split audio, levels |
 | [Preview and transform](preview-and-transform.md) | Playback, preview scale, placing and cropping pictures |
 | [Projects and saving](projects-and-saving.md) | Save, open, backups, autosave and crash recovery |
+| [Effects](effects.md) | Add, try, keyframe and compare effects; looks; several clips at once (with the Effects add-on) |
 | [Titles](titles.md) | Lower thirds and other animated titles from `.ustitle` files: import, length, fonts (with the Titles drop-in) |
 | [Rendering](rendering.md) | Export to MP4, render profiles, the render queue |
 | [Settings and Help](settings-and-help.md) | Every setting, and what's in Help |

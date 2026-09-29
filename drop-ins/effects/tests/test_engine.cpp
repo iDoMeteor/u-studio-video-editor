@@ -6,6 +6,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/blocks.h"
 #include "core/commands.h"
 #include "core/commands/undo_stack.h"
 #include "core/media/utf8_path.h"
@@ -599,5 +600,357 @@ TEST_CASE("Brand looks: every one ships with services this install has, and chan
         const RenderedFrame frame = FrameRenderer::renderNow(greyRequest(effectsOf(look)));
         REQUIRE(!frame.rgba.empty());
         CHECK(frame.rgba != plain.rgba);
+    }
+}
+
+namespace {
+
+// Red at (u, v) (fractions of the frame), pulled at 160x90.
+int redAt(Mlt::Producer &producer, int position, double u, double v)
+{
+    producer.seek(position);
+    std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+    mlt_image_format format = mlt_image_rgba;
+    int w = 160, h = 90;
+    const uint8_t *image = frame->get_image(format, w, h);
+    const auto x = static_cast<size_t>(u * w), y = static_cast<size_t>(v * h);
+    return image[(y * static_cast<size_t>(w) + x) * 4];
+}
+
+EffectMask centredMask(const std::string &shape, bool invert = false)
+{
+    EffectMask mask;
+    mask.shape = shape;
+    mask.params = {{"x", 0.5, {}}, {"y", 0.5, {}}, {"width", 0.5, {}}, {"height", 0.5, {}}};
+    mask.feather = {0.0, {}};
+    mask.invert = invert;
+    return mask;
+}
+
+} // namespace
+
+// FX4: a mask limits an effect to a shape (frei0r.alphaspot between
+// mask_start and mask_apply; core::nativeFilters()).
+TEST_CASE("A mask limits an effect to its shape, in the editor and in melt")
+{
+    setUp();
+    Timeline t;
+    const EffectId black = t.addBrightness(Model::EffectTarget::clip(t.a), 0.0);
+    SUBCASE("rectangle: black inside, grey outside")
+    {
+        t.model.setEffectMask(black, centredMask("rectangle"));
+        engine::EngineSync sync(t.model);
+        CHECK(redAt(sync.tractor(), 20, 0.5, 0.5) < 8);
+        CHECK(redAt(sync.tractor(), 20, 0.3, 0.3) < 8); // inside the rectangle's corner
+        CHECK(near(redAt(sync.tractor(), 20, 0.05, 0.05), kGrey));
+        CHECK(near(redAt(sync.tractor(), 20, 0.9, 0.5), kGrey));
+    }
+    SUBCASE("inverted: the other way round")
+    {
+        t.model.setEffectMask(black, centredMask("rectangle", true));
+        engine::EngineSync sync(t.model);
+        CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey));
+        CHECK(redAt(sync.tractor(), 20, 0.05, 0.05) < 8);
+    }
+    SUBCASE("ellipse: a rectangle's corner is outside it")
+    {
+        t.model.setEffectMask(black, centredMask("ellipse"));
+        engine::EngineSync sync(t.model);
+        CHECK(redAt(sync.tractor(), 20, 0.5, 0.5) < 8);
+        CHECK(near(redAt(sync.tractor(), 20, 0.27, 0.27), kGrey));
+    }
+    SUBCASE("a 50% mix inside the shape, and melt plays the saved file the same")
+    {
+        t.model.setEffectMask(black, centredMask("rectangle"));
+        t.model.setEffectMix(black, {0.5, {}});
+        engine::EngineSync sync(t.model);
+        CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey / 2));
+        const fs::path path = scratch() / "mask.ustudio";
+        REQUIRE(saveProject(t.model, utf8String(path)).empty());
+        Mlt::Producer melt(sync.profile(), ("xml:" + utf8String(path)).c_str());
+        REQUIRE(melt.is_valid());
+        for (auto [u, v] : {std::pair{0.5, 0.5}, {0.05, 0.05}, {0.3, 0.3}})
+            CHECK(near(redAt(melt, 20, u, v), redAt(sync.tractor(), 20, u, v), 3));
+    }
+}
+
+TEST_CASE("A masked effect's mix, invert and geometry apply in place; a new shape rebuilds")
+{
+    setUp();
+    Timeline t;
+    const EffectId black = t.addBrightness(Model::EffectTarget::clip(t.a), 0.0);
+    t.model.setEffectMask(black, centredMask("rectangle"));
+    engine::EngineSync sync(t.model);
+    int rebuilds = 0, inPlace = 0;
+    sync.rebuilt.connect([&] { ++rebuilds; });
+    sync.appliedInPlace.connect([&] { ++inPlace; });
+    UndoStack undo(t.model);
+    auto apply = [&](std::unique_ptr<core::Command> command) {
+        REQUIRE(undo.execute(std::move(command)));
+        sync.setProject(t.model.snapshot());
+    };
+
+    // The mix lives in alphaspot's inside alpha now, not the transition.
+    apply(std::make_unique<SetMix>(black, KeyframedValue{0.5, {}}));
+    CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey / 2));
+    CHECK(near(redAt(sync.tractor(), 20, 0.05, 0.05), kGrey));
+    // Inverted: the mix moves to the outside alpha.
+    EffectMask inverted = centredMask("rectangle", true);
+    apply(std::make_unique<SetEffectMask>(black, inverted));
+    CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey));
+    CHECK(near(redAt(sync.tractor(), 20, 0.05, 0.05), kGrey / 2));
+    // The shape moved left: its old middle is outside now (effect there).
+    inverted.params = {{"x", 0.2, {}}, {"y", 0.5, {}}, {"width", 0.2, {}}, {"height", 0.5, {}}};
+    apply(std::make_unique<SetEffectMask>(black, inverted));
+    CHECK(near(redAt(sync.tractor(), 20, 0.5, 0.5), kGrey / 2));
+    CHECK(near(redAt(sync.tractor(), 20, 0.2, 0.5), kGrey));
+    CHECK(rebuilds == 0);
+    CHECK(inPlace == 3);
+    // Another shape: other filter values chosen at build time: a rebuild.
+    inverted.shape = "ellipse";
+    apply(std::make_unique<SetEffectMask>(black, inverted));
+    CHECK(rebuilds == 1);
+    // And one the editor can't draw is refused by the model's check.
+    Model broken = t.model;
+    inverted.shape = "polygon";
+    broken.setEffectMask(black, inverted);
+    CHECK_FALSE(broken.check().empty());
+}
+
+// FX5: a LUT library item (Catalog "lut:<path>") is avfilter.lut3d with the
+// file; a generated .cube (text, no binary media) that maps everything to
+// red turns the grey clip red, in the editor and in melt.
+TEST_CASE("A LUT from the library grades the clip, in the editor and in melt")
+{
+    setUp();
+    const fs::path cube = scratch() / "all-red.cube";
+    {
+        std::ofstream out(cube);
+        out << "TITLE \"all red\"\nLUT_3D_SIZE 2\n";
+        for (int i = 0; i < 8; ++i)
+            out << "1.0 0.0 0.0\n";
+    }
+    Timeline t;
+    Effect lut;
+    lut.service = "avfilter.lut3d";
+    lut.owner = kOwner;
+    lut.params = {{"av.file", utf8String(cube), {}}, {"av.interp", std::string("tetrahedral"), {}}};
+    t.model.addEffect(Model::EffectTarget::clip(t.a), lut, 0);
+    engine::EngineSync sync(t.model);
+    CHECK(redAt(sync.tractor(), 20) > 240);
+    CHECK(near(redAt(sync.tractor(), 150), kGrey)); // b has none
+    const fs::path path = scratch() / "lut.ustudio";
+    REQUIRE(saveProject(t.model, utf8String(path)).empty());
+    Mlt::Producer melt(sync.profile(), ("xml:" + utf8String(path)).c_str());
+    REQUIRE(melt.is_valid());
+    CHECK(redAt(melt, 20) > 240);
+}
+
+// FX5: LADSPA and VST2 plugins are curated like frei0r's (MLT's jackrack
+// host opens every .so under LADSPA_PATH/VST_PATH, recursively, at start).
+TEST_CASE("LADSPA and VST2 curation: a plugin naming Qt never reaches LADSPA_PATH; VST2 off unless chosen")
+{
+    setUp();
+    const fs::path dir = scratch() / "fake-ladspa";
+    fs::create_directories(dir / "pack");
+    std::ofstream(dir / "clean.so", std::ios::binary) << std::string("\x7f" "ELF libc.so.6", 13);
+    std::ofstream(dir / "pack" / "qtish.so", std::ios::binary) << "\x7f" "ELF libQt6Widgets.so.6";
+    std::ofstream(dir / "pack" / "clean.so", std::ios::binary) << "\x7f" "ELF also clean";
+    std::ofstream(dir / "readme.txt", std::ios::binary) << "not a plugin";
+    const char *remembered = std::getenv("USTUDIO_LADSPA_SEARCH_PATH");
+    const std::string saved = remembered ? remembered : "";
+    g_setenv("USTUDIO_LADSPA_SEARCH_PATH", utf8String(dir).c_str(), TRUE);
+
+    CHECK(audioSearchDirs(AudioHost::Ladspa) == std::vector<fs::path>{dir});
+    CHECK(audioHostFiles(AudioHost::Ladspa).size() == 3); // recursive, .so only
+    const PluginCuration ladspa = curateAudioHost(AudioHost::Ladspa, true, scratch() / "audio-qt.json");
+    REQUIRE(!ladspa.curatedDir.empty());
+    CHECK(ladspa.paths == std::vector<std::string>{ladspa.curatedDir.string()});
+    CHECK(ladspa.excluded.size() == 1);
+    // Both clean files, the second renamed (names meet in one flat folder).
+    CHECK(fs::exists(ladspa.curatedDir / "clean.so"));
+    CHECK(fs::exists(ladspa.curatedDir / "clean-2.so"));
+    CHECK(!fs::exists(ladspa.curatedDir / "qtish.so"));
+    CHECK((fs::status(ladspa.curatedDir).permissions() & fs::perms::others_all) == fs::perms::none);
+
+    // VST2 without its preference: a folder that isn't there.
+    const PluginCuration vst = curateAudioHost(AudioHost::Vst2, false, scratch() / "audio-qt.json");
+    REQUIRE(vst.paths.size() == 1);
+    CHECK(!fs::exists(vst.paths[0]));
+
+    if (remembered)
+        g_setenv("USTUDIO_LADSPA_SEARCH_PATH", saved.c_str(), TRUE);
+    else
+        g_unsetenv("USTUDIO_LADSPA_SEARCH_PATH");
+}
+
+TEST_CASE("OpenFX: a bundle naming Qt, at the top or one folder deep, is found")
+{
+    setUp();
+    const fs::path dir = scratch() / "fake-ofx";
+    auto bundle = [&](const fs::path &at, const std::string &content) {
+        const fs::path binary = at / "Contents" / "Linux-x86-64";
+        fs::create_directories(binary);
+        std::ofstream(binary / (at.stem().stem().string() + ".ofx"), std::ios::binary) << content;
+    };
+    bundle(dir / "Clean.ofx.bundle", "\x7f" "ELF libc.so.6");
+    CHECK(openfxBundlesNamingQt({dir}).empty());
+    bundle(dir / "vendor" / "Qtish.ofx.bundle", "\x7f" "ELF libQt5Core.so.5");
+    bundle(dir / "vendor" / "deeper" / "Deep.ofx.bundle", "\x7f" "ELF libQt6Gui.so.6"); // MLT doesn't look there
+    const std::vector<fs::path> naming = openfxBundlesNamingQt({dir});
+    REQUIRE(naming.size() == 1);
+    CHECK(naming[0].filename() == "Qtish.ofx.bundle");
+    // The fixed folders are always searched, OFX_PLUGIN_PATH after them.
+    const std::vector<fs::path> dirs = openfxSearchDirs();
+    REQUIRE(dirs.size() >= 2);
+    CHECK(dirs[0] == "/usr/OFX/Plugins");
+}
+
+// FX4: an adjustment block on lane 0 (above every track) puts its effects
+// on the output for exactly its range, its fades ramping them, in the
+// editor and in melt; a value dragged in place keeps the fades.
+TEST_CASE("An adjustment block affects exactly its range, fades in, and plays the same in melt")
+{
+    setUp();
+    Timeline t; // grey, the whole timeline [0, 190)
+    AdjustmentBlock block;
+    block.lane = 0;
+    block.start = 120;
+    block.length = 40; // [120, 160)
+    block.fadeIn = FadeSpec{10};
+    Effect black;
+    black.service = "brightness";
+    black.owner = kOwner;
+    black.params = {{"level", 0.0, {}}, {"rgb_only", true, {}}};
+    block.effects = {black};
+    const AdjustmentBlockId id = t.model.addAdjustmentBlock(block);
+    REQUIRE(t.model.check().empty());
+    engine::EngineSync sync(t.model);
+    CHECK(near(redAt(sync.tractor(), 119), kGrey));      // before it
+    CHECK(near(redAt(sync.tractor(), 125), kGrey / 2));  // half-way through its fade
+    CHECK(redAt(sync.tractor(), 140) < 8);              // inside
+    CHECK(near(redAt(sync.tractor(), 160), kGrey));      // after it
+    const fs::path path = scratch() / "block.ustudio";
+    REQUIRE(saveProject(t.model, utf8String(path)).empty());
+    Mlt::Producer melt(sync.profile(), ("xml:" + utf8String(path)).c_str());
+    REQUIRE(melt.is_valid());
+    for (int frame : {119, 125, 140, 160})
+        CHECK(near(redAt(melt, frame), redAt(sync.tractor(), frame), 3));
+
+    // Its effect's value, dragged: in place, the fade still there.
+    int rebuilds = 0, inPlace = 0;
+    sync.rebuilt.connect([&] { ++rebuilds; });
+    sync.appliedInPlace.connect([&] { ++inPlace; });
+    const EffectId effect = t.model.adjustmentBlock(id).effects[0].id;
+    UndoStack undo(t.model);
+    REQUIRE(undo.execute(std::make_unique<SetParam>(effect, Param{"level", 0.5, {}}, 1)));
+    sync.setProject(t.model.snapshot());
+    CHECK(rebuilds == 0);
+    CHECK(inPlace == 1);
+    CHECK(near(redAt(sync.tractor(), 140), kGrey / 2));
+    CHECK(near(redAt(sync.tractor(), 125), kGrey * 3 / 4)); // half the fade of half the effect
+
+    // A fade-handle drag: in place too, the ramp following the new length.
+    for (FrameIndex fade : {20, 30})
+        REQUIRE(undo.execute(std::make_unique<SetAdjustmentBlockFades>(id, FadeSpec{fade}, std::nullopt, 2)));
+    sync.setProject(t.model.snapshot());
+    CHECK(rebuilds == 0);
+    CHECK(inPlace == 2);
+    // At 125, 5 frames into a 30-frame fade: a sixth of half the effect.
+    CHECK(near(redAt(sync.tractor(), 125), kGrey - kGrey / 12));
+    CHECK(near(redAt(sync.tractor(), 155), kGrey / 2)); // past the fade
+
+    // The first fade on a fadeless block, and the last one removed, change
+    // its effects' filters (a plain filter against the mix wrap): rebuilds,
+    // with the right picture each time (VE Core's case).
+    REQUIRE(undo.execute(std::make_unique<SetAdjustmentBlockFades>(id, std::nullopt, std::nullopt)));
+    sync.setProject(t.model.snapshot());
+    REQUIRE(undo.execute(std::make_unique<SetParam>(effect, Param{"level", 0.0, {}}, 3)));
+    sync.setProject(t.model.snapshot());
+    const int before = rebuilds;
+    CHECK(redAt(sync.tractor(), 125) < 8); // no fade: black from the block's start
+    REQUIRE(undo.execute(std::make_unique<SetAdjustmentBlockFades>(id, FadeSpec{10}, std::nullopt)));
+    sync.setProject(t.model.snapshot());
+    CHECK(rebuilds == before + 1);
+    CHECK(near(redAt(sync.tractor(), 125), kGrey / 2));
+    REQUIRE(undo.execute(std::make_unique<SetAdjustmentBlockFades>(id, std::nullopt, std::nullopt)));
+    sync.setProject(t.model.snapshot());
+    CHECK(rebuilds == before + 2);
+    CHECK(redAt(sync.tractor(), 125) < 8);
+}
+
+namespace {
+
+// A whole frame, hashed (FNV-1a over its RGBA at the profile's size).
+uint64_t frameHash(Mlt::Producer &producer, int position, int width, int height)
+{
+    producer.seek(position);
+    std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+    mlt_image_format format = mlt_image_rgba;
+    int w = width, h = height;
+    const uint8_t *image = frame->get_image(format, w, h);
+    uint64_t hash = 1469598103934665603ull;
+    for (size_t i = 0; i < static_cast<size_t>(w) * static_cast<size_t>(h) * 4; ++i)
+        hash = (hash ^ image[i]) * 1099511628211ull;
+    return hash;
+}
+
+} // namespace
+
+// M5's gate (doc 12): a keyframed effect (a keyframed transform isn't in
+// the model yet: ADR-018's transforms are single values), a masked effect,
+// a dissolve with effects on both sides and an adjustment block give the
+// same frames in the preview's graph and the export's (renderProject()
+// builds its own EngineSync at full size), hash for hash; melt plays the
+// saved project within rounding. (Exports are H.264 until M6, so the
+// encoded file can't be compared hash for hash.)
+TEST_CASE("M5 gate: preview and export give the same frames for effects, masks, a dissolve and a block")
+{
+    setUp();
+    Timeline t; // a [0, 100) and b [100, 200), a 10-frame dissolve across 100
+    t.addBrightness(Model::EffectTarget::clip(t.a), 1.0, {{0, 0.4, Easing::CubicInOut}, {104, 1.6, Easing::Linear}});
+    const EffectId masked = t.addBrightness(Model::EffectTarget::clip(t.b), 0.3);
+    EffectMask mask;
+    mask.shape = "ellipse";
+    mask.params = {{"x", 0.4, {}}, {"y", 0.5, {}}, {"width", 0.5, {}}, {"height", 0.6, {}}};
+    mask.feather = {0.1, {}};
+    t.model.setEffectMask(masked, mask);
+    AdjustmentBlock block;
+    block.start = 60;
+    block.length = 80; // across the dissolve
+    block.fadeIn = FadeSpec{15};
+    block.fadeOut = FadeSpec{15};
+    Effect grade;
+    grade.service = "brightness";
+    grade.owner = kOwner;
+    grade.params = {{"level", 1.3, {}}, {"rgb_only", true, {}}};
+    block.effects = {grade};
+    t.model.addAdjustmentBlock(block);
+    REQUIRE(t.model.check().empty());
+
+    engine::EngineSync preview(t.model, engine::PreviewScale::Full, engine::EngineSync::FrameReads::ProfileSize);
+    engine::EngineSync render(t.model, engine::PreviewScale::Full, engine::EngineSync::FrameReads::ProfileSize);
+    CHECK(preview.verify().empty());
+    const int w = preview.profile().width(), h = preview.profile().height();
+    const fs::path path = scratch() / "m5-gate.ustudio";
+    REQUIRE(saveProject(t.model, utf8String(path)).empty());
+    Mlt::Producer melt(preview.profile(), ("xml:" + utf8String(path)).c_str());
+    REQUIRE(melt.is_valid());
+    for (int frame : {0, 50, 65, 94, 97, 100, 103, 110, 130, 150, 190}) {
+        INFO("frame " << frame);
+        CHECK(frameHash(preview.tractor(), frame, w, h) == frameHash(render.tractor(), frame, w, h));
+        // Both read at the profile's size, as the preview's graph is read.
+        auto red = [&](Mlt::Producer &producer, double u, double v) {
+            producer.seek(frame);
+            std::unique_ptr<Mlt::Frame> f(producer.get_frame());
+            mlt_image_format format = mlt_image_rgba;
+            int fw = w, fh = h;
+            const uint8_t *image = f->get_image(format, fw, fh);
+            return static_cast<int>(image[(static_cast<size_t>(v * fh) * static_cast<size_t>(fw) +
+                                           static_cast<size_t>(u * fw)) * 4]);
+        };
+        INFO("melt " << red(melt, 0.4, 0.5) << " preview " << red(preview.tractor(), 0.4, 0.5));
+        CHECK(near(red(melt, 0.4, 0.5), red(preview.tractor(), 0.4, 0.5), 3));
+        CHECK(near(red(melt, 0.9, 0.1), red(preview.tractor(), 0.9, 0.1), 3));
     }
 }

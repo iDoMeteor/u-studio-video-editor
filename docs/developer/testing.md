@@ -34,7 +34,20 @@ The short version:
   changing production code to make it pass.
 - **Sanitizers** (`just asan`, `just tsan`) are required for thread and
   MLT-lifetime changes, in the tiers CLAUDE.md sets out. See
-  [Building](building.md#sanitizers).
+  [Building](building.md#sanitizers). Don't preload MLT's movit module for
+  every test: preloaded, it replaces same-named functions in other modules
+  (plus's `lift_gamma_gain`), so `just asan` preloads it only for tests
+  that start a GPU session: the "gpu" ones, `dropin-engine` (FX4's GPU
+  lane cases) and `engine-hardware-decode`. A new test that opens a GPU
+  session goes on that list in the justfile, or LeakSanitizer reports
+  movit's `glsl.manager`, which MLT never frees, without a name to
+  suppress.
+- **No fixed time limits in tests.** A loaded machine (other suites, a
+  Flatpak build) fails any absolute limit. A test times its work against a
+  yardstick measured under the same load (as `engine-thread` and
+  `titles-captions` do), and absolute times are benchmarks, run with
+  `meson test -C builddir --benchmark` (`core-snapshot`,
+  `titles-captions-bench`).
 
 ## The titles designer's smoke test
 
@@ -87,7 +100,10 @@ the scan has passed it, adds it with Enter, undoes and redoes it, pins Blur with
 saved project each time. Then it saves the stack as a Look, imports a
 second clip, applies the brand Look Neon Night to both, changes a value on
 both at once, drags a brand Look onto the picture, turns compare on, and
-holds **\\**. It also checks an audition leaves the live graph's rebuild
+holds **\\**. Then two stills go at the end of the track, **T** adds a
+dissolve between them, the first wipe's tile (Wipe Right) on the
+Transitions page is clicked, and the saved project must name `wipe.left`
+and its map `ustudio-wipes/v1/left.pgm` (written beside it); undo takes it back. It also checks an audition leaves the live graph's rebuild
 count unchanged. The window is
 resized to the screen first (`fitwin.py`), so the inspector docks.
 `value.py`, `entry.py`, `tile.py`, `where.py`, `drag.py` and `hold.py` set a
@@ -104,6 +120,10 @@ as for the titles smoke test.
   this one test: about 43 s alone, so it has its own 180 s timeout and
   `core` keeps 30 s): 10,000 random commands, undo them all,
   and the model must equal the start.
+- **Bulk edits scale** (`core`, "bulk inserts, ripples and their undo
+  scale near-linearly"): n and 10n clips inserted in order, rippled and
+  undone; 10n must take under 30x as long (about 12x; quadratic was
+  about 100x). A ratio, never a fixed time limit.
 - **`EngineSync::verify()`** (`engine-sync`): after each of the first 500
   commands of that same stream, and each undo, the MLT graph must match
   the model.
@@ -112,6 +132,10 @@ as for the titles smoke test.
 - **Project files play in `melt`** (`engine-xml-playback`): a saved
   project plays through MLT's `xml` producer frame for frame like the
   editor.
+- **Render matches the preview** (`engine-render-frames`): `u-studio-render
+  --frames` hashes every frame of a transformed clip and a dissolve, and the
+  live Engine must show the same pixels; its `--ffv1` render must decode to
+  the graph's YUV exactly.
 - **Timeline draw speed** (`app-timeline-render`): 10 tracks × 500 clips
   draw in under 4 ms.
 - **GPU pipeline** (`engine-gpu-pipeline`, `engine-gpu-engine`,
@@ -124,7 +148,13 @@ as for the titles smoke test.
 - **Playback soak**: `tests/engine/playback_soak.cpp` is a manual tool for
   long playback runs. `--gpu` plays on the GPU pipeline, `--hwdecode` adds
   VAAPI, `--no-rotation` leaves the transformed tracks unrotated
-  (ADR-019). Judge memory by its "RSS growth after warm-up" line, not
+  (ADR-019).
+- **GPU stress** (`engine-gpu-stress`, and the `gpu_stress` tool): a
+  tour-like project played through Engine on the GPU pipeline with random
+  play, pause, seek, steps, preview scale, proxies and dissolve edits; 45 s
+  with seed 1 in `meson test` (serial), for minutes by hand
+  (`SDL_AUDIODRIVER=dummy gpu_stress <seconds> [seed]`). Every action is
+  printed, so a crash replays; exit 77 skips on a machine without a GPU. Judge memory by its "RSS growth after warm-up" line, not
   by the first report: the first minute is warm-up (see the
   [playback notes](notes/playback-engine.md)).
 

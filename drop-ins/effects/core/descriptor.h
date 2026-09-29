@@ -56,6 +56,9 @@ struct ParamDescriptor
     bool animatable = false;
     bool hidden = false; // plumbing (threads, deprecated, wildcard properties); never shown
     std::optional<DisplayMap> display;
+    // A file's extensions the chooser offers ("cube"), lower case, no dot;
+    // empty: any file.
+    std::vector<std::string> extensions;
 
     bool operator==(const ParamDescriptor &) const = default;
 };
@@ -123,8 +126,9 @@ core::Param::Value parseValue(ParamKind kind, const std::string &text);
 // Overlays: one JSON object keyed by service id (doc 15, "Curated
 // overlays"). Fields: name, category, tags, featured, hidden, description,
 // unstable (a reason: known broken in a way the probe can't always catch),
-// and params by id with name, hidden, default (a number, bool or string),
-// display {from:[a,b], to:[c,d], unit}.
+// and params by id with name, hidden, kind (paramKindName(): "file" for a
+// text MLT means as a path), extensions (a file's, for its chooser),
+// default (a number, bool or string), display {from:[a,b], to:[c,d], unit}.
 // Unknown fields are ignored; a malformed overlay changes nothing.
 void applyOverlay(EffectDescriptor &descriptor, const Json &overlay);
 

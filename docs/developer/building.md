@@ -24,10 +24,26 @@ comes in with MLT anyway.
   ([Playback engine notes](notes/playback-engine.md)).
 - **No Qt, no KDE Frameworks**, not even at run time
   ([ADR-007](../plans/v2/adr/007-mlt-module-load-policy.md)).
+- **frei0r-plugins** (`sudo dnf install frei0r-plugins`) for the effects
+  drop-in, built in by default in development builds
+  (`-Ddropin_effects=builtin`; [ADR-011](../plans/v2/adr/011-frei0r-required-and-effect-families.md),
+  the drop-in only). It's needed at run time and by the effects tests, not
+  to compile; without it the frei0r effects are simply absent. `melt-7`
+  (the `mlt` package) lets one effects test check a saved project in stock
+  melt. The core Flatpak pins `-Ddropin_effects=disabled`.
 - **libarchive** (`sudo dnf install libarchive-devel`) for the titles
   drop-in's template packs ([ADR-020](../plans/v2/adr/020-template-packages-and-sharing.md);
   the drop-in only). Without its headers the drop-in still builds, and
   opening or saving a pack says it can't.
+- **ThorVG** 1.0 or newer (`sudo dnf install thorvg-devel`; pkg-config
+  `thorvg-1`) for the titles drop-in's animated (Lottie) layers
+  ([ADR-021](../plans/v2/adr/021-lottie-layers-via-thorvg.md); the
+  drop-in's renderer only). Meson option `titles_thorvg` (auto): without
+  ThorVG the drop-in still builds, and an animated layer draws nothing
+  with a warning. Fedora's package runs
+  Lottie expressions and can open files; the titles' own check refuses
+  both before ThorVG sees a file, and the Flatpak builds ThorVG without
+  either.
 - **libsoup 3, json-glib, libsecret** (`sudo dnf install libsoup3-devel
   json-glib-devel libsecret-devel`) for `u-studio-share`, the titles
   drop-in's sharing helper (ADR-020; the helper only). Meson option
@@ -112,6 +128,12 @@ the suite.
   loader and module repository, FFmpeg worker threads, and SDL. Its header
   explains why a leaked mlt++ wrapper of ours still gets reported through
   it.
+- `just asan` runs the GPU tests (names with "gpu") separately, with MLT's
+  movit module preloaded for its leak's names; everything else runs without
+  it, because a preloaded movit overrides same-named functions in other
+  modules (plus's `lift_gamma_gain` became movit's, which fails without GL).
+- `lsan.supp` also names MLT's avfilter filter, which leaks a properties
+  object each time it sets up a graph ([MLT upstream candidates](notes/mlt-upstream.md)).
 - The `justfile` comments explain the non-default sanitizer options.
 - First run and findings:
   [2026-09-23 sanitizer report](../audit/2026-09-23-sanitizer-report.md).

@@ -1,5 +1,6 @@
 #include "model.h"
 #include "transform.h"
+#include "transition_native.h"
 
 #include "core/log.h"
 
@@ -236,8 +237,8 @@ bool Model::hasTransition(TransitionId id) const
 const Transition &Model::transition(TransitionId id) const
 {
     const auto &transitions = activeSequence().transitions;
-    auto it = std::find_if(transitions.begin(), transitions.end(),
-                           [id](const Transition &entry) { return entry.id == id; });
+    auto it =
+        std::find_if(transitions.begin(), transitions.end(), [id](const Transition &entry) { return entry.id == id; });
     if (it == transitions.end()) {
         preconditionFailed("Model::transition: unknown TransitionId");
         static const Transition kNone;
@@ -246,15 +247,24 @@ const Transition &Model::transition(TransitionId id) const
     return *it;
 }
 
-bool Model::isRangeFree(TrackId trackId, FrameIndex start, FrameIndex end,
-                        const std::vector<ClipId> &ignoreClips) const
+bool Model::isRangeFree(TrackId trackId, FrameIndex start, FrameIndex end, const std::vector<ClipId> &ignoreClips) const
 {
+    // The track is sorted by position, and check()'s invariant 2 lets a clip
+    // overlap only its predecessor, by a dissolve no longer than either clip,
+    // so ends never decrease either. Only the clips from the last one ending
+    // at or before `start` to the first starting at or after `end` can
+    // overlap: found by binary search, not a scan of the whole track (which
+    // made inserting n clips quadratic: 20,000 captions took minutes).
     const Track &target = track(trackId);
-    for (ClipId clipId : target.clips) {
-        if (std::find(ignoreClips.begin(), ignoreClips.end(), clipId) != ignoreClips.end())
-            continue;
-        const Clip &existing = clip(clipId);
-        if (start < existing.end() && end > existing.position)
+    const auto &clips = activeSequence().clips;
+    auto startsAtOrAfterEnd = std::partition_point(target.clips.begin(), target.clips.end(),
+                                                   [&](ClipId id) { return clips.at(id).position < end; });
+    for (auto it = startsAtOrAfterEnd; it != target.clips.begin();) {
+        --it;
+        const Clip &existing = clips.at(*it);
+        if (existing.end() <= start)
+            break; // and every clip before it ends earlier still
+        if (std::find(ignoreClips.begin(), ignoreClips.end(), *it) == ignoreClips.end())
             return false; // overlap
     }
     return true;
@@ -273,22 +283,56 @@ Track &Model::mutableTrack(TrackId id)
     return *it;
 }
 
+bool Model::clipBefore(ClipId a, ClipId b) const
+{
+    const auto &clips = activeSequence().clips;
+    const Clip &ca = clips.at(a), &cb = clips.at(b);
+    return ClipOrderKey{ca.position, ca.end(), a} < ClipOrderKey{cb.position, cb.end(), b};
+}
+
+void Model::placeClip(Track &trackRef, ClipId id, std::optional<ClipOrderKey> was)
+{
+    // One clip arrived, moved or changed length; the rest are still in
+    // order. Re-sorting the whole track (a hash lookup per comparison) made
+    // bulk inserts quadratic: 20,000 captions took minutes. Here it's binary
+    // searches, and a move of the ids after it only when its place changes.
+    auto &ids = trackRef.clips;
+    const auto &clips = activeSequence().clips;
+    auto key = [&clips](ClipId other) {
+        const Clip &c = clips.at(other);
+        return ClipOrderKey{c.position, c.end(), other};
+    };
+    const Clip &placed = clips.at(id);
+    const ClipOrderKey now{placed.position, placed.end(), id};
+    if (was) {
+        // Found by its key before the change (every other clip is unchanged,
+        // so the track is ordered by that). Where it still sits between its
+        // neighbours (a ripple shifts every later clip alike), nothing moves.
+        auto it = std::lower_bound(ids.begin(), ids.end(), *was, [&](ClipId other, const ClipOrderKey &target) {
+            return (other == id ? *was : key(other)) < target;
+        });
+        if (it != ids.end() && *it == id) {
+            const bool afterPrevious = it == ids.begin() || key(*(it - 1)) < now;
+            const bool beforeNext = it + 1 == ids.end() || now < key(*(it + 1));
+            if (afterPrevious && beforeNext)
+                return;
+            ids.erase(it);
+        } else if (auto found = std::find(ids.begin(), ids.end(), id); found != ids.end()) {
+            ids.erase(found); // the caller's key was stale: still correct, just slower
+        }
+    }
+    ids.insert(std::upper_bound(ids.begin(), ids.end(), now,
+                                [&](const ClipOrderKey &target, ClipId other) { return target < key(other); }),
+               id);
+}
 
 void Model::sortTrackClips(Track &trackRef)
 {
-    const auto &clips = activeSequence().clips;
     // Ties broken by end, then id, so the order is the same however the
     // clips got there: two clips can share a start only inside a dissolve
     // (saved before AddTransition refused whole-clip overlaps), where the
     // outgoing one ends first.
-    std::sort(trackRef.clips.begin(), trackRef.clips.end(), [&clips](ClipId a, ClipId b) {
-        const Clip &ca = clips.at(a), &cb = clips.at(b);
-        if (ca.position != cb.position)
-            return ca.position < cb.position;
-        if (ca.end() != cb.end())
-            return ca.end() < cb.end();
-        return a < b;
-    });
+    std::sort(trackRef.clips.begin(), trackRef.clips.end(), [this](ClipId a, ClipId b) { return clipBefore(a, b); });
 }
 
 // --- Asset mutators -------------------------------------------------------
@@ -581,9 +625,7 @@ ClipId Model::insertClip(TrackId trackId, AssetId assetId, FrameIndex pos, Frame
 
     activeSequence().clips.emplace(id, std::move(newClip));
 
-    Track &target = mutableTrack(trackId);
-    target.clips.push_back(id);
-    sortTrackClips(target);
+    placeClip(mutableTrack(trackId), id);
 
     notify(ClipInserted{id});
     return id;
@@ -594,9 +636,19 @@ void Model::removeClip(ClipId id)
     Clip &target = mutableClip(id);
     TrackId trackId = target.track;
 
+    // Found by its key (still in order), not a scan: undoing a bulk insert
+    // removes every clip, which a scan per clip made quadratic.
     Track &owningTrack = mutableTrack(trackId);
-    owningTrack.clips.erase(std::remove(owningTrack.clips.begin(), owningTrack.clips.end(), id),
-                            owningTrack.clips.end());
+    auto &ids = owningTrack.clips;
+    const ClipOrderKey key{target.position, target.end(), id};
+    auto it = std::lower_bound(ids.begin(), ids.end(), key, [this](ClipId other, const ClipOrderKey &k) {
+        const Clip &c = activeSequence().clips.at(other);
+        return ClipOrderKey{c.position, c.end(), other} < k;
+    });
+    if (it != ids.end() && *it == id)
+        ids.erase(it);
+    else
+        ids.erase(std::remove(ids.begin(), ids.end(), id), ids.end()); // out of order: still removed
 
     activeSequence().clips.erase(id);
     notify(ClipRemoved{id, trackId});
@@ -606,6 +658,7 @@ void Model::moveClip(ClipId id, TrackId newTrackId, FrameIndex pos)
 {
     Clip &target = mutableClip(id);
     TrackId oldTrackId = target.track;
+    const ClipOrderKey was{target.position, target.end(), id};
 
     if (oldTrackId != newTrackId) {
         Track &oldTrack = mutableTrack(oldTrackId);
@@ -614,12 +667,10 @@ void Model::moveClip(ClipId id, TrackId newTrackId, FrameIndex pos)
         target.track = newTrackId;
         target.position = pos;
 
-        Track &newTrack = mutableTrack(newTrackId);
-        newTrack.clips.push_back(id);
-        sortTrackClips(newTrack);
+        placeClip(mutableTrack(newTrackId), id);
     } else {
         target.position = pos;
-        sortTrackClips(mutableTrack(oldTrackId));
+        placeClip(mutableTrack(oldTrackId), id, was);
     }
 
     notify(ClipMoved{id, oldTrackId, newTrackId});
@@ -628,10 +679,11 @@ void Model::moveClip(ClipId id, TrackId newTrackId, FrameIndex pos)
 void Model::resizeClip(ClipId id, FrameIndex newIn, FrameIndex newOut, FrameIndex newPos)
 {
     Clip &target = mutableClip(id);
+    const ClipOrderKey was{target.position, target.end(), id};
     target.in = newIn;
     target.out = newOut;
     target.position = newPos;
-    sortTrackClips(mutableTrack(target.track));
+    placeClip(mutableTrack(target.track), id, was);
     notify(ClipResized{id});
 }
 
@@ -735,9 +787,7 @@ void Model::restoreClip(Clip clipToRestore)
 
     activeSequence().clips.emplace(id, std::move(clipToRestore));
 
-    Track &target = mutableTrack(trackId);
-    target.clips.push_back(id);
-    sortTrackClips(target);
+    placeClip(mutableTrack(trackId), id);
 
     notify(ClipInserted{id});
 }
@@ -1242,7 +1292,7 @@ std::vector<std::string> Model::check() const
                 bool coveredByTransition =
                     std::any_of(seq.transitions.begin(), seq.transitions.end(), [&](const Transition &t) {
                         return t.track == trackEntry.id && t.a == previousClipId && t.b == clipEntry.id &&
-                              t.length == overlap;
+                               t.length == overlap;
                     });
                 if (!coveredByTransition) {
                     problems.push_back("clip " + std::to_string(clipEntry.id.value) +
@@ -1317,6 +1367,10 @@ std::vector<std::string> Model::check() const
             problems.push_back("transition " + std::to_string(transition.id.value) +
                                " has length != extendA + extendB");
         }
+        // A recipe's services come from the project file: only the allowed
+        // ones (core/model/transition_native.h).
+        if (std::string problem = transitionProblem(transition); !problem.empty())
+            problems.push_back("transition " + std::to_string(transition.id.value) + ": " + problem);
     }
 
     // T2 (2026-09-22 audit): a clip can be linked on both sides at once
@@ -1373,6 +1427,10 @@ std::vector<std::string> Model::check() const
                     mixInRange = mixInRange && keyframe.value >= 0.0 && keyframe.value <= 1.0;
                 if (!mixInRange)
                     problems.push_back(name + " has a mix outside 0-1");
+                // The shapes nativeFilters() can draw (a luma-map mask: not
+                // yet); anything else would play unmasked.
+                if (effect.mask && effect.mask->shape != "rectangle" && effect.mask->shape != "ellipse")
+                    problems.push_back(name + " has a mask of an unknown shape");
             }
         };
         for (const auto &[clipId, clipEntry] : seq.clips) {

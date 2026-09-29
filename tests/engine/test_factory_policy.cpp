@@ -15,7 +15,9 @@ extern "C" {
 #include <framework/mlt_factory.h>
 }
 
+#include <filesystem>
 #include <fstream>
+#include <algorithm>
 #include <string>
 
 using namespace ustudio::engine;
@@ -26,15 +28,20 @@ namespace {
 // FactoryPolicy's curated init, /proc/self/maps must contain no libQt
 // mapping (measured 0/27 on the dev machine, vs. 32 mappings with a plain
 // argument-less Factory::init()).
-bool hasLibQtMapping()
+bool hasMapping(const std::string &library)
 {
     std::ifstream maps("/proc/self/maps");
     std::string line;
     while (std::getline(maps, line)) {
-        if (line.find("libQt") != std::string::npos)
+        if (line.find(library) != std::string::npos)
             return true;
     }
     return false;
+}
+
+bool hasLibQtMapping()
+{
+    return hasMapping("libQt");
 }
 
 bool hasService(Mlt::Properties *services, const std::string &name)
@@ -61,6 +68,14 @@ TEST_CASE("FactoryPolicy: no Qt loaded, required services still present")
 
     CHECK_FALSE(hasLibQtMapping());
 
+    // Denied by default: openfx loads every .ofx under /usr/OFX/Plugins at
+    // init (ADR-007 note, 2026-09-28). MLT hard-codes that folder, so the
+    // test checks the module itself stays out, linked and mapped.
+    for (const auto &entry : std::filesystem::directory_iterator(policy.moduleDirectoryUsed()))
+        CHECK_MESSAGE(entry.path().filename().string().find("openfx") == std::string::npos,
+                      "openfx module linked: " << entry.path().filename().string());
+    CHECK_FALSE(hasMapping("libmltopenfx"));
+
     Mlt::Repository repo(mlt_factory_repository());
 
     // Verified present on the dev machine (2026-09-17) both before this
@@ -86,4 +101,18 @@ TEST_CASE("FactoryPolicy: no Qt loaded, required services still present")
     for (const char *name : {"affine", "crop", "mirror", "volume", "deinterlace"})
         CHECK_MESSAGE(hasService(filters, name), "missing required filter: " << std::string(name));
     delete filters;
+}
+
+// FX5: a drop-in may lift a default-denied module (the effects drop-in's
+// OpenFX opt-in lifts "openfx"), never a Qt one.
+TEST_CASE("FactoryPolicy: a drop-in lifts a denied module, never a Qt one")
+{
+    const std::vector<std::string> none = effectiveDenylist({});
+    CHECK(std::find(none.begin(), none.end(), "openfx") != none.end());
+    const std::vector<std::string> lifted = effectiveDenylist({"openfx"});
+    CHECK(std::find(lifted.begin(), lifted.end(), "openfx") == lifted.end());
+    CHECK(std::find(lifted.begin(), lifted.end(), "qt6") != lifted.end());
+    const std::vector<std::string> qt = effectiveDenylist({"qt6", "glaxnimate-qt6"});
+    CHECK(std::find(qt.begin(), qt.end(), "qt6") != qt.end());
+    CHECK(std::find(qt.begin(), qt.end(), "glaxnimate-qt6") != qt.end());
 }

@@ -108,6 +108,20 @@ TEST_CASE("TimelineController: the handle strip only makes the row active")
     CHECK_FALSE(out.seek);
 }
 
+TEST_CASE("TimelineController: a drop-in's top lane is no row: no active track, no context target")
+{
+    Fixture f;
+    TimelineContext ctx = f.ctx();
+    ctx.layout.topLane = 20.0;
+    TimelineOutcome out = f.controller.click(ctx, 1, Fixture::x(150), 10.0, Modifiers::None);
+    CHECK_FALSE(out.activeRow);
+    CHECK_FALSE(out.seek);
+    CHECK(f.controller.contextTargetAt(ctx, Fixture::x(150), 10.0).row == -1);
+    // Below it, the rows are where they moved to.
+    CHECK(f.controller.contextTargetAt(ctx, Fixture::x(150), 20.0 + Fixture::bodyY(1)).row == 1);
+    CHECK(f.controller.contextTargetAt(ctx, Fixture::x(150), 20.0 + Fixture::bodyY(0)).clip == f.b);
+}
+
 TEST_CASE("TimelineController: double-click renames the track on its name strip, else the clip")
 {
     Fixture f;

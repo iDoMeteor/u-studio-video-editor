@@ -1,5 +1,6 @@
 #include "pack.h"
 
+#include "core/lottie_check.h"
 #include "core/title_xml.h"
 
 #include "core/media/utf8_path.h"
@@ -109,6 +110,14 @@ std::optional<std::string> checkFile(const std::string &path, const std::string 
         const bool jpeg = hasPrefix(data, "\xff\xd8\xff");
         if (!((ext == ".png" && png()) || ((ext == ".jpg" || ext == ".jpeg") && jpeg)))
             return path + " isn't a PNG or JPEG picture";
+        return std::nullopt;
+    }
+    if (folder == "lottie") {
+        // Animations (ADR-021 decision 10): checked like one being added.
+        if (ext != ".json")
+            return path + " isn't an animation (.json)";
+        if (auto facts = lottie::check(data); !facts)
+            return path + " isn't an animation the titles app can use: " + facts.error();
         return std::nullopt;
     }
     if (folder == "fonts") {
@@ -395,7 +404,7 @@ std::expected<ValidPack, std::string> validate(const std::vector<Entry> &entries
         if (path.empty())
             return std::unexpected("“" + entry.path + "” isn't a path inside the pack");
         if (entry.kind == Entry::Kind::Directory) {
-            if (path != "templates" && path != "previews" && path != "fonts" && path != "images")
+            if (path != "templates" && path != "previews" && path != "fonts" && path != "images" && path != "lottie")
                 return std::unexpected(path + "/ is a folder a pack may not have");
             continue;
         }
@@ -463,11 +472,13 @@ std::expected<ValidPack, std::string> validate(const std::vector<Entry> &entries
             return std::unexpected(path + " has no preview (previews/" + stem + ".png)");
         auto doc = parseTitle(data);
         for (const Layer &layer : doc->document.layers) {
-            if (layer.kind != LayerKind::Image || layer.src.empty())
+            if (!drawnFromFile(layer))
                 continue;
-            const std::string picture = resolveInPack("templates", layer.src);
-            if (picture.empty() || !picture.starts_with("images/") || !pack.files.contains(picture))
-                return std::unexpected(path + " uses the picture “" + layer.src + "”, which isn't in the pack");
+            const bool animation = layer.kind == LayerKind::Lottie;
+            const std::string file = resolveInPack("templates", layer.src);
+            if (file.empty() || !file.starts_with(animation ? "lottie/" : "images/") || !pack.files.contains(file))
+                return std::unexpected(path + " uses the " + (animation ? "animation" : "picture") + " “" + layer.src +
+                                       "”, which isn't in the pack");
         }
     }
     if (templates == 0)
@@ -546,12 +557,14 @@ std::expected<InstalledPack, std::string> install(const ValidPack &pack, const s
         auto doc = parseTitle(data);
         TitleDocument title = doc->document;
         for (Layer &layer : title.layers) {
-            if (layer.kind != LayerKind::Image || layer.src.empty())
+            if (!drawnFromFile(layer))
                 continue;
-            const std::string picture = resolveInPack("templates", layer.src); // validated: images/<file>
-            const std::string file = picture.substr(7);
-            if (!writeFile(templateFolder / "images" / core::pathFromUtf8(file), pack.files.at(picture)))
-                return fail("can't write " + picture);
+            // Validated: images/<file> or lottie/<file>. Both go in the
+            // template's images/, as a template saved from a title has them.
+            const std::string packed = resolveInPack("templates", layer.src);
+            const std::string file = packed.substr(packed.find('/') + 1);
+            if (!writeFile(templateFolder / "images" / core::pathFromUtf8(file), pack.files.at(packed)))
+                return fail("can't write " + packed);
             layer.src = "images/" + file;
         }
         if (const std::string error = saveTitle(title, core::utf8String(templateFolder / "template.ustitle"));
@@ -609,20 +622,23 @@ std::expected<std::vector<Entry>, std::string> build(Manifest manifest, const st
             stem = core::utf8String(folder.filename()) + "-" + std::to_string(n);
         stems.insert(stem);
         for (Layer &layer : doc.layers) {
-            if (layer.kind != LayerKind::Image || layer.src.empty())
+            if (!drawnFromFile(layer))
                 continue;
+            const bool animation = layer.kind == LayerKind::Lottie;
+            const std::string dir = animation ? "lottie/" : "images/";
             fs::path source = core::pathFromUtf8(layer.src);
             if (source.is_relative())
                 source = folder / source;
             auto bytes = readFile(source);
             if (!bytes)
-                return std::unexpected("the picture " + layer.src + " of “" + doc.name + "” isn't there");
+                return std::unexpected(std::string(animation ? "the animation " : "the picture ") + layer.src +
+                                       " of “" + doc.name + "” isn't there");
             std::string name = core::utf8String(source.filename());
-            // Two different pictures with one name: the second is renamed.
-            for (int n = 2; files.contains("images/" + name) && files.at("images/" + name) != *bytes; ++n)
+            // Two different files with one name: the second is renamed.
+            for (int n = 2; files.contains(dir + name) && files.at(dir + name) != *bytes; ++n)
                 name = core::utf8String(source.stem()) + "-" + std::to_string(n) + core::utf8String(source.extension());
-            files["images/" + name] = *bytes;
-            layer.src = "../images/" + name;
+            files[dir + name] = *bytes;
+            layer.src = "../" + dir + name;
         }
         files["templates/" + stem + ".ustitle"] = writeTitle(doc);
         files["previews/" + stem + ".png"] = entry.previewPng;

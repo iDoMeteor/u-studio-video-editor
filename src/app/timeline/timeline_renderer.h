@@ -38,6 +38,12 @@ class TimelineOverlayProvider
     {
         return 0.0;
     }
+    // Extra height above the first row (RowLayout::topLane); the largest
+    // any provider asks for. Asked on every refresh.
+    virtual double topLaneHeight(const core::Model &) const
+    {
+        return 0.0;
+    }
     // A primary-button press at (x, y) in timeline coordinates, before the
     // timeline's own handling; true claims it (the timeline does nothing
     // more with it).
@@ -46,6 +52,16 @@ class TimelineOverlayProvider
     {
         return false;
     }
+    // A drag that began with a press this provider claimed: the pointer at
+    // (x, y), the last time with `finished`. Edits go through the shell's
+    // execute() (a gesture id merges them into one undo step).
+    virtual void dragged(const core::Model &, const Viewport &, const RowLayout &, double /*x*/, double /*y*/,
+                         bool /*finished*/)
+    {}
+    // That drag ends without finishing: an edit, undo or redo landed
+    // mid-gesture, so what it measured against has changed (post-M3 audit
+    // P8, as the timeline's own drags). No dragged(..., true) follows.
+    virtual void dragCancelled() {}
 };
 
 // What one timeline snapshot draws from. Everything here is read-only.

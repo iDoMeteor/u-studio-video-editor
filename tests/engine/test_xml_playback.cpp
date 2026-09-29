@@ -1,18 +1,25 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "core/commands/primitives.h"
+#include "core/commands/timeline_edits.h"
+#include "core/commands/undo_stack.h"
+#include "core/model/transition_native.h"
+#include "core/xml/reader.h"
 #include "core/xml/writer.h"
 #include "engine/engine_sync.h"
 #include "engine/factory_policy.h"
 
 #include <mlt++/Mlt.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <random>
 #include <string>
+#include <vector>
 
 using namespace ustudio::core;
 using namespace ustudio::engine;
@@ -83,6 +90,7 @@ void renderToneClip(Mlt::Profile &profile, const std::filesystem::path &path, in
     consumer.set("real_time", -1);
     consumer.connect(tractor);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
 }
 
 // The composited picture's centre pixel and the frame's audio RMS, pulled
@@ -292,4 +300,243 @@ TEST_CASE("A saved project with a dissolve, track volume and a muted clip plays 
     CHECK(sampleFrame(sync.tractor(), 70, width, height).g > 100);
     CHECK(sampleFrame(sync.tractor(), 10, width, height).rms > 100.0);
     CHECK(sampleFrame(sync.tractor(), 60, width, height).rms < 1.0);
+}
+
+// FX3 (doc 15): a transition recipe (a wipe's map, a dip's brightness ramps)
+// comes from core::nativeTransition() in both the editor's graph and the
+// saved file, so melt plays what the editor shows. Sampled across the
+// width, since a wipe's two halves differ where a dissolve's don't.
+TEST_CASE("A saved wipe and dip play frame-identically outside the editor")
+{
+    sharedFactoryPolicy();
+
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    AssetId red = addGenerator(model, "color:red", true, false);
+    AssetId blue = addGenerator(model, "color:blue", true, false);
+    AssetId green = addGenerator(model, "color:green", true, false);
+    ClipId a = model.insertClip(video, red, 0, 0, 29);    // [0, 30)
+    ClipId b = model.insertClip(video, blue, 30, 10, 49); // [30, 70)
+    ClipId c = model.insertClip(video, green, 70, 10, 49); // [70, 110)
+    TransitionId wipe = model.addTransition(video, a, b, 5, 5); // [25, 35)
+    TransitionId dip = model.addTransition(video, b, c, 5, 5);  // [65, 75)
+    model.setTransitionRecipe(wipe, "wipe.left",
+                              {{"video.service", std::string("luma"), {}},
+                               {"video.luma", std::string("left"), {}},
+                               {"video.softness", 0.1, {}}});
+    model.setTransitionRecipe(dip, "dip-black",
+                              {{"a.0.service", std::string("brightness"), {}},
+                               {"a.0.level", std::string("ramp:1,0,0"), {}},
+                               {"b.0.service", std::string("brightness"), {}},
+                               {"b.0.level", std::string("ramp:0,0,1"), {}}});
+    REQUIRE(model.check().empty());
+    EngineSync sync(model);
+    CHECK(sync.verify().empty());
+
+    // A folder of its own: the writer puts the wipe's map beside the project.
+    std::filesystem::path dir = tempProjectPath("ustudio-xml-wipe").replace_extension();
+    std::filesystem::create_directories(dir);
+    struct RemoveDir
+    {
+        std::filesystem::path path;
+        ~RemoveDir()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+    } cleanup{dir};
+    std::filesystem::path path = dir / "wipe.ustudio";
+    REQUIRE(saveProject(model, path.string()).empty());
+    CHECK(std::filesystem::is_regular_file(lumaMapPath(dir / "ustudio-wipes", "left")));
+
+    Mlt::Producer loaded(sync.profile(), ("xml:" + path.string()).c_str());
+    REQUIRE(loaded.is_valid());
+    CHECK(loaded.get_length() == sync.tractor().get_length());
+
+    const int width = sync.profile().width(), height = sync.profile().height();
+    auto row = [&](Mlt::Producer &producer, int position) {
+        producer.seek(position);
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_image_format format = mlt_image_rgb;
+        int w = width, h = height;
+        const uint8_t *image = frame->get_image(format, w, h);
+        std::vector<std::array<int, 3>> out;
+        for (int x : {w / 10, w / 2, w * 9 / 10}) {
+            const uint8_t *p = image + (static_cast<size_t>(h / 2) * static_cast<size_t>(w) + static_cast<size_t>(x)) * 3;
+            out.push_back({p[0], p[1], p[2]});
+        }
+        return out;
+    };
+    int mismatches = 0;
+    for (int position = 20; position < 80; ++position) {
+        auto live = row(sync.tractor(), position), saved = row(loaded, position);
+        for (size_t i = 0; i < live.size(); ++i)
+            for (size_t k = 0; k < 3; ++k)
+                if (std::abs(live[i][k] - saved[i][k]) > 2 && ++mismatches <= 5)
+                    MESSAGE("frame " << position << " sample " << i << " channel " << k << ": live " << live[i][k]
+                                     << " vs saved " << saved[i][k]);
+    }
+    CHECK(mismatches == 0);
+
+    // What the comparison relies on: mid-wipe the left is already blue and
+    // the right still red; mid-dip the picture is dark.
+    auto midWipe = row(sync.tractor(), 31);
+    CHECK(midWipe[0][2] > 200);
+    CHECK(midWipe[0][0] < 50);
+    CHECK(midWipe[2][0] > 200);
+    CHECK(midWipe[2][2] < 50);
+    auto midDip = row(sync.tractor(), 70);
+    for (const auto &sample : midDip)
+        CHECK(sample[0] + sample[1] + sample[2] < 60);
+}
+
+// FX3 motion: a push is the affine transition sliding the next clip in and
+// an affine filter on the outgoing cut sliding it out; the saved file must
+// move both the same way (the filter's in/out are the cut's, as
+// attachToCut() sets them).
+TEST_CASE("A saved push plays frame-identically outside the editor")
+{
+    sharedFactoryPolicy();
+
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    ClipId a = model.insertClip(video, addGenerator(model, "color:red", true, false), 0, 0, 29); // [0, 30)
+    ClipId b = model.insertClip(video, addGenerator(model, "color:blue", true, false), 30, 10, 49);
+    TransitionId push = model.addTransition(video, a, b, 10, 10); // [20, 40)
+    model.setTransitionRecipe(push, "push.left",
+                              {{"video.service", std::string("affine"), {}},
+                               {"video.rect", std::string("ramp:100% 0% 100% 100%|0% 0% 100% 100%"), {}},
+                               {"a.0.service", std::string("affine"), {}},
+                               {"a.0.transition.rect", std::string("ramp:0% 0% 100% 100%|-100% 0% 100% 100%"), {}}});
+    REQUIRE(model.check().empty());
+    EngineSync sync(model);
+    CHECK(sync.verify().empty());
+
+    std::filesystem::path path = tempProjectPath("ustudio-xml-push");
+    RemoveOnExit cleanup{path};
+    REQUIRE(saveProject(model, path.string()).empty());
+    Mlt::Producer loaded(sync.profile(), ("xml:" + path.string()).c_str());
+    REQUIRE(loaded.is_valid());
+
+    const int width = sync.profile().width(), height = sync.profile().height();
+    // The first x from the left that is blue on the middle row; -1 if none.
+    auto edge = [&](Mlt::Producer &producer, int position) {
+        producer.seek(position);
+        std::unique_ptr<Mlt::Frame> frame(producer.get_frame());
+        mlt_image_format format = mlt_image_rgb;
+        int w = width, h = height;
+        const uint8_t *image = frame->get_image(format, w, h);
+        for (int x = 0; x < w; x += 2) {
+            const uint8_t *p = image + (static_cast<size_t>(h / 2) * static_cast<size_t>(w) + static_cast<size_t>(x)) * 3;
+            if (p[2] > 150 && p[0] < 100)
+                return x;
+        }
+        return -1;
+    };
+    int previous = width;
+    for (int position = 20; position < 40; ++position) {
+        const int live = edge(sync.tractor(), position), saved = edge(loaded, position);
+        INFO("frame " << position << ": live edge " << live << ", saved " << saved);
+        CHECK(std::abs(live - saved) <= 2);
+        // The incoming picture comes in from the right, steadily.
+        if (position > 20) {
+            CHECK(live >= 0);
+            CHECK(live <= previous);
+        }
+        if (live >= 0)
+            previous = live;
+    }
+    CHECK(edge(sync.tractor(), 30) > width / 4);
+    CHECK(edge(sync.tractor(), 30) < width * 3 / 4);
+}
+
+// M5's gate (doc 12): dissolves and wipes survive a move or trim of either
+// clip and undo/redo, checked by the verifier and an XML round trip, and
+// melt plays them as the editor does.
+TEST_CASE("M5 gate: a wipe and a dip survive moves, trims, undo and redo; verified, round-tripped, played by melt")
+{
+    sharedFactoryPolicy();
+    Model model = Model::createEmpty();
+    TrackId video = model.addTrack(Track::Kind::Video, 0, "V1");
+    ClipId a = model.insertClip(video, addGenerator(model, "color:red", true, false), 0, 0, 49);      // [0, 50)
+    ClipId b = model.insertClip(video, addGenerator(model, "color:blue", true, false), 50, 20, 69);   // [50, 100)
+    ClipId c = model.insertClip(video, addGenerator(model, "color:green", true, false), 100, 20, 69); // [100, 150)
+    TransitionId wipe = model.addTransition(video, a, b, 5, 5);
+    TransitionId dip = model.addTransition(video, b, c, 5, 5);
+    const std::vector<Param> wipeParams{{"video.service", std::string("luma"), {}},
+                                        {"video.luma", std::string("left"), {}},
+                                        {"video.softness", 0.1, {}}};
+    const std::vector<Param> dipParams{{"a.0.service", std::string("brightness"), {}},
+                                       {"a.0.level", std::string("ramp:1,0,0"), {}},
+                                       {"b.0.service", std::string("brightness"), {}},
+                                       {"b.0.level", std::string("ramp:0,0,1"), {}}};
+    model.setTransitionRecipe(wipe, "wipe.left", wipeParams);
+    model.setTransitionRecipe(dip, "dip-black", dipParams);
+    REQUIRE(model.check().empty());
+
+    std::filesystem::path dir = tempProjectPath("ustudio-m5-gate").replace_extension();
+    std::filesystem::create_directories(dir);
+    struct RemoveDir
+    {
+        std::filesystem::path path;
+        ~RemoveDir()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+    } cleanup{dir};
+
+    int step = 0;
+    auto checkAll = [&](const std::string &what) {
+        INFO("after " << what);
+        REQUIRE(model.check().empty());
+        REQUIRE(model.hasTransition(wipe));
+        REQUIRE(model.hasTransition(dip));
+        CHECK(model.transition(wipe).params == wipeParams);
+        CHECK(model.transition(dip).params == dipParams);
+        EngineSync sync(model);
+        CHECK(sync.verify().empty());
+        const std::filesystem::path path = dir / ("step" + std::to_string(step++) + ".ustudio");
+        REQUIRE(saveProject(model, path.string()).empty());
+        auto loaded = loadProject(path.string());
+        REQUIRE(loaded.has_value());
+        CHECK(*loaded == model);
+        Mlt::Producer melt(sync.profile(), ("xml:" + path.string()).c_str());
+        REQUIRE(melt.is_valid());
+        // The middle of each transition, and either side: the same picture.
+        const int w = sync.profile().width(), h = sync.profile().height();
+        for (TransitionId id : {wipe, dip}) {
+            const Transition &t = model.transition(id);
+            const FrameIndex start = model.clip(t.b).position;
+            for (FrameIndex frame : {start - 3, start + t.length / 2, start + t.length + 2}) {
+                const FrameSample live = sampleFrame(sync.tractor(), static_cast<int>(frame), w, h);
+                const FrameSample saved = sampleFrame(melt, static_cast<int>(frame), w, h);
+                CHECK(std::abs(live.r - saved.r) <= 2);
+                CHECK(std::abs(live.g - saved.g) <= 2);
+                CHECK(std::abs(live.b - saved.b) <= 2);
+            }
+        }
+    };
+
+    checkAll("setting up");
+    UndoStack undo(model);
+    // The whole group moved on: both transitions go with it.
+    REQUIRE(undo.execute(std::make_unique<MoveClips>(std::vector<ClipId>{a, b, c}, 20, 0)));
+    checkAll("moving all three clips");
+    // a's head trimmed (far from the wipe on its tail) ...
+    const Clip &clipA = model.clip(a);
+    REQUIRE(undo.execute(std::make_unique<ResizeClip>(a, clipA.in + 5, clipA.out, clipA.position + 5)));
+    checkAll("trimming a's head");
+    // ... and c's tail (far from the dip on its head).
+    const Clip &clipC = model.clip(c);
+    REQUIRE(undo.execute(std::make_unique<ResizeClip>(c, clipC.in, clipC.out - 10, clipC.position)));
+    checkAll("trimming c's tail");
+    for (int i = 0; i < 3; ++i) {
+        REQUIRE(undo.undo());
+        checkAll("undo " + std::to_string(i + 1));
+    }
+    for (int i = 0; i < 3; ++i) {
+        REQUIRE(undo.redo());
+        checkAll("redo " + std::to_string(i + 1));
+    }
 }

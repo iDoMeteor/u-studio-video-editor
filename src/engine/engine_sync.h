@@ -7,6 +7,7 @@
 #include "core/model/track_segments.h"
 #include "core/model/transform.h"
 #include "core/render/render_profile.h"
+#include "core/model/transition_native.h"
 #include "engine/engine_extension.h"
 #include "engine/producer_open.h"
 
@@ -332,6 +333,26 @@ class EngineSync
         std::vector<std::vector<std::shared_ptr<Mlt::Filter>>> cuts;
     };
     std::unordered_map<uint64_t, TransformFilters> m_transformFilters;
+    // FX3: a transition sub-tractor's services, kept with its plan's shape
+    // so a recipe-value change (a softness drag) is set on them in place
+    // (applyTransitionsInPlace()); per build.
+    struct LiveTransition
+    {
+        std::string shape;
+        std::shared_ptr<Mlt::Transition> video, audio;
+        std::vector<std::shared_ptr<Mlt::Filter>> filters; // tail's, then head's, in order
+    };
+    std::unordered_map<uint64_t, LiveTransition> m_liveTransitions;
+    // What a transition plays as on this graph's pipeline.
+    struct TransitionPlan
+    {
+        core::NativeTransition native;
+        std::string map;          // a wipe's map file, "" for none
+        bool gpuDissolve = false; // movit.luma_mix instead of the video service
+        std::string shape;        // the services and map: equal shapes differ only in values
+    };
+    TransitionPlan planTransition(const core::Transition &t);
+    bool applyTransitionsInPlace(const core::Project &next);
     // One transparent background for every transform filter (see
     // applyTransform()), built from the current profile.
     std::unique_ptr<Mlt::Producer> m_transformBackground;
@@ -362,9 +383,16 @@ class EngineSync
     // Forgets the masters of assets whose path or status changed (relink,
     // missing on load, found again), so the next build opens them afresh.
     void dropChangedMasters(const core::Project &before, const core::Project &after);
-    // MLT tractor index -> model TrackId; std::nullopt at index 0 (the
-    // black backing track, not a model track).
-    std::vector<std::optional<core::TrackId>> m_mltTrackOrder;
+    // Where each model track's playlist sits: `depth` times into track 0
+    // (the adjustment-lane sub-tractors, FX4; 0 is the main tractor), then
+    // track `index`. rebuildAll() fills it; verify() walks it.
+    struct TrackSlot
+    {
+        core::TrackId track;
+        int depth = 0;
+        int index = 0;
+    };
+    std::vector<TrackSlot> m_trackSlots;
 
     void applyProfile();
     // Swaps in a freshly derived profile and rebuilds everything built on

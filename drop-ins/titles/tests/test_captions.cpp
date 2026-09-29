@@ -9,11 +9,13 @@
 #include "core/captions.h"
 #include "core/clip_fields.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 using namespace ustudio;
 using namespace ustudio::titles;
@@ -231,10 +233,13 @@ TEST_CASE("the import: a track per lane on top, a clip per cue with its fields; 
     CHECK(model.sequence().tracks.size() == 3);
 }
 
-TEST_CASE("1,000 cues read, place and import in well under two seconds")
+namespace {
+
+// `count` cues, two seconds apart, as an SRT file.
+std::string longSrt(int count)
 {
     std::string srt;
-    for (int i = 0; i < 1000; ++i) {
+    for (int i = 0; i < count; ++i) {
         const int start = i * 2000, end = start + 1800;
         char line[64];
         std::snprintf(line, sizeof line, "%02d:%02d:%02d,%03d --> %02d:%02d:%02d,%03d", start / 3600000,
@@ -242,22 +247,48 @@ TEST_CASE("1,000 cues read, place and import in well under two seconds")
                       end / 1000 % 60, end % 1000);
         srt += std::to_string(i + 1) + "\n" + line + "\nLine " + std::to_string(i) + "\n\n";
     }
-    const auto begin = std::chrono::steady_clock::now();
-    auto p = parse(srt);
-    REQUIRE(p.has_value());
-    REQUIRE(p->cues.size() == 1000);
-    core::Model model = core::Model::createEmpty();
-    core::Asset title;
-    title.path = "/t.ustitle";
-    title.info.hasVideo = true;
-    title.info.isStillImage = true;
-    ImportCaptions import(title, place(p->cues, {30000, 1001}), "long.srt");
-    REQUIRE(import.apply(model));
-    const auto ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
-    MESSAGE("1,000 cues: " << ms << " ms");
-    CHECK(ms < 2000);
-    CHECK(import.tracks().size() == 1);
+    return srt;
+}
+
+// Reading, placing and importing `count` cues: the fastest of three runs, in
+// milliseconds (the run a loaded machine disturbed least).
+double importMs(int count)
+{
+    const std::string srt = longSrt(count);
+    std::vector<double> runs;
+    for (int run = 0; run < 3; ++run) {
+        const auto begin = std::chrono::steady_clock::now();
+        auto p = parse(srt);
+        REQUIRE(p.has_value());
+        REQUIRE(p->cues.size() == static_cast<size_t>(count));
+        core::Model model = core::Model::createEmpty();
+        core::Asset title;
+        title.path = "/t.ustitle";
+        title.info.hasVideo = true;
+        title.info.isStillImage = true;
+        ImportCaptions import(title, place(p->cues, {30000, 1001}), "long.srt");
+        REQUIRE(import.apply(model));
+        CHECK(import.tracks().size() == 1);
+        runs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
+    }
+    return *std::min_element(runs.begin(), runs.end());
+}
+
+} // namespace
+
+// Doc 16's "1,000 cues in well under two seconds" as an absolute time is the
+// captions benchmark (bench_captions.cpp), not a test: fixed limits fail on a
+// loaded machine (2026-09-28: 4.2 s beside two other suites, 0.6 s alone).
+// Here, the load-proof part, against 250 cues timed under the same load
+// moments before: four times the cues take at most 16 times as long, linear
+// with room. (Before core::Model placed clips by binary search, 0.74.1, each
+// insert re-sorted the track and ten times the cues took 115 times as long;
+// since, 1,000 cues take about 20 ms and 20,000 about 0.5 s.)
+TEST_CASE("1,000 cues read, place and import in proportion to 250")
+{
+    const double small = importMs(250), large = importMs(1000);
+    MESSAGE("250 cues: " << small << " ms; 1,000 cues: " << large << " ms");
+    CHECK(large < 16.0 * std::max(small, 1.0));
 }
 
 namespace {

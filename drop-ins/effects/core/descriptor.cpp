@@ -342,6 +342,10 @@ void applyOverlay(EffectDescriptor &descriptor, const Json &overlay)
             it->title = paramOverlay["name"].asString();
         if (paramOverlay["hidden"].isBool())
             it->hidden = paramOverlay["hidden"].asBool();
+        if (std::optional<ParamKind> kind = paramKindFromName(paramOverlay["kind"].asString()))
+            it->kind = *kind;
+        if (paramOverlay["extensions"].isArray())
+            it->extensions = stringsFromJson(paramOverlay["extensions"]);
         const Json &def = paramOverlay["default"];
         if (def.isNumber() || def.isBool() || def.isString()) {
             const std::string text = def.isNumber() ? core::formatDouble(def.asNumber())
@@ -388,6 +392,8 @@ Json toJson(const EffectDescriptor &descriptor)
         param.set("has_default", p.hasDefault);
         param.set("choices", stringsToJson(p.choices));
         param.set("animatable", p.animatable);
+        if (!p.extensions.empty())
+            param.set("extensions", stringsToJson(p.extensions));
         param.set("hidden", p.hidden);
         if (p.display) {
             Json display;
@@ -430,6 +436,7 @@ std::optional<EffectDescriptor> descriptorFromJson(const Json &json)
         p.hasDefault = item["has_default"].asBool();
         p.choices = stringsFromJson(item["choices"]);
         p.animatable = item["animatable"].asBool();
+        p.extensions = stringsFromJson(item["extensions"]);
         p.hidden = item["hidden"].asBool();
         const Json &display = item["display"];
         if (display.isObject()) {

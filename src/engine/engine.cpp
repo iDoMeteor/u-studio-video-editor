@@ -108,6 +108,7 @@ class Engine::Thread
                     fallBackToCpu("the render thread couldn't use the GL context");
             },
             [this] { gpu->renderThreadStopped(); });
+        controller->setFrameShowHooks([this] { return gpu->frameShowEnter(); }, [this] { gpu->frameShowLeave(); });
         gpu->setHardwareDecodeApi(hardwareDecodeApi);
         sync->setPipeline(EngineSync::Pipeline::Gpu, hardwareDecodeApi);
         postGpu(true, gpu->renderer());
@@ -119,6 +120,7 @@ class Engine::Thread
             return;
         controller->shutdown();
         controller->setRenderThreadHooks({}, {});
+        controller->setFrameShowHooks({}, {});
         gpu.reset();
         sync->setPipeline(EngineSync::Pipeline::Cpu, {}); // rebuilds: `rebuilt` restarts the consumer
         postGpu(false, why);

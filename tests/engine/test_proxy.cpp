@@ -53,6 +53,7 @@ fs::path generate(const std::string &name, const char *colour, int width, int he
     consumer.set("vcodec", h264Encoder().c_str());
     consumer.connect(producer);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
     return path;
 }
 

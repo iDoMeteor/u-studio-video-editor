@@ -1,7 +1,13 @@
 #include "doctest.h"
 
+#include "core/commands/composite_command.h"
+#include "core/commands/primitives.h"
+#include "core/commands/undo_stack.h"
 #include "core/model/model.h"
 
+#include <algorithm>
+#include <chrono>
+#include <memory>
 #include <random>
 
 using namespace ustudio::core;
@@ -169,8 +175,8 @@ TEST_CASE("Model: addTransition extends both clips from their own handles; the p
     Model model = Model::createEmpty();
     TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
     AssetId asset = addTestAsset(model, 300);
-    ClipId a = model.insertClip(track, asset, 0, 0, 49);      // [0, 50), source [0, 49]
-    ClipId b = model.insertClip(track, asset, 50, 100, 149);  // [50, 100), source [100, 149]
+    ClipId a = model.insertClip(track, asset, 0, 0, 49);     // [0, 50), source [0, 49]
+    ClipId b = model.insertClip(track, asset, 50, 100, 149); // [50, 100), source [100, 149]
     FrameIndex originalBEnd = model.clip(b).end();
 
     TransitionId t = model.addTransition(track, a, b, 6, 4); // length 10
@@ -323,4 +329,58 @@ TEST_CASE("Model::snapshot: an immutable copy, shared until the next edit (doc 1
     model = other;
     CHECK(model.snapshot() != second);
     CHECK(*model.snapshot() == other.project());
+}
+
+namespace {
+
+// Inserts n clips in timeline order through one undoable command (a caption
+// import's shape), shifts every clip right as a ripple does, then undoes the
+// insert. Returns the milliseconds taken; checks the result on the way.
+double bulkEditMs(int n)
+{
+    Model model = Model::createEmpty();
+    const TrackId track = model.addTrack(Track::Kind::Video, 0, "V1");
+    Asset still;
+    still.path = "color:red";
+    still.info.hasVideo = true;
+    still.info.isStillImage = true;
+    const AssetId asset = model.addAsset(still);
+    UndoStack undo(model);
+    const auto start = std::chrono::steady_clock::now();
+    std::vector<std::unique_ptr<Command>> inserts;
+    for (int i = 0; i < n; ++i)
+        inserts.push_back(std::make_unique<InsertClip>(track, asset, FrameIndex{i} * 10, 0, 7));
+    REQUIRE(undo.execute(std::make_unique<CompositeCommand>("Insert clips", std::move(inserts))));
+    const std::vector<ClipId> ids = model.track(track).clips;
+    for (auto it = ids.rbegin(); it != ids.rend(); ++it) // the last first, as a ripple does
+        model.moveClip(*it, track, model.clip(*it).position + 2);
+    for (ClipId id : ids) // and back
+        model.moveClip(id, track, model.clip(id).position - 2);
+    CHECK(model.track(track).clips == ids);
+    undo.undo();
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    CHECK(model.track(track).clips.empty());
+    CHECK(model.check().empty());
+    return ms;
+}
+
+} // namespace
+
+TEST_CASE("Model: bulk inserts, ripples and their undo scale near-linearly with the clip count")
+{
+    // Every placement used to re-sort the whole track (a hash lookup per
+    // comparison), and every range check scanned it: 10x the clips took
+    // ~100x as long, so a 20,000-cue caption file took minutes. Placing one
+    // clip is now binary searches, so 10x the clips takes ~11-13x here.
+    // Judged as a ratio, not a time limit (the machine's speed and load
+    // don't matter); best of three for each size.
+    auto best = [](int n) {
+        double ms = bulkEditMs(n);
+        for (int run = 0; run < 2; ++run)
+            ms = std::min(ms, bulkEditMs(n));
+        return ms;
+    };
+    const double small = best(1500), large = best(15000);
+    INFO("1,500 clips: " << small << " ms; 15,000: " << large << " ms");
+    CHECK(large < small * 30); // quadratic: ~100
 }

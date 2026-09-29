@@ -8,6 +8,7 @@
 #include "core/model/types.h"
 
 #include <optional>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,19 @@ std::vector<core::Keyframe> withEasingAt(std::vector<core::Keyframe> keys, core:
 // The nearest key strictly before / after `at`.
 std::optional<core::FrameIndex> previousKey(const std::vector<core::Keyframe> &keys, core::FrameIndex at);
 std::optional<core::FrameIndex> nextKey(const std::vector<core::Keyframe> &keys, core::FrameIndex at);
+
+// Touch-record (doc 15): the values performed during playback, one per
+// frame, merged into `keys` over the recorded range [first, last] (the
+// keys there replaced), then thinned so the curve stays editable: a
+// performed point is dropped while the linear curve through the kept ones
+// stays within `tolerance` of it (Ramer-Douglas-Peucker). The recorded
+// range's ends are always kept, and the keys outside it are untouched.
+std::vector<core::Keyframe> withRecording(std::vector<core::Keyframe> keys,
+                                          const std::vector<std::pair<core::FrameIndex, double>> &performed,
+                                          double tolerance);
+// The tolerance a parameter's range calls for: 0.5% of it (at least a
+// hair above zero).
+double recordingTolerance(double minimum, double maximum);
 
 // The feel chips: a name for each easing people reach for; "All curves"
 // offers the rest. The easing is the curve from this key to the next.

@@ -3,9 +3,10 @@
 [Docs home](../../README.md) › [Developer docs](../README.md) › [Implementation notes](README.md) › MLT upstream candidates
 
 MLT behaviour we work around that looks like a bug upstream. Each entry
-names the source, what we do instead, and where the repro lives. Nothing
-here has been filed; reports are drafted from this list later (VE Core's
-queue), one repro each against the MLT version in use (7.40).
+names the source, what we do instead, and where the repro lives. The
+standalone repros filed upstream are in
+[`tools/upstream-repros/mlt/`](../../../tools/upstream-repros/README.md),
+one folder per report.
 
 | Behaviour | Source | Our workaround | Repro |
 |---|---|---|---|
@@ -16,7 +17,7 @@ queue), one repro each against the MLT version in use (7.40).
 | `pixbuf` (stills, image sequences) ignores `video_index=-1`, which turns off an avformat producer's picture. | `producer_pixbuf.c` | Mark such frames `test_image` so the compositor skips them (`attachHideVideo()`) | `tests/engine/test_colour.cpp` |
 | movit's `movit.convert` leaks a `movit::Input` (about 1.2 KB) per input per frame whenever it reuses a chain: `~MltInput()` leaves the input to a chain that never took it. ~10 MB a minute of GPU playback. | `filter_movit_convert.cpp`, `dispose_movit_effects()` and two error paths in `convert_image()` | The Flatpak's MLT carries a fix, `packaging/flatpak/patches/mlt-movit-convert-input-leak.patch` (report draft below); distro builds leak | [GPU](gpu.md), `tests/engine/test_gpu_engine` under ASan |
 | `sdl2_audio` can hand `on_consumer_frame_show` a freed frame right after a consumer restart (a SEGV in `mlt_frame_get_position`, seen once under ASan). | `consumer_sdl2_audio.c`, `mlt_consumer.c` | None yet | [Playback engine](playback-engine.md) |
-| A `colour` producer with the plus `affine` filter, encoded as QuickTime Animation (`qtrle`, `argb`) by the `avformat` consumer, died with SIGFPE in a `core` filter's `get_image` on the consumer's read-ahead thread; the same graph encoded to PNG, ProRes or VP9 didn't. Not reached by the editor's graphs (they render H.264). Not narrowed down further. | a `core` filter under `transition_affine`'s `get_image` | Tests encode qtrle from a PNG still instead | `tests/engine/test_colour.cpp` (`makeAlphaVideo`) |
+| The `avfilter` filter leaks a properties object (with its strings) each time it sets up a filter graph: `init_image_filtergraph()` closes `p` only on its failure path, and the success path returns first. Once per graph (the first frame, then a format or size change), not per frame. | `filter_avfilter.c:431`, `:711` | None needed at that rate; LSan suppression `leak:filter_get_image` (`tests/sanitizers/lsan.supp`) | The effects drop-in's `test_engine` LUT case under `just asan` |
 | The `avformat` consumer drops alpha when encoding to a yuva `pix_fmt` unless `mlt_image_format=rgba` is set: it requests yuv422 for anything but `rgba`/`argb`/`bgra`. | `consumer_avformat.c` | Set `mlt_image_format=rgba` for alpha exports | [Engine sync](engine-sync.md) |
 
 ## Report draft: movit.convert leaks a movit::Input per input per frame

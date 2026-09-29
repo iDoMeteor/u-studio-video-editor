@@ -61,6 +61,7 @@ void renderGreen(const fs::path &path)
     consumer.set("vcodec", h264Encoder().c_str());
     consumer.connect(producer);
     consumer.run();
+    consumer.stop(); // joins the render-ahead thread (notes/render.md)
 }
 
 } // namespace

@@ -12,7 +12,7 @@ titles_inc = include_directories('.')
 # core/: std, libxml2 and src/core only (tools/dropin_boundary_check.sh).
 titles_core = static_library(
   'ustudio_titles_core',
-  files('core/animation.cpp', 'core/brand_kit.cpp', 'core/captions.cpp', 'core/clip_fields.cpp', 'core/evaluate.cpp', 'core/template_library.cpp', 'core/export_formats.cpp', 'core/snapping.cpp', 'core/title_document.cpp', 'core/title_edit.cpp', 'core/title_xml.cpp'),
+  files('core/animation.cpp', 'core/brand_kit.cpp', 'core/captions.cpp', 'core/clip_fields.cpp', 'core/evaluate.cpp', 'core/template_library.cpp', 'core/export_formats.cpp', 'core/lottie_check.cpp', 'core/snapping.cpp', 'core/title_document.cpp', 'core/title_edit.cpp', 'core/title_xml.cpp'),
   include_directories: titles_inc,
   dependencies: [libustudio_core_dep],
   pic: true,
@@ -24,21 +24,29 @@ titles_core_dep = declare_dependency(
   dependencies: [libustudio_core_dep],
 )
 
-# render/ (titlerender): Pango, Cairo, fontconfig; no GTK, no MLT.
+# render/ (titlerender): Pango, Cairo, fontconfig; no GTK, no MLT. ThorVG
+# draws animated (Lottie) layers when it's there (ADR-021, optional): the
+# system's thorvg-devel for dev builds, the Flatpak's own module (built
+# without expressions or file access) for packages.
+titles_thorvg_dep = dependency('thorvg-1', version: '>=1.0', required: get_option('titles_thorvg'),
+                               include_type: 'system')
+titles_render_args = titles_thorvg_dep.found() ? ['-DTITLES_HAVE_THORVG'] : []
 titles_render = static_library(
   'ustudio_titlerender',
-  files('render/blur.cpp', 'render/title_renderer.cpp'),
+  files('render/blur.cpp', 'render/lottie_layer.cpp', 'render/title_renderer.cpp'),
   include_directories: titles_inc,
+  cpp_args: titles_render_args,
   dependencies: [titles_core_dep, libustudio_platform_dep, titles_pangocairo_dep, titles_cairo_dep,
-                 titles_fontconfig_dep],
+                 titles_fontconfig_dep, titles_thorvg_dep],
   pic: true,
   install: false,
 )
 titles_render_dep = declare_dependency(
   link_with: titles_render,
   include_directories: titles_inc,
+  compile_args: titles_render_args,
   dependencies: [titles_core_dep, libustudio_platform_dep, titles_pangocairo_dep, titles_cairo_dep,
-                 titles_fontconfig_dep],
+                 titles_fontconfig_dep, titles_thorvg_dep],
 )
 
 # package/ (doc 20, T4b): template packs. The manifest, validator and

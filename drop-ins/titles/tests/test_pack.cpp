@@ -357,6 +357,67 @@ TEST_CASE("a pack built from template folders validates, installs and keeps its 
     fs::remove_all(scratch());
 }
 
+TEST_CASE("a pack with an animated template: built, validated, installed; a hostile animation refuses it whole (T6)")
+{
+    const std::string kSting =
+        R"({"v":"5.7.0","fr":30,"ip":0,"op":30,"w":200,"h":100,"assets":[],"layers":[{"ty":4,"ind":1,"ip":0,)"
+        R"("op":30,"st":0,"ks":{"p":{"a":0,"k":[100,50]}},"shapes":[]}]})";
+    const fs::path work = scratch() / "animated";
+    fs::create_directories(work);
+    {
+        std::ofstream(work / "sting.json", std::ios::binary) << kSting;
+    }
+    TitleDocument doc = parseTitle(kTemplate)->document;
+    doc.layers.erase(doc.layers.begin()); // no picture
+    Layer anim;
+    anim.id = "sting";
+    anim.kind = LayerKind::Lottie;
+    anim.src = "sting.json";
+    anim.w = 200;
+    doc.layers.push_back(anim);
+    doc.baseDirectory = core::utf8String(work);
+    auto saved = saveTemplate(doc, core::utf8String(work / "library"), "Sting");
+    REQUIRE_MESSAGE(saved.has_value(), (saved ? "" : saved.error()));
+
+    pack::Manifest m;
+    m.id = "me/animated";
+    m.version = "0.1.0";
+    m.title = "Animated";
+    m.licence = "CC0-1.0";
+    auto entries = pack::build(m, {{saved->folder, kPng}});
+    REQUIRE_MESSAGE(entries.has_value(), (entries ? "" : entries.error()));
+    auto valid = pack::validate(*entries, sizeOf(*entries));
+    REQUIRE_MESSAGE(valid.has_value(), (valid ? "" : valid.error()));
+    CHECK(valid->files.contains("lottie/sting.json"));
+    CHECK(valid->files.at("lottie/sting.json") == kSting);
+    auto installed = pack::install(*valid, core::utf8String(scratch() / "animated-library"), pack::Replace::Never);
+    REQUIRE_MESSAGE(installed.has_value(), (installed ? "" : installed.error()));
+    const auto templates = listTemplates(installed->folder, false);
+    REQUIRE(templates.size() == 1);
+    CHECK(fs::exists(fs::path(templates[0].folder) / "images" / "sting.json"));
+    auto read = readTitle(templates[0].path);
+    REQUIRE(read.has_value());
+    CHECK(read->document.layers.back().src == "images/sting.json");
+
+    // The same pack with a script in its animation: refused, and nothing
+    // installed.
+    auto hostile = *entries;
+    std::string scripted = kSting;
+    scripted.insert(scripted.find(R"("p":{"a":0)") + 10, R"(,"x":"$bm_rt = [0, 0];")");
+    find(hostile, "lottie/sting.json").data = scripted;
+    relist(hostile);
+    const std::string why = rejection(hostile);
+    CHECK_MESSAGE(why.find("isn't an animation the titles app can use") != std::string::npos, why);
+    CHECK_MESSAGE(why.find("expressions") != std::string::npos, why);
+    // A template pointing at an animation the pack doesn't carry.
+    auto missing = *entries;
+    std::erase_if(missing, [](const pack::Entry &e) { return e.path == "lottie/sting.json"; });
+    relist(missing);
+    CHECK(rejection(missing).find("animation") != std::string::npos);
+    fs::remove_all(scratch() / "animated");
+    fs::remove_all(scratch() / "animated-library");
+}
+
 TEST_CASE("archives: .zip and .tar.gz of one pack read back the same; real bad archives are refused")
 {
     if (!pack::archivesSupported()) {

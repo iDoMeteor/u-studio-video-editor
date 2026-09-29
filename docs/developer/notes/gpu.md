@@ -231,6 +231,95 @@ between neighbouring clips so a dissolve's two sides differ
 the tour's four-track graph frame by frame at Full and Half. The cost is up
 to two decoders per asset per track instead of one per asset.
 
+## Frames rendered on the consumer's own thread (0.71.x crash)
+
+I had assumed the consumer's render thread renders every frame, so only it
+needed a GL context. It doesn't. At `real_time=1`, MLT's read-ahead thread
+(`consumer_read_ahead_thread()`, `mlt_consumer.c`) skips `get_image()` for a
+frame it judges late (`skip_next`) and passes the frame on unrendered
+(`rendered` unset). sdl2_audio (`consumer_sdl2_audio.c`) then fires
+`consumer-frame-show` without checking that flag in three places:
+- the paused refresh: `consumer_thread()` shows each frame it pulls at
+  speed 0 directly (line 630);
+- the stop path: `video_thread()` "spits out all the frames" still queued
+  (lines 531, 537), and `consumer_thread()` shows its last frame (line 664).
+  A stop happens on every rebuild, since `setTractor()` restarts the
+  consumer.
+
+Our handler (`PlaybackController::handleFrameShow()`) calls `get_image()`,
+which then runs the whole movit graph on sdl2's thread. With no context
+current there, every framebuffer is incomplete, and movit asserts in
+`create_fbo` or `EffectChain::render`. It needs a late frame, so it was
+intermittent and got likelier under load: while recording, while other
+sessions used the GPU, and around rebuilds. `engine-gpu-engine` hit it
+one run in two to four.
+
+Measured with frame-show instrumented (`rendered`, the image data,
+`_speed`, whether `shutdown()` was stopping the consumer) over `gpu_stress`:
+- 2 minutes: 164 frames arrived rendered, and 4 unrendered, all during a
+  stop.
+- 2.5 minutes under 4 parallel x264 encodes: 349 rendered, 1 unrendered
+  during a stop, and 1 unrendered at speed 0 while not stopping (the paused
+  refresh). The two crash reports came right after a pause.
+
+An earlier version of this note blamed `mlt_consumer.c`'s "forcing next
+frame". That branch is in `worker_get_frame()`, which runs only for
+`|real_time| > 1`; VE Bugs pointed it out (2026-09-28).
+
+Fix: the session has a second context in the same share group, which
+`handleFrameShow()` makes current around `get_image()` on the GPU pipeline
+(`PlaybackController::setFrameShowHooks()`, `GpuSession::frameShowEnter()`).
+The render thread and the consumer thread can now both render; MLT's movit
+serialises a chain per service (`lock_service`), and movit's resource pool
+is thread-safe.
+- Evidence: `engine-gpu-engine` failed 1 of 2 before the fix and passes
+  20 of 20 after (`--repeat 20`). `gpu_stress` (random play, pause, seek,
+  scale, proxies and dissolve edits through Engine) aborted within about
+  30 s on seeds 1 and 2 before, and runs 3 minutes clean on each after;
+  meson runs it for 45 s (`engine-gpu-stress`).
+- On the CPU pipeline, rendering there is what MLT intends and needs no
+  thread-bound state.
+- Exports are unaffected: at `real_time=-1` the consumer waits for the
+  render thread to render each frame.
+
+Since 0.75.1, PlaybackController drops the frames shown while the consumer stops (`m_stopping`, checked before any GL context is made current), so only the paused refresh can still render on sdl2's thread.
+
+## Wipes on the GPU pipeline (FX3, 2026-09-28)
+
+A wipe (a luma transition with a gradient map) on the GPU pipeline should
+be MLT's CPU `luma` inside the GPU graph, not `movit.luma_mix`.
+
+- **Repro:** 1080p30, a 20-frame wipe between two H.264 clips (solid
+  `#2040c0` and `#20c040`, BT.709-tagged), map `wipe16.pgm`: 640×360, P5,
+  maxval 65535, a left-to-right ramp (big-endian 16-bit samples),
+  softness 0.1. The graph is EngineSync's dissolve shape: black on track 0,
+  a sub-tractor holding the tail and head cuts joined by the transition
+  (in/out 0–19), composited by `composite` (CPU) or `movit.overlay` (GPU).
+  Each of the 20 frames is pulled as RGBA, and the wipe edge is the first x
+  on row 540 whose green falls below 128.
+- **CPU `luma` inside the GPU graph:** the edge tracks the all-CPU wipe
+  within ~9 px on every frame, so progress is linear. The map keeps 16 bits
+  (`transition_luma.c` reads `.pgm` itself with `mlt_luma_map_from_pgm()`),
+  there's no banding, and preview equals export (exports take the preview's
+  pipeline). It costs ~140–155 ms a 1080p frame pulled one at a time (two
+  downloads, the CPU blend, one upload), against ~60 all-CPU, so a wipe drops
+  frames at Full preview while it plays.
+- **`movit.luma_mix`:** the edge stays at x=0 for frames 0–3, then catches
+  up (edge 53 at frame 4 against the CPU's 362, 1880 at frame 19): it
+  squares the progress (`transition_movit_luma.cpp`: `mix = pow(mix, 2.0)`)
+  to look even in linear light. It also opens the map through a producer
+  (`mlt_factory_producer(profile, nullptr, resource)`, line 149), so the
+  gradient reaches movit at 8 bits. Matching the CPU would take an MLT patch
+  to both.
+- Keep wipe maps `.pgm`: for other formats the CPU `luma` opens the map
+  through the default loader (`transition_luma.c`, line 822), which gives
+  movit normalisers while a GPU session lives (the loader section above).
+- A standalone repro's CPU baseline needs VE Core's background re-tag
+  (`attachProfileColorspace()`), or its colours come out BT.601-shifted and
+  look like a GPU error.
+
+Motion transitions (slide, push) need no GPU variant: MLT's `affine` transition in the dissolve sub-tractor (slide), plus an `affine` filter on the tail cut (push), play as CPU islands inside the GPU graph exactly as on the CPU. Repro at 1080p30, a 25-frame transition between H.264 clips, the sub-tractor composited over black by `composite` or `movit.overlay`: the incoming clip's edge on row 540 is at the same x on both pipelines at every sampled frame (1680, 1440, … 0: linear, 80 px a frame), with no gap between the pictures. A 1080p frame pulled on its own costs about 40 ms for a slide on the GPU pipeline (64 on the CPU) and 66 for a push (67): the island is cheap here because the compositing around it runs on the GPU, unlike a wipe's two downloads and an upload. Not checked: the outgoing picture's own movement during a push (solid colours can't show it); the CPU recipe's own repro covers it.
+
 ## Exports (G4)
 
 - `renderProject()` checks `GpuSession::current()` once, at the start: with

@@ -1,0 +1,305 @@
+{
+  "version": 1,
+  "recipes": [
+    {
+      "id": "wipe.left",
+      "name": "Wipe Right",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "left",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.right",
+      "name": "Wipe Left",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "right",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.down",
+      "name": "Wipe Down",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "down",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.up",
+      "name": "Wipe Up",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "up",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.down-right",
+      "name": "Wipe Down and Right",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "down-right",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.down-left",
+      "name": "Wipe Down and Left",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "down-left",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.up-right",
+      "name": "Wipe Up and Right",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "up-right",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.up-left",
+      "name": "Wipe Up and Left",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "up-left",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.radial",
+      "name": "Circle Out",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "radial",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.iris-out",
+      "name": "Circle In",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "iris-out",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.clock",
+      "name": "Clock",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "clock",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.diamond",
+      "name": "Diamond",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "diamond",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.barn-door-open",
+      "name": "Barn Door Open",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "barn-door-open",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.barn-door-close",
+      "name": "Barn Door Close",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "barn-door-close",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.blinds",
+      "name": "Blinds",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "blinds",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.checker",
+      "name": "Checkerboard",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "checker",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.blocks",
+      "name": "Blocks",
+      "category": "Wipes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "blocks",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.star",
+      "name": "Star",
+      "category": "Brand shapes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "star",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.sparkle",
+      "name": "Sparkle",
+      "category": "Brand shapes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "sparkle",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    },
+    {
+      "id": "wipe.horn",
+      "name": "Unicorn Horn",
+      "category": "Brand shapes",
+      "params": {
+        "video.service": "luma",
+        "video.luma": "horn",
+        "video.softness": 0.1,
+        "video.reverse": false
+      },
+      "exposed": [
+        "video.softness",
+        "video.reverse"
+      ]
+    }
+  ]
+}

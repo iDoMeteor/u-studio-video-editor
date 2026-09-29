@@ -290,9 +290,9 @@ that needs it.
 |---|---|---|---|
 | IP1 | `core/model` | Model data and mutators: `Easing` replacing `Keyframe::Interp`; `Effect::mix`, `Effect::mask`; `Sequence::effects`; `Transition::recipe` + `params`; `AdjustmentBlock` and its lane; `Look` in the bin; `Clip::sourceParams` (titles); `EffectParamChanged` event; `Effect::owner` (which drop-in applies it, doc 17); the matching `check()` rules. Mutators stay on `Model` (doc 14); commands live in `drop-ins/effects/core/`. | FX1 |
 | IP2 | `core/xml` | Writer and reader handle the IP1 fields directly (`<filter>` elements, `ustudio:*` effect and field properties); format version 5 (4 is taken by the render-graph save, doc 09). Kept in `src/` so project data never depends on a drop-in being built. | FX1 |
-| IP3 | `engine/engine_extension`, `engine/engine_sync` | An `EngineExtension` interface; a drop-in registers a factory with `DropInHost::addEngineExtension()` and every `EngineSync` (the engine thread's, each render's) creates its own instances: `beginBuild()`, `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule; filters go on with `attachToCut()`), `decoratePlaylist()`, `decorateTractor()`, `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), `compositor()` (replace the default `composite` track compositor; effects uses `frei0r.cairoblend`), and `applyInPlace(ParamChange)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
+| IP3 | `engine/engine_extension`, `engine/engine_sync` | An `EngineExtension` interface; a drop-in registers a factory with `DropInHost::addEngineExtension()` and every `EngineSync` (the engine thread's, each render's) creates its own instances: `beginBuild()`, `decorateCut()` (every cut of a clip, including dissolve tail and head cuts, with the segment's offset for the keyframe rule; filters go on with `attachToCut()`), `decoratePlaylist()`, `decorateTractor()`, `decorateLane()` (a lane's adjustment blocks on the whole tractor for lane 0, or on EngineSync's sub-tractor of the video rows at and below a lane k > 0, FX4), `makeTransitionSegment()` (recipe-driven sub-tractor, FX3), `makeProducer()` (per-clip producers, titles), `compositor()` (replace the default `composite` track compositor; effects uses `frei0r.cairoblend`), and `applyInPlace(ParamChange)` returning true when a parameter change was applied to live filters without a rebuild. With no extension registered, EngineSync behaves exactly as today. | FX1 (FX3 for `makeTransitionSegment`) |
 | IP4 | `engine/factory_policy` | Extra plugin search paths and module directories contributed before `Mlt::Factory::init()`: the curated `FREI0R_PATH` (and `OFX_PLUGIN_PATH`), and titles' `libmltustudio.so`. Because it runs before init, each drop-in also exposes `contributeFactoryPaths()`, listed in `drop_ins.h` next to `registerDropIn()`. | FX1 |
-| IP5 | `app/shell_host.h`, `app/shell_hosts.cpp` | `ShellHost`, which the editor window implements and hands to each drop-in's `ShellExtension` (`DropInHost::addShellExtension()`) once its UI is built: an **inspector host** (`addInspectorPage()`: a sidebar on the right, created by the first page); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (`addActions()`: `ActionSpec` lists with their own target, listed in Help; taken names refused, taken shortcuts dropped); **hint contributions** (`addHints()`, `setTooltip()`: Help's Controls tab lists them under the drop-in's category); a **preview overlay host** (`addPreviewOverlay()` plus `previewMapping()`, frame ↔ widget coordinates); a **timeline overlay/lane provider** (`TimelineOverlayProvider`: paint, `pressed()` hit-test and `laneHeight()`, for curve lanes, the FX lane and the transition shelf); an **import handler registry** (`addImportHandler()`: file extension → handler, so titles can own `.ustitle` without touching the import code); **`assetChangedOnDisk()`** (a drop-in watching its own files reports one changed: the asset's fingerprint is updated and the engine rebuilds, without an undo step; titles T1, `DROPIN_API_VERSION` 6). Also `model()`, `execute()` (through the undo stack), `projectChanged`, `currentFrame()`, `seek()` and `playheadMoved` (FX2: previous/next keyframe, animated values following the playhead; API 9), `showInspectorPage()` (FX2: E opens the Browser; API 10), `showStatus()`. With nothing registered the window is pixel-identical to before. | FX2 (timeline provider: FX4; import handlers: titles T1) |
+| IP5 | `app/shell_host.h`, `app/shell_hosts.cpp` | `ShellHost`, which the editor window implements and hands to each drop-in's `ShellExtension` (`DropInHost::addShellExtension()`) once its UI is built: an **inspector host** (`addInspectorPage()`: a sidebar on the right, created by the first page); a **selection signal** (`selectionChanged` plus `currentSelection()`: clips, track, transition, adjustment block); **action contributions** (`addActions()`: `ActionSpec` lists with their own target, listed in Help; taken names refused, taken shortcuts dropped); **hint contributions** (`addHints()`, `setTooltip()`: Help's Controls tab lists them under the drop-in's category); a **preview overlay host** (`addPreviewOverlay()` plus `previewMapping()`, frame ↔ widget coordinates); a **timeline overlay/lane provider** (`TimelineOverlayProvider`: paint, `pressed()` hit-test and `laneHeight()`, for curve lanes, the FX lane and the transition shelf; FX4 adds `topLaneHeight()` for a lane above the first row, and `dragged()`/`dragCancelled()` for a drag that began with a claimed press, cancelled like the timeline's own when an edit lands mid-gesture; API 12); an **import handler registry** (`addImportHandler()`: file extension → handler, so titles can own `.ustitle` without touching the import code); **`assetChangedOnDisk()`** (a drop-in watching its own files reports one changed: the asset's fingerprint is updated and the engine rebuilds, without an undo step; titles T1, `DROPIN_API_VERSION` 6). Also `model()`, `execute()` (through the undo stack), `projectChanged`, `currentFrame()`, `seek()` and `playheadMoved` (FX2: previous/next keyframe, animated values following the playhead; API 9), `showInspectorPage()` (FX2: E opens the Browser; API 10), `showStatus()`. With nothing registered the window is pixel-identical to before. | FX2 (timeline provider: FX4; import handlers: titles T1) |
 | IP6 | `render/`, `dropins/render_subcommand.h` | `u-studio-render` dispatches subcommands registered by drop-ins (`DropInHost::addRenderSubcommand()`: a name, a one-line summary for `--help`, and `run(args, out)` returning the exit status); effects registers `--probe-effect`. With none registered the tool is the M6 placeholder it was; an unknown option exits 2. | FX1 |
 | — | build | Top-level `meson.build` adds `subdir('drop-ins')`; `meson_options.txt` gains one `dropin_<name>` option per drop-in (ADR-014) and `titles`; `drop_ins.h` is generated. | FX1 |
 
@@ -732,6 +732,11 @@ Acceptance: every item has a recorded yes/no with the repro kept in
 `tests/engine` or the scratchpad notes; ADR-011 updated with anything that
 changes the plan.
 
+> REVIEW: VE Core, 2026-09-28: the mid-stack lane hook this note asked for
+> exists: `decorateLane()` (drop-in API 11), and EngineSync nests the video
+> rows under a lane k > 0 in a sub-tractor ([engine-sync notes](../../developer/notes/engine-sync.md),
+> "Adjustment lanes").
+
 > REVIEW: VE Core, 2026-09-27: FX0 spikes run; every item is answered in
 > [the effects notes](../../developer/notes/effects.md). All yes, with two
 > plan changes: `decorateTractor()` covers an FX lane only on top of the
@@ -814,10 +819,23 @@ bypass-hold and paused split compare, cost badges.
 
 Acceptance:
 
-- [ ] Any frei0r effect can be found, auditioned, applied, keyframed and
+- [x] Any frei0r effect can be found, auditioned, applied, keyframed and
       undone without touching a dialog.
-- [ ] Audition never rebuilds the live tractor.
-- [ ] Brand Looks ship and apply in one drag.
+- [x] Audition never rebuilds the live tractor.
+- [x] Brand Looks ship and apply in one drag.
+
+**FX2 as built (VE Effects, 2026-09-28):** the Effects page (the Rack) and
+the Add page (the Browser) in the inspector, which docks beside the
+preview on wide windows ([user guide](../../user/effects.md),
+[drop-in README](../../../drop-ins/effects/README.md)). `tools/effects-smoke`
+checks each acceptance item in the real editor over AT-SPI: E, search,
+audition (its rebuild count unchanged), Enter adds, undo, a keyframed
+parameter saved, a brand Look on two clips, a Look dragged onto the
+picture, compare and a held `\` (12/12). `dropin_effects` now defaults to
+`builtin` for development; the core Flatpak pins `disabled` (ADR-014), so
+the effects Flatpak extension is VE Installers' next step.
+
+> REVIEW: VE Effects, 2026-09-28: differences from the plan. Masks and their on-picture drawing are FX4's (with the preview handles). The Browser's tiles and audition render the clip's frame alone, not the composited picture (off the live graph, from the clip's media), and only for effects the health scan has passed, since they run in the editor's process. A preview drop goes to the topmost clip at the playhead, not under the pointer. Looks are filter stacks without LUT files (the LUT library is FX5's). Touch-record and curve lanes are FX4's, as planned. Bypass is a held key over a rendered frame, not a graph change, so it shows the frame the playhead was on while playing.
 
 ### FX3 — Transitions library (about 2 weeks)
 
@@ -832,9 +850,21 @@ compositing, and the writer emitting dissolve and wipe sub-tractors so
 
 Acceptance:
 
-- [ ] At least 20 recipes ship, all generated or authored in-repo.
-- [ ] Swapping a recipe is one undo step and survives save and reload.
-- [ ] `melt` renders a saved project's transitions like the editor does.
+- [x] At least 20 recipes ship, all generated or authored in-repo.
+- [x] Swapping a recipe is one undo step and survives save and reload.
+- [x] `melt` renders a saved project's transitions like the editor does.
+
+> REVIEW: VE Effects, 2026-09-28: landed as 0.75.0-beta.1 with 31 recipes
+> (dissolve, dip to black, flash, 4 slides, 4 pushes, 20 generated wipes), the Transitions
+> inspector page (tiles drawn from each recipe's shape, softness and
+> reverse), `T`, and double-click to open; the acceptance is met. Recipes
+> are `Transition::params` resolved by `core::nativeTransition()` for the
+> engine and the writer alike, not an IP3 `makeTransitionSegment()` (it
+> stays for recipes that need a whole segment). Still to come in FX3
+> follow-ups: zoom and spin motion, blend and audio-curve recipes,
+> live animated previews on the tiles and scroll-to-cycle on the seam,
+> and blend-mode track compositing. On the GPU pipeline wipes, slides and
+> pushes play as CPU islands (VE GPU's repros; developer/notes/gpu.md).
 
 ### FX4 — Timeline and preview manipulation (about 2–3 weeks, needs M3)
 
@@ -847,10 +877,25 @@ on-preview handles for `Point`/`Rect`/mask parameters, eyedropper.
 
 Acceptance:
 
-- [ ] Touch-recording a slider during playback produces an editable curve
+- [x] Touch-recording a slider during playback produces an editable curve
       with fewer keyframes than frames.
-- [ ] An adjustment block affects exactly the tracks beneath it for exactly
+- [x] An adjustment block affects exactly the tracks beneath it for exactly
       its range, in preview and export.
+
+> REVIEW: VE Effects, 2026-09-28: landed as 0.77.0-beta.1 with FX5. Touch-
+> record arms a value in the Rack and records it while it's moved, then
+> thins it (`withRecording()`, Ramer-Douglas-Peucker at 0.5% of the range):
+> the smoke's 40 performed values became 11 keys over 58 frames. Curve
+> lanes (C) draw and drag keys; the FX lane is a top lane (IP5 API 12)
+> with blocks drawn, moved, resized and faded there, and a block's lane
+> ("Affects") chosen in the Rack. Lane 0 plays through `decorateLane()` on
+> the main tractor, lanes > 0 through VE Core's sub-tractors; fades are
+> `core::blockEffects()` for the engine and writer alike, and fade and value
+> drags apply in place (ParamChange::block, API 13). On-preview handles
+> cover rect parameters and masks (rectangle, ellipse, soft edge, invert;
+> `frei0r.alphaspot` between the mix pair); `Point` parameters don't exist
+> yet (no installed family reports one). The eyedropper samples the clip's
+> own frame, before its effects.
 
 ### FX5 — Optional families (about 1–2 weeks, any time after FX2)
 
@@ -860,6 +905,16 @@ Integration points: none new (IP4 for `OFX_PLUGIN_PATH`).
 LADSPA and VST2 audio effects in the Rack (with the same health probe),
 OpenFX behind an experimental preference, LUT library management (import
 `.cube` files into the project).
+
+> REVIEW: VE Effects, 2026-09-28: landed with FX4 as 0.77.0-beta.1. LADSPA
+> and VST2 are curated like frei0r (`LADSPA_PATH`/`VST_PATH` replace MLT's
+> lists, so a Qt-naming plugin never loads); VST2 and OpenFX are chosen on
+> the Add page and load at the next start. OpenFX's module is denied by
+> FactoryPolicy (MLT always scans its fixed folders) and lifted through
+> `FactoryPaths::allowModules` (API 14) only when chosen and no bundle names
+> Qt. LSP Plugins is suggested under Audio when missing. The LUT library
+> copies `.cube` files into the project's `luts` folder (or the user's) and
+> lists them as tiles; LUT paths are absolute for now.
 
 ## Decisions needed from the owner
 

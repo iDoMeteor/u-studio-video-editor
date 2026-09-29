@@ -31,6 +31,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -450,6 +451,50 @@ TEST_CASE("animated frames from the producer are the renderer's own, byte for by
     }
 }
 
+#ifdef TITLES_HAVE_THORVG
+TEST_CASE("an animated layer: the producer's frames are the renderer's own, byte for byte (T6)")
+{
+    // ADR-021 decision 5: the editor, the export and the designer show the
+    // same animation frame at the same moment.
+    setUp();
+    {
+        std::ofstream(scratch() / "sting.json")
+            << R"({"v":"5.7.0","fr":24,"ip":0,"op":48,"w":320,"h":160,"assets":[],"layers":[{"ty":4,"ind":1,"ip":0,)"
+               R"("op":48,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":1,"k":[{"t":0,"s":[0]},{"t":48,"s":[360]}]},)"
+               R"("s":{"a":0,"k":[100,100]},"a":{"a":0,"k":[0,0]},"p":{"a":0,"k":[160,80]}},"shapes":[{"ty":"rc",)"
+               R"("p":{"a":0,"k":[0,0]},"s":{"a":0,"k":[120,60]},"r":{"a":0,"k":8}},{"ty":"fl","c":{"a":0,)"
+               R"("k":[0.2,0.8,1,1]},"o":{"a":0,"k":100}}]}]})";
+    }
+    const std::string path = writeTitle("animated.ustitle", R"(<ustitle version="2" width="640" height="360" fps="30/1">
+      <timing intro="0" hold="120" outro="0"/>
+      <layer kind="lottie" src="sting.json" x="160" y="100" w="320" h="160" speed="1.5"/>
+    </ustitle>)");
+    Mlt::Profile profile;
+    profile.set_width(640);
+    profile.set_height(360);
+    profile.set_frame_rate(30, 1);
+    auto producer = titles::makeTitleProducer(profile, path, 120, {});
+    REQUIRE(producer);
+    auto doc = titles::readTitle(path);
+    REQUIRE(doc.has_value());
+    for (int f : {0, 7, 19, 31, 64, 119}) {
+        CAPTURE(f);
+        producer->seek(f);
+        std::unique_ptr<Mlt::Frame> frame(producer->get_frame());
+        mlt_image_format format = mlt_image_rgba;
+        int w = 640, h = 360;
+        const uint8_t *image = frame->get_image(format, w, h);
+        const titles::RenderResult reference = titles::renderTitle(doc->document, f, {}, 640, 360);
+        CHECK(reference.warnings.empty());
+        std::vector<uint8_t> straight(640 * 360 * 4);
+        titles::toStraightRgba(reference.frame, straight.data());
+        CHECK(std::equal(straight.begin(), straight.end(), image));
+        // And something was drawn.
+        CHECK(std::any_of(straight.begin(), straight.end(), [](uint8_t v) { return v != 0; }));
+    }
+}
+#endif
+
 TEST_CASE("a bake: the sequence's rate and length, and stock melt plays it with its alpha")
 {
     setUp();
@@ -562,18 +607,12 @@ TEST_CASE("every built-in template plays in the engine exactly as the designer d
     }
 }
 
-TEST_CASE("1,000 captions build into the engine's graph quickly and play (T5)")
+// How long the engine takes to build a graph of `count` caption clips (a
+// model imported from `count` cues), and the model, for playing.
+std::pair<double, Model> captionGraph(const std::string &path, int count, std::unique_ptr<engine::EngineSync> &sync)
 {
-    setUp();
-    const auto templates = titles::listTemplates(TITLES_TEMPLATES_DIR, true);
-    auto plain = std::find_if(templates.begin(), templates.end(),
-                              [](const titles::TemplateInfo &t) { return t.id == "caption-plain"; });
-    REQUIRE(plain != templates.end());
-    const std::string path = utf8String(scratch() / "captions.ustitle");
-    std::filesystem::remove(path);
-    REQUIRE(titles::newTitleFromTemplate(*plain, path).has_value());
     std::vector<titles::captions::Cue> cues;
-    for (int i = 0; i < 1000; ++i)
+    for (int i = 0; i < count; ++i)
         cues.push_back({i * 2000, i * 2000 + 1800, "Caption number " + std::to_string(i), {}, i + 1});
     Model model = Model::createEmpty();
     model.addTrack(Track::Kind::Video, 0, "V1");
@@ -587,15 +626,35 @@ TEST_CASE("1,000 captions build into the engine's graph quickly and play (T5)")
     asset.fileFingerprint = fileFingerprint(path);
     titles::captions::ImportCaptions import(asset, titles::captions::place(cues, {30, 1}), "long.srt");
     REQUIRE(import.apply(model));
-
     const auto begin = std::chrono::steady_clock::now();
-    engine::EngineSync sync(model);
-    const auto built =
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
-    MESSAGE("graph with 1,000 caption clips: " << built << " ms");
-    CHECK(built < 5000);
+    sync = std::make_unique<engine::EngineSync>(model);
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+    return {ms, std::move(model)};
+}
+
+// Doc 16 T5's "1,000 captions build quickly", load-proof: a fixed limit
+// (5 s) failed under ASan beside TSan (13.6 s, 2026-09-28). Four times the
+// clips against 250 built moments before, under the same load: at most 16
+// times as long (linear with room), and the captions play.
+TEST_CASE("1,000 captions build into the engine's graph in proportion, and play (T5)")
+{
+    setUp();
+    const auto templates = titles::listTemplates(TITLES_TEMPLATES_DIR, true);
+    auto plain = std::find_if(templates.begin(), templates.end(),
+                              [](const titles::TemplateInfo &t) { return t.id == "caption-plain"; });
+    REQUIRE(plain != templates.end());
+    const std::string path = utf8String(scratch() / "captions.ustitle");
+    std::filesystem::remove(path);
+    REQUIRE(titles::newTitleFromTemplate(*plain, path).has_value());
+
+    std::unique_ptr<engine::EngineSync> small, sync;
+    const double smallMs = captionGraph(path, 250, small).first;
+    small.reset();
+    const double builtMs = captionGraph(path, 1000, sync).first;
+    MESSAGE("graph with 250 caption clips: " << smallMs << " ms; 1,000: " << builtMs << " ms");
+    CHECK(builtMs < 16.0 * std::max(smallMs, 1.0));
     // Mid-way, a caption is on screen (bright text over the black).
-    const std::vector<uint8_t> frame = frameAt(sync, 500 * 60 + 30);
+    const std::vector<uint8_t> frame = frameAt(*sync, 500 * 60 + 30);
     int bright = 0;
     for (size_t i = 0; i < frame.size(); i += 4)
         bright += frame[i] > 200 && frame[i + 1] > 200 && frame[i + 2] > 200;

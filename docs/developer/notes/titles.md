@@ -284,3 +284,67 @@ Cairo 1.18, fontconfig 2.17):
 - **An import handler's own status stays.** The shell used to follow
   every handler with "Imported <path>", hiding the captions report; it
   now does so only when the handler said nothing (`m_statusCount`).
+
+## T6: ThorVG (Lottie), slice 1 spikes
+
+Measured 2026-09-28 against Fedora 44's `thorvg-devel` 1.0.6 (built with
+`-Dthreads=true`, `extra` at its default, `-Dloaders=all`), with a
+standalone repro rendering a generated 200 × 100, 30 fps, 30-frame Lottie
+(a red square keyframed from x = 50 to 150) through the C API. ADR-021
+builds on these.
+
+- **Size.** `tvg_picture_get_size` gives the file's `w` and `h`.
+  `tvg_picture_set_size(w, h)` stretches to exactly that size, not
+  uniformly: at 400 × 100 the square was twice as wide and no taller.
+  Contain and cover fits are ours to work out (a uniformly scaled size,
+  then a translate).
+- **Frames.** `tvg_animation_get_total_frame` is `op − ip` (30);
+  `get_duration` is that over `fr` (1 s). `tvg_animation_set_frame`
+  takes fractional frames and interpolates (15.5 lies between 15 and 16).
+  Frames at or past `op` clamp to the last frame, `op − 1`.
+- **Threads: not safe, even with separate objects.** Four threads, each
+  with its own canvas, animation and picture, crashed in 6 of 10 runs
+  (SIGSEGV in `LottieLoader::~LottieLoader` from `LoaderMgr::retrieve`,
+  while another thread was in `rasterShape`). Giving each thread
+  different bytes (so no loader could be shared) still crashed in 6 of
+  10. With one process-wide mutex around every ThorVG call: 10 of 10
+  clean, and every frame byte-identical to a single-threaded reference.
+  titlerender therefore serialises ThorVG behind one mutex (ADR-021
+  decision 6).
+- **Loading from memory.** `tvg_picture_load_data(..., copy=false)`
+  caches by the data's address, process-wide; we always pass
+  `copy=true`.
+- **Expressions run** in Fedora's build: an `"x"` expression on the
+  position (`$bm_rt = [20, 50]`) moved the square off its keyframes. The
+  validator must refuse expressions (ADR-021 decision 3).
+- **External images are read from disk, from the root.** With an empty
+  resource path, an image asset's `u` + `p` is opened as `"/" + u + p`:
+  `p = "../../../../etc/hostname"` opened `/../../../../etc/hostname`,
+  that is `/etc/hostname`. Nothing but our validator stops that in a
+  build with file access (Fedora's); the Flatpak's ThorVG is built with
+  `-Dfile=false` as a second guard (ADR-021 decision 8).
+
+## T6: ThorVG in titlerender (slice 3)
+
+- **One canvas per animation.** Adding an animation's picture to a new
+  canvas for each frame and destroying the canvas afterwards drew the
+  first frame and then nothing: every later frame came back transparent
+  (ThorVG 1.0.6, `test_titles_render`, 2026-09-28). Keeping one canvas per
+  loaded animation, with the picture added once, and pointing it at the
+  frame's buffer with `tvg_swcanvas_set_target` before
+  `tvg_canvas_update`/`draw`/`sync`, draws every frame. The reference
+  counts were fine (the animation holds the picture; a canvas adds and
+  drops its own reference), so it's render state tied to the first
+  canvas, not a lifetime bug.
+- **The producer's frame cache.** `ustudio_title` reuses its last image
+  while every layer's state, the fields and the size are unchanged. An
+  animated layer changes with time alone, so a title with one keys the
+  cache on the moment too (`textAnimates`). Without that, the producer
+  showed the first frame of the animation for the whole clip, while the
+  renderer moved.
+- **One copy of the lock per process.** The ThorVG lock lives in
+  titlerender, so a process must hold one copy of it that draws
+  animations. The editor's side of the drop-in doesn't link titlerender
+  (the MLT module does), and the designer links its own. The
+  titles-engine test holds two copies but calls them in turn on one
+  thread.

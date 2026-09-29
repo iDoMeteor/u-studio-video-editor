@@ -1,10 +1,13 @@
 #include "app/rack.h"
 
 #include "app/catalog.h"
+#include "app/preview_tools.h"
 #include "app/shell_host.h"
+#include "core/blocks.h"
 #include "core/commands.h"
 #include "core/descriptor.h"
 #include "core/keyframes.h"
+#include "core/log.h"
 #include "core/model/animation.h"
 
 #include <gtk/gtk.h>
@@ -13,6 +16,8 @@
 #include <string_view>
 #include <cmath>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -28,6 +33,7 @@ enum class Scope
     Clip,
     Track,
     Sequence,
+    Block, // the adjustment block the FX lane selected (app/fx_lane.h)
 };
 
 // A new undo step when a control rests this long between changes; closer
@@ -82,13 +88,26 @@ struct Control
     GtkAdjustment *adjustment = nullptr; // scalar, integer, mix
     std::vector<GtkAdjustment *> rect;   // x, y, w, h
     std::vector<std::string> choices;
+    std::vector<std::string> extensions; // a file's, for its chooser
     uint64_t gesture = 0;
     gint64 lastChange = 0;
     // Keyframes (animatable numbers and the mix): previous, pin, next, and
     // the key-at-playhead's feel.
     bool animatable = false;
     GtkWidget *pin = nullptr, *previous = nullptr, *next = nullptr, *feel = nullptr;
+    GtkWidget *arm = nullptr; // touch-record
     std::vector<core::Easing> feelEasings; // the feel drop-down's entries, in order
+};
+
+// A card's mask controls (doc 15, "Mix and masks"; FX4).
+struct MaskControl
+{
+    Rack *rack;
+    core::EffectId effect;
+    GtkWidget *shape = nullptr, *handles = nullptr, *invert = nullptr, *feather = nullptr;
+    GtkAdjustment *featherAdjustment = nullptr;
+    uint64_t gesture = 0;
+    gint64 lastChange = 0;
 };
 
 // A card's own buttons.
@@ -130,6 +149,22 @@ class Rack
              "How the value moves from this keyframe to the next: steady, smooth, easing in or out, bouncing, "
              "or holding still until the next",
              nullptr, nullptr},
+            {"effects.key-arm", "Effects", "Touch-record",
+             "Armed, moving this value records it as you go (play, then move it); when you let go, just enough "
+             "keyframes are kept to follow what you did",
+             nullptr, nullptr},
+            {"effects.block-affects", "Effects", "Affects",
+             "Which tracks the adjustment block changes: every track, or a track and those below it", nullptr,
+             nullptr},
+            {"effects.block-remove", "Effects", "Remove adjustment block", nullptr, nullptr, nullptr},
+            {"effects.choose-file", "Effects", "Choose a file", nullptr, nullptr, nullptr},
+            {"effects.mask", "Effects", "Mask",
+             "Limits the effect to a rectangle or an ellipse of the picture; place it with Edit on the picture",
+             nullptr, nullptr},
+            {"effects.mask-invert", "Effects", "Invert mask", "The effect everywhere but inside the shape", nullptr,
+             nullptr},
+            {"effects.mask-feather", "Effects", "Soft edge", "How gradually the effect fades out at the shape's edge",
+             nullptr, nullptr},
             {"effects.rack-menu", "Effects", "Effects menu", "Copy, paste, and save as a look", nullptr, nullptr},
             {"effects.card-cost", "Effects", "Cost",
              "How much work the effect is for each frame, measured when it was checked", nullptr, nullptr},
@@ -147,11 +182,14 @@ class Rack
         m_host.setTooltip(m_scope, "effects.rack-scope");
         m_host.setTooltip(m_add, "effects.rack-add");
         m_host.setTooltip(m_menu, "effects.rack-menu");
+        m_host.setTooltip(m_blockLane, "effects.block-affects");
+        m_host.setTooltip(m_blockRemove, "effects.block-remove");
         m_host.setTooltip(m_compare, "effects.compare");
         m_host.addInspectorPage({"effects.rack", "Effects", "applications-graphics-symbolic", m_root});
         m_host.selectionChanged().connect([this] { refresh(); });
         m_host.projectChanged().connect([this] { refresh(); });
         m_host.playheadMoved().connect([this] { onPlayheadMoved(); });
+        m_catalog.blockSelected.connect([this] { onBlockSelected(); });
         m_catalog.changed.connect([this] {
             m_structure.clear(); // names may have arrived
             refresh();
@@ -203,6 +241,10 @@ class Rack
         }
         if (control.animatable)
             m_lastControl = std::make_pair(control.effect, control.param);
+        if (control.animatable && isArmed(control)) {
+            record(control);
+            return;
+        }
         // Animated: the change is the key at the playhead (set, or added).
         const std::vector<core::Keyframe> keys = keysOf(control);
         if (!keys.empty()) {
@@ -220,6 +262,110 @@ class Rack
         m_host.execute(std::make_unique<SetParam>(control.effect, param, control.gesture));
     }
 
+    // --- Touch-record (doc 15, "Keyframes that feel musical") --------------
+    //
+    // An armed control records what it's set to at each frame while it's
+    // moved (playing or not), and a key at the playhead follows it live so
+    // the picture does. When the gesture ends (no change for a moment) the
+    // recording replaces the keys over its range, thinned (withRecording()),
+    // in the same undo step. While it records, the playhead doesn't move
+    // the control (updateValues()), or it would fight the hand.
+
+    using ControlKey = std::pair<uint64_t, std::string>;
+    struct Recording
+    {
+        ControlKey key;
+        std::vector<std::pair<core::FrameIndex, double>> performed;
+        uint64_t gesture = 0;
+        double minimum = 0.0, maximum = 1.0;
+        guint timer = 0;
+    };
+
+    static ControlKey keyOf(const Control &control)
+    {
+        return {control.effect.value, control.param};
+    }
+
+    bool isArmed(const Control &control) const
+    {
+        return m_armed.contains(keyOf(control));
+    }
+
+    bool isRecording(const Control &control) const
+    {
+        return m_recording && m_recording->key == keyOf(control);
+    }
+
+    void onArmToggled(Control &control)
+    {
+        const bool armed = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(control.arm));
+        if (armed)
+            m_armed.insert(keyOf(control));
+        else
+            m_armed.erase(keyOf(control));
+        showArmed(control, armed);
+    }
+
+    // Armed reads as a record button (red), not just a pressed one.
+    static void showArmed(Control &control, bool armed)
+    {
+        if (armed)
+            gtk_widget_add_css_class(control.arm, "destructive-action");
+        else
+            gtk_widget_remove_css_class(control.arm, "destructive-action");
+    }
+
+    void record(Control &control)
+    {
+        if (m_recording && m_recording->key != keyOf(control))
+            finishRecording();
+        if (!m_recording) {
+            m_recording = Recording{keyOf(control), {}, control.gesture};
+            const double scale = control.param.empty() ? 100.0 : 1.0; // the mix shows percent
+            m_recording->minimum = gtk_adjustment_get_lower(control.adjustment) / scale;
+            m_recording->maximum = gtk_adjustment_get_upper(control.adjustment) / scale;
+            core::Log::debug("[effects] touch-record: started");
+        }
+        const core::FrameIndex at = ownerFrame(control.effect);
+        const double value = numberOf(control);
+        m_recording->performed.emplace_back(at, value);
+        applyKeys(control, withKeyAt(keysOf(control), at, value), m_recording->gesture);
+        if (m_recording->timer)
+            g_source_remove(m_recording->timer);
+        m_recording->timer = g_timeout_add(static_cast<guint>(kGestureGapUs / 1000), &onRecordingIdleTrampoline, this);
+    }
+
+    void finishRecording()
+    {
+        if (!m_recording)
+            return;
+        Recording recording = std::move(*m_recording);
+        m_recording.reset();
+        if (recording.timer)
+            g_source_remove(recording.timer);
+        const core::Model &model = m_host.model();
+        const core::EffectId id{recording.key.first};
+        if (!model.hasEffect(id))
+            return;
+        const core::Effect &effect = model.effect(id);
+        const double tolerance = recordingTolerance(recording.minimum, recording.maximum);
+        if (recording.key.second.empty()) {
+            core::KeyframedValue mix = effect.mix;
+            mix.keyframes = withRecording(mix.keyframes, recording.performed, tolerance);
+            m_host.execute(std::make_unique<SetMix>(id, mix, recording.gesture));
+        } else {
+            auto param = std::find_if(effect.params.begin(), effect.params.end(),
+                                      [&](const core::Param &p) { return p.name == recording.key.second; });
+            if (param == effect.params.end())
+                return;
+            core::Param updated = *param;
+            updated.keyframes = withRecording(updated.keyframes, recording.performed, tolerance);
+            m_host.execute(std::make_unique<SetParam>(id, updated, recording.gesture));
+        }
+        core::Log::debug("[effects] touch-record: " + std::to_string(recording.performed.size()) + " values recorded");
+        m_host.showStatus("Recorded: the keyframes follow what you did");
+    }
+
     // --- Keyframes ---------------------------------------------------------
 
     // The playhead in the effect owner's frames: a clip's keys count from
@@ -231,6 +377,8 @@ class Rack
         auto found = model.findEffect(effect);
         if (found && found->first.kind == core::Model::EffectTarget::Kind::Clip)
             return frame - model.clip(core::ClipId{found->first.id}).position;
+        if (found && found->first.kind == core::Model::EffectTarget::Kind::AdjustmentBlock)
+            return frame - model.adjustmentBlock(core::AdjustmentBlockId{found->first.id}).start;
         return frame;
     }
 
@@ -588,6 +736,11 @@ class Rack
                 break;
             }
         const auto scope = static_cast<Scope>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_scope)));
+        if (scope == Scope::Block) {
+            if (m_catalog.selectedBlock && model.hasAdjustmentBlock(*m_catalog.selectedBlock))
+                return core::Model::EffectTarget::adjustmentBlock(*m_catalog.selectedBlock);
+            return core::Model::EffectTarget::sequence();
+        }
         if (scope == Scope::Clip && clip)
             return core::Model::EffectTarget::clip(*clip);
         if (scope != Scope::Sequence) {
@@ -611,8 +764,11 @@ class Rack
             return "Track: " + model.track(core::TrackId{target.id}).name;
         case core::Model::EffectTarget::Kind::Sequence:
             return "The whole sequence";
-        case core::Model::EffectTarget::Kind::AdjustmentBlock:
-            return "Adjustment block";
+        case core::Model::EffectTarget::Kind::AdjustmentBlock: {
+            const core::AdjustmentBlock &block = model.adjustmentBlock(core::AdjustmentBlockId{target.id});
+            return "Adjustment block: " + std::to_string(block.length) + " frames from frame " +
+                   std::to_string(block.start);
+        }
         }
         return "";
     }
@@ -741,7 +897,7 @@ class Rack
         gtk_widget_set_margin_bottom(box, 12);
 
         GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-        const char *scopes[] = {"Selected clip", "Its track", "Whole sequence", nullptr};
+        const char *scopes[] = {"Selected clip", "Its track", "Whole sequence", "Adjustment block", nullptr};
         m_scope = gtk_drop_down_new_from_strings(scopes);
         gtk_widget_set_hexpand(m_scope, TRUE);
         g_signal_connect(m_scope, "notify::selected", G_CALLBACK(&onScopeTrampoline), this);
@@ -798,6 +954,26 @@ class Rack
         gtk_widget_add_css_class(m_title, "heading");
         gtk_box_append(GTK_BOX(m_titleRow), m_title);
         gtk_box_append(GTK_BOX(box), m_titleRow);
+
+        // An adjustment block's own settings: which tracks it affects (its
+        // lane) and removing it. Shown in the block scope only.
+        m_blockBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        GtkWidget *affects = gtk_label_new("Affects");
+        gtk_widget_add_css_class(affects, "dim-label");
+        gtk_box_append(GTK_BOX(m_blockBar), affects);
+        m_blockLane = gtk_drop_down_new(G_LIST_MODEL(gtk_string_list_new(nullptr)), nullptr);
+        gtk_widget_set_hexpand(m_blockLane, TRUE);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_blockLane), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                       "Tracks the block affects", -1);
+        g_signal_connect(m_blockLane, "notify::selected", G_CALLBACK(&onBlockLaneTrampoline), this);
+        gtk_box_append(GTK_BOX(m_blockBar), m_blockLane);
+        m_blockRemove = gtk_button_new_from_icon_name("user-trash-symbolic");
+        gtk_accessible_update_property(GTK_ACCESSIBLE(m_blockRemove), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                       "Remove adjustment block", -1);
+        g_signal_connect(m_blockRemove, "clicked", G_CALLBACK(&onBlockRemoveTrampoline), this);
+        gtk_box_append(GTK_BOX(m_blockBar), m_blockRemove);
+        gtk_widget_set_visible(m_blockBar, FALSE);
+        gtk_box_append(GTK_BOX(box), m_blockBar);
 
         // Ctrl+Shift+V: after or instead of the effects here (doc 15,
         // "Applying effects"). Parented to the title row, unparented when
@@ -929,8 +1105,11 @@ class Rack
                     key += "." + e.service + (e.enabled ? "+" : "-");
             }
         for (const core::Effect &e : m_host.model().effects(target)) {
+            // A mask's shape and invert are rows and a drop-down; its
+            // geometry and soft edge aren't (they change during a drag).
             key += "|" + std::to_string(e.id.value) + e.service + (e.enabled ? "+" : "-") +
-                   (e.mix.keyframes.empty() ? "" : "k");
+                   (e.mix.keyframes.empty() ? "" : "k") +
+                   (e.mask ? "m" + e.mask->shape + (e.mask->invert ? "i" : "") : "");
             for (const core::Param &p : e.params)
                 key += "," + p.name + (p.keyframes.empty() ? "" : "k");
         }
@@ -943,6 +1122,7 @@ class Rack
         if (!target || !m_host.model().hasEffectTarget(*target))
             return;
         gtk_label_set_text(GTK_LABEL(m_title), targetTitle(*target).c_str());
+        showBlockBar(*target);
         const std::string structure = structureOf(*target);
         if (structure == m_structure) {
             updateValues();
@@ -956,6 +1136,66 @@ class Rack
         }
     }
 
+    // --- Adjustment blocks ----------------------------------------------
+
+    // The block bar: "Every track", then "<track> and below" for each row a
+    // block can sit above (lane k = above row k).
+    void showBlockBar(const core::Model::EffectTarget &target)
+    {
+        const bool block = target.kind == core::Model::EffectTarget::Kind::AdjustmentBlock;
+        gtk_widget_set_visible(m_blockBar, block);
+        if (!block)
+            return;
+        const core::Model &model = m_host.model();
+        std::vector<std::string> names{"Every track"};
+        const auto &tracks = model.sequence().tracks;
+        for (size_t row = 1; row < tracks.size(); ++row)
+            names.push_back(tracks[row].name + " and below");
+        std::vector<const char *> strings;
+        for (const std::string &name : names)
+            strings.push_back(name.c_str());
+        strings.push_back(nullptr);
+        m_updating = true;
+        gtk_drop_down_set_model(GTK_DROP_DOWN(m_blockLane), G_LIST_MODEL(gtk_string_list_new(strings.data())));
+        const int lane = model.adjustmentBlock(core::AdjustmentBlockId{target.id}).lane;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(m_blockLane),
+                                   static_cast<guint>(std::clamp<int>(lane, 0, static_cast<int>(names.size()) - 1)));
+        m_updating = false;
+    }
+
+    void onBlockLane()
+    {
+        if (m_updating || !m_catalog.selectedBlock || !m_host.model().hasAdjustmentBlock(*m_catalog.selectedBlock))
+            return;
+        const core::AdjustmentBlock &block = m_host.model().adjustmentBlock(*m_catalog.selectedBlock);
+        const int lane = static_cast<int>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_blockLane)));
+        if (lane == block.lane)
+            return;
+        if (!m_host.execute(std::make_unique<SetAdjustmentBlockRange>(block.id, lane, block.start, block.length)))
+            m_host.showStatus("Another block is already there on that lane.");
+    }
+
+    void onBlockRemove()
+    {
+        if (!m_catalog.selectedBlock || !m_host.model().hasAdjustmentBlock(*m_catalog.selectedBlock))
+            return;
+        if (m_host.execute(std::make_unique<RemoveAdjustmentBlock>(*m_catalog.selectedBlock))) {
+            m_catalog.selectedBlock.reset();
+            m_catalog.blockSelected.emit();
+        }
+    }
+
+    void onBlockSelected()
+    {
+        const auto scope = static_cast<Scope>(gtk_drop_down_get_selected(GTK_DROP_DOWN(m_scope)));
+        if (m_catalog.selectedBlock)
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(m_scope), static_cast<guint>(Scope::Block));
+        else if (scope == Scope::Block)
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(m_scope), static_cast<guint>(Scope::Clip));
+        m_structure.clear();
+        refresh();
+    }
+
     void rebuildNow()
     {
         m_rebuildPending = false;
@@ -966,12 +1206,263 @@ class Rack
         rebuildCards(*target);
     }
 
+    // --- Masks ------------------------------------------------------------
+
+    // "Mask": none, rectangle or ellipse, the handles on the picture and
+    // invert; "Soft edge" below when there is one. Returns the next row.
+    int addMaskRows(GtkWidget *grid, int row, const core::Effect &effect)
+    {
+        auto mc = std::make_unique<MaskControl>();
+        mc->rack = this;
+        mc->effect = effect.id;
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+        const char *shapes[] = {"None", "Rectangle", "Ellipse", nullptr};
+        mc->shape = gtk_drop_down_new_from_strings(shapes);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(mc->shape), GTK_ACCESSIBLE_PROPERTY_LABEL, "Mask", -1);
+        m_host.setTooltip(mc->shape, "effects.mask");
+        const guint selected = !effect.mask ? 0 : effect.mask->shape == "ellipse" ? 2 : 1;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(mc->shape), selected);
+        g_signal_connect(mc->shape, "notify::selected", G_CALLBACK(&onMaskShapeTrampoline), mc.get());
+        gtk_widget_set_hexpand(mc->shape, TRUE);
+        gtk_box_append(GTK_BOX(box), mc->shape);
+        if (effect.mask) {
+            mc->handles = gtk_toggle_button_new();
+            gtk_button_set_icon_name(GTK_BUTTON(mc->handles), "edit-select-symbolic");
+            gtk_widget_add_css_class(mc->handles, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(mc->handles), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                           "Edit the mask on the picture", -1);
+            m_host.setTooltip(mc->handles, "effects.rect-handles");
+            g_signal_connect(mc->handles, "toggled", G_CALLBACK(&onMaskHandlesTrampoline), mc.get());
+            gtk_box_append(GTK_BOX(box), mc->handles);
+            mc->invert = gtk_toggle_button_new_with_label("Invert");
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(mc->invert), effect.mask->invert);
+            m_host.setTooltip(mc->invert, "effects.mask-invert");
+            g_signal_connect(mc->invert, "toggled", G_CALLBACK(&onMaskInvertTrampoline), mc.get());
+            gtk_box_append(GTK_BOX(box), mc->invert);
+        }
+        addRow(grid, row++, "Mask", box);
+        if (effect.mask) {
+            mc->featherAdjustment = gtk_adjustment_new(effect.mask->feather.value, 0.0, 0.5, 0.01, 0.05, 0.0);
+            mc->feather = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, mc->featherAdjustment);
+            gtk_scale_set_draw_value(GTK_SCALE(mc->feather), FALSE);
+            gtk_accessible_update_property(GTK_ACCESSIBLE(mc->feather), GTK_ACCESSIBLE_PROPERTY_LABEL, "Soft edge", -1);
+            m_host.setTooltip(mc->feather, "effects.mask-feather");
+            g_signal_connect(mc->featherAdjustment, "value-changed", G_CALLBACK(&onMaskFeatherTrampoline), mc.get());
+            addRow(grid, row++, "Soft edge", mc->feather);
+        }
+        m_masks.push_back(std::move(mc));
+        return row;
+    }
+
+    std::optional<core::EffectMask> maskOf(core::EffectId id) const
+    {
+        return m_host.model().hasEffect(id) ? m_host.model().effect(id).mask : std::nullopt;
+    }
+
+    // A new gesture after a rest, as the controls' (onControlChanged()).
+    uint64_t maskGesture(MaskControl &mc)
+    {
+        const gint64 now = g_get_monotonic_time();
+        if (mc.gesture == 0 || now - mc.lastChange > kGestureGapUs)
+            mc.gesture = ++m_nextGesture;
+        mc.lastChange = now;
+        return mc.gesture;
+    }
+
+    static double geometry(const core::EffectMask &mask, const char *name, double fallback)
+    {
+        for (const core::Param &p : mask.params)
+            if (p.name == name)
+                if (const double *v = std::get_if<double>(&p.value))
+                    return *v;
+        return fallback;
+    }
+
+    static void setGeometry(core::EffectMask &mask, const char *name, double value)
+    {
+        for (core::Param &p : mask.params)
+            if (p.name == name) {
+                p.value = value;
+                p.keyframes.clear();
+                return;
+            }
+        mask.params.push_back({name, value, {}});
+    }
+
+    void onMaskShape(MaskControl &mc)
+    {
+        if (m_updating)
+            return;
+        const guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(mc.shape));
+        std::optional<core::EffectMask> mask = maskOf(mc.effect);
+        if (selected == 0) {
+            mask.reset();
+        } else {
+            if (!mask) {
+                // A new mask: the middle half of the picture, a little soft.
+                mask = core::EffectMask{};
+                mask->params = {{"x", 0.5, {}}, {"y", 0.5, {}}, {"width", 0.5, {}}, {"height", 0.5, {}}};
+                mask->feather = {0.05, {}};
+            }
+            mask->shape = selected == 2 ? "ellipse" : "rectangle";
+        }
+        m_host.execute(std::make_unique<SetEffectMask>(mc.effect, mask));
+    }
+
+    void onMaskInvert(MaskControl &mc)
+    {
+        std::optional<core::EffectMask> mask = maskOf(mc.effect);
+        if (m_updating || !mask)
+            return;
+        mask->invert = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(mc.invert));
+        m_host.execute(std::make_unique<SetEffectMask>(mc.effect, mask));
+    }
+
+    void onMaskFeather(MaskControl &mc)
+    {
+        std::optional<core::EffectMask> mask = maskOf(mc.effect);
+        if (m_updating || !mask)
+            return;
+        mask->feather = {gtk_adjustment_get_value(mc.featherAdjustment), {}};
+        m_host.execute(std::make_unique<SetEffectMask>(mc.effect, mask, maskGesture(mc)));
+    }
+
+    // The mask's rectangle on the picture, in frame pixels both ways.
+    void onMaskHandles(MaskControl &mc, bool on)
+    {
+        PreviewTools &tools = previewTools(m_host);
+        const ControlKey key{mc.effect.value, "mask"};
+        if (!on) {
+            if (m_rectKey == key)
+                tools.hideRect();
+            m_rectKey.reset();
+            return;
+        }
+        const std::optional<core::EffectMask> mask = maskOf(mc.effect);
+        if (!mask)
+            return;
+        m_rectKey = key;
+        const core::Profile &profile = m_host.model().sequence().profile;
+        const double fw = profile.width, fh = profile.height;
+        const double w = geometry(*mask, "width", 0.5), h = geometry(*mask, "height", 0.5);
+        const core::Rect rect{(geometry(*mask, "x", 0.5) - w / 2) * fw, (geometry(*mask, "y", 0.5) - h / 2) * fh,
+                              w * fw, h * fh};
+        const core::EffectId effect = mc.effect;
+        tools.showRect(rect, [this, effect, fw, fh](core::Rect r, uint64_t gesture) {
+            std::optional<core::EffectMask> now = maskOf(effect);
+            if (!now)
+                return;
+            setGeometry(*now, "x", (r.x + r.w / 2) / fw);
+            setGeometry(*now, "y", (r.y + r.h / 2) / fh);
+            setGeometry(*now, "width", r.w / fw);
+            setGeometry(*now, "height", r.h / fh);
+            // One undo step a drag; the gesture ids stay apart from the
+            // controls' (the tools count their own from 1).
+            m_host.execute(std::make_unique<SetEffectMask>(effect, now, (uint64_t{1} << 40) + gesture));
+        });
+    }
+
+    // --- Files --------------------------------------------------------------
+
+    void onChooseFile(Control &control)
+    {
+        GtkFileDialog *dialog = gtk_file_dialog_new();
+        gtk_file_dialog_set_title(dialog, "Choose a file");
+        if (!control.extensions.empty()) {
+            GtkFileFilter *filter = gtk_file_filter_new();
+            std::string name;
+            for (const std::string &extension : control.extensions) {
+                gtk_file_filter_add_suffix(filter, extension.c_str());
+                name += (name.empty() ? "" : ", ") + ("." + extension);
+            }
+            gtk_file_filter_set_name(filter, name.c_str());
+            GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+            g_list_store_append(filters, filter);
+            gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+            g_object_unref(filters);
+            g_object_unref(filter);
+        }
+        m_chooseKey = keyOf(control);
+        GtkRoot *root = gtk_widget_get_root(control.widget);
+        gtk_file_dialog_open(dialog, GTK_IS_WINDOW(root) ? GTK_WINDOW(root) : nullptr, nullptr,
+                             &onFileChosenTrampoline, this);
+        g_object_unref(dialog);
+    }
+
+    void onFileChosen(GFile *file)
+    {
+        if (!file || !m_chooseKey)
+            return;
+        char *path = g_file_get_path(file);
+        if (Control *control = findControl(*m_chooseKey); control && path)
+            gtk_editable_set_text(GTK_EDITABLE(control->widget), path); // as typing it: one edit
+        g_free(path);
+    }
+
+    // --- On the picture (app/preview_tools.h) ------------------------------
+
+    Control *findControl(const ControlKey &key)
+    {
+        for (const std::unique_ptr<Control> &control : m_controls)
+            if (keyOf(*control) == key)
+                return control.get();
+        return nullptr;
+    }
+
+    void onEyedropper(Control &control)
+    {
+        const ControlKey key = keyOf(control);
+        previewTools(m_host).pickColour([this, key](core::Color colour) {
+            // The Rack may have been rebuilt since: find the control again,
+            // and set it as a hand would (keys, several clips, undo).
+            if (Control *now = findControl(key)) {
+                const GdkRGBA rgba{colour.r / 255.0f, colour.g / 255.0f, colour.b / 255.0f, 1.0f};
+                gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(now->widget), &rgba);
+            }
+        });
+    }
+
+    void onRectHandles(Control &control, bool on)
+    {
+        PreviewTools &tools = previewTools(m_host);
+        if (!on) {
+            if (m_rectKey == keyOf(control))
+                tools.hideRect();
+            m_rectKey.reset();
+            return;
+        }
+        m_rectKey = keyOf(control);
+        const ControlKey key = keyOf(control);
+        const core::Rect *rect = nullptr;
+        const core::Param::Value value = readControl(control);
+        rect = std::get_if<core::Rect>(&value);
+        tools.showRect(rect ? *rect : core::Rect{}, [this, key](core::Rect r, uint64_t) {
+            if (Control *now = findControl(key))
+                writeControlAsHand(*now, r);
+        });
+    }
+
+    // Sets a rect control's numbers as typing them would (one undo step for
+    // a drag: the changes come closer than the gesture gap).
+    void writeControlAsHand(Control &control, const core::Rect &r)
+    {
+        const double values[4] = {r.x, r.y, r.w, r.h};
+        for (size_t i = 0; i < 4 && i < control.rect.size(); ++i)
+            gtk_adjustment_set_value(control.rect[i], values[i]);
+    }
+
     void rebuildCards(const core::Model::EffectTarget &target)
     {
+        // The handles belonged to a control about to go.
+        if (m_rectKey) {
+            previewTools(m_host).hideRect();
+            m_rectKey.reset();
+        }
         while (GtkWidget *child = gtk_widget_get_first_child(m_cards))
             gtk_box_remove(GTK_BOX(m_cards), child);
         m_controls.clear();
         m_actions.clear();
+        m_masks.clear();
         // Several clips: only this drop-in's effects they all share, each
         // with its twins on the other clips.
         std::vector<std::pair<const core::Effect *, std::vector<core::EffectId>>> shown;
@@ -1112,6 +1603,9 @@ class Rack
                 ++row;
             }
             m_controls.push_back(std::move(control));
+            // A mask: one clip's (its geometry is drawn on its picture).
+            if (twins.empty())
+                row = addMaskRows(grid, row, effect);
         }
         if (descriptor)
             for (const ParamDescriptor &p : descriptor->params) {
@@ -1168,6 +1662,18 @@ class Rack
         control.previous = button("go-previous-symbolic", "effects.key-previous", G_CALLBACK(&onKeyPreviousTrampoline));
         control.pin = button("non-starred-symbolic", "effects.key-pin", G_CALLBACK(&onKeyPinTrampoline));
         control.next = button("go-next-symbolic", "effects.key-next", G_CALLBACK(&onKeyNextTrampoline));
+        if (control.adjustment) {
+            control.arm = gtk_toggle_button_new();
+            gtk_button_set_icon_name(GTK_BUTTON(control.arm), "media-record-symbolic");
+            gtk_widget_add_css_class(control.arm, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(control.arm), GTK_ACCESSIBLE_PROPERTY_LABEL, "Touch-record",
+                                           -1);
+            m_host.setTooltip(control.arm, "effects.key-arm");
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(control.arm), isArmed(control));
+            showArmed(control, isArmed(control));
+            g_signal_connect(control.arm, "toggled", G_CALLBACK(&onArmTrampoline), &control);
+            gtk_box_append(GTK_BOX(keys), control.arm);
+        }
         gtk_grid_attach(GTK_GRID(grid), keys, 2, row, 1, 1);
 
         std::vector<std::string> names;
@@ -1251,11 +1757,22 @@ class Rack
             gtk_widget_set_halign(widget, GTK_ALIGN_START);
             g_signal_connect(widget, "notify::active", G_CALLBACK(&onControlNotifyTrampoline), control.get());
             break;
-        case ParamKind::Color:
-            widget = gtk_color_dialog_button_new(gtk_color_dialog_new());
+        case ParamKind::Color: {
+            control->widget = gtk_color_dialog_button_new(gtk_color_dialog_new());
+            g_signal_connect(control->widget, "notify::rgba", G_CALLBACK(&onControlNotifyTrampoline), control.get());
+            // The eyedropper: a colour from the picture (app/preview_tools.h).
+            GtkWidget *pick = gtk_button_new_from_icon_name("color-select-symbolic");
+            gtk_widget_add_css_class(pick, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(pick), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                           "Pick a colour from the picture", -1);
+            m_host.setTooltip(pick, "effects.eyedropper");
+            g_signal_connect(pick, "clicked", G_CALLBACK(&onEyedropperTrampoline), control.get());
+            widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
             gtk_widget_set_halign(widget, GTK_ALIGN_START);
-            g_signal_connect(widget, "notify::rgba", G_CALLBACK(&onControlNotifyTrampoline), control.get());
+            gtk_box_append(GTK_BOX(widget), control->widget);
+            gtk_box_append(GTK_BOX(widget), pick);
             break;
+        }
         case ParamKind::Choice: {
             control->choices = p.choices;
             std::vector<const char *> strings;
@@ -1276,9 +1793,34 @@ class Rack
                 gtk_box_append(GTK_BOX(widget), spin);
                 g_signal_connect(adjustment, "value-changed", G_CALLBACK(&onControlTrampoline), control.get());
             }
+            // Handles over the picture (app/preview_tools.h).
+            GtkWidget *handles = gtk_toggle_button_new();
+            gtk_button_set_icon_name(GTK_BUTTON(handles), "edit-select-symbolic");
+            gtk_widget_add_css_class(handles, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(handles), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                           "Edit on the picture", -1);
+            m_host.setTooltip(handles, "effects.rect-handles");
+            g_signal_connect(handles, "toggled", G_CALLBACK(&onRectHandlesTrampoline), control.get());
+            gtk_box_append(GTK_BOX(widget), handles);
             break;
         }
-        case ParamKind::File:
+        case ParamKind::File: {
+            // The path, and a chooser for it (a LUT's .cube, a map).
+            control->widget = gtk_entry_new();
+            gtk_widget_set_hexpand(control->widget, TRUE);
+            g_signal_connect(control->widget, "changed", G_CALLBACK(&onControlTrampoline), control.get());
+            control->extensions = p.extensions;
+            GtkWidget *choose = gtk_button_new_from_icon_name("document-open-symbolic");
+            gtk_widget_add_css_class(choose, "flat");
+            gtk_accessible_update_property(GTK_ACCESSIBLE(choose), GTK_ACCESSIBLE_PROPERTY_LABEL, "Choose a file",
+                                           -1);
+            m_host.setTooltip(choose, "effects.choose-file");
+            g_signal_connect(choose, "clicked", G_CALLBACK(&onChooseFileTrampoline), control.get());
+            widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+            gtk_box_append(GTK_BOX(widget), control->widget);
+            gtk_box_append(GTK_BOX(widget), choose);
+            break;
+        }
         case ParamKind::Text:
             widget = gtk_entry_new();
             gtk_widget_set_hexpand(widget, TRUE);
@@ -1296,7 +1838,7 @@ class Rack
         const core::Model &model = m_host.model();
         m_updating = true;
         for (const std::unique_ptr<Control> &control : m_controls) {
-            if (!model.hasEffect(control->effect))
+            if (!model.hasEffect(control->effect) || isRecording(*control))
                 continue;
             const core::Effect &effect = model.effect(control->effect);
             const std::vector<core::Keyframe> keys = keysOf(*control);
@@ -1372,6 +1914,68 @@ class Rack
     {
         static_cast<Rack *>(self)->onPinAction();
     }
+    static void onMaskShapeTrampoline(GtkDropDown *, GParamSpec *, gpointer mc)
+    {
+        auto *m = static_cast<MaskControl *>(mc);
+        m->rack->onMaskShape(*m);
+    }
+    static void onMaskInvertTrampoline(GtkToggleButton *, gpointer mc)
+    {
+        auto *m = static_cast<MaskControl *>(mc);
+        m->rack->onMaskInvert(*m);
+    }
+    static void onMaskFeatherTrampoline(GtkAdjustment *, gpointer mc)
+    {
+        auto *m = static_cast<MaskControl *>(mc);
+        m->rack->onMaskFeather(*m);
+    }
+    static void onMaskHandlesTrampoline(GtkToggleButton *button, gpointer mc)
+    {
+        auto *m = static_cast<MaskControl *>(mc);
+        m->rack->onMaskHandles(*m, gtk_toggle_button_get_active(button));
+    }
+    static void onChooseFileTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onChooseFile(*c);
+    }
+    static void onFileChosenTrampoline(GObject *dialog, GAsyncResult *result, gpointer self)
+    {
+        GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(dialog), result, nullptr);
+        static_cast<Rack *>(self)->onFileChosen(file);
+        if (file)
+            g_object_unref(file);
+    }
+    static void onEyedropperTrampoline(GtkButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onEyedropper(*c);
+    }
+    static void onRectHandlesTrampoline(GtkToggleButton *button, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onRectHandles(*c, gtk_toggle_button_get_active(button));
+    }
+    static void onArmTrampoline(GtkToggleButton *, gpointer control)
+    {
+        auto *c = static_cast<Control *>(control);
+        c->rack->onArmToggled(*c);
+    }
+    static gboolean onRecordingIdleTrampoline(gpointer self)
+    {
+        auto *rack = static_cast<Rack *>(self);
+        rack->m_recording->timer = 0; // this source ends here
+        rack->finishRecording();
+        return G_SOURCE_REMOVE;
+    }
+    static void onBlockLaneTrampoline(GtkDropDown *, GParamSpec *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onBlockLane();
+    }
+    static void onBlockRemoveTrampoline(GtkButton *, gpointer self)
+    {
+        static_cast<Rack *>(self)->onBlockRemove();
+    }
     static void onKeyPinTrampoline(GtkButton *, gpointer control)
     {
         auto *c = static_cast<Control *>(control);
@@ -1437,6 +2041,7 @@ class Rack
 
     app::ShellHost &m_host;
     Catalog &m_catalog;
+    GtkWidget *m_blockBar = nullptr, *m_blockLane = nullptr, *m_blockRemove = nullptr;
     GtkWidget *m_root = nullptr, *m_scope = nullptr, *m_add = nullptr, *m_addPopover = nullptr;
     GtkWidget *m_search = nullptr, *m_addList = nullptr, *m_title = nullptr, *m_empty = nullptr;
     GtkWidget *m_cards = nullptr, *m_menu = nullptr, *m_titleRow = nullptr, *m_pastePopover = nullptr;
@@ -1450,6 +2055,11 @@ class Rack
     // cards (the value becomes animated).
     std::optional<std::pair<core::EffectId, std::string>> m_lastControl;
     uint64_t m_nextGesture = 0;
+    std::set<ControlKey> m_armed;
+    std::optional<Recording> m_recording;
+    std::optional<ControlKey> m_rectKey; // the rect control (or {effect, "mask"}) whose handles are shown
+    std::vector<std::unique_ptr<MaskControl>> m_masks;
+    std::optional<ControlKey> m_chooseKey; // the file control a chooser is open for
 };
 
 } // namespace
