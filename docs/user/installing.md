@@ -34,13 +34,18 @@ install it anyway.
 ## Add-ons
 
 Some features come as add-ons you install next to the app: **Titles**
-([Titles](titles.md)) and, coming soon to the Flatpak, **Effects**
-([Effects](effects.md); builds from source already include it). An add-on must be the same version as
-the app, so update them together.
+([Titles](titles.md)) and **Effects** ([Effects](effects.md)). Install the
+ones you want. An add-on must be the same version as the app, so update
+them together.
 
 ```sh
+# Titles
 wget https://software.unicornviz.com/u-studio-video-editor-dropin-titles-latest.flatpak
 flatpak install --user ./u-studio-video-editor-dropin-titles-latest.flatpak
+
+# Effects
+wget https://software.unicornviz.com/u-studio-video-editor-dropin-effects-latest.flatpak
+flatpak install --user ./u-studio-video-editor-dropin-effects-latest.flatpak
 ```
 
 Restart U Stu after installing. **Settings › Drop-ins** lists the installed
@@ -50,6 +55,7 @@ needs. To remove it:
 
 ```sh
 flatpak uninstall --user com.ustudio.VideoEditor.DropIn.Titles
+flatpak uninstall --user com.ustudio.VideoEditor.DropIn.Effects
 ```
 
 Uninstalling the app removes its add-ons too.
