@@ -28,10 +28,10 @@
     <color type="primary" scheme_preference="dark">#A04BFA</color>
   </branding>
   <releases>
-    <release version="0.78.1-beta.1" date="2026-09-29" type="development">
+    <release version="0.78.2-beta.1" date="2026-09-29" type="development">
       <description>
-        <p>New since 0.78.0-beta.1: a fix. Exporting a title on its own, or baking a title clip, could crash as the export finished; it now waits for the encoder to finish first.</p>
-        <p>Try exporting a title a few times in a row, in different formats.</p>
+        <p>New since 0.78.0-beta.1: two fixes in titles. U Stu Titles could crash when you closed it with a layer selected; it closes cleanly now. And exporting a title on its own, or baking a title clip, could crash as the export finished; it now waits for the encoder to finish first.</p>
+        <p>Try selecting a layer in U Stu Titles, saving and closing it; and exporting a title a few times in a row, in different formats.</p>
       </description>
     </release>
     <release version="0.78.0-beta.1" date="2026-09-29" type="development">

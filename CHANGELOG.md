@@ -4,8 +4,9 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
-## 0.78.1-beta.1
+## 0.78.2-beta.1
 
+- U Stu Titles no longer crashes when you close it with a layer selected.
 - Exporting or baking a title can no longer crash as it finishes (the
   encoder's last thread is now waited for).
 
