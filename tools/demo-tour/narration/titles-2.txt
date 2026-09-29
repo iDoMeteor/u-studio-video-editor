@@ -1,0 +1,16 @@
+# Titles 2: animation and fields. Voice cedar.
+
+## intro
+In this video, we'll bring a title to life with animation, and then fill in its fields, so one design works for every guest.
+
+## Animation
+Select a layer, and the inspector's Animation section offers ready-made behaviours. Add In shows each one playing on your own layer; here, we'll pick Pop. Add Loop keeps something moving while the title is up, like this gentle glow. Under the canvas, the animation strip shows the intro, the hold and the outro, and the play button loops the whole thing.
+
+## Save the title
+Save it, and the animated title plays in the editor straight away.
+
+## Title fields
+This lower third has fields for a name and a role. Select the clip, open the Title page in the inspector, and type. The preview follows as you type, and each clip keeps its own words, so the same title works for every guest.
+
+## outro
+That's animation and fields. Next time, we'll bake titles, export them for OBS, and share templates as packs. Thanks for watching!

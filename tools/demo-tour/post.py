@@ -24,7 +24,7 @@ for c in ch:
     c[3] = c[3] or c[1]      # runs from before narration keys: the title is the key
 ffp = os.path.join(OUT, 'ff.json')
 ff = json.load(open(ffp)) if os.path.exists(ffp) else []
-np_ = os.path.join(OUT, 'narration.json')
+np_ = os.environ.get('TOUR_NARRATION_JSON') or os.path.join(OUT, 'narration.json')   # one run, several parts
 NARR = json.load(open(np_)) if os.path.exists(np_) else {}
 dur = ffprobe_dur(os.path.join(OUT, 'screen.mkv'))
 PART = os.environ.get('TOUR_PART', '')

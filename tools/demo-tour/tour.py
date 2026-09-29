@@ -348,8 +348,8 @@ if on('titles'):
     for _ in range(40):
         mouse(960, 600, 'b4c'); time.sleep(0.06)
     pause(1)
+    step('Designing over the picture', 'pick a template: the video at the playhead shows behind the title; layers on the left, the inspector on the right')
     press('Lower third, two lines', exact=True); pause(3); snap('c5d-template')
-    step('Designing over the picture', 'the video at the playhead shows behind the title: layers on the left, the inspector on the right')
     layer = find('{{name}}', roles=('label',), timeout=3)
     if layer:
         click(*centre_of(layer)); pause(1.5)
@@ -365,6 +365,19 @@ if on('titles'):
     if b:
         move(*b, dur=1.0); pause(2)
     snap('c5d-brand')
+    step('Type on the canvas', 'Ctrl+T adds a text layer; double-click it and type, in the title’s own font; drag it into place')
+    cv = find('Title canvas', roles=('grouping', 'panel', 'drawing area', 'canvas', 'filler'), timeout=3)
+    if cv:
+        # Canvas coordinates (1920×1080) to the screen, as tools/titles-smoke/drive.py does.
+        x, y, w, h = extents(cv); x += FRAME_OFF[0]; y += FRAME_OFF[1]
+        sc = min((w - 48) / 1920, (h - 48) / 1080); ox = x + (w - 1920 * sc) / 2; oy = y + (h - 1080 * sc) / 2
+        at = lambda cx, cy: (int(ox + cx * sc), int(oy + cy * sc))
+        click(*at(1700, 150)); pause(0.6)          # nothing selected, and the canvas has focus
+        keysym(ord('t'), mods=('ctrl',)); pause(1.2)
+        dclick(*at(960, 530)); pause(0.8)
+        keysym(ord('a'), mods=('ctrl',)); typestr('LIVE TONIGHT'); pause(0.4); keysym(K_RETURN); pause(1)
+        drag(*at(960, 535), *at(1500, 170), dur=1.4); pause(1.5)
+    snap('c5d-text')
     step('Animation', 'Add In…, Out… and Loop… show each behaviour on your own layer; the strip shows intro, hold and outro')
     press('Add In…', roles=TG, exact=True); pause(3)
     p = find('Pop', roles=('table cell',), exact=True, timeout=2)
@@ -404,6 +417,18 @@ if on('titles'):
     pause(2); snap('c5d-baked')
     act('undo'); pause(1.5)
     inspector(False)
+    act('zoom-fit'); pause(1)
+
+    step('Animated templates', 'some built-in templates move on their own: here, Subscribe with a ringing bell')
+    click(1500, YB(0)); pause(0.5)                     # V3, the titles' track, stays active
+    seek_x(title_x + 90); pause(0.8)                   # past the first title
+    act('titles-new'); pause(5)
+    titles_window()
+    press('Subscribe with ringing bell', exact=True); pause(3)
+    press('Play the intro'); pause(6); snap('c5d-bell'); press('Play the intro'); pause(0.6)
+    keysym(ord('s'), mods=('ctrl',)); pause(2)
+    press('Close', exact=True); pause(2)
+    use_app(None)
     act('zoom-fit'); pause(1)
 
     pass

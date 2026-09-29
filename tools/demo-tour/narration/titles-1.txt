@@ -1,0 +1,25 @@
+# Titles 1: New Title, the gallery, designing, the brand kit. Voice cedar.
+
+## intro
+Titles are animated text and graphics that play over your video, like lower thirds and end cards. In this video, we'll make one with U Stu Titles, the title designer.
+
+## Titles
+Press Shift T for a new title. It lands at the playhead on the active track, and U Stu Titles opens on it, with the template gallery.
+
+## Template gallery
+The gallery has lower thirds, bugs and badges, cards, end screens, countdowns, and designs for live streams and social posts. Your own templates live here too.
+
+## Designing over the picture
+Pick a template, and it fills the title. The video at the playhead shows behind it, so you design over the real picture. The layers are on the left, and the inspector is on the right.
+
+## Brand kit
+The brand kit sits next to every colour and font: the Unicorn Tears colours, gradients and fonts, one click each. And Apply Brand restyles a whole title in the brand.
+
+## Type on the canvas
+Control T adds a text layer. Double-click it to type, right on the canvas, then drag it into place. It snaps to the centre, the edges and the safe areas.
+
+## Save the title
+Save with Control S, and the editor picks up the change straight away, with clean, transparent edges over the video.
+
+## outro
+That's your first title. Next time, we'll animate it, and fill in its fields for each guest. Thanks for watching!

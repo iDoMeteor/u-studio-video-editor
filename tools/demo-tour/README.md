@@ -95,14 +95,14 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | basics-2 | Playback, shuttle, loop, timeline editing | 2026-09-28 (0.71.0-beta.1, GPU off; file -2) |
 | basics-3 | Save and backups, settings, the project format | 2026-09-28 (0.73.0-beta.1, GPU off; file -2) |
 | basics-4 | Rendering, the queue, quit while rendering and restart | 2026-09-29 (0.78.0-beta.1, GPU on, drop-ins off) |
-| titles-1 | New Title, the template gallery, editing text, the brand kit | |
-| pip | Picture in picture: move, scale, rotate, crop, flip, Edit Transform | |
+| titles-1 | New Title, the template gallery, editing text, the brand kit | 2026-09-29 (0.78.2-beta.1) |
+| pip | Picture in picture: move, scale, rotate, crop, flip, Edit Transform | 2026-09-29 (0.78.2-beta.1, GPU off) |
 | titles-2 | Animation: behaviours, the strip, fields on the Title page | |
 | titles-3 | Bake, Export for OBS, template packs | |
 | mixed-media | Stills, image sequences, proxies, missing media and relink | 2026-09-29 (0.78.0-beta.1) |
 | relink | Missing media and relink; proxies | |
 | transitions | Dissolves | |
-| settings-help | Settings, shortcuts, Help, diagnostics | |
+| settings-help | Settings, shortcuts, Help, diagnostics | 2026-09-29 (0.78.0-beta.1) |
 | captions | Import SRT/VTT, colours and top placement, fix a line, export | 2026-09-29 (0.78.0-beta.1, file -2) |
 | gpu | GPU acceleration (after VE GPU's fix; maybe on the real desktop) | |
 | effects | Effects (after FX2) | |

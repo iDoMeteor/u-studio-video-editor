@@ -1,0 +1,19 @@
+# Titles 3: packs, OBS export, Bake, animated templates. Voice cedar.
+
+## intro
+This video takes titles further: sharing templates as packs, exporting a title for OBS, baking it into video, and templates that animate on their own.
+
+## Template packs
+A template pack is a zip of templates you can share. Open Pack shows what's inside: its author, licence and templates, before anything is installed. Once installed, it gets its own section in the gallery. And Save as Pack makes one from your own templates.
+
+## Export for OBS
+Export, or Control E, writes the title on its own, with a transparent background: ProRes 4444, WebM, or a PNG sequence, at any length. Add it to OBS as a media source, and your stream shows through.
+
+## Bake
+Bake turns a title clip into an ordinary video file, for sharing the project with programs that can't play titles. It keeps its place and length, and Control Z brings the live title back.
+
+## Animated templates
+And some built-in templates move on their own. This one rings a bell, to remind your viewers to subscribe.
+
+## outro
+That's titles in U Stu Video Editor. Thanks for watching!

@@ -157,5 +157,60 @@
       "effects",
       "titles"
     ]
+  },
+  "titles-1": {
+    "title": "Titles 1",
+    "subtitle": "New Title, the template gallery and designing a title",
+    "narration": "narration/titles-1.txt",
+    "chapters": [
+      "Titles",
+      "Template gallery",
+      "Designing over the picture",
+      "Brand kit",
+      "Type on the canvas",
+      "Save the title"
+    ],
+    "skip": [
+      "transform",
+      "sequence"
+    ],
+    "dropins_off": [
+      "effects"
+    ]
+  },
+  "titles-2": {
+    "title": "Titles 2",
+    "subtitle": "Animation and fields",
+    "narration": "narration/titles-2.txt",
+    "chapters": [
+      "Animation",
+      "Save the title",
+      "Title fields"
+    ],
+    "skip": [
+      "transform",
+      "sequence"
+    ],
+    "dropins_off": [
+      "effects"
+    ]
+  },
+  "titles-3": {
+    "title": "Titles 3",
+    "subtitle": "Template packs, OBS export, Bake and animated templates",
+    "narration": "narration/titles-3.txt",
+    "chapters": [
+      "Template packs",
+      "Export for OBS",
+      "Bake",
+      "Animated templates"
+    ],
+    "skip": [
+      "transform",
+      "sequence"
+    ],
+    "dropins_off": [
+      "effects"
+    ]
   }
 }
