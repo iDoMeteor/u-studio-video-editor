@@ -4,6 +4,11 @@ All notable user-facing changes to this project are documented here.
 Format: newest first, one line per change. Internal refactors, tests, and
 docs-only changes are not listed (CLAUDE.md).
 
+## 0.78.0-beta.1
+
+- Titles: two built-in templates with a ringing bell, a lower third and a
+  subscribe reminder, animated layers ready to use.
+
 ## 0.77.0-beta.1
 
 - Effects (the Effects add-on): adjustment blocks on an FX lane above the
