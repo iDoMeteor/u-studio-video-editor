@@ -75,6 +75,12 @@ mkdir -p "$DEST"
 BASE="$DEST/$NAME-v$VERSION"
 OUT="$BASE.mp4"; n=2
 while [ -e "$OUT" ]; do OUT="$BASE-$n.mp4"; n=$((n + 1)); done
+# TOUR_HOLD=1: stop here so the run can be checked first; save it afterwards with
+#   cp -n <run>/demo.mp4 <the path below>   (checking again that it doesn't exist)
+if [ "${TOUR_HOLD:-0}" = 1 ]; then
+  echo "HELD (not saved): $WORK/demo.mp4 -> $OUT"
+  exit 0
+fi
 cp "$WORK/demo.mp4" "$OUT"
 echo "saved $OUT"
 echo "run folder (screenshots, logs): $WORK"

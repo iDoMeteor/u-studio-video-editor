@@ -83,6 +83,7 @@ TOUR_PART=basics-1 tools/demo-tour/make_demo.sh   # -> u-studio-demo-<date>-basi
 - Each chapter lasts at least as long as its line. `post.py` lays the voice
   at the chapter starts (never inside a fast-forward), ducks the app's own
   sound under it, narrates the cards, and normalises to -16 LUFS.
+- `TOUR_HOLD=1` records and posts but doesn't save: check the run, then copy it in with `cp -n`.
 - `TOUR_GPU=0` presets GPU acceleration off; `TOUR_NO_MERGE=1` records the
   build as it is; `TOUR_STOP_AFTER=<title>` ends a run early.
 
@@ -98,7 +99,7 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | pip | Picture in picture: move, scale, rotate, crop, flip, Edit Transform | |
 | titles-2 | Animation: behaviours, the strip, fields on the Title page | |
 | titles-3 | Bake, Export for OBS, template packs | |
-| mixed-media | Stills, image sequences, the background colour | |
+| mixed-media | Stills, image sequences, proxies, missing media and relink | 2026-09-29 (0.78.0-beta.1) |
 | relink | Missing media and relink; proxies | |
 | transitions | Dissolves | |
 | settings-help | Settings, shortcuts, Help, diagnostics | |
