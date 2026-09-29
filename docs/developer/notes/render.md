@@ -9,6 +9,22 @@ thread; the `.part` is removed. The app owns the render thread, asks before
 quitting mid-render, and cancels and joins it before MLT is closed (post-M3
 audit P2: quitting mid-render used to crash). A finished render reads
 stopped only after avformat has written the trailer and closed the file.
+Call `stop()` after that wait even so: with `real_time` -1 the consumer's
+render-ahead thread can still be pulling a frame when `run()` returns, and
+`stop()` is what joins it. `u-studio-render --frames --ffv1` first skipped
+it and crashed every time at exit (SIGSEGV in a filter as
+`Factory::close()` unloaded the modules under that thread) or, in a test
+that went on using MLT, with a SIGFPE in a filter reading freed memory
+(2026-09-29).
+
+**`u-studio-render --frames` (M6 groundwork).** `--frames <project>
+[--range IN:OUT]` builds the preview's own graph (Full, frames read at the
+profile's size, CPU) and prints a 64-bit FNV-1a hash of each frame's RGBA as
+JSON; `engine-render-frames` checks them against the live `Engine`'s frames.
+`--ffv1 <output>` renders the range losslessly instead (Matroska, FFV1,
+`yuv422p`, PCM): `yuv422p` is the graph's own 4:2:2, so the file decodes to
+exactly the YUV an export's consumer gets, which the same test checks byte
+for byte.
 
 `renderProject()` uses MLT's `avformat` consumer, with properties confirmed
 against its actual YAML metadata rather than guessed from ffmpeg CLI-flag

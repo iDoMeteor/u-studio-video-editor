@@ -132,6 +132,10 @@ as for the titles smoke test.
 - **Project files play in `melt`** (`engine-xml-playback`): a saved
   project plays through MLT's `xml` producer frame for frame like the
   editor.
+- **Render matches the preview** (`engine-render-frames`): `u-studio-render
+  --frames` hashes every frame of a transformed clip and a dissolve, and the
+  live Engine must show the same pixels; its `--ffv1` render must decode to
+  the graph's YUV exactly.
 - **Timeline draw speed** (`app-timeline-render`): 10 tracks × 500 clips
   draw in under 4 ms.
 - **GPU pipeline** (`engine-gpu-pipeline`, `engine-gpu-engine`,

@@ -342,6 +342,12 @@ Acceptance (milestone gate):
 > preview's graph and the export's, and `melt` matches within rounding.
 > It closes with keyframed transforms and a lossless export (M6).
 
+> REVIEW: VE Core, 2026-09-29. The lossless half is in: `u-studio-render
+> --frames` prints the preview graph's frame hashes, and `--ffv1` renders a
+> range that decodes to the graph's YUV exactly (`engine-render-frames`,
+> which also matches the hashes against the live Engine). Box 2 now waits
+> on keyframed transforms only.
+
 ## Titles track (parallel to M3–M5)
 
 **Effort:** ~8–10 weeks across phases. **Depends on:** M1 (done) and
