@@ -101,8 +101,9 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | titles-3 | Bake, Export for OBS, template packs, animated templates | 2026-09-29 (0.78.2-beta.1) |
 | mixed-media | Stills, image sequences, proxies, missing media and relink | 2026-09-29 (0.78.0-beta.1) |
 | relink | Missing media and relink; proxies | |
-| transitions | Dissolves | |
+| transitions | T, dissolves, wipes, slides and pushes | 2026-09-29 (0.78.3-beta.1) |
 | settings-help | Settings, shortcuts, Help, diagnostics | 2026-09-29 (0.78.0-beta.1) |
 | captions | Import SRT/VTT, colours and top placement, fix a line, export | 2026-09-29 (0.78.0-beta.1, file -2) |
-| gpu | GPU acceleration (after VE GPU's fix; maybe on the real desktop) | |
-| effects | Effects (after FX2) | |
+| gpu | GPU acceleration, on the real desktop (screencast.py + gpu_desktop2.sh; the owner consents in the portal) | 2026-09-29 (0.78.5-beta.1) |
+| effects-1 | The Add page, trying effects, the Effects page, Looks, Compare | 2026-09-29 (0.78.3-beta.1) |
+| effects-2 | Keyframes, curve lanes, masks, adjustment blocks, LUTs | |

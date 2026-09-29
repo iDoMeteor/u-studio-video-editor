@@ -1,0 +1,16 @@
+# GPU acceleration, recorded on the owner's real desktop (Intel Iris Xe). Voice cedar.
+
+## intro
+GPU acceleration lets your graphics card do the heavy lifting: placing, scaling and blending your tracks. This part was recorded on a real desktop, on a laptop with Intel graphics.
+
+## GPU acceleration on
+Here's a three-track project at full size: a background, with two pictures scaled and moved on top. With GPU acceleration on, the graphics card composites every frame.
+
+## Turning it off
+GPU acceleration lives in Settings, on the Performance page, under Hardware, and the row shows which graphics card it's using. For comparison, let's switch it off.
+
+## GPU acceleration off
+Now the processor does all the work.
+
+## outro
+On this laptop, the same three tracks played at about twenty-six frames a second with the graphics card, and about twenty without it, and the editor used less of the processor. Thanks for watching!

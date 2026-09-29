@@ -245,5 +245,16 @@
     "dropins_off": [
       "titles"
     ]
+  },
+  "gpu": {
+    "title": "GPU acceleration",
+    "subtitle": "Recorded on a real desktop (Intel Iris Xe)",
+    "narration": "narration/gpu.txt",
+    "chapters": [
+      "GPU acceleration on",
+      "Turning it off",
+      "GPU acceleration off"
+    ],
+    "script": "gpu_desktop2.sh (real desktop, by hand)"
   }
 }
