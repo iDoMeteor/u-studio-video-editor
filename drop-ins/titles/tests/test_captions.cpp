@@ -8,6 +8,7 @@
 
 #include "core/captions.h"
 #include "core/clip_fields.h"
+#include "core/commands/primitives.h"
 
 #include <algorithm>
 #include <chrono>
@@ -250,28 +251,23 @@ std::string longSrt(int count)
     return srt;
 }
 
-// Reading, placing and importing `count` cues: the fastest of three runs, in
-// milliseconds (the run a loaded machine disturbed least).
+// Reading, placing and importing `count` cues, once, in milliseconds.
 double importMs(int count)
 {
     const std::string srt = longSrt(count);
-    std::vector<double> runs;
-    for (int run = 0; run < 3; ++run) {
-        const auto begin = std::chrono::steady_clock::now();
-        auto p = parse(srt);
-        REQUIRE(p.has_value());
-        REQUIRE(p->cues.size() == static_cast<size_t>(count));
-        core::Model model = core::Model::createEmpty();
-        core::Asset title;
-        title.path = "/t.ustitle";
-        title.info.hasVideo = true;
-        title.info.isStillImage = true;
-        ImportCaptions import(title, place(p->cues, {30000, 1001}), "long.srt");
-        REQUIRE(import.apply(model));
-        CHECK(import.tracks().size() == 1);
-        runs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
-    }
-    return *std::min_element(runs.begin(), runs.end());
+    const auto begin = std::chrono::steady_clock::now();
+    auto p = parse(srt);
+    REQUIRE(p.has_value());
+    REQUIRE(p->cues.size() == static_cast<size_t>(count));
+    core::Model model = core::Model::createEmpty();
+    core::Asset title;
+    title.path = "/t.ustitle";
+    title.info.hasVideo = true;
+    title.info.isStillImage = true;
+    ImportCaptions import(title, place(p->cues, {30000, 1001}), "long.srt");
+    REQUIRE(import.apply(model));
+    CHECK(import.tracks().size() == 1);
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
 }
 
 } // namespace
@@ -279,14 +275,20 @@ double importMs(int count)
 // Doc 16's "1,000 cues in well under two seconds" as an absolute time is the
 // captions benchmark (bench_captions.cpp), not a test: fixed limits fail on a
 // loaded machine (2026-09-28: 4.2 s beside two other suites, 0.6 s alone).
-// Here, the load-proof part, against 250 cues timed under the same load
-// moments before: four times the cues take at most 16 times as long, linear
+// Here, the load-proof part, against 250 cues timed in turn with it under
+// the same load: four times the cues take at most 16 times as long, linear
 // with room. (Before core::Model placed clips by binary search, 0.74.1, each
 // insert re-sorted the track and ten times the cues took 115 times as long;
 // since, 1,000 cues take about 20 ms and 20,000 about 0.5 s.)
 TEST_CASE("1,000 cues read, place and import in proportion to 250")
 {
-    const double small = importMs(250), large = importMs(1000);
+    // In turn (small, large, ...), the fastest of five each, so both see
+    // the same load.
+    double small = 1e9, large = 1e9;
+    for (int round = 0; round < 5; ++round) {
+        small = std::min(small, importMs(250));
+        large = std::min(large, importMs(1000));
+    }
     MESSAGE("250 cues: " << small << " ms; 1,000 cues: " << large << " ms");
     CHECK(large < 16.0 * std::max(small, 1.0));
 }
@@ -506,4 +508,69 @@ TEST_CASE("T5.2 placement: VTT line: and SRT {\\an7-9} put a cue at the top; imp
     ImportCaptions only(bottom, place(noTop->cues, {25, 1}), "show.srt", top);
     REQUIRE(only.apply(plain));
     CHECK(plain.project().bin.size() == 1);
+}
+
+TEST_CASE("a caption clip's name follows its words, unless the clip was renamed")
+{
+    core::Model model = core::Model::createEmpty();
+    core::Asset title;
+    title.path = "/p/show captions.ustitle";
+    title.info.hasVideo = true;
+    title.info.isStillImage = true;
+    auto p = parse(kSrt);
+    REQUIRE(p.has_value());
+    ImportCaptions import(title, place(p->cues, {25, 1}), "show.srt");
+    REQUIRE(import.apply(model));
+    const core::ClipId id = import.clips()[1]; // "<i>Two</i> lines,\n<b>bold</b> &amp; ..."
+    REQUIRE(model.clip(id).name == "Two lines,");
+
+    // Typed in the Title page, one gesture: the name follows, one undo step
+    // brings both back.
+    auto fields = clipFieldValues(model.clip(id));
+    SetClipFields first(
+        id,
+        [&] {
+            auto f = fields;
+            f["caption"] = "Three";
+            return f;
+        }(),
+        7);
+    REQUIRE(first.apply(model));
+    CHECK(model.clip(id).name == "Three");
+    SetClipFields second(
+        id,
+        [&] {
+            auto f = fields;
+            f["caption"] = "<b>Three</b> lines\nand more";
+            return f;
+        }(),
+        7);
+    REQUIRE(second.apply(model));
+    CHECK(model.clip(id).name == "Three lines");
+    REQUIRE(first.mergeWith(second));
+    first.revert(model);
+    CHECK(model.clip(id).name == "Two lines,");
+    CHECK(clipFieldValues(model.clip(id)).at("caption") == fields.at("caption"));
+    REQUIRE(first.apply(model)); // redo
+    CHECK(model.clip(id).name == "Three lines");
+
+    // Renamed by the user: the name stays theirs.
+    core::RenameClip rename(id, "Intro line");
+    REQUIRE(rename.apply(model));
+    SetClipFields again(id, [&] {
+        auto f = fields;
+        f["caption"] = "Something else";
+        return f;
+    }());
+    REQUIRE(again.apply(model));
+    CHECK(model.clip(id).name == "Intro line");
+
+    // Another field changing leaves the name alone.
+    const core::ClipId speaker = import.clips()[2];
+    const std::string before = model.clip(speaker).name;
+    auto speakerFields = clipFieldValues(model.clip(speaker));
+    speakerFields["speaker"] = "Sam";
+    SetClipFields other(speaker, speakerFields);
+    REQUIRE(other.apply(model));
+    CHECK(model.clip(speaker).name == before);
 }

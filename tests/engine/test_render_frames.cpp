@@ -77,8 +77,12 @@ Model makeModel()
     placed.y.value = 270;
     placed.width.value = 960;
     placed.height.value = 540;
-    placed.rotation.value = 10;
+    // Keyframed (M5 box 2): x eased across the clip and into the dissolve's
+    // tail, rotation on other frames (sampled).
+    placed.x.keyframes = {{0, 480, Easing::CubicInOut}, {38, 1200, Easing::Linear}};
+    placed.rotation.keyframes = {{6, 0, Easing::Linear}, {30, 25, Easing::Linear}};
     model.setClipTransform(blue, placed);
+    REQUIRE(model.check().empty());
     REQUIRE(model.addTransition(upper, blue, green, 5, 5).value != 0);
     return model;
 }

@@ -1,4 +1,5 @@
 #include "canvas.h"
+#include "signal_guard.h"
 
 #include "tokens.h"
 
@@ -115,6 +116,7 @@ TitleCanvas::TitleCanvas(Callbacks callbacks)
 
 TitleCanvas::~TitleCanvas()
 {
+    disconnectFromTree(m_widget, this); // gestures and keys: dispose ends a drag
     reinterpret_cast<UsTitleCanvasWidget *>(m_widget)->owner = nullptr;
     g_clear_object(&m_frame);
     g_clear_object(&m_backdropImage);

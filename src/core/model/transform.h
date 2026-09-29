@@ -51,6 +51,9 @@ Transform withTransformAt(const Transform &t, FrameIndex frame, const Transform 
 // when a Fit or Stretch picture is first moved or scaled.
 Transform explicitTransform(const Transform &t, int sourceWidth, int sourceHeight, const Profile &profile);
 
+// True when any of `t`'s values has keyframes.
+bool isAnimated(const Transform &t);
+
 // True when `t` needs no filters: Fit or Stretch of a source of the frame's
 // aspect, uncropped, unflipped, unrotated. The track compositor (composite,
 // fill=1) scales such a picture to the frame by itself.
@@ -78,8 +81,16 @@ bool hasTransformedClip(const Project &project);
 // graph, so a saved project plays in melt as in the editor. `outputScale`
 // is output pixels per project pixel (a scaled preview); `sourceScale` is
 // the playing file's pixels per source pixel (a proxy is smaller).
+// `offset` and `length` place the cut in its clip: an animated placement
+// (None bounds) becomes affine's animated rect and rotation, positioned
+// from the cut's start (the affine filter reads the position fixed when
+// the frame is processed; filter_affine.c, MLT 7.40). Keyed values are
+// written key for key when x, y, width and height share their keys'
+// frames and easings, and otherwise sampled every frame between the first
+// and last key. Without a length the transform is taken at `offset`.
 std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, int sourceHeight,
-                                           const Profile &profile, double outputScale = 1.0, double sourceScale = 1.0);
+                                           const Profile &profile, double outputScale = 1.0, double sourceScale = 1.0,
+                                           FrameIndex offset = 0, FrameIndex length = 0);
 
 // The same transform for the GPU pipeline (ADR-019 point 5): the mirrors
 // become movit.mirror (horizontal) and movit.flip (vertical), and the
@@ -88,7 +99,7 @@ std::vector<NativeFilter> transformFilters(const Transform &t, int sourceWidth, 
 // graph, not two). Crop stays the core `crop` filter.
 std::vector<NativeFilter> gpuTransformFilters(const Transform &t, int sourceWidth, int sourceHeight,
                                               const Profile &profile, double outputScale = 1.0,
-                                              double sourceScale = 1.0);
+                                              double sourceScale = 1.0, FrameIndex offset = 0, FrameIndex length = 0);
 
 // Transform's check() rules: sizes positive when placed explicitly,
 // crops non-negative, every value finite. "" when fine.
