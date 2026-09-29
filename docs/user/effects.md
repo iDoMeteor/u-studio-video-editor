@@ -122,9 +122,10 @@ clip.
 - A picture that's fitted or stretched to the frame is placed where it
   shows the first time you change its position or size, or pin any value.
 - Crops don't change over time.
-- Dragging the picture's handles, and **Edit Transform** (`Ctrl+T`),
-  change its values for the whole clip for now; to change a moving
-  picture, use the Transform card or its curves.
+- On a picture that changes over time, dragging it or its handles on the
+  preview, nudging it, and **Edit Transform** (`Ctrl+T`) change the
+  keyframe at the playhead (or add one there) for the values you move,
+  just as the card does.
 
 ### Seeing and shaping the curve (curve lanes)
 
