@@ -8,6 +8,7 @@
 
 #include "core/captions.h"
 #include "core/clip_fields.h"
+#include "core/commands/primitives.h"
 
 #include <algorithm>
 #include <chrono>
@@ -507,4 +508,69 @@ TEST_CASE("T5.2 placement: VTT line: and SRT {\\an7-9} put a cue at the top; imp
     ImportCaptions only(bottom, place(noTop->cues, {25, 1}), "show.srt", top);
     REQUIRE(only.apply(plain));
     CHECK(plain.project().bin.size() == 1);
+}
+
+TEST_CASE("a caption clip's name follows its words, unless the clip was renamed")
+{
+    core::Model model = core::Model::createEmpty();
+    core::Asset title;
+    title.path = "/p/show captions.ustitle";
+    title.info.hasVideo = true;
+    title.info.isStillImage = true;
+    auto p = parse(kSrt);
+    REQUIRE(p.has_value());
+    ImportCaptions import(title, place(p->cues, {25, 1}), "show.srt");
+    REQUIRE(import.apply(model));
+    const core::ClipId id = import.clips()[1]; // "<i>Two</i> lines,\n<b>bold</b> &amp; ..."
+    REQUIRE(model.clip(id).name == "Two lines,");
+
+    // Typed in the Title page, one gesture: the name follows, one undo step
+    // brings both back.
+    auto fields = clipFieldValues(model.clip(id));
+    SetClipFields first(
+        id,
+        [&] {
+            auto f = fields;
+            f["caption"] = "Three";
+            return f;
+        }(),
+        7);
+    REQUIRE(first.apply(model));
+    CHECK(model.clip(id).name == "Three");
+    SetClipFields second(
+        id,
+        [&] {
+            auto f = fields;
+            f["caption"] = "<b>Three</b> lines\nand more";
+            return f;
+        }(),
+        7);
+    REQUIRE(second.apply(model));
+    CHECK(model.clip(id).name == "Three lines");
+    REQUIRE(first.mergeWith(second));
+    first.revert(model);
+    CHECK(model.clip(id).name == "Two lines,");
+    CHECK(clipFieldValues(model.clip(id)).at("caption") == fields.at("caption"));
+    REQUIRE(first.apply(model)); // redo
+    CHECK(model.clip(id).name == "Three lines");
+
+    // Renamed by the user: the name stays theirs.
+    core::RenameClip rename(id, "Intro line");
+    REQUIRE(rename.apply(model));
+    SetClipFields again(id, [&] {
+        auto f = fields;
+        f["caption"] = "Something else";
+        return f;
+    }());
+    REQUIRE(again.apply(model));
+    CHECK(model.clip(id).name == "Intro line");
+
+    // Another field changing leaves the name alone.
+    const core::ClipId speaker = import.clips()[2];
+    const std::string before = model.clip(speaker).name;
+    auto speakerFields = clipFieldValues(model.clip(speaker));
+    speakerFields["speaker"] = "Sam";
+    SetClipFields other(speaker, speakerFields);
+    REQUIRE(other.apply(model));
+    CHECK(model.clip(speaker).name == before);
 }

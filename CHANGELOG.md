@@ -7,6 +7,8 @@ docs-only changes are not listed (CLAUDE.md).
 ## 0.78.2-beta.1
 
 - U Stu Titles no longer crashes when you close it with a layer selected.
+- A caption clip's name on the timeline follows its words when you edit
+  them on the Title page (a name you gave it yourself stays).
 - Exporting or baking a title can no longer crash as it finishes (the
   encoder's last thread is now waited for).
 
