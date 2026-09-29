@@ -489,3 +489,70 @@ TEST_CASE("transform: a drag is applied in place, without a rebuild or a consume
     engine.shutdown();
     fs::remove_all(scratch());
 }
+
+TEST_CASE("transform: a keyframed placement moves the picture, per cut, in place, and in melt")
+{
+    sharedFactoryPolicy();
+    Scene scene(generate("blue-1080.mp4", 1920, 1080, "color:#0000c0"), 1920, 1080);
+    // A quarter-size picture sliding along the top, x 480 -> 1440 over 40 frames.
+    Transform t = placed(480, 270, 960, 540);
+    t.x.keyframes = {{0, 480, Easing::Linear}, {40, 1440, Easing::Linear}};
+    scene.model.setClipTransform(scene.clip, t);
+    {
+        EngineSync sync(scene.model);
+        CHECK(pixelAt(sync, 0, 48, 27).blue());
+        CHECK(pixelAt(sync, 0, 144, 27).red());
+        CHECK(pixelAt(sync, 20, 96, 27).blue()); // x 960: 480-1440
+        CHECK(pixelAt(sync, 20, 20, 27).red());
+        CHECK(pixelAt(sync, 45, 144, 27).blue()); // held after the last key
+        CHECK(pixelAt(sync, 45, 48, 27).red());
+    }
+
+    // Split at 20: the right half's cut starts 20 frames into the motion.
+    const ClipId right = scene.model.splitClip(scene.clip, 20);
+    REQUIRE(scene.model.check().empty());
+    EngineSync sync(scene.model);
+    CHECK(pixelAt(sync, 30, 120, 27).blue()); // x 1200: 720-1680
+    CHECK(pixelAt(sync, 30, 60, 27).red());
+    CHECK(pixelAt(sync, 10, 72, 27).blue()); // the left half: x 720, 240-1200
+    CHECK(pixelAt(sync, 10, 130, 27).red());
+
+    // Keys moved on the left half: set on its filters, no rebuild.
+    int rebuilds = 0, inPlace = 0;
+    sync.rebuilt.connect([&] { ++rebuilds; });
+    sync.appliedInPlace.connect([&] { ++inPlace; });
+    Transform back = t;
+    back.x.keyframes = {{0, 1440, Easing::Linear}, {40, 480, Easing::Linear}};
+    scene.model.setClipTransform(scene.clip, back);
+    sync.setProject(scene.model.snapshot());
+    CHECK(rebuilds == 0);
+    CHECK(inPlace == 1);
+    CHECK(pixelAt(sync, 0, 144, 27).blue());
+    CHECK(pixelAt(sync, 0, 48, 27).red());
+
+    // Keys on different frames (x, and y from 25): sampled every frame,
+    // and melt plays the saved project the same way.
+    Transform diagonal = scene.model.clip(right).transform.get();
+    diagonal.y.keyframes = {{25, 270, Easing::Linear}, {55, 810, Easing::CubicIn}};
+    scene.model.setClipTransform(right, diagonal);
+    REQUIRE(scene.model.check().empty());
+    const fs::path project = scratch() / "keyframed.ustudio";
+    REQUIRE(saveProject(scene.model, utf8String(project)).empty());
+    auto loaded = loadProject(utf8String(project));
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->clip(right).transform.get() == diagonal);
+    CHECK(loaded->clip(scene.clip).transform.get() == back);
+    sync.setProject(scene.model.snapshot());
+    Mlt::Producer melt(sync.profile(), "xml", utf8String(project).c_str());
+    REQUIRE(melt.is_valid());
+    for (int position : {5, 30, 45, 59}) {
+        INFO("frame " << position);
+        // Keys count from each half's own start.
+        const Placement p = placementAt(position < 20 ? back : diagonal, position < 20 ? position : position - 20, 1920,
+                                        1080, scene.model.sequence().profile);
+        const int cx = static_cast<int>(p.cx / 10), cy = static_cast<int>(p.cy / 10);
+        CHECK(pixelAt(sync, position, cx, cy).blue());
+        CHECK(pixelAt(melt, position, cx, cy).blue());
+    }
+    fs::remove_all(scratch());
+}

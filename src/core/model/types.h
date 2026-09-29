@@ -132,7 +132,9 @@ struct KeyframedValue
 
 // Where a clip's picture sits in the frame, OBS-style (ADR-018). Project
 // pixels, so proxies and preview scale don't matter. Every number is a
-// KeyframedValue (single-valued for now; keyframing is additive later).
+// KeyframedValue; only a placed (None) picture's position, size and
+// rotation may have keyframes (transformProblem()), relative to the clip's
+// start.
 struct Transform
 {
     enum class Bounds

@@ -902,23 +902,26 @@ bool EngineSync::carriesAlpha(const core::Clip &clip, bool transformed) const
 }
 
 std::vector<core::NativeFilter> EngineSync::transformNatives(const core::Transform &t, const core::MediaInfo &info,
-                                                             const core::Profile &profile, double sourceScale) const
+                                                             const core::Profile &profile, double sourceScale,
+                                                             core::FrameIndex offset, core::FrameIndex length) const
 {
-    return m_pipeline == Pipeline::Gpu
-               ? core::gpuTransformFilters(t, info.width, info.height, profile, outputScale(), sourceScale)
-               : core::transformFilters(t, info.width, info.height, profile, outputScale(), sourceScale);
+    return m_pipeline == Pipeline::Gpu ? core::gpuTransformFilters(t, info.width, info.height, profile, outputScale(),
+                                                                   sourceScale, offset, length)
+                                       : core::transformFilters(t, info.width, info.height, profile, outputScale(),
+                                                                sourceScale, offset, length);
 }
 
-bool EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool inDissolve)
+bool EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, core::FrameIndex in, core::FrameIndex out,
+                                bool inDissolve)
 {
     if (!m_model.hasAsset(clip.asset))
         return false;
     const core::MediaInfo &info = m_model.asset(clip.asset).info;
     // Empty when the track compositor places the picture by itself.
     const std::vector<core::NativeFilter> natives =
-        compositorFits(clip, inDissolve)
-            ? std::vector<core::NativeFilter>{}
-            : transformNatives(clip.transform.get(), info, m_model.sequence().profile, sourceScale(clip));
+        compositorFits(clip, inDissolve) ? std::vector<core::NativeFilter>{}
+                                         : transformNatives(clip.transform.get(), info, m_model.sequence().profile,
+                                                            sourceScale(clip), in - clip.in, out - in + 1);
     // Every cut is recorded, filtered or not: a clip's own cuts and its
     // dissolve cuts can differ (compositorFits()), and applyTransformsInPlace()
     // may only update a clip whose cuts all share one shape.
@@ -956,6 +959,7 @@ bool EngineSync::applyTransform(Mlt::Producer &cut, const core::Clip &clip, bool
         filters.push_back(std::move(filter));
     }
     kept.cuts.push_back(std::move(filters));
+    kept.spans.emplace_back(in - clip.in, out - in + 1);
     return !natives.empty();
 }
 
@@ -984,10 +988,14 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
             continue;
         const core::MediaInfo &info = m_model.asset(clip.asset).info;
         // As applyTransform() builds a clip's own cuts; a clip with dissolve
-        // cuts of another shape is kMixedShape and rebuilds.
-        const std::vector<core::NativeFilter> natives =
-            compositorFits(clip, false) ? std::vector<core::NativeFilter>{}
-                                        : transformNatives(clip.transform.get(), info, profile, sourceScale(clip));
+        // cuts of another shape is kMixedShape and rebuilds. The shape is the
+        // same for every cut; an animated transform's values differ per cut.
+        auto nativesFor = [&](core::FrameIndex offset, core::FrameIndex length) {
+            return compositorFits(clip, false)
+                       ? std::vector<core::NativeFilter>{}
+                       : transformNatives(clip.transform.get(), info, profile, sourceScale(clip), offset, length);
+        };
+        const std::vector<core::NativeFilter> natives = nativesFor(0, clip.out - clip.in + 1);
         std::string shape;
         for (const core::NativeFilter &native : natives)
             shape += native.service + ";";
@@ -998,10 +1006,14 @@ bool EngineSync::applyTransformsInPlace(const core::Project &next)
         changed = true;
         if (kept == m_transformFilters.end())
             continue; // no cut in the graph, nothing to update
-        for (const auto &filters : kept->second.cuts)
-            for (size_t i = 0; i < natives.size() && i < filters.size(); ++i)
-                for (const auto &[name, value] : natives[i].properties)
+        for (size_t c = 0; c < kept->second.cuts.size(); ++c) {
+            const auto &filters = kept->second.cuts[c];
+            const auto [offset, length] = kept->second.spans[c];
+            const std::vector<core::NativeFilter> cutNatives = nativesFor(offset, length);
+            for (size_t i = 0; i < cutNatives.size() && i < filters.size(); ++i)
+                for (const auto &[name, value] : cutNatives[i].properties)
                     filters[i]->set(name.c_str(), value.c_str());
+        }
     }
     if (changed)
         Log::debug("[engine] clip transforms applied in place");
@@ -1098,13 +1110,13 @@ std::unique_ptr<Mlt::Tractor> EngineSync::buildTransitionSubTractor(const TrackS
     std::unique_ptr<Mlt::Producer> tailA(
         masterA.cut(static_cast<int>(clipA.out - t.length + 1), static_cast<int>(clipA.out)));
     decorateCut(*tailA, clipA, clipA.out - t.length + 1, clipA.out);
-    const bool alphaA = carriesAlpha(clipA, applyTransform(*tailA, clipA, true));
+    const bool alphaA = carriesAlpha(clipA, applyTransform(*tailA, clipA, clipA.out - t.length + 1, clipA.out, true));
 
     Mlt::Producer &masterB = producerForClip(clipB);
     std::unique_ptr<Mlt::Producer> headB(
         masterB.cut(static_cast<int>(clipB.in), static_cast<int>(clipB.in + t.length - 1)));
     decorateCut(*headB, clipB, clipB.in, clipB.in + t.length - 1);
-    const bool alphaB = carriesAlpha(clipB, applyTransform(*headB, clipB, true));
+    const bool alphaB = carriesAlpha(clipB, applyTransform(*headB, clipB, clipB.in, clipB.in + t.length - 1, true));
     // The dissolve mixes in YUV too; the pairing goes on its output.
     const bool pairAlpha = video && m_pipeline == Pipeline::Cpu && (alphaA || alphaB);
     // IP3: a drop-in's recipe (wipes, motion; FX3) builds the whole segment.
@@ -1279,7 +1291,7 @@ void EngineSync::rebuildTrackPlaylist(const core::Track &modelTrack, Mlt::Playli
             Mlt::Producer &master = producerForClip(clip);
             std::unique_ptr<Mlt::Producer> cut(master.cut(static_cast<int>(seg.in), static_cast<int>(seg.out)));
             decorateCut(*cut, clip, seg.in, seg.out);
-            const bool transformed = applyTransform(*cut, clip);
+            const bool transformed = applyTransform(*cut, clip, seg.in, seg.out);
             if (video && !clip.videoEnabled)
                 attachHideVideo(*cut);
             else if (video && m_pipeline == Pipeline::Cpu && carriesAlpha(clip, transformed))

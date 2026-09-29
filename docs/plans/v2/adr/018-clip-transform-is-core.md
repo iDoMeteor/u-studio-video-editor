@@ -24,8 +24,10 @@ unscaled in the corner, and a 4:3 one still sits left.
   in project pixels, plus rotation in degrees about that centre. Crop is in
   source pixels per edge, and flip is horizontal or vertical. Project pixels
   make it independent of proxies and preview scale.
-- **Every number is a `KeyframedValue`,** single-valued for now, so
-  keyframing later is additive. The effects drop-in may add a keyframing UI
+- **Every number is a `KeyframedValue`,** single-valued at first, so
+  keyframing later is additive (the model and engine side landed
+  2026-09-29: placement and rotation of an explicitly placed picture;
+  crops stay single-valued; `docs/developer/notes/animation.md`). The effects drop-in may add a keyframing UI
   over these same fields (IP1 data, IP5 hosts), and doesn't own them.
 - **The engine realises it with Qt-free MLT services per clip cut:** `crop`
   (core), `mirror` (core) and the `affine` filter (plus), onto a

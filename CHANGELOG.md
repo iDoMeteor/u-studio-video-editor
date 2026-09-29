@@ -12,6 +12,11 @@ docs-only changes are not listed (CLAUDE.md).
 - Exporting or baking a title can no longer crash as it finishes (the
   encoder's last thread is now waited for).
 
+## 0.78.1-beta.1
+
+- A dissolve into a still or a colour clip works from its first frame
+  (it used to be refused there).
+
 ## 0.78.0-beta.1
 
 - Titles: two built-in templates with a ringing bell, a lower third and a
