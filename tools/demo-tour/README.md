@@ -110,6 +110,7 @@ Series (one per slot, each under 5 minutes; done ones are dated):
 | keyframes-2 | Keyframed transforms: the Transform card, pins, key-aware drags, curves, touch-record | 2026-09-29 (0.80.2-beta.1) |
 | transitions-3 | Additive, Screen and Lighten dissolves, Sound: Cut | 2026-09-29 (0.80.2-beta.1) |
 | whats-new-080 | Highlight reel for 0.80 (reel.py) | 2026-09-29 (0.80.2-beta.1) |
+| showreel | Every major feature at speed, edited in U Stu (marin, hype) | 2026-10-01 (0.80.2-beta.1) |
 | gpu | GPU acceleration, on the real desktop (screencast.py + gpu_desktop2.sh; the owner consents in the portal) | 2026-09-29 (0.78.5-beta.1) |
 | effects-1 | The Add page, trying effects, the Effects page, Looks, Compare | 2026-09-29 (0.78.3-beta.1) |
 | effects-2 | Keyframes, curve lanes, masks, adjustment blocks, LUTs | 2026-09-29 (0.78.5-beta.1) |
@@ -120,3 +121,25 @@ Next to the videos is a dated index (`INDEX-<date>.md`) for the owner:
 every video in suggested order, with its topic, length and version, plus
 the superseded takes. Nothing in that folder is ever overwritten, so an
 updated index is a new dated file (`-2`, `-3` for a second one the same day).
+
+## The showreel
+
+A 6–7 minute show-off of every major feature, edited in U Stu itself:
+
+```sh
+# 1. raw footage: the part scripts recorded without narration (see the
+#    showreel's record.sh in the run notes), into <runs>/r1-... r12-...
+python3 showreel_plan.py <runs> <runs>/b1          # segments, music video, plan.json
+cp <runs>/b1/plan.json <runs>/build/ && TOUR_SCRIPT=$PWD/showreel_build.py ./run_tour.sh <runs>/build 0
+TOUR_VOICE=marin TOUR_VOICE_STYLE=hype TOUR_VOICE_SPEED=1.0 python3 narrate.py narration/showreel.txt <runs>/narration.json
+python3 showreel_mix.py <runs>/b1/plan.json <runs>/narration.json <runs>/build/work/showreel-*.mp4 <out>.mp4
+```
+
+The build imports the footage and a black music video into U Stu, splits the
+music onto A1, trims spare frames for transitions, puts a look on the bookend
+clips, a transition style on every cut, an animated title (Background: None)
+from U Stu Titles at each section, then saves and renders with U Stu. Only the
+narration is mixed afterwards. Music: the Unicorn Tears songs "Neon Level Up
+01" and "Rave All Night (Radio Edit)", copied read-only from the owner's songs
+folder. Titles start after each cut's transition: a New Title inside a Push
+Left transition never opened the designer (0.80.2, reported).

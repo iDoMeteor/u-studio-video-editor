@@ -1,0 +1,34 @@
+# The showreel: everything so far, a show-off rather than a tutorial. Voice marin, style hype.
+
+## intro
+This is U Stu Video Editor. Built for the GNOME desktop, built for creators, and already packed with power. Let's go!
+
+## Edit fast
+Drop in your footage: mixed sizes, mixed frame rates, no problem. Then cut, trim, ripple and slip, right on the timeline, with every move just one undo away.
+
+## Picture in picture
+Grab any picture and make it yours. Scale it, crop it, spin it. Pin a few keyframes, and it glides across the frame.
+
+## Transitions
+Hit T at any cut. Dissolves, wipes, slides, zooms, spins, and blends that light up the change.
+
+## Effects
+Press E, and just point: every effect previews live on your own footage. Brand looks, masks, LUTs, keyframes, and a split screen to compare.
+
+## Titles
+And titles! A full designer, a gallery of templates, animation that pops, even Lottie animations, right inside your title.
+
+## Captions
+Bring in your subtitles, fix them on the spot, and send them straight back out for YouTube.
+
+## Mixed media
+Stills, image sequences, proxies for heavy footage. And if a file goes missing, U Stu finds it again.
+
+## GPU
+Switch on GPU acceleration, and your graphics card does the heavy lifting. On our test laptop: from twenty frames a second, to twenty-six.
+
+## Render
+When it's ready, render it. Queue up versions, keep editing, even quit half-way. It picks up right where it left off.
+
+## outro
+Everything you just saw was cut, titled and rendered in U Stu Video Editor itself. Grab the beta, and make something amazing!

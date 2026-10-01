@@ -17,9 +17,15 @@ import hashlib, json, os, re, shutil, subprocess, sys, urllib.error, urllib.requ
 VOICE = os.environ.get('TOUR_VOICE', 'cedar')
 MODEL = os.environ.get('TOUR_VOICE_MODEL', 'gpt-4o-mini-tts')
 SPEED = float(os.environ.get('TOUR_VOICE_SPEED', '0.9'))
-INSTRUCTIONS = ("You are narrating a screen recording of a video editor for its users. Speak warmly and clearly, "
-                "like a friendly creator showing a tool they enjoy: relaxed, natural, conversational; "
-                "not salesy, not rushed.")
+STYLES = {
+    'tutorial': ("You are narrating a screen recording of a video editor for its users. Speak warmly and clearly, "
+                 "like a friendly creator showing a tool they enjoy: relaxed, natural, conversational; "
+                 "not salesy, not rushed."),
+    'hype': ("You are the voice of an exciting showreel for a new video editor, over upbeat electronic music. "
+             "Speak with energy and confidence, punchy and bright, like a creator who can't wait to show it off; "
+             "genuine, never cheesy or shouty, clear and well paced."),
+}
+INSTRUCTIONS = STYLES[os.environ.get('TOUR_VOICE_STYLE', 'tutorial')]
 CACHE = os.path.join(os.path.expanduser('~'), '.cache', 'ustudio-demo-tts')
 CONFIG = os.path.join(os.path.expanduser('~'), 'Repos', 'ai-animated-video', 'config.env')
 
